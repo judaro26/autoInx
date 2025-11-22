@@ -500,10 +500,19 @@
             const buttonText = isUserView ? 'Admin Login' : 'Exit Admin View';
             const buttonColor = isUserView ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-red-500 hover:bg-red-600';
 
+            // Wrap the button and add the Forgot Password link next to it
             return `
-                <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white ${buttonColor} transition duration-150 shadow-md">
-                    ${buttonText}
-                </button>
+                <div class="flex items-center space-x-4">
+                    ${isUserView ? `
+                        <button onclick="window.module.requestPasswordReset()" 
+                                class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
+                            Forgot Password?
+                        </button>
+                    ` : ''}
+                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white ${buttonColor} transition duration-150 shadow-md">
+                        ${buttonText}
+                    </button>
+                </div>
             `;
         }
 
@@ -533,6 +542,68 @@
             `;
         }
 
+        // --- NEW PASSWORD RESET FUNCTION ---
+
+        async function requestPasswordReset() {
+            const email = prompt("Enter the email associated with your account to receive a password reset link:");
+            
+            if (!email) {
+                // User clicked cancel or submitted empty
+                return;
+            }
+            
+            if (!email.includes('@') || email.length < 5) {
+                showMessage('error', 'Please enter a valid email address.');
+                return;
+            }
+
+            showMessage('info', 'Requesting password reset link...', 60000); // Show long message during processing
+            
+            const netlifyFunctionUrl = '/.netlify/functions/sendPasswordResetEmail';
+
+            try {
+                // Exponential backoff retry loop for the fetch call
+                const MAX_RETRIES = 3;
+                let response = null;
+                for (let i = 0; i < MAX_RETRIES; i++) {
+                    try {
+                        response = await fetch(netlifyFunctionUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email })
+                        });
+
+                        if (response.ok) {
+                            break; // Success
+                        } else if (i === MAX_RETRIES - 1) {
+                            throw new Error(`Server returned status ${response.status}`);
+                        }
+                    } catch (fetchError) {
+                        if (i === MAX_RETRIES - 1) {
+                            throw fetchError;
+                        }
+                        const delay = Math.pow(2, i) * 1000; // Exponential backoff (1s, 2s, 4s)
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        console.log(`Retrying password reset request... attempt ${i + 2}`);
+                    }
+                }
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // Always show success message for security, regardless of whether the email exists in Auth
+                    showMessage('success', `If an account exists for ${email}, a password reset link has been sent. Check your inbox!`, 8000);
+                } else {
+                    // Handle function error response
+                    showMessage('error', result.error || 'Failed to request password reset. Please try again later.');
+                }
+            } catch (error) {
+                console.error("Password reset request failed:", error);
+                showMessage('error', 'Network error. Could not connect to the password reset service.');
+            }
+        }
+
+
         // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
 
         function toggleView() {
@@ -558,7 +629,8 @@
             addItem,
             addToCart,
             updateCartQuantity,
-            submitOrder
+            submitOrder,
+            requestPasswordReset // Export the new function
         };
 
         document.addEventListener('DOMContentLoaded', () => {
