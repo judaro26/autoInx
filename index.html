@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catalog & Ordering System</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom scrollbar for better appearance */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
+    </style>
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, db, auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        // --- GLOBAL STATE ---
+        const state = {
+            view: 'user', // 'user' or 'admin'
+            catalogs: [],
+            items: [],
+            cart: {}, // {itemId: {item: {}, quantity: 1}}
+            email: '',
+            adminPassword: 'admin', // Simple, insecure admin check for this demo
+            message: null,
+            loading: false,
+        };
+
+        // --- FIREBASE INITIALIZATION & AUTH ---
+        function setupFirebase() {
+            try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is missing.");
+                    state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
+                    render();
+                    return;
+                }
+                setLogLevel('debug'); // Enable Firestore logging
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("User authenticated. UID:", userId);
+                    } else {
+                        // This handles the case if initial token fails or is not present
+                        console.log("No user signed in. Attempting anonymous sign-in.");
+                        await signInAnonymously(auth);
+                        userId = auth.currentUser?.uid || crypto.randomUUID();
+                    }
+                    isAuthReady = true;
+                    if (db) setupRealtimeListeners();
+                    render();
+                });
+
+                // Use the custom token if provided
+                if (initialAuthToken) {
+                    signInWithCustomToken(auth, initialAuthToken)
+                        .catch(error => {
+                            console.error("Error signing in with custom token:", error);
+                            // Fallback to anonymous sign-in is handled by onAuthStateChanged
+                        });
+                } else if (!auth.currentUser) {
+                    signInAnonymously(auth);
+                }
+
+            } catch (error) {
+                console.error("Firebase setup failed:", error);
+                state.message = { type: 'error', text: 'Failed to initialize Firebase.' };
+                render();
+            }
+        }
+
+        // --- FIRESTORE COLLECTION PATHS ---
+        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
+        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+        const ORDERS_COLLECTION = `artifacts/${appId}/users/${userId}/orders`;
+
+        // --- FIRESTORE REALTIME LISTENERS ---
+        function setupRealtimeListeners() {
+            if (!isAuthReady || !db) return;
+
+            // 1. Catalogs Listener
+            onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
+                state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Catalogs updated:", state.catalogs.length);
+                render();
+            }, (error) => {
+                console.error("Error listening to catalogs:", error);
+                state.message = { type: 'error', text: 'Failed to fetch catalogs.' };
+                render();
+            });
+
+            // 2. Items Listener
+            onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
+                state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Items updated:", state.items.length);
+                render();
+            }, (error) => {
+                console.error("Error listening to items:", error);
+                state.message = { type: 'error', text: 'Failed to fetch items.' };
+                render();
+            });
+        }
+
+
+        // --- HELPER FUNCTIONS ---
+        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
+        const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
+
+        function showMessage(type, text, duration = 4000) {
+            state.message = { type, text };
+            render();
+            setTimeout(() => {
+                state.message = null;
+                render();
+            }, duration);
+        }
+
+        // --- ADMIN ACTIONS ---
+
+        async function addCatalog(event) {
+            event.preventDefault();
+            const name = event.target.catalogName.value.trim();
+            if (!name) return;
+
+            try {
+                await addDoc(collection(db, CATALOGS_COLLECTION), { name, createdAt: serverTimestamp() });
+                event.target.catalogName.value = '';
+                showMessage('success', `Catalog "${name}" created successfully.`);
+            } catch (error) {
+                console.error("Error adding catalog:", error);
+                showMessage('error', 'Failed to add catalog.');
+            }
+        }
+
+        async function addItem(event) {
+            event.preventDefault();
+            const form = event.target;
+            const name = form.itemName.value.trim();
+            const price = parseFloat(form.itemPrice.value.trim()) * 100; // Store price in cents
+            const catalogId = form.catalogId.value;
+            const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/6366f1/ffffff?text=No+Image';
+
+            if (!name || isNaN(price) || price <= 0 || !catalogId) {
+                showMessage('warning', 'Please fill all fields correctly.');
+                return;
+            }
+
+            try {
+                await addDoc(collection(db, ITEMS_COLLECTION), {
+                    name,
+                    price,
+                    catalogId,
+                    imageUrl,
+                    createdAt: serverTimestamp()
+                });
+                form.reset();
+                showMessage('success', `Item "${name}" added successfully.`);
+            } catch (error) {
+                console.error("Error adding item:", error);
+                showMessage('error', 'Failed to add item.');
+            }
+        }
+
+        // --- USER ACTIONS ---
+
+        function addToCart(item) {
+            const currentEntry = state.cart[item.id];
+            const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
+            state.cart = {
+                ...state.cart,
+                [item.id]: { item, quantity: newQuantity }
+            };
+            showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
+            render();
+        }
+
+        function updateCartQuantity(itemId, change) {
+            const currentEntry = state.cart[itemId];
+            if (!currentEntry) return;
+
+            const newQuantity = currentEntry.quantity + change;
+
+            if (newQuantity <= 0) {
+                // Remove item from cart
+                const newCart = { ...state.cart };
+                delete newCart[itemId];
+                state.cart = newCart;
+                showMessage('info', `${currentEntry.item.name} removed from cart.`, 2000);
+            } else {
+                // Update quantity
+                state.cart = {
+                    ...state.cart,
+                    [itemId]: { item: currentEntry.item, quantity: newQuantity }
+                };
+            }
+            render();
+        }
+
+        async function submitOrder(event) {
+            event.preventDefault();
+
+            if (Object.keys(state.cart).length === 0) {
+                showMessage('error', 'Your cart is empty!');
+                return;
+            }
+
+            const emailInput = document.getElementById('buyer-email');
+            const buyerEmail = emailInput.value.trim();
+            if (!buyerEmail || !buyerEmail.includes('@')) {
+                showMessage('error', 'Please enter a valid email address.');
+                return;
+            }
+
+            state.loading = true;
+            render();
+
+            const orderDetails = {
+                buyerEmail,
+                items: Object.values(state.cart).map(entry => ({
+                    id: entry.item.id,
+                    name: entry.item.name,
+                    price: entry.item.price, // in cents
+                    quantity: entry.quantity,
+                    catalog: state.catalogs.find(c => c.id === entry.item.catalogId)?.name || 'N/A'
+                })),
+                totalCents: getTotalCartPrice(),
+                userId: userId, // Current user ID
+                timestamp: new Date().toISOString()
+            };
+
+            try {
+                // 1. Save the order to Firestore
+                const orderRef = await addDoc(collection(db, ORDERS_COLLECTION), {
+                    ...orderDetails,
+                    status: 'Pending',
+                    createdAt: serverTimestamp(),
+                });
+                console.log("Order saved to Firestore with ID:", orderRef.id);
+
+                // 2. Call Netlify Function to send email (Secure Server-Side Step)
+                const netlifyFunctionUrl = '/.netlify/functions/send-email'; // Standard path for Netlify Functions
+
+                // We must use exponential backoff for the fetch call
+                const MAX_RETRIES = 3;
+                let response = null;
+                for (let i = 0; i < MAX_RETRIES; i++) {
+                    try {
+                        response = await fetch(netlifyFunctionUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ...orderDetails, orderId: orderRef.id })
+                        });
+
+                        if (response.ok) {
+                            break; // Success
+                        } else if (i === MAX_RETRIES - 1) {
+                            throw new Error(`Server returned status ${response.status}`);
+                        }
+                    } catch (fetchError) {
+                        if (i === MAX_RETRIES - 1) {
+                            throw fetchError;
+                        }
+                        const delay = Math.pow(2, i) * 1000; // Exponential backoff (1s, 2s, 4s)
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        console.log(`Retrying API call... attempt ${i + 2}`);
+                    }
+                }
+
+                if (!response || !response.ok) {
+                    throw new Error("Failed to get a successful response from the email function.");
+                }
+
+                const result = await response.json();
+                console.log("Netlify Function response:", result);
+
+                // 3. Success Feedback and Cleanup
+                showMessage('success', `Order #${orderRef.id} submitted! A confirmation email has been sent to ${buyerEmail}.`, 8000);
+                state.cart = {};
+                emailInput.value = ''; // Clear email after successful order
+
+            } catch (error) {
+                console.error("Order submission failed:", error);
+                showMessage('error', `Order failed. Please check the console for details. (Order saved, but email might have failed.)`);
+                // Optionally update Firestore order status to 'Email Failed'
+                try {
+                    if (orderRef) {
+                        await setDoc(doc(db, ORDERS_COLLECTION, orderRef.id), { emailStatus: 'Failed' }, { merge: true });
+                    }
+                } catch (e) {
+                    console.error("Could not update order status after email failure:", e);
+                }
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+
+        // --- RENDER FUNCTIONS ---
+
+        function renderMessage() {
+            if (!state.message) return '';
+            const { type, text } = state.message;
+            let bgColor, icon;
+            if (type === 'success') { bgColor = 'bg-green-500'; icon = '✅'; }
+            else if (type === 'error') { bgColor = 'bg-red-500'; icon = '❌'; }
+            else if (type === 'warning') { bgColor = 'bg-yellow-500'; icon = '⚠️'; }
+            else { bgColor = 'bg-blue-500'; icon = 'ℹ️'; }
+
+            return `
+                <div class="fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white ${bgColor} transition-opacity duration-300">
+                    <div class="flex items-center">
+                        <span class="text-xl mr-2">${icon}</span>
+                        <span>${text}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminView() {
+            if (state.view !== 'admin') return '';
+            return `
+                <div class="space-y-10 p-6 bg-gray-50 rounded-xl shadow-inner md:flex md:space-y-0 md:space-x-10">
+                    <!-- Catalog Creation -->
+                    <div class="w-full md:w-1/2 bg-white p-6 rounded-xl shadow-lg">
+                        <h3 class="text-2xl font-bold mb-4 text-indigo-700">1. Create New Catalog</h3>
+                        <form id="add-catalog-form" onsubmit="window.module.addCatalog(event)" class="space-y-4">
+                            <input type="text" name="catalogName" placeholder="Catalog Name (e.g., Summer Gear)" required
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                            <button type="submit" class="w-full bg-indigo-600 text-white p-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md">
+                                Add Catalog
+                            </button>
+                        </form>
+                        <div class="mt-6">
+                            <h4 class="font-semibold text-lg mb-2">Existing Catalogs</h4>
+                            <div class="max-h-40 custom-scrollbar overflow-y-auto space-y-2">
+                                ${state.catalogs.map(c => `<span class="inline-block bg-gray-200 text-gray-800 text-xs px-3 py-1 rounded-full">${c.name} (ID: ${c.id})</span>`).join('')}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Item Creation -->
+                    <div class="w-full md:w-1/2 bg-white p-6 rounded-xl shadow-lg">
+                        <h3 class="text-2xl font-bold mb-4 text-indigo-700">2. Create New Item</h3>
+                        <form id="add-item-form" onsubmit="window.module.addItem(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Catalog</label>
+                                <select name="catalogId" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                                    <option value="" disabled selected>Select Catalog</option>
+                                    ${state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                                </select>
+                            </div>
+                            <input type="text" name="itemName" placeholder="Item Name" required
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                            <input type="number" name="itemPrice" placeholder="Price (e.g., 19.99)" step="0.01" min="0.01" required
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                            <input type="url" name="itemImageUrl" placeholder="Image URL (e.g., https://example.com/item.jpg)"
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                            <button type="submit" class="w-full bg-green-600 text-white p-3 rounded-lg font-semibold hover:bg-green-700 transition duration-150 shadow-md">
+                                Add Item
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Admin Item List Preview -->
+                <h3 class="text-3xl font-bold mt-10 mb-6 text-gray-800">3. Current Inventory (${state.items.length})</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    ${state.items.length > 0
+                        ? state.items.map(item => `
+                            <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
+                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                                <div class="p-4">
+                                    <h4 class="text-xl font-semibold text-gray-800">${item.name}</h4>
+                                    <p class="text-indigo-600 font-bold mt-1">${formatPrice(item.price)}</p>
+                                    <p class="text-sm text-gray-500 mt-2">Catalog: ${state.catalogs.find(c => c.id === item.catalogId)?.name || 'N/A'}</p>
+                                </div>
+                            </div>
+                        `).join('')
+                        : '<p class="text-gray-500 col-span-4">No items have been added yet.</p>'
+                    }
+                </div>
+            `;
+        }
+
+        function renderUserView() {
+            if (state.view !== 'user') return '';
+
+            const itemsByCatalog = state.items.reduce((acc, item) => {
+                const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                if (!acc[catalogName]) acc[catalogName] = [];
+                acc[catalogName].push(item);
+                return acc;
+            }, {});
+
+            const totalCartPrice = getTotalCartPrice();
+
+            return `
+                <div class="md:flex md:space-x-8">
+                    <!-- Catalog/Item List (Left/Main) -->
+                    <div class="w-full md:w-3/4 space-y-8">
+                        ${Object.keys(itemsByCatalog).length > 0
+                            ? Object.keys(itemsByCatalog).map(catalogName => `
+                                <div>
+                                    <h3 class="text-3xl font-bold mb-4 text-indigo-700">${catalogName}</h3>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        ${itemsByCatalog[catalogName].map(item => `
+                                            <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
+                                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                                                <div class="p-4">
+                                                    <h4 class="text-xl font-semibold text-gray-800 truncate">${item.name}</h4>
+                                                    <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
+                                                    <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
+                                                            class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
+                                                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                                        Add to Cart
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `).join('<hr class="my-8 border-indigo-200">')
+                            : '<p class="text-gray-500">The catalog is currently empty. Please switch to Admin View to add items.</p>'
+                        }
+                    </div>
+
+                    <!-- Cart Summary (Right) -->
+                    <div class="w-full md:w-1/4 mt-8 md:mt-0 sticky top-4">
+                        <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-pink-500">
+                            <h3 class="text-2xl font-bold mb-4 text-pink-600 flex items-center">
+                                <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
+                                Shopping Cart
+                            </h3>
+                            <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
+                                ${Object.values(state.cart).length > 0
+                                    ? Object.values(state.cart).map(entry => `
+                                        <div class="flex justify-between items-center border-b pb-2">
+                                            <div class="flex-1 min-w-0">
+                                                <p class="text-sm font-medium text-gray-900 truncate">${entry.item.name}</p>
+                                                <p class="text-xs text-gray-500">${formatPrice(entry.item.price)} each</p>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)"
+                                                        class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
+                                                <span class="text-sm font-semibold w-5 text-center">${entry.quantity}</span>
+                                                <button onclick="window.module.updateCartQuantity('${entry.item.id}', 1)"
+                                                        class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
+                                            </div>
+                                            <span class="text-sm font-bold ml-4">${formatPrice(entry.item.price * entry.quantity)}</span>
+                                        </div>
+                                    `).join('')
+                                    : '<p class="text-gray-500 italic">Your cart is empty.</p>'
+                                }
+                            </div>
+                            <div class="pt-4 mt-4 border-t border-gray-200">
+                                <div class="flex justify-between font-bold text-xl text-gray-800">
+                                    <span>Total:</span>
+                                    <span>${formatPrice(totalCartPrice)}</span>
+                                </div>
+                                <form onsubmit="window.module.submitOrder(event)" class="mt-4 space-y-3">
+                                    <input type="email" id="buyer-email" placeholder="Your Email for Confirmation" required
+                                        class="w-full p-3 border border-pink-300 rounded-lg focus:ring-pink-500 focus:border-pink-500">
+                                    <button type="submit" ${Object.keys(state.cart).length === 0 || state.loading ? 'disabled' : ''}
+                                            class="w-full bg-pink-600 text-white p-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-lg disabled:bg-pink-300 disabled:cursor-not-allowed flex justify-center items-center">
+                                        ${state.loading ? `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                        Processing...` : 'Submit Order & Pay'}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAuthToggle() {
+            const isUserView = state.view === 'user';
+            const buttonText = isUserView ? 'Admin Login' : 'Exit Admin View';
+            const buttonColor = isUserView ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-red-500 hover:bg-red-600';
+
+            return `
+                <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white ${buttonColor} transition duration-150 shadow-md">
+                    ${buttonText}
+                </button>
+            `;
+        }
+
+        function render() {
+            const appContainer = document.getElementById('app');
+            if (!appContainer) return;
+
+            // Simple admin check
+            const currentContent = state.view === 'admin' ? renderAdminView() : renderUserView();
+
+            appContainer.innerHTML = `
+                ${renderMessage()}
+                <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+                    <header class="flex justify-between items-center mb-10 pb-4 border-b border-indigo-200">
+                        <h1 class="text-4xl font-extrabold text-indigo-700">
+                            ${state.view === 'admin' ? 'Administration Panel' : 'Online Store'}
+                        </h1>
+                        ${renderAuthToggle()}
+                    </header>
+                    ${currentContent}
+
+                    <footer class="mt-12 text-center text-sm text-gray-500 pt-6 border-t border-gray-100">
+                        <p>App ID: ${appId} | User ID: ${userId || 'N/A'}</p>
+                        <p>Data stored securely in Firestore.</p>
+                    </footer>
+                </div>
+            `;
+        }
+
+        // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
+
+        function toggleView() {
+            if (state.view === 'user') {
+                // Prompt for admin password before switching
+                const password = prompt("Enter Admin Password:");
+                if (password === state.adminPassword) {
+                    state.view = 'admin';
+                } else if (password !== null) {
+                    showMessage('error', 'Incorrect Admin Password.');
+                }
+            } else {
+                state.view = 'user';
+            }
+            render();
+        }
+
+        window.module = {
+            setupFirebase,
+            render,
+            toggleView,
+            addCatalog,
+            addItem,
+            addToCart,
+            updateCartQuantity,
+            submitOrder
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setupFirebase();
+        });
+    </script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="app">
+        <div class="text-center p-20">
+            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-600">Loading application and connecting to Firebase...</p>
+        </div>
+    </div>
+</body>
+</html>
