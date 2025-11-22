@@ -1,50 +1,30 @@
 /**
  * Netlify Function (AWS Lambda) to securely send an order confirmation email via Brevo (Sendinblue) API.
  *
- * NOTE: This is adapted to use the Brevo API directly via fetch, as it is cleaner than
- * using nodemailer/smtp setup for simple transactional emails in a serverless environment.
+ * This version reads the HTML template from the filesystem (netlify/functions/emailTemplates/orderConfirmationTemplate.html)
+ * and dynamically injects the order details before sending.
+ *
  * The Brevo API Key must be set in Netlify's environment variables as BREVO_API_KEY.
  */
 
+const fs = require('fs');
+const path = require('path');
 const fetch = require('node-fetch');
 
 // Helper to format price from cents to a currency string
 const formatPrice = (priceInCents) => `$${(priceInCents / 100).toFixed(2)}`;
 
-// Helper to generate the HTML table for the order items
-const generateOrderTable = (items, totalCents) => {
-    let itemHtmlList = items.map(entry => `
+// 1. Generate the HTML table ROWS dynamically, which will be injected into {{params.orderTableRows}}
+const generateOrderTableRows = (items) => {
+    return items.map(entry => `
         <tr>
-            <td style="padding: 8px; border: 1px solid #ddd;">${entry.name}</td>
-            <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${entry.quantity}</td>
-            <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${formatPrice(entry.price)}</td>
-            <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${formatPrice(entry.price * entry.quantity)}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; font-size: 14px;">${entry.name}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; font-size: 14px;">${entry.quantity}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; font-size: 14px;">${formatPrice(entry.price)}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #ddd; text-align: right; font-size: 14px; font-weight: bold;">${formatPrice(entry.price * entry.quantity)}</td>
         </tr>
     `).join('');
-
-    return `
-        <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-            <thead>
-                <tr style="background-color: #f3f4f6;">
-                    <th style="padding: 12px; border: 1px solid #ddd; text-align: left;">Item</th>
-                    <th style="padding: 12px; border: 1px solid #ddd; text-align: right;">Qty</th>
-                    <th style="padding: 12px; border: 1px solid #ddd; text-align: right;">Unit Price</th>
-                    <th style="padding: 12px; border: 1px solid #ddd; text-align: right;">Subtotal</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${itemHtmlList}
-            </tbody>
-            <tfoot>
-                <tr>
-                    <td colspan="3" style="padding: 12px; text-align: right; font-weight: bold; border-top: 2px solid #6366f1;">Total:</td>
-                    <td style="padding: 12px; text-align: right; font-weight: bold; color: #6366f1; border-top: 2px solid #6366f1;">${formatPrice(totalCents)}</td>
-                </tr>
-            </tfoot>
-        </table>
-    `;
 };
-
 
 exports.handler = async (event, context) => {
     // Check for POST method
@@ -65,43 +45,56 @@ exports.handler = async (event, context) => {
         return { statusCode: 400, body: JSON.stringify({ message: "Invalid JSON format in request body" }) };
     }
 
-    const { buyerEmail, items, totalCents, orderId } = order;
+    const { buyerEmail, items, totalCents, orderId, timestamp } = order;
 
-    if (!buyerEmail || !items || !totalCents || !orderId) {
-        return { statusCode: 400, body: JSON.stringify({ message: "Missing required order details (email, items, total, or orderId)." }) };
+    if (!buyerEmail || !items || !totalCents || !orderId || !timestamp) {
+        return { statusCode: 400, body: JSON.stringify({ message: "Missing required order details." }) };
     }
 
-    // 1. Generate Email HTML Content
-    const orderTableHtml = generateOrderTable(items, totalCents);
+    // --- 1. Load and Populate Template ---
+    let emailHtmlBody;
+    try {
+        // Construct the path to the HTML template file
+        const templatePath = path.join(__dirname, 'emailTemplates', 'orderConfirmationTemplate.html');
+        // Read the template content synchronously (safe in serverless functions)
+        let template = fs.readFileSync(templatePath, 'utf8');
 
-    const emailHtmlBody = `
-        <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-            <h2 style="color: #6366f1; border-bottom: 2px solid #6366f1; padding-bottom: 10px;">Order Confirmation: #${orderId.slice(0, 8)}...</h2>
-            <p style="margin-bottom: 20px;">Thank you for your purchase! Your order details are below:</p>
-            
-            <p><strong>Order ID:</strong> ${orderId}</p>
-            <p><strong>Recipient:</strong> ${buyerEmail}</p>
+        // Dynamically generated content
+        const orderTableRows = generateOrderTableRows(items);
+        const orderDate = new Date(timestamp).toLocaleDateString('en-US', {
+            year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC'
+        });
 
-            ${orderTableHtml}
+        // Replace placeholders in the HTML template
+        emailHtmlBody = template
+            .replace('{{params.orderId}}', orderId)
+            .replace('{{params.orderDate}}', orderDate)
+            .replace('{{params.orderTableRows}}', orderTableRows)
+            .replace('{{params.totalPrice}}', formatPrice(totalCents))
+            .replace('{{contact.EMAIL}}', buyerEmail); // For the footer's sent-to line
 
-            <p style="margin-top: 30px; font-size: 0.9em; color: #6b7280;">
-                We will notify you again when your order ships.
-            </p>
-        </div>
-    `;
+    } catch (error) {
+        console.error("Error loading or processing template:", error);
+        // Log the exact error for debugging Netlify/FS issues
+        if (error.code === 'ENOENT') {
+            console.error(`File not found: ${path.join(__dirname, 'emailTemplates', 'orderConfirmationTemplate.html')}`);
+        }
+        return { statusCode: 500, body: JSON.stringify({ error: "Failed to generate email content from template. Check file path/existence." }) };
+    }
 
-    // 2. Brevo API Payload
+
+    // --- 2. Brevo API Payload ---
     const brevoPayload = {
         sender: {
-            name: "Your E-Commerce Store",
+            name: "autoInx E-Commerce",
             email: "noreply@yourdomain.com" // IMPORTANT: Use a verified sender email in your Brevo account
         },
         to: [{ email: buyerEmail }],
-        subject: `Order #${orderId.slice(0, 8)}... Confirmed!`,
+        subject: `autoInx Order #${orderId.slice(0, 8)}... Confirmed!`,
         htmlContent: emailHtmlBody,
     };
 
-    // 3. Call Brevo API
+    // --- 3. Call Brevo API ---
     try {
         const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
             method: 'POST',
