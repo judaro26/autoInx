@@ -24,7 +24,6 @@
 
         // Global variables provided by the Canvas environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         let app, db, auth;
@@ -43,15 +42,100 @@
             loading: false,
         };
 
+        // --- FIRESTORE COLLECTION PATHS (Define these once authentication is complete) ---
+        let CATALOGS_COLLECTION;
+        let ITEMS_COLLECTION;
+        let ORDERS_COLLECTION;
+        
+        // --- HELPER FUNCTIONS ---
+        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
+        const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
+
+        function showMessage(type, text, duration = 4000) {
+            state.message = { type, text };
+            render();
+            setTimeout(() => {
+                state.message = null;
+                render();
+            }, duration);
+        }
+
+        // --- FIRESTORE REALTIME LISTENERS ---
+        function setupRealtimeListeners() {
+            if (!isAuthReady || !db) return;
+            
+            // Define collections using the now-known userId
+            CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
+            ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+            ORDERS_COLLECTION = `artifacts/${appId}/users/${userId}/orders`;
+
+            // 1. Catalogs Listener
+            onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
+                state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Catalogs updated:", state.catalogs.length);
+                render();
+            }, (error) => {
+                console.error("Error listening to catalogs:", error);
+                state.message = { type: 'error', text: 'Failed to fetch catalogs.' };
+                render();
+            });
+
+            // 2. Items Listener
+            onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
+                state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Items updated:", state.items.length);
+                render();
+            }, (error) => {
+                console.error("Error listening to items:", error);
+                state.message = { type: 'error', text: 'Failed to fetch items.' };
+                render();
+            });
+        }
+
         // --- FIREBASE INITIALIZATION & AUTH ---
-        function setupFirebase() {
+
+        async function fetchNetlifyConfig() {
+            // Netlify Function to get ONLY the public client Firebase configuration
+            const NETLIFY_CONFIG_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
             try {
-                if (Object.keys(firebaseConfig).length === 0) {
-                    console.error("Firebase config is missing.");
-                    state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
-                    render();
-                    return;
+                const response = await fetch(NETLIFY_CONFIG_FUNCTION);
+                if (!response.ok) throw new Error("Failed to fetch config from Netlify function.");
+                
+                const config = await response.json();
+                if (!config.apiKey) throw new Error("Netlify function returned invalid config.");
+                return config;
+            } catch (error) {
+                console.error("Error fetching Firebase config from Netlify Function:", error);
+                return null;
+            }
+        }
+
+        async function setupFirebase() {
+            let firebaseConfig = {};
+            
+            // 1. Attempt to use Canvas injected config (Highest Priority)
+            const injectedConfig = typeof __firebase_config !== 'undefined' && __firebase_config ? JSON.parse(__firebase_config) : {};
+            
+            if (Object.keys(injectedConfig).length > 0) {
+                firebaseConfig = injectedConfig;
+            } else {
+                // 2. Fallback: Fetch config from Netlify Function (for non-Canvas environments)
+                showMessage('info', 'Canvas config missing. Attempting to fetch public config from Netlify...', 5000);
+                const fetchedConfig = await fetchNetlifyConfig();
+                if (fetchedConfig) {
+                    firebaseConfig = fetchedConfig;
                 }
+            }
+            
+            // 3. Final Check
+            if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.projectId) {
+                console.error("Firebase config is missing.");
+                state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot proceed.' };
+                render();
+                return;
+            }
+
+            try {
                 setLogLevel('debug'); // Enable Firestore logging
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
@@ -90,51 +174,6 @@
             }
         }
 
-        // --- FIRESTORE COLLECTION PATHS ---
-        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
-        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
-        const ORDERS_COLLECTION = `artifacts/${appId}/users/${userId}/orders`;
-
-        // --- FIRESTORE REALTIME LISTENERS ---
-        function setupRealtimeListeners() {
-            if (!isAuthReady || !db) return;
-
-            // 1. Catalogs Listener
-            onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
-                state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                console.log("Catalogs updated:", state.catalogs.length);
-                render();
-            }, (error) => {
-                console.error("Error listening to catalogs:", error);
-                state.message = { type: 'error', text: 'Failed to fetch catalogs.' };
-                render();
-            });
-
-            // 2. Items Listener
-            onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
-                state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                console.log("Items updated:", state.items.length);
-                render();
-            }, (error) => {
-                console.error("Error listening to items:", error);
-                state.message = { type: 'error', text: 'Failed to fetch items.' };
-                render();
-            });
-        }
-
-
-        // --- HELPER FUNCTIONS ---
-        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
-        const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
-
-        function showMessage(type, text, duration = 4000) {
-            state.message = { type, text };
-            render();
-            setTimeout(() => {
-                state.message = null;
-                render();
-            }, duration);
-        }
 
         // --- ADMIN ACTIONS ---
 
