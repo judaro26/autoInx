@@ -1,3 +1,3 @@
 export const ipWhitelist = [
-    "104.50.59.227"
+    "181.63.24.48"
 ];
