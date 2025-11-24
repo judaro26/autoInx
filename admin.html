@@ -10,10 +10,12 @@
         body { font-family: 'Inter', sans-serif; }
         .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
         .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
+        /* Adjusted grid for better admin view */
         .admin-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
         @media (min-width: 768px) {
             .admin-grid { grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr; }
         }
+        .tab-button { transition: background-color 0.15s, color 0.15s; }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -26,23 +28,27 @@
             <p class="text-gray-600">Checking authentication and loading configuration...</p>
         </div>
 
-        </div>
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // --- GLOBAL VARIABLES (Mimicking index.html setup) ---
+        // --- GLOBAL VARIABLES & STATE ---
         let auth;
         let globalNextPageToken = null;
         let globalConfig = { maintenanceMode: false };
         let configLoaded = false;
+        // NEW STATE VARIABLE to track the active section
+        const state = {
+            activeTab: 'config' // 'config', 'users', or 'orders'
+        };
         
         const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
         const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
         const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
         
-        // --- CORE FIREBASE SETUP (Copied from index.html) ---
+        // --- CORE FIREBASE SETUP ---
 
         async function loadFirebaseConfig() {
             try {
@@ -103,6 +109,13 @@
         
         // --- UI FUNCTIONS ---
 
+        // NEW: Function to switch tabs and trigger data load
+        function switchAdminTab(tabName) {
+            state.activeTab = tabName;
+            // Re-render the page content
+            renderAdminPage(auth.currentUser.email || 'Admin'); 
+        }
+
         function renderAdminPage(userName) {
             document.getElementById('app').innerHTML = `
                 <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600">
@@ -116,13 +129,36 @@
                         </button>
                     </div>
                 </header>
-                <main class="space-y-12">
-                    <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500">
-                        <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div>
-                                <h3 class="font-semibold text-lg mb-2 flex items-center">
-                                    <svg class="w-5 h-5 mr-2 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.873-2.88.56-2.146 1.838a1.532 1.532 0 01-.582 2.286c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.582 2.286c-.873 1.3.56 2.88 1.838 2.146a1.532 1.532 0 012.286.582c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.873 2.88-.56 2.146-1.838a1.532 1.532 0 01.582-2.286c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.582-2.286c.873-1.3-.56-2.88-1.838-2.146a1.532 1.532 0 01-2.286-.582z" clip-rule="evenodd"></path></svg>
+
+                <div class="md:flex md:space-x-8">
+                    <nav class="w-full md:w-1/4 mb-6 md:mb-0">
+                        <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4">
+                            <button onclick="window.module.switchAdminTab('config')" 
+                                class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.873-2.88.56-2.146 1.838a1.532 1.532 0 01-.582 2.286c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.582 2.286c-.873 1.3.56 2.88 1.838 2.146a1.532 1.532 0 012.286.582c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.873 2.88-.56 2.146-1.838a1.532 1.532 0 01.582-2.286c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.582-2.286c.873-1.3-.56-2.88-1.838-2.146a1.532 1.532 0 01-2.286-.582z" clip-rule="evenodd"></path></svg>
+                                Configuration
+                            </button>
+                            <button onclick="window.module.switchAdminTab('users')" 
+                                class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM10 10a5 5 0 000 10h4a5 5 0 00-5-5z"></path></svg>
+                                Registered Users
+                            </button>
+                            <button onclick="window.module.switchAdminTab('orders')" 
+                                class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
+                                Orders
+                            </button>
+                        </div>
+                    </nav>
+
+                    <main class="w-full md:w-3/4 space-y-12" id="mainContentPanel">
+                        
+                        <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">
+                            <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div>
+                                    <h3 class="font-semibold text-lg mb-2 flex items-center">
+                                        <svg class="w-5 h-5 mr-2 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.873-2.88.56-2.146 1.838a1.532 1.532 0 01-.582 2.286c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.582 2.286c-.873 1.3.56 2.88 1.838 2.146a1.532 1.532 0 012.286.582c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.873 2.88-.56 2.146-1.838a1.532 1.532 0 01.582-2.286c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.582-2.286c.873-1.3-.56-2.88-1.838-2.146a1.532 1.532 0 01-2.286-.582z" clip-rule="evenodd"></path></svg>
                                     Maintenance Mode
                                 </h3>
                                 <p class="text-sm text-gray-500 mb-3">Toggling this instantly locks the site for all regular users.</p>
@@ -148,7 +184,7 @@
                         <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
                     </section>
 
-                    <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                    <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
                         <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
                         <div id="usersGrid" class="grid gap-x-4 admin-grid">
                             <div class="grid-header">Email</div>
@@ -165,7 +201,16 @@
                             <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
                         </div>
                     </section>
+
+                    <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
+                        <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
+                        <p class="text-gray-500">Order list functionality will be implemented here. It will list recent orders, status, and total price.</p>
+                        <div class="mt-4 p-4 bg-gray-50 border rounded-lg">
+                            <p class="font-semibold">Order Data View Placeholder</p>
+                        </div>
+                    </section>
                 </main>
+            </div>
             `;
             // Re-attach sign out handler after rendering
             document.getElementById('signOutButton').addEventListener('click', async () => {
@@ -173,10 +218,23 @@
                 window.location.href = '/';
             });
             
-            // Start fetching dynamic content
-            window.module.fetchAdminConfig();
-            window.module.displayStaticIps();
-            window.module.fetchUsers();
+            // Start fetching dynamic content based on active tab
+            if (state.activeTab === 'config') {
+                window.module.fetchAdminConfig();
+                window.module.displayStaticIps();
+            } else if (state.activeTab === 'users') {
+                // Initial fetch when users tab is loaded (if grid is empty)
+                const grid = document.getElementById('usersGrid');
+                if (grid && grid.children.length <= 6) { // Check if only headers exist
+                    window.module.fetchUsers();
+                } else {
+                    // If data is already loaded, ensure buttons are enabled if there's a next page token
+                    const nextButton = document.getElementById('nextPageButton');
+                    if (nextButton) nextButton.disabled = !window.module.globalNextPageToken;
+                }
+            } else if (state.activeTab === 'orders') {
+                // Future: Add fetchOrders() here
+            }
         }
 
         // --- HELPER FUNCTIONS ---
@@ -188,7 +246,9 @@
         }
 
         function showMessage(type, text) {
+            // Updated to target 'configMessage' which is now inside the config section
             const el = document.getElementById('configMessage');
+            if (!el) return;
             let color = type === 'success' ? 'text-green-600' : 'text-red-600';
             el.className = `mt-4 text-center text-sm font-medium ${color}`;
             el.textContent = text;
@@ -200,6 +260,7 @@
         // IP Whitelist Display (Static file)
         async function displayStaticIps() {
             const ipListEl = document.getElementById('staticIpList');
+            if (!ipListEl) return;
         
             try {
                 const response = await fetch('/.netlify/functions/getIpWhitelist');
@@ -229,10 +290,10 @@
                 
                 const isMaintenanceEnabled = window.module.globalConfig.maintenanceMode === true;
                 
-                toggle.checked = isMaintenanceEnabled;
-                statusSpan.textContent = isMaintenanceEnabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
+                if (toggle) toggle.checked = isMaintenanceEnabled;
+                if (statusSpan) statusSpan.textContent = isMaintenanceEnabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
 
-                toggle.onchange = window.module.updateMaintenanceMode;
+                if (toggle) toggle.onchange = window.module.updateMaintenanceMode;
 
             } catch (error) {
                 showMessage('error', `Failed to load configuration: ${error.message}`);
@@ -243,6 +304,8 @@
         async function updateMaintenanceMode(event) {
             const isEnabled = event.target.checked;
             const statusSpan = document.getElementById('maintenanceStatus');
+            if (!statusSpan) return;
+
             statusSpan.textContent = 'Updating...';
 
             try {
@@ -272,11 +335,14 @@
             const grid = document.getElementById('usersGrid');
             const nextButton = document.getElementById('nextPageButton');
             
+            if (!loading || !grid || !nextButton) return; // Guard against running when not visible
+
             loading.classList.remove('hidden');
             nextButton.disabled = true;
 
             if (!pageToken) {
-                grid.querySelectorAll('.user-row').forEach(row => row.remove());
+                // Keep the first 6 children (headers)
+                Array.from(grid.children).slice(6).forEach(row => row.remove());
             }
 
             try {
@@ -309,6 +375,7 @@
         // Display Users
         function displayUsers(users) {
             const grid = document.getElementById('usersGrid');
+            if (!grid) return;
             
             users.forEach(user => {
                 // Skip anonymous users, only display permanent accounts
@@ -365,7 +432,8 @@
             displayUsers,
             fetchAdminConfig,
             updateMaintenanceMode,
-            displayStaticIps
+            displayStaticIps,
+            switchAdminTab // NEW
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
