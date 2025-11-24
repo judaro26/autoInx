@@ -32,7 +32,7 @@
         let app, db, auth;
         let userId = null;
         let isAuthReady = false;
-        let explicitSignOutOccurred = false; // FIX 1: New flag to prevent re-login after sign out
+        let explicitSignOutOccurred = false; 
 
         // --- GLOBAL STATE ---
         const state = {
@@ -41,7 +41,7 @@
             items: [],
             cart: {}, // {itemId: {item: {}, quantity: 1}}
             email: '',
-            adminPassword: 'admin', // Simple, insecure admin check for this demo
+            // REMOVED: adminPassword: 'admin', 
             message: null,
             loading: false,
             isAdminIP: false, // New state for IP whitelist check
@@ -465,43 +465,57 @@
             const messageEl = document.getElementById('auth-message');
             messageEl.textContent = ''; // Clear previous messages
 
+            // Manual check for empty fields
+            if (!email || !password) {
+                messageEl.textContent = '❌ Please enter both email and password.';
+                return;
+            }
+
+            // --- ADMIN LOGIN: Secure Firebase Custom Claims Check ---
             if (state.modalType === 'admin') {
-                console.log('Attempting Admin login.'); // DIAGNOSTIC 2
-                // Manual check for empty password since we rely on it here
-                if (!password) {
-                     messageEl.textContent = '❌ Please enter the Admin Password.';
-                     return;
-                }
-                
-                // Simplified Admin Login Check (Local Password Check)
-                if (password === state.adminPassword) {
-                    console.log('Admin password correct. Redirecting.'); // DIAGNOSTIC 3
-                    closeModal();
-                    // NEW: Redirect to dedicated admin page on success
-                    window.location.href = '/admin.html';
-                } else {
-                    console.log('Admin password incorrect.'); // DIAGNOSTIC 4
-                    messageEl.textContent = '❌ Incorrect Admin Password.';
+                try {
+                    // 1. Authenticate user via Firebase (secure step)
+                    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                    const user = userCredential.user;
+
+                    // 2. Fetch the user's ID token and check for custom claims (secure check)
+                    const idTokenResult = await user.getIdTokenResult(true); 
+
+                    if (idTokenResult.claims.admin === true) {
+                        // User is an admin
+                        console.log('Admin authenticated and authorized. Redirecting.'); 
+                        closeModal();
+                        window.location.href = '/admin.html';
+                    } else {
+                        // User is logged in but not an admin
+                        console.log('User is authenticated but lacks admin privileges.');
+                        await signOut(auth); // Immediately sign them out of the Admin flow
+                        messageEl.textContent = '❌ Credentials correct, but admin privileges required.';
+                    }
+                } catch (error) {
+                    console.error("Admin Authentication Failed:", error);
+                    let errorMessage = 'Invalid email or password for Admin access.';
+                    if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                        errorMessage = 'Invalid email or password.';
+                    }
+                    messageEl.textContent = `❌ ${errorMessage}`;
                 }
                 render();
                 return;
             }
 
-            // Standard User Login (Firebase Auth)
+            // --- STANDARD LOGIN: Simple Firebase Auth ---
             try {
                 if (state.modalMode === 'login') {
-                    // Log in the user
                     await signInWithEmailAndPassword(auth, email, password);
                     showMessage('success', 'Login successful!', 2000);
                 } else {
-                    // Register a new user
-                    // Using client-side registration to auto-login
                     await createUserWithEmailAndPassword(auth, email, password);
                     showMessage('success', 'Registration successful! You are now logged in.', 2000);
                 }
                 closeModal();
             } catch (error) {
-                console.error("Authentication failed:", error.code, error);
+                console.error("Standard Authentication failed:", error.code, error);
                 let errorMessage = 'An error occurred during authentication.';
                 if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
                     errorMessage = 'Invalid email or password.';
@@ -678,7 +692,7 @@
                             <h3 class="text-2xl font-bold mb-4 text-pink-600 flex items-center">
                                 <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
                                 Shopping Cart
-                            </h3 >
+                            </h3>
                             <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
                                 ${Object.values(state.cart).length > 0
                                     ? Object.values(state.cart).map(entry => `
@@ -793,8 +807,9 @@
             const isLogin = state.modalMode === 'login';
             const isStandard = state.modalType === 'standard';
             const isRegister = state.modalMode === 'register';
+            const isAdminLogin = state.modalType === 'admin' && isLogin;
 
-            const title = isLogin ? (isStandard ? 'User Login' : 'Admin Login') : 'Register New Account';
+            const title = isLogin ? (isStandard ? 'User Login' : 'Admin Login (Secure)') : 'Register New Account';
             const submitText = isLogin ? 'Login' : 'Register';
             const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
 
@@ -802,24 +817,18 @@
             let emailField = '';
             
             // Base fields (always needed for standard, or for admin registration)
-            // REMOVED 'required' attribute to prevent silent HTML5 validation failure
+            // REMOVED 'required' attribute on password field and rely on JS check
             let passwordField = `
                 <input type="password" id="password-input" placeholder="Password" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
             `;
 
             // Adjust fields based on mode/type
-            if (isStandard || isRegister) {
-                // Standard login/register always needs email field
+            if (isStandard || isRegister || isAdminLogin) {
+                // Admin Login now requires a full email/password input
                 emailField = `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
-            } else if (!isStandard && isLogin) {
-                // Admin login (local check) uses hardcoded email, so we hide the input and add the helper message
-                emailField = `
-                    <p class="text-sm text-gray-500 mb-4">Enter the local admin password below (Email is not required for local check).</p>
-                    <input type="hidden" id="email-input" value="admin@local.com">
-                `;
             }
 
-            // Google sign-in button is only for Standard or Register flow
+            // Google sign-in button is only for Standard (user) or Register flow
             const googleAuthButton = (isStandard || isRegister) ? `
                 <div class="my-4 flex items-center">
                     <hr class="flex-grow border-gray-300">
@@ -831,6 +840,14 @@
                     ${isLogin ? 'Sign in with Google' : 'Register with Google'}
                 </button>
             ` : '';
+
+            // Prevent switching to register mode from the Admin Login flow
+            const switchModeSection = isAdminLogin ? 
+                `<p class="w-full mt-4 text-sm text-gray-400 text-center">Admin accounts must be set up by an administrator.</p>` :
+                `<button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
+                        class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
+                    ${switchModeText}
+                </button>`;
 
 
             return `
@@ -850,10 +867,7 @@
                             ${googleAuthButton}
                         </form>
 
-                        <button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
-                                class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
-                            ${switchModeText}
-                        </button>
+                        ${switchModeSection}
 
                         <button onclick="window.module.closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
