@@ -1,11 +1,13 @@
-import { ipWhitelist } from './ipWhitelist.js';
+// autoInx-main/netlify/functions/js/utilities/utils.js
+
+const { ipWhitelist } = require('./ipWhitelist.js');
 
 /**
  * Checks the user's public IP address against the predefined whitelist
  * exported from ./ipWhitelist.js.
  * @returns {Promise<boolean>} True if the IP is whitelisted, false otherwise.
  */
-export async function checkIPRange() {
+exports.checkIPRange = async function () {
     try {
         const response = await fetch('https://api.ipify.org?format=json');
         
