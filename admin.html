@@ -56,7 +56,7 @@
             loading: false,
             searchTerm: '',     
             editingItem: null,
-            previewMode: false, // NEW: Preview mode state
+            previewMode: false,
         };
 
         // --- FIRESTORE COLLECTION PATHS ---
@@ -137,18 +137,21 @@
                                 setupRealtimeListeners();
                                 renderAdminPage(user.email || 'Admin');
                             } else {
+                                // Admin claim missing, sign out and redirect to home
                                 signOut(auth);
                                 window.location.href = '/?error=unauthorized';
                             }
                         })
                         .catch(error => {
+                            // This is the error path observed in the HAR.
+                            // The error is likely transient since the prior sign-in was successful.
                             console.error("Error checking ID token:", error);
                             signOut(auth);
-                            window.location.href = '/?error=auth_failed';
+                            // Redirecting to home and showing a general auth failure message
+                            window.location.href = '/?error=auth_failed'; 
                         });
                 } else {
-                    // User is logged out or anonymous, clear timer
-                    clearTimeout(idleTimer);
+                    // No authenticated user, redirect to home
                     window.location.href = '/';
                 }
             });
@@ -522,9 +525,19 @@
             el.innerHTML = productGridHtml;
         }
 
-
-        // --- RENDERING ---
-        function renderCatalogManagementSection() {
+        function renderPreviewSite() {
+            return `
+                <section id="previewSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                    <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview (index.html)</h2>
+                    <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
+                        <iframe src="/" class="w-full h-full" frameborder="0"></iframe>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-4">Note: This is an embedded view of the live application. Functionality may be limited depending on the browser's security settings.</p>
+                </section>
+            `;
+        }
+        
+        function renderAdminTabs() {
             const catalogOptions = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
 
             // Extracted blocks for reordering
@@ -593,6 +606,44 @@
                     
                     ${addProductBlock}
                     
+                </section>
+
+                <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <h3 class="font-semibold text-lg mb-2">Maintenance Mode</h3>
+                            <p class="text-sm text-gray-500 mb-3">Locks the site for regular users.</p>
+                            <label class="inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="maintenanceModeToggle" class="sr-only peer">
+                                <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                                <span class="ms-3 text-sm font-medium text-gray-900" id="maintenanceStatus">Loading...</span>
+                            </label>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-lg mb-2">Admin IP Whitelist (Static)</h3>
+                            <p class="text-sm text-gray-500 mb-3">Loaded from Netlify function.</p>
+                            <div id="staticIpList" class="p-2 bg-gray-50 border rounded-lg text-sm text-gray-700">Loading IPs...</div>
+                        </div>
+                    </div>
+                    <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
+                </section>
+
+                <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
+                    <div id="usersGrid" class="grid gap-x-4 admin-grid">
+                        <div class="grid-header">Email</div><div class="grid-header">UID</div><div class="grid-header">Verified</div>
+                        <div class="grid-header">Created</div><div class="grid-header">Last Sign-In</div><div class="grid-header">Status</div>
+                    </div>
+                    <div id="loadingMessage" class="text-center p-4 hidden">Loading...</div>
+                    <div class="flex justify-center mt-6">
+                        <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
+                    </div>
+                </section>
+
+                <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
+                    <p class="text-gray-500">Order list coming soon.</p>
                 </section>
             `;
         }
@@ -672,7 +723,7 @@
                 const status = document.getElementById('maintenanceStatus');
                 const enabled = window.module.globalConfig.maintenanceMode === true;
                 if (toggle) toggle.checked = enabled;
-                if (status) status.textContent = enabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
+                if (status) status.textContent = enabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)' : 'DISABLED (Site Open)';
                 if (toggle) toggle.onchange = window.module.updateMaintenanceMode;
             } catch (e) {
                 showMessage('error', 'Failed to load config.');
