@@ -47,7 +47,8 @@
             configLoaded: false, // Tracks if Firebase config is successfully loaded
             isModalOpen: false, // New state for modal control
             modalMode: 'login', // 'login' or 'register'
-            modalType: 'standard' // 'standard' or 'admin'
+            modalType: 'standard', // 'standard' or 'admin'
+            userName: null // NEW: To store the logged-in user's name/email
         };
 
         // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
@@ -103,8 +104,12 @@
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
+                        // Capture user's email or display name for UI
+                        state.userName = user.email || user.displayName || 'Authenticated User';
                         console.log("User authenticated. UID:", userId);
                     } else {
+                        userId = null;
+                        state.userName = null; // Clear name on sign-out
                         // Attempt anonymous sign-in if no user is signed in
                         console.log("No user signed in. Attempting anonymous sign-in.");
                         try {
@@ -403,6 +408,19 @@
             render();
         }
 
+        // --- NEW SIGN OUT FUNCTION ---
+        async function handleSignOut() {
+            try {
+                await signOut(auth);
+                showMessage('info', 'Signed out successfully.', 3000);
+                state.view = 'user'; // Ensure we are back in user view
+            } catch (error) {
+                console.error("Error signing out:", error);
+                showMessage('error', 'Failed to sign out.');
+            }
+            render();
+        }
+
         async function handleStandardLogin(event) {
             event.preventDefault();
             const email = document.getElementById('email-input').value;
@@ -431,13 +449,11 @@
                     showMessage('success', 'Login successful!', 2000);
                 } else {
                     // Register a new user
-                    // Using client-side registration to auto-login, bypassing the email verification flow for simplicity here.
-                    // If you want the email verification flow, replace this with a call to the /netlify/functions/registerUser
+                    // Using client-side registration to auto-login
                     await createUserWithEmailAndPassword(auth, email, password);
                     showMessage('success', 'Registration successful! You are now logged in.', 2000);
                 }
                 closeModal();
-                state.view = 'user'; // Ensure user view is shown after successful auth
             } catch (error) {
                 console.error("Authentication failed:", error.code, error);
                 let errorMessage = 'An error occurred during authentication.';
@@ -462,7 +478,6 @@
                 await signInWithPopup(auth, provider);
                 showMessage('success', 'Google Sign-In successful!', 2000);
                 closeModal();
-                state.view = 'user';
             } catch (error) {
                 console.error("Google Sign-In failed:", error);
                 messageEl.textContent = '❌ Google Sign-In failed. Check console for details.';
@@ -710,7 +725,7 @@
             // If the IP check is still pending, show nothing
             if (!state.configLoaded || !isAuthReady) return ''; 
 
-            // If a user is logged in (not anonymous) or in Admin View, show Sign Out/Exit Admin
+            // 1. If currently in Admin view, show the exit button
             if (state.view === 'admin') {
                 return `
                     <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
@@ -718,6 +733,20 @@
                     </button>
                 `;
             } 
+            
+            // 2. If a user is logged in (state.userName is set by onAuthStateChanged)
+            if (state.userName) {
+                return `
+                    <div class="flex items-center space-x-4">
+                        <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${state.userName}</span>
+                        <button onclick="window.module.handleSignOut()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
+                            Sign Out
+                        </button>
+                    </div>
+                `;
+            }
+            
+            // 3. If no user is logged in (i.e., only anonymous or public view)
             
             // Common User View Buttons (Registration/Login/Reset)
             const commonButtons = `
@@ -755,77 +784,47 @@
         }
         
         function renderModal() {
-                    if (!state.isModalOpen) return '';
-                    
-                    const isLogin = state.modalMode === 'login';
-                    const isStandard = state.modalType === 'standard';
-                    const isRegister = state.modalMode === 'register';
-        
-                    const title = isLogin ? (isStandard ? 'User Login' : 'Admin Login') : 'Register New Account';
-                    const submitText = isLogin ? 'Login' : 'Register';
-                    const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
-        
-                    // Base fields (always needed for standard, or for admin registration)
-                    let emailField = '';
-                    let passwordField = `
-                        <input type="password" id="password-input" placeholder="Password" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                    `;
-        
-                    // Adjust fields based on mode/type
-                    if (isStandard || isRegister) {
-                        // Standard login/register always needs email field
-                        emailField = `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
-                    } else if (!isStandard && isLogin) {
-                        // Admin login (local check) uses hardcoded email, so we hide the input and add the helper message
-                        emailField = `
-                            <p class="text-sm text-gray-500 mb-4">Enter the local admin password below (Email is not required for local check).</p>
-                            <input type="hidden" id="email-input" value="admin@local.com">
-                        `;
-                    }
-        
-                    // Google sign-in button is only for Standard or Register flow
-                    const googleAuthButton = (isStandard || isRegister) ? `
-                        <div class="my-4 flex items-center">
-                            <hr class="flex-grow border-gray-300">
-                            <span class="px-2 text-gray-500 text-sm">OR</span>
-                            <hr class="flex-grow border-gray-300">
-                        </div>
-                        <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
-                            <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google_reCAPTCHA.svg" class="w-5 h-5 mr-2" alt="Google Logo">
-                            ${isLogin ? 'Sign in with Google' : 'Register with Google'}
-                        </button>
-                    ` : '';
-        
-        
-                    return `
-                        <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
-                            <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm relative" onclick="event.stopPropagation()">
-                                <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center">${title}</h2>
-                                <div id="auth-message" class="text-red-500 text-sm mb-4 text-center font-medium"></div>
-                                
-                                <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4">
-                                    <div class="space-y-4">
-                                        ${emailField}
-                                        ${passwordField}
-                                    </div>
-                                    <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
-                                        ${submitText}
-                                    </button>
-                                    ${googleAuthButton}
-                                </form>
-        
-                                <button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
-                                        class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
-                                    ${switchModeText}
-                                </button>
-        
-                                <button onclick="window.module.closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                }
+            if (!state.isModalOpen) return '';
+            
+            const isLogin = state.modalMode === 'login';
+            const isStandard = state.modalType === 'standard';
+            const isRegister = state.modalMode === 'register';
+
+            const title = isLogin ? (isStandard ? 'User Login' : 'Admin Login') : 'Register New Account';
+            const submitText = isLogin ? 'Login' : 'Register';
+            const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
+
+            // Base fields (always needed for standard, or for admin registration)
+            let emailField = '';
+            let passwordField = `
+                <input type="password" id="password-input" placeholder="Password" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+            `;
+
+            // Adjust fields based on mode/type
+            if (isStandard || isRegister) {
+                // Standard login/register always needs email field
+                emailField = `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
+            } else if (!isStandard && isLogin) {
+                // Admin login (local check) uses hardcoded email, so we hide the input and add the helper message
+                emailField = `
+                    <p class="text-sm text-gray-500 mb-4">Enter the local admin password below (Email is not required for local check).</p>
+                    <input type="hidden" id="email-input" value="admin@local.com">
+                `;
+            }
+
+            // Google sign-in button is only for Standard or Register flow
+            const googleAuthButton = (isStandard || isRegister) ? `
+                <div class="my-4 flex items-center">
+                    <hr class="flex-grow border-gray-300">
+                    <span class="px-2 text-gray-500 text-sm">OR</span>
+                    <hr class="flex-grow border-gray-300">
+                </div>
+                <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google_reCAPTCHA.svg" class="w-5 h-5 mr-2" alt="Google Logo">
+                    ${isLogin ? 'Sign in with Google' : 'Register with Google'}
+                </button>
+            ` : '';
+
 
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
@@ -834,7 +833,14 @@
                         <div id="auth-message" class="text-red-500 text-sm mb-4 text-center font-medium"></div>
                         
                         <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4">
-                            ${standardUI}
+                            <div class="space-y-4">
+                                ${emailField}
+                                ${passwordField}
+                            </div>
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
+                                ${submitText}
+                            </button>
+                            ${googleAuthButton}
                         </form>
 
                         <button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
@@ -904,7 +910,8 @@
             showLoginModal,
             handleStandardLogin,
             handleGoogleSignIn,
-            closeModal
+            closeModal,
+            handleSignOut // <<< ADDED
         };
 
         document.addEventListener('DOMContentLoaded', () => {
