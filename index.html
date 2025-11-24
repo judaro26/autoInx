@@ -41,7 +41,6 @@
             items: [],
             cart: {}, // {itemId: {item: {}, quantity: 1}}
             email: '',
-            // REMOVED: adminPassword: 'admin', 
             message: null,
             loading: false,
             isAdminIP: false, // New state for IP whitelist check
@@ -79,18 +78,37 @@
             }
         }
 
-        // --- MAINTENANCE MODE CHECK ---
-        async function checkMaintenanceMode() {
+        // --- MAINTENANCE MODE CHECK (Bypass for Admins) ---
+        async function checkMaintenanceMode(user) {
             try {
-                // NOTE: This function's URL is relative, relying on the live environment for the full path
-                const response = await fetch('/.netlify/functions/checkMaintenance');
-                if (response.ok) {
-                    const data = await response.json();
-                    state.isMaintenanceMode = data.maintenanceMode;
+                // Admins are identified by being authenticated AND NOT anonymous
+                const isAdminBypassing = user && !user.isAnonymous;
+
+                // Only check the Netlify function if the user is NOT bypassing (i.e., they are a public user)
+                if (!isAdminBypassing) {
+                    const response = await fetch('/.netlify/functions/checkMaintenance');
+                    if (response.ok) {
+                        const data = await response.json();
+                        state.isMaintenanceMode = data.maintenanceMode;
+                    } else {
+                        // If the check fails, assume maintenance is OFF for safety
+                        state.isMaintenanceMode = false;
+                    }
+                } else {
+                    // Admins always bypass maintenance mode on the index page
+                    state.isMaintenanceMode = false; 
                 }
+                
+                if (state.isMaintenanceMode) {
+                    state.message = { type: 'warning', text: 'The site is currently undergoing maintenance. Please check back later.' };
+                    render();
+                    return true; // Return true to indicate maintenance mode is active for this user
+                }
+                return false; // Return false to indicate maintenance mode is off or bypassed
             } catch (error) {
                 console.error("Failed to check maintenance mode:", error);
                 state.isMaintenanceMode = false; // Default to off if check fails
+                return false;
             }
         }
 
@@ -98,14 +116,10 @@
         // --- FIREBASE INITIALIZATION & AUTH ---
         async function setupFirebase() {
             try {
-                // 1. Check maintenance mode before doing anything else
-                await checkMaintenanceMode();
-                if (state.isMaintenanceMode) {
-                    state.message = { type: 'warning', text: 'The site is currently undergoing maintenance. Please check back later.' };
-                    render();
-                    return; // Stop initialization if in maintenance mode
-                }
-
+                // Check IP range immediately (since this is static, it doesn't need auth)
+                state.isAdminIP = await checkIPRange();
+                console.log(`IP Check complete. Is Admin IP: ${state.isAdminIP}`);
+                
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
 
@@ -121,21 +135,42 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
                 
-                // Perform IP Check right away
-                state.isAdminIP = await checkIPRange();
-                console.log(`IP Check complete. Is Admin IP: ${state.isAdminIP}`);
+                // Use the custom token if provided (e.g., from Canvas)
+                if (initialAuthToken) {
+                    // Start sign-in with custom token if available
+                    await signInWithCustomToken(auth, initialAuthToken)
+                        .catch(error => {
+                            console.error("Error signing in with custom token:", error);
+                        });
+                } else if (!auth.currentUser) {
+                    // Attempt anonymous sign-in for data persistence
+                    await signInAnonymously(auth).catch(error => {
+                        console.error("Error during initial anonymous sign-in:", error);
+                    });
+                }
 
-                // Attempt to sign in
+                // Authentication Listener
                 onAuthStateChanged(auth, async (user) => {
+                    // 1. Check Maintenance Mode before processing listeners/data
+                    const isSiteLocked = await checkMaintenanceMode(user);
+                    
+                    if (isSiteLocked) {
+                        // If site is locked and user is NOT an admin, stop data loading/listeners.
+                        isAuthReady = true;
+                        render();
+                        return;
+                    }
+
+
                     if (user) {
                         userId = user.uid;
                         
-                        // FIX 3: Only set userName if the user is NOT anonymous (i.e., they have a persistent account)
+                        // Only set userName if the user is NOT anonymous 
                         if (!user.isAnonymous) {
                             state.userName = user.email || user.displayName || 'Authenticated User';
                             console.log("User authenticated with persistent account. UID:", userId);
                         } else {
-                            // User is anonymous (for cart persistence) but not shown as signed-in for UI
+                            // User is anonymous (for cart persistence)
                             state.userName = null;
                         }
                         
@@ -147,37 +182,19 @@
                         state.userName = null; // Clear name on sign-out
 
                         if (explicitSignOutOccurred) {
-                            // FIX 2: If this was an explicit sign-out, clear the flag and prevent anonymous re-sign-in.
-                            console.log("Explicit sign-out processed. Preventing anonymous re-sign-in.");
+                            // If this was an explicit sign-out, clear the flag.
+                            console.log("Explicit sign-out processed. Preventing anonymous re-sign-in on this loop.");
                             explicitSignOutOccurred = false;
-                        } else {
-                            // This branch handles initial load when no user (not even anonymous) is present.
-                            // Attempt anonymous sign-in for data persistence.
-                            console.log("No persistent user found. Attempting anonymous sign-in for data persistence.");
-                            try {
-                                // This will trigger the listener again with the anonymous user
-                                await signInAnonymously(auth); 
-                                userId = auth.currentUser?.uid || crypto.randomUUID();
-                            } catch (error) {
-                                console.error("Error during anonymous sign-in:", error);
-                            }
+                            // Note: No anonymous sign-in attempt here, letting the page stay logged out.
+                        } else if (!auth.currentUser || auth.currentUser.isAnonymous) {
+                             // Re-attempt anonymous sign-in if the user is completely logged out (e.g., first visit or expired anon session)
+                             // This is now handled up top, but safe to leave here as a fallback depending on timing.
                         }
                     }
                     isAuthReady = true;
                     if (db) setupRealtimeListeners();
                     render();
                 });
-
-                // Use the custom token if provided (e.g., from Canvas)
-                if (initialAuthToken) {
-                    signInWithCustomToken(auth, initialAuthToken)
-                        .catch(error => {
-                            console.error("Error signing in with custom token:", error);
-                            // Fallback to anonymous sign-in is handled by onAuthStateChanged
-                        });
-                } else if (!auth.currentUser) {
-                    signInAnonymously(auth);
-                }
 
 
             } catch (error) {
@@ -195,6 +212,8 @@
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
             if (!isAuthReady || !db) return;
+            // Prevent listeners from running if site is in maintenance mode for public users
+            if (state.isMaintenanceMode) return; 
 
             // 1. Catalogs Listener
             onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
@@ -283,6 +302,11 @@
         // --- USER ACTIONS ---
 
         function addToCart(item) {
+            if (state.isMaintenanceMode) {
+                showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
+                return;
+            }
+
             const currentEntry = state.cart[item.id];
             const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
             state.cart = {
@@ -294,6 +318,8 @@
         }
 
         function updateCartQuantity(itemId, change) {
+            if (state.isMaintenanceMode) return;
+            
             const currentEntry = state.cart[itemId];
             if (!currentEntry) return;
 
@@ -317,6 +343,11 @@
 
         async function submitOrder(event) {
             event.preventDefault();
+
+            if (state.isMaintenanceMode) {
+                showMessage('warning', 'Ordering is disabled during maintenance. Check back soon!', 4000);
+                return;
+            }
 
             if (Object.keys(state.cart).length === 0) {
                 showMessage('error', 'Your cart is empty!');
@@ -644,7 +675,7 @@
                 return `<div class="p-10 text-center text-gray-600">
                     <svg class="w-12 h-12 mx-auto text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
                     <h2 class="text-2xl font-bold mt-4">System Under Maintenance</h2>
-                    <p class="mt-2">We are performing scheduled maintenance. We apologize for any inconvenience.</p>
+                    <p class="mt-2">We are performing scheduled maintenance. We apologize for any inconvenience. Only administrators can access the store.</p>
                 </div>`;
             }
             if (state.view !== 'user') return '';
@@ -737,7 +768,7 @@
 
         function renderAuthToggle() {
             // If the IP check is still pending or maintenance mode is on, show nothing except the maintenance message
-            if (!state.configLoaded || !isAuthReady || state.isMaintenanceMode) return ''; 
+            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName)) return ''; 
 
             // 1. If currently in Admin view, show the exit button
             if (state.view === 'admin') {
@@ -942,7 +973,7 @@
 </head>
 <body class="bg-gray-100 min-h-screen">
     <div id="app">
-        <div class="text-center p-20">
+        <div id="loadingState" class="text-center p-20">
             <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
