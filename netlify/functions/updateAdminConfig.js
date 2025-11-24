@@ -14,7 +14,8 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-const CONFIG_DOC_PATH = 'admin/config';
+// CORRECTED PATH: Use a simple full document path
+const CONFIG_DOC_PATH = 'settings/adminConfig';
 
 exports.handler = async function (event) {
     if (event.httpMethod !== 'POST') {
@@ -32,8 +33,8 @@ exports.handler = async function (event) {
         // Add lastUpdated timestamp
         updates.lastUpdated = admin.firestore.FieldValue.serverTimestamp();
 
-        // Update the document
-        const configRef = db.collection('config').doc(CONFIG_DOC_PATH);
+        // Update the document using db.doc()
+        const configRef = db.doc(CONFIG_DOC_PATH);
         await configRef.set(updates, { merge: true });
 
         return {
