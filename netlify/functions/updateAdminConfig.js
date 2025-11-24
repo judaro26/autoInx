@@ -14,8 +14,8 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-// CORRECTED PATH: Use a simple full document path
-const CONFIG_DOC_PATH = 'settings/adminConfig';
+// CORRECTED PATH: Must match the path in getAdminConfig.js
+const CONFIG_DOC_PATH = 'admin/config';
 
 exports.handler = async function (event) {
     if (event.httpMethod !== 'POST') {
