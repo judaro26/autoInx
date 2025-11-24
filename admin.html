@@ -11,10 +11,10 @@
         .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
         .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
         .admin-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-        .item-grid { grid-template-columns: 2fr 1fr 1fr 1.5fr 1.5fr 1fr; }
-        @media (min-width: 768px) {
-            .admin-grid { grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr; }
-        }
+        .item-grid { 
+            /* This is a fallback, actual grid definition is now in renderProductListSection */
+            grid-template-columns: 2fr 1fr 1fr 1.5fr 1.5fr 1fr; 
+        } 
         .tab-button { transition: background-color 0.15s, color 0.15s; }
     </style>
 </head>
@@ -220,6 +220,15 @@
             }
         }
         
+        // NEW: SKU GENERATOR
+        function generateUniqueSku() {
+            // Generate a short, unique alphanumeric string (e.g., 8 characters)
+            const timestamp = Date.now().toString(36).toUpperCase(); 
+            const random = Math.random().toString(36).substring(2, 4).toUpperCase();
+            return `AX-${timestamp}${random}`; // e.g., 'AX-1K8X5NA7'
+        }
+
+        // MODIFIED: Filter items to include SKU
         function getFilteredItems() {
             const term = state.searchTerm.toLowerCase();
             if (!term) return state.items;
@@ -229,7 +238,8 @@
                 
                 return item.name.toLowerCase().includes(term) ||
                        item.description.toLowerCase().includes(term) ||
-                       catalogName.toLowerCase().includes(term);
+                       catalogName.toLowerCase().includes(term) ||
+                       item.sku?.toLowerCase().includes(term); // Search by SKU
             });
         }
 
@@ -239,7 +249,7 @@
             state.activeTab = tabName;
             state.editingItem = null;
             renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer(); // Reset timer on tab switch (activity)
+            resetTimer();
 
             if (tabName === 'config') {
                 window.module.fetchAdminConfig();
@@ -256,24 +266,24 @@
         function handleSearchInput(event) {
             state.searchTerm = event.target.value;
             renderProductListSection();
-            resetTimer(); // Reset timer on search input (activity)
+            resetTimer();
         }
 
         function showEditForm(item) {
             state.editingItem = item;
             renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer(); // Reset timer on button click (activity)
+            resetTimer();
         }
 
         function cancelEdit() {
             state.editingItem = null;
             renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer(); // Reset timer on button click (activity)
+            resetTimer();
         }
 
         async function handleEditProduct(event) {
             event.preventDefault();
-            resetTimer(); // Reset timer on form submission (activity)
+            resetTimer();
 
             const form = event.target;
             const itemId = form.itemId.value;
@@ -282,6 +292,7 @@
             const price = parseFloat(form.itemPrice.value.trim()) * 100;
             const catalogId = form.catalogId.value;
             const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
+            // SKU is read-only, so we don't fetch it from the form for update
 
             if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
                 showMessage('error', 'Please fill all required fields correctly for the update.');
@@ -316,7 +327,7 @@
         // --- CATALOG & PRODUCT MANAGEMENT ---
         async function handleAddCatalog(event) {
             event.preventDefault();
-            resetTimer(); // Reset timer on form submission (activity)
+            resetTimer();
 
             const name = event.target.catalogName.value.trim();
             if (!name) return;
@@ -338,7 +349,7 @@
         }
 
         async function handleDeleteCatalog(catalogId, catalogName) {
-            resetTimer(); // Reset timer on button click (activity)
+            resetTimer();
             if (!confirm(`Delete catalog "${catalogName}"? All items will become 'Uncategorized'.`)) return;
             try {
                 const itemsToUpdate = state.items.filter(i => i.catalogId === catalogId);
@@ -356,9 +367,10 @@
             }
         }
 
+        // MODIFIED: Added SKU generation and storage
         async function handleAddProduct(event) {
             event.preventDefault();
-            resetTimer(); // Reset timer on form submission (activity)
+            resetTimer();
 
             const form = event.target;
             const name = form.itemName.value.trim();
@@ -366,6 +378,7 @@
             const price = parseFloat(form.itemPrice.value.trim()) * 100;
             const catalogId = form.catalogId.value;
             const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
+            const sku = generateUniqueSku(); // NEW: Generate SKU
 
             if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
                 showMessage('error', 'Please fill all required fields correctly.');
@@ -374,27 +387,28 @@
 
             try {
                 const docRef = await addDoc(collection(db, ITEMS_COLLECTION), {
-                    name, description, price, catalogId, imageUrl,
+                    name, description, price, catalogId, imageUrl, sku, // ADDED sku
                     createdAt: serverTimestamp()
                 });
 
                 await logAdminAction('PRODUCT_CREATED', { 
                     name, 
+                    sku, // ADDED sku to log
                     priceInCents: price, 
                     catalogId, 
                     catalogName: state.catalogs.find(c => c.id === catalogId)?.name || 'N/A' 
                 }, docRef.id);
 
                 form.reset();
-                showMessage('success', `Product "${name}" added.`);
+                showMessage('success', `Product "${name}" added. SKU: ${sku}`, 3000);
             } catch (error) {
-                console.error(error);
+                console.error("Error adding product:", error);
                 showMessage('error', 'Failed to add product.');
             }
         }
 
         async function handleDeleteProduct(itemId, itemName) {
-            resetTimer(); // Reset timer on button click (activity)
+            resetTimer();
             if (!confirm(`Delete product "${itemName}"?`)) return;
             try {
                 await deleteDoc(doc(db, ITEMS_COLLECTION, itemId));
@@ -408,7 +422,7 @@
             }
         }
 
-        // NEW: Render function for the Edit Product Form
+        // MODIFIED: Added SKU display (read-only)
         function renderEditProductForm() {
             const item = state.editingItem;
             if (!item) return '';
@@ -417,7 +431,6 @@
                 `<option value="${c.id}" ${item.catalogId === c.id ? 'selected' : ''}>${c.name}</option>`
             ).join('');
             
-            // Convert price from cents to dollars for the input field
             const priceInDollars = (item.price / 100).toFixed(2);
             const displayImageUrl = item.imageUrl === 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image' ? '' : item.imageUrl;
 
@@ -425,6 +438,11 @@
             return `
                 <div class="mb-10 p-6 border rounded-xl shadow-2xl bg-yellow-100 border-t-4 border-yellow-500">
                     <h3 class="text-xl font-bold mb-4 text-yellow-700">Edit Product: ${item.name}</h3>
+                    <div class="mb-4 p-3 bg-yellow-200 border border-yellow-300 rounded-lg">
+                        <label class="block text-sm font-bold text-yellow-800">SKU:</label>
+                        <input type="text" name="itemSku" value="${item.sku || 'N/A'}" readonly 
+                            class="w-full p-2 bg-yellow-50 font-mono text-sm border-yellow-400 rounded-md cursor-not-allowed">
+                    </div>
                     <form onsubmit="window.module.handleEditProduct(event)" class="space-y-4">
                         <input type="hidden" name="itemId" value="${item.id}">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -448,6 +466,7 @@
             `;
         }
 
+        // MODIFIED: Added SKU column
         function renderProductListSection() {
             const el = document.getElementById('productListContainer');
             if (!el) return;
@@ -458,8 +477,8 @@
             const productGridHtml = `
                 <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${filteredItems.length} found / ${state.items.length} total)</h3>
                 <div class="overflow-x-auto">
-                    <div class="grid gap-x-4 item-grid min-w-[700px]">
-                        <div class="grid-header">Name & Description</div>
+                    <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1.5fr 1.5fr 1fr;">
+                        <div class="grid-header">SKU</div> <div class="grid-header">Name & Description</div>
                         <div class="grid-header">Price</div>
                         <div class="grid-header">Category</div>
                         <div class="grid-header">Image URL</div>
@@ -470,7 +489,7 @@
                             const catName = cat ? cat.name : 'Uncategorized';
                             const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
                             return `
-                                <div class="grid-item flex flex-col justify-center">
+                                <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div> <div class="grid-item flex flex-col justify-center">
                                     <p class="font-semibold">${item.name}</p>
                                     <p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length > 50 ? '...' : ''}</p>
                                 </div>
@@ -542,7 +561,7 @@
 
                     <div class="mb-6 p-4 border rounded-lg bg-gray-50">
                         <h3 class="text-xl font-semibold mb-3 text-indigo-600">Search Products</h3>
-                        <input type="text" id="productSearch" placeholder="Search by name, description, or category..." 
+                        <input type="text" id="productSearch" placeholder="Search by name, description, category, or SKU..." 
                             oninput="window.module.handleSearchInput(event)" 
                             value="${state.searchTerm}"
                             class="w-full p-2 border rounded-lg">
@@ -648,6 +667,7 @@
         }
 
         async function fetchAdminConfig() {
+            resetTimer();
             try {
                 const res = await fetch(CONFIG_FUNCTION);
                 if (!res.ok) throw new Error('Failed');
