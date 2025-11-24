@@ -10,8 +10,8 @@
         body { font-family: 'Inter', sans-serif; }
         .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
         .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
-        .admin-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-        .tab-button { transition: background-color 0.15s, color: 0.15s; }
+        .admin-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); } /* FIX: Updated to 7 columns for actions */
+        .tab-button { transition: background-color 0.15s, color 0.15s; }
         .preview-iframe-container {
             height: 80vh;
         }
@@ -60,6 +60,7 @@
         const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
         const GET_IP_WHITELIST_FUNCTION = '/.netlify/functions/getIpWhitelist';
         const LOG_ACTION_FUNCTION = '/.netlify/functions/logAdminAction';
+        const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser'; // <-- NEW FUNCTION FOR USER MANAGEMENT
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -350,6 +351,71 @@
                 showMessage('error', 'Failed to update product.');
             }
         }
+        
+        // --- USER MANAGEMENT ACTIONS ---
+
+        async function handleUserAction(action, uid, data = {}, successMsg) {
+            resetTimer();
+            if (!confirm(`Are you sure you want to perform action: ${action} on user ${uid.slice(0, 8)}...?`)) return;
+
+            try {
+                // Get the admin user's ID token for authentication
+                const idToken = await auth.currentUser.getIdToken(); 
+
+                const payload = { action, uid, data };
+
+                const res = await fetch(MANAGE_USER_FUNCTION, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${idToken}`, 
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(errorDetails.details || errorDetails.error || res.statusText);
+                }
+                
+                // Log action
+                await logAdminAction('USER_MANAGEMENT', { action, uid, details: data });
+
+                showMessage('success', successMsg, 5000);
+                
+                // Immediately refresh the user list
+                const grid = document.getElementById('usersGrid');
+                // Slice 7 to keep the 7 header columns intact
+                if (grid) Array.from(grid.children).slice(7).forEach(el => el.remove()); 
+                window.module.fetchUsers(null); 
+
+            } catch (error) {
+                console.error(`User action (${action}) failed:`, error);
+                showMessage('error', `Action failed: ${error.message}`);
+            }
+        }
+        
+        async function promptForPasswordReset(uid) {
+            const newPassword = prompt(`Enter new password for user ${uid.slice(0, 8)}... (min 6 characters):`);
+            if (newPassword && newPassword.length >= 6) {
+                await handleUserAction('resetPassword', uid, { newPassword }, 'Password reset initiated.');
+            } else if (newPassword !== null) {
+                showMessage('error', 'Password must be at least 6 characters long.');
+            }
+        }
+
+        async function deleteUser(uid, email) {
+            if (!confirm(`PERMANENTLY DELETE user ${email} (${uid.slice(0, 8)}...)? THIS CANNOT BE UNDONE.`)) return;
+            await handleUserAction('delete', uid, {}, `User ${email} deleted.`);
+        }
+
+        async function disableUser(uid, email, currentlyDisabled) {
+            const action = 'update'; 
+            const data = { disabled: !currentlyDisabled };
+            const successMsg = `User ${email} successfully ${currentlyDisabled ? 'enabled' : 'disabled'}.`;
+            
+            await handleUserAction(action, uid, data, successMsg);
+        }
 
         // --- RENDERING ---
         function renderEditProductForm() {
@@ -497,6 +563,7 @@
                     <div id="usersGrid" class="grid gap-x-4 admin-grid">
                         <div class="grid-header">Email</div><div class="grid-header">UID</div><div class="grid-header">Verified</div>
                         <div class="grid-header">Created</div><div class="grid-header">Last Sign-In</div><div class="grid-header">Status</div>
+                        <div class="grid-header">Actions</div>
                     </div>
                     <div id="noUsersMessage" class="text-center p-4 text-gray-500 hidden">No registered users found.</div>
                     <div id="loadingMessage" class="text-center p-4 hidden">Loading...</div>
@@ -548,7 +615,7 @@
 
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
             if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
-            if (state.activeTab === 'users' && !state.previewMode && document.getElementById('usersGrid')?.children.length <= 6) window.module.fetchUsers();
+            if (state.activeTab === 'users' && !state.previewMode && document.getElementById('usersGrid')?.children.length <= 7) window.module.fetchUsers();
         }
 
         // --- CONFIG & USERS ---
@@ -615,16 +682,16 @@
             loading.classList.remove('hidden');
             noUsersEl.classList.add('hidden');
             nextBtn.disabled = true;
-            if (!pageToken) Array.from(grid.children).slice(6).forEach(el => el.remove());
+            if (!pageToken) Array.from(grid.children).slice(7).forEach(el => el.remove());
 
             try {
-                // Get the admin user's ID token for server-side authentication
+                // FIX: Get the admin user's ID token for server-side authentication
                 const idToken = await auth.currentUser.getIdToken();
 
                 const url = `${LIST_USERS_FUNCTION}?maxResults=100${pageToken ? `&nextPageToken=${pageToken}` : ''}`;
                 const res = await fetch(url, {
                     headers: {
-                        'Authorization': `Bearer ${idToken}`,
+                        'Authorization': `Bearer ${idToken}`, 
                         'Content-Type': 'application/json'
                     }
                 });
@@ -661,13 +728,24 @@
             users.forEach(u => {
                 if (!u.email) return;
                 const statusColor = u.disabled ? 'text-red-500' : 'text-green-500';
+                const statusText = u.disabled ? 'Disabled' : 'Active';
+                const disableBtnText = u.disabled ? 'Enable' : 'Disable';
+
                 grid.innerHTML += `
                     <div class="grid-item">${u.email}</div>
                     <div class="grid-item text-xs">${u.uid.slice(0,8)}...</div>
                     <div class="grid-item">${u.emailVerified ? 'Yes' : 'No'}</div>
                     <div class="grid-item text-xs">${formatTime(u.createdAt)}</div>
                     <div class="grid-item text-xs">${formatTime(u.lastSignInTime)}</div>
-                    <div class="grid-item font-medium ${statusColor}">${u.disabled ? 'Disabled' : 'Active'}</div>
+                    <div class="grid-item font-medium ${statusColor}">${statusText}</div>
+                    <div class="grid-item flex flex-wrap gap-2">
+                        <button onclick="window.module.promptForPasswordReset('${u.uid}')" 
+                                class="text-xs text-blue-600 hover:text-blue-800 font-semibold p-1 bg-blue-100 rounded">Reset Pwd</button>
+                        <button onclick="window.module.disableUser('${u.uid}', '${u.email}', ${u.disabled})" 
+                                class="text-xs text-yellow-600 hover:text-yellow-800 font-semibold p-1 bg-yellow-100 rounded">${disableBtnText}</button>
+                        <button onclick="window.module.deleteUser('${u.uid}', '${u.email}')" 
+                                class="text-xs text-red-600 hover:text-red-800 font-semibold p-1 bg-red-100 rounded">Delete</button>
+                    </div>
                 `;
             });
         }
@@ -678,7 +756,9 @@
             fetchUsers, displayUsers, fetchAdminConfig, updateMaintenanceMode, displayStaticIps,
             switchAdminTab, handleAddCatalog, handleDeleteCatalog, handleAddProduct, handleDeleteProduct,
             handleSearchInput, showEditForm, cancelEdit, handleEditProduct, renderProductListSection,
-            togglePreviewMode, logAdminAction
+            togglePreviewMode, logAdminAction,
+            // ADDED USER MANAGEMENT FUNCTIONS:
+            handleUserAction, promptForPasswordReset, deleteUser, disableUser
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
