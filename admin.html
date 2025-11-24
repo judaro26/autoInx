@@ -31,7 +31,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- GLOBAL VARIABLES & STATE ---
@@ -138,11 +138,17 @@
             onSnapshot(collection(db, CATALOGS_COLLECTION), snap => {
                 state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+            }, err => {
+                console.error("Error listening to catalogs:", err);
+                showMessage('error', 'Failed to fetch catalogs.');
             });
 
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
                 state.items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+            }, err => {
+                console.error("Error listening to items:", err);
+                showMessage('error', 'Failed to fetch items.');
             });
         }
 
@@ -241,10 +247,85 @@
         }
 
         // --- CATALOG & PRODUCT CRUD ---
-        async function handleAddCatalog(e) { /* ... same as before ... */ e.preventDefault(); resetTimer(); const name = e.target.catalogName.value.trim(); /* ... rest unchanged ... */ }
-        async function handleDeleteCatalog(id, name) { /* unchanged */ }
-        async function handleAddProduct(e) { /* unchanged */ }
-        async function handleDeleteProduct(id, name) { /* unchanged */ }
+        async function handleAddCatalog(event) {
+            event.preventDefault();
+            resetTimer();
+            const name = event.target.catalogName.value.trim();
+            if (!name) return;
+            try {
+                const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), {
+                    name,
+                    createdAt: serverTimestamp(),
+                    slug: name.toLowerCase().replace(/\s/g, '-')
+                });
+                event.target.catalogName.value = '';
+                showMessage('success', `Catalog "${name}" created successfully.`, 3000);
+                await logAdminAction('CATALOG_CREATED', { name: name }, docRef.id);
+            } catch (error) {
+                console.error("Error adding catalog:", error);
+                showMessage('error', 'Failed to add catalog.');
+            }
+        }
+
+        async function handleDeleteCatalog(catalogId, catalogName) {
+            if (!confirm(`Delete catalog "${catalogName}"? All items will become 'Uncategorized'.`)) return;
+            resetTimer();
+            try {
+                const itemsToUpdate = state.items.filter(i => i.catalogId === catalogId);
+                await Promise.all(itemsToUpdate.map(item =>
+                    updateDoc(doc(db, ITEMS_COLLECTION, item.id), { catalogId: 'uncategorized' })
+                ));
+                await deleteDoc(doc(db, CATALOGS_COLLECTION, catalogId));
+                showMessage('success', `Catalog "${catalogName}" deleted.`);
+                await logAdminAction('CATALOG_DELETED', { name: catalogName }, catalogId);
+            } catch (error) {
+                console.error(error);
+                showMessage('error', 'Failed to delete catalog.');
+            }
+        }
+
+        async function handleAddProduct(event) {
+            event.preventDefault();
+            resetTimer();
+            const form = event.target;
+            const name = form.itemName.value.trim();
+            const description = form.itemDescription.value.trim();
+            const price = parseFloat(form.itemPrice.value.trim()) * 100;
+            const catalogId = form.catalogId.value;
+            const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
+            const sku = generateUniqueSku();
+
+            if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
+                showMessage('error', 'Please fill all required fields correctly.');
+                return;
+            }
+
+            try {
+                const docRef = await addDoc(collection(db, ITEMS_COLLECTION), {
+                    name, description, price, catalogId, imageUrl, sku,
+                    createdAt: serverTimestamp()
+                });
+                form.reset();
+                showMessage('success', `Product "${name}" added.`);
+                await logAdminAction('PRODUCT_CREATED', { name: name, catalogId: catalogId }, docRef.id);
+            } catch (error) {
+                console.error(error);
+                showMessage('error', 'Failed to add product.');
+            }
+        }
+
+        async function handleDeleteProduct(itemId, itemName) {
+            if (!confirm(`Delete product "${itemName}"?`)) return;
+            resetTimer();
+            try {
+                await deleteDoc(doc(db, ITEMS_COLLECTION, itemId));
+                showMessage('success', `Product "${itemName}" deleted.`);
+                await logAdminAction('PRODUCT_DELETED', { name: itemName }, itemId);
+            } catch (error) {
+                console.error(error);
+                showMessage('error', 'Failed to delete product.');
+            }
+        }
 
         async function handleEditProduct(e) {
             e.preventDefault();
@@ -264,6 +345,7 @@
                 await logAdminAction('PRODUCT_UPDATED', data, itemId);
                 state.editingItem = null;
                 showMessage('success', `Product "${data.name}" updated.`);
+                renderAdminPage(auth.currentUser?.email || 'Admin');
             } catch (err) {
                 console.error(err);
                 showMessage('error', 'Failed to update product.');
@@ -363,7 +445,6 @@
                         <input type="text" id="productSearch" placeholder="Search by name, description, category, SKU..." oninput="window.module.handleSearchInput(event)" value="${state.searchTerm}" class="w-full p-2 border rounded-lg">
                     </div>
                     <div id="productListContainer"></div>
-                    <!-- Create Catalog & Add Product blocks -->
                     <div class="mb-8 p-4 border rounded-lg bg-gray-50">
                         <h3 class="text-xl font-semibold mb-3 text-indigo-600">Create New Catalog Category</h3>
                         <form onsubmit="window.module.handleAddCatalog(event)" class="flex space-x-3">
@@ -391,9 +472,39 @@
                     </div>
                 </section>
 
-                <!-- Config, Users, Orders sections unchanged (same as your original) -->
-                <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">...</section>
-                <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">...</section>
+                <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <h3 class="font-semibold text-lg mb-2">Maintenance Mode</h3>
+                            <p class="text-sm text-gray-500 mb-3">Locks the site for regular users.</p>
+                            <label class="inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="maintenanceModeToggle" class="sr-only peer">
+                                <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                                <span class="ms-3 text-sm font-medium text-gray-900" id="maintenanceStatus">Loading...</span>
+                            </label>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-lg mb-2">Admin IP Whitelist (Static)</h3>
+                            <p class="text-sm text-gray-500 mb-3">Loaded from Netlify function.</p>
+                            <div id="staticIpList" class="p-2 bg-gray-50 border rounded-lg text-sm text-gray-700">Loading IPs...</div>
+                        </div>
+                    </div>
+                    <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
+                </section>
+
+                <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
+                    <div id="usersGrid" class="grid gap-x-4 admin-grid">
+                        <div class="grid-header">Email</div><div class="grid-header">UID</div><div class="grid-header">Verified</div>
+                        <div class="grid-header">Created</div><div class="grid-header">Last Sign-In</div><div class="grid-header">Status</div>
+                    </div>
+                    <div id="loadingMessage" class="text-center p-4 hidden">Loading...</div>
+                    <div class="flex justify-center mt-6">
+                        <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
+                    </div>
+                </section>
+
                 <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
                     <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
                     <p class="text-gray-500">Coming soon.</p>
@@ -441,7 +552,18 @@
         }
 
         // --- CONFIG & USERS ---
-        async function displayStaticIps() { /* unchanged */ }
+        async function displayStaticIps() {
+            const el = document.getElementById('staticIpList');
+            if (!el) return;
+            try {
+                const res = await fetch(GET_IP_WHITELIST_FUNCTION);
+                const data = await res.json();
+                el.innerHTML = data.ipWhitelist?.length ? data.ipWhitelist.join('<br>') : 'No IPs configured.';
+            } catch (e) {
+                el.textContent = 'Failed to load IP whitelist.';
+            }
+        }
+
         async function fetchAdminConfig() {
             resetTimer();
             try {
@@ -458,9 +580,71 @@
                 showMessage('error', 'Failed to load config.');
             }
         }
-        async function updateMaintenanceMode(e) { /* unchanged */ }
-        async function fetchUsers(token) { /* unchanged */ }
-        function displayUsers(users) { /* unchanged */ }
+
+        async function updateMaintenanceMode(e) {
+            resetTimer();
+            const enabled = e.target.checked;
+            const status = document.getElementById('maintenanceStatus');
+            status.textContent = 'Updating...';
+            try {
+                const res = await fetch(UPDATE_CONFIG_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ maintenanceMode: enabled })
+                });
+                if (!res.ok) throw new Error();
+                status.textContent = enabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
+                showMessage('success', 'Maintenance mode updated.');
+                await logAdminAction('CONFIG_UPDATED', { maintenanceMode: enabled });
+            } catch (err) {
+                e.target.checked = !enabled;
+                status.textContent = 'Update failed';
+                showMessage('error', 'Failed to update.');
+            }
+        }
+
+        async function fetchUsers(pageToken = null) {
+            resetTimer();
+            const loading = document.getElementById('loadingMessage');
+            const grid = document.getElementById('usersGrid');
+            const nextBtn = document.getElementById('nextPageButton');
+            if (!grid || !nextBtn) return;
+
+            loading.classList.remove('hidden');
+            nextBtn.disabled = true;
+            if (!pageToken) Array.from(grid.children).slice(6).forEach(el => el.remove());
+
+            try {
+                const url = `${LIST_USERS_FUNCTION}?maxResults=100${pageToken ? `&nextPageToken=${pageToken}` : ''}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                window.module.displayUsers(data.users);
+                window.module.globalNextPageToken = data.nextPageToken;
+                nextBtn.disabled = !data.nextPageToken;
+                nextBtn.textContent = data.nextPageToken ? 'Load Next 100 Users' : 'End of List';
+            } catch (e) {
+                showMessage('error', 'Failed to load users.');
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        function displayUsers(users) {
+            const grid = document.getElementById('usersGrid');
+            if (!grid) return;
+            users.forEach(u => {
+                if (!u.email) return;
+                const statusColor = u.disabled ? 'text-red-500' : 'text-green-500';
+                grid.innerHTML += `
+                    <div class="grid-item">${u.email}</div>
+                    <div class="grid-item text-xs">${u.uid.slice(0,8)}...</div>
+                    <div class="grid-item">${u.emailVerified ? 'Yes' : 'No'}</div>
+                    <div class="grid-item text-xs">${formatTime(u.metadata.creationTime)}</div>
+                    <div class="grid-item text-xs">${formatTime(u.metadata.lastSignInTime)}</div>
+                    <div class="grid-item font-medium ${statusColor}">${u.disabled ? 'Disabled' : 'Active'}</div>
+                `;
+            });
+        }
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
@@ -468,7 +652,7 @@
             fetchUsers, displayUsers, fetchAdminConfig, updateMaintenanceMode, displayStaticIps,
             switchAdminTab, handleAddCatalog, handleDeleteCatalog, handleAddProduct, handleDeleteProduct,
             handleSearchInput, showEditForm, cancelEdit, handleEditProduct, renderProductListSection,
-            togglePreviewMode
+            togglePreviewMode, logAdminAction
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
