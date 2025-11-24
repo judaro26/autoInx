@@ -15,7 +15,7 @@
         /* Modal background */
         .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
     </style>
-    <script type="module">
+<script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         // ADDED GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -48,7 +48,8 @@
             isModalOpen: false, // New state for modal control
             modalMode: 'login', // 'login' or 'register'
             modalType: 'standard', // 'standard' or 'admin'
-            userName: null // NEW: To store the logged-in user's name/email
+            userName: null, // To store the logged-in user's name/email
+            isMaintenanceMode: false // NEW: Maintenance mode status
         };
 
         // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
@@ -77,10 +78,32 @@
             }
         }
 
+        // --- MAINTENANCE MODE CHECK ---
+        async function checkMaintenanceMode() {
+            try {
+                const response = await fetch('/.netlify/functions/checkMaintenance');
+                if (response.ok) {
+                    const data = await response.json();
+                    state.isMaintenanceMode = data.maintenanceMode;
+                }
+            } catch (error) {
+                console.error("Failed to check maintenance mode:", error);
+                state.isMaintenanceMode = false; // Default to off if check fails
+            }
+        }
+
 
         // --- FIREBASE INITIALIZATION & AUTH ---
         async function setupFirebase() {
             try {
+                // 1. Check maintenance mode before doing anything else
+                await checkMaintenanceMode();
+                if (state.isMaintenanceMode) {
+                    state.message = { type: 'warning', text: 'The site is currently undergoing maintenance. Please check back later.' };
+                    render();
+                    return; // Stop initialization if in maintenance mode
+                }
+
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
 
@@ -432,8 +455,8 @@
                 // Simplified Admin Login Check (Local Password Check)
                 if (password === state.adminPassword) {
                     closeModal();
-                    state.view = 'admin';
-                    showMessage('success', 'Admin View unlocked.', 2000);
+                    // NEW: Redirect to dedicated admin page on success
+                    window.location.href = '/admin.html';
                 } else {
                     messageEl.textContent = '❌ Incorrect Admin Password.';
                 }
@@ -570,69 +593,23 @@
         }
 
         function renderAdminView() {
+            // THIS VIEW IS NOW DEPRECATED. Admin users are redirected to admin.html
             if (state.view !== 'admin') return '';
             return `
                 <div class="space-y-10 p-6 bg-gray-50 rounded-xl shadow-inner md:flex md:space-y-0 md:space-x-10">
-                    <div class="w-full md:w-1/2 bg-white p-6 rounded-xl shadow-lg">
-                        <h3 class="text-2xl font-bold mb-4 text-indigo-700">1. Create New Catalog</h3>
-                        <form id="add-catalog-form" onsubmit="window.module.addCatalog(event)" class="space-y-4">
-                            <input type="text" name="catalogName" placeholder="Catalog Name (e.g., Summer Gear)" required
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <button type="submit" class="w-full bg-indigo-600 text-white p-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md">
-                                Add Catalog
-                            </button>
-                        </form>
-                        <div class="mt-6">
-                            <h4 class="font-semibold text-lg mb-2">Existing Catalogs</h4>
-                            <div class="max-h-40 custom-scrollbar overflow-y-auto space-y-2">
-                                ${state.catalogs.map(c => `<span class="inline-block bg-gray-200 text-gray-800 text-xs px-3 py-1 rounded-full">${c.name} (ID: ${c.id})</span>`).join('')}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="w-full md:w-1/2 bg-white p-6 rounded-xl shadow-lg">
-                        <h3 class="text-2xl font-bold mb-4 text-indigo-700">2. Create New Item</h3>
-                        <form id="add-item-form" onsubmit="window.module.addItem(event)" class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Catalog</label>
-                                <select name="catalogId" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                                    <option value="" disabled selected>Select Catalog</option>
-                                    ${state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-                                </select>
-                            </div>
-                            <input type="text" name="itemName" placeholder="Item Name" required
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <input type="number" name="itemPrice" placeholder="Price (e.g., 19.99)" step="0.01" min="0.01" required
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <input type="url" name="itemImageUrl" placeholder="Image URL (e.g., https://example.com/item.jpg)"
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <button type="submit" class="w-full bg-green-600 text-white p-3 rounded-lg font-semibold hover:bg-green-700 transition duration-150 shadow-md">
-                                Add Item
-                            </button>
-                        </form>
-                    </div>
-                </div>
-
-                <h3 class="text-3xl font-bold mt-10 mb-6 text-gray-800">3. Current Inventory (${state.items.length})</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    ${state.items.length > 0
-                        ? state.items.map(item => `
-                            <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
-                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
-                                <div class="p-4">
-                                    <h4 class="text-xl font-semibold text-gray-800">${item.name}</h4>
-                                    <p class="text-indigo-600 font-bold mt-1">${formatPrice(item.price)}</p>
-                                    <p class="text-sm text-gray-500 mt-2">Catalog: ${state.catalogs.find(c => c.id === item.catalogId)?.name || 'N/A'}</p>
-                                </div>
-                            </div>
-                        `).join('')
-                        : '<p class="text-gray-500 col-span-4">No items have been added yet.</p>'
-                    }
+                    <p class="text-xl font-semibold text-gray-700">Redirecting to Admin Dashboard...</p>
                 </div>
             `;
         }
 
         function renderUserView() {
+            if (state.isMaintenanceMode) {
+                return `<div class="p-10 text-center text-gray-600">
+                    <svg class="w-12 h-12 mx-auto text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
+                    <h2 class="text-2xl font-bold mt-4">System Under Maintenance</h2>
+                    <p class="mt-2">We are performing scheduled maintenance. We apologize for any inconvenience.</p>
+                </div>`;
+            }
             if (state.view !== 'user') return '';
 
             const itemsByCatalog = state.items.reduce((acc, item) => {
@@ -722,8 +699,8 @@
         }
 
         function renderAuthToggle() {
-            // If the IP check is still pending, show nothing
-            if (!state.configLoaded || !isAuthReady) return ''; 
+            // If the IP check is still pending or maintenance mode is on, show nothing except the maintenance message
+            if (!state.configLoaded || !isAuthReady || state.isMaintenanceMode) return ''; 
 
             // 1. If currently in Admin view, show the exit button
             if (state.view === 'admin') {
@@ -739,6 +716,10 @@
                 return `
                     <div class="flex items-center space-x-4">
                         <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${state.userName}</span>
+                        ${state.isAdminIP ? 
+                            `<a href="/admin.html" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
+                                Admin Dashboard
+                            </a>` : ''}
                         <button onclick="window.module.handleSignOut()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
                             Sign Out
                         </button>
@@ -911,7 +892,7 @@
             handleStandardLogin,
             handleGoogleSignIn,
             closeModal,
-            handleSignOut // <<< ADDED
+            handleSignOut
         };
 
         document.addEventListener('DOMContentLoaded', () => {
