@@ -15,7 +15,7 @@
         /* Modal background */
         .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
     </style>
-<script type="module">
+    <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         // ADDED GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -32,6 +32,7 @@
         let app, db, auth;
         let userId = null;
         let isAuthReady = false;
+        let explicitSignOutOccurred = false; // FIX 1: New flag to prevent re-login after sign out
 
         // --- GLOBAL STATE ---
         const state = {
@@ -127,28 +128,37 @@
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
-                        // Capture user's email or display name for UI
-                        state.userName = user.email || user.displayName || 'Authenticated User';
-                        console.log("User authenticated. UID:", userId);
+                        
+                        // FIX 3: Only set userName if the user is NOT anonymous (i.e., they have a persistent account)
+                        if (!user.isAnonymous) {
+                            state.userName = user.email || user.displayName || 'Authenticated User';
+                            console.log("User authenticated with persistent account. UID:", userId);
+                        } else {
+                            // User is anonymous (for cart persistence) but not shown as signed-in for UI
+                            state.userName = null;
+                        }
+                        
+                        explicitSignOutOccurred = false; // Clear flag on any successful login/session restore
+
                     } else {
+                        // User is null (initial load or explicit sign out)
                         userId = null;
                         state.userName = null; // Clear name on sign-out
-                        // Attempt anonymous sign-in if no user is signed in
-                        console.log("No user signed in. Attempting anonymous sign-in.");
-                        try {
-                            // Check if anonymous auth is required (i.e., we are in the user view and need a UID)
-                            if (state.view === 'user' || !auth.currentUser) {
-                                await signInAnonymously(auth);
+
+                        if (explicitSignOutOccurred) {
+                            // FIX 2: If this was an explicit sign-out, clear the flag and prevent anonymous re-sign-in.
+                            console.log("Explicit sign-out processed. Preventing anonymous re-sign-in.");
+                            explicitSignOutOccurred = false;
+                        } else {
+                            // This branch handles initial load when no user (not even anonymous) is present.
+                            // Attempt anonymous sign-in for data persistence.
+                            console.log("No persistent user found. Attempting anonymous sign-in for data persistence.");
+                            try {
+                                // This will trigger the listener again with the anonymous user
+                                await signInAnonymously(auth); 
                                 userId = auth.currentUser?.uid || crypto.randomUUID();
-                            }
-                        } catch (error) {
-                             if (error.code === 'auth/admin-restricted-operation') {
-                                // Specific error if Anonymous Auth is not enabled in Firebase Console
-                                console.error("Authentication Failed: Client-side anonymous sign-in is disabled in the Firebase Console.", error);
-                                state.message = { type: 'error', text: 'Cannot proceed: Client Authentication is disabled for this project. Check Firebase console settings.' };
-                            } else {
+                            } catch (error) {
                                 console.error("Error during anonymous sign-in:", error);
-                                state.message = { type: 'error', text: 'Authentication failed. Data saving may not work.' };
                             }
                         }
                     }
@@ -434,6 +444,7 @@
         // --- NEW SIGN OUT FUNCTION ---
         async function handleSignOut() {
             try {
+                explicitSignOutOccurred = true; // FIX 1: Set flag before signing out
                 await signOut(auth);
                 showMessage('info', 'Signed out successfully.', 3000);
                 state.view = 'user'; // Ensure we are back in user view
@@ -711,7 +722,7 @@
                 `;
             } 
             
-            // 2. If a user is logged in (state.userName is set by onAuthStateChanged)
+            // 2. If a user is logged in (state.userName is set by onAuthStateChanged AND is not anonymous)
             if (state.userName) {
                 return `
                     <div class="flex items-center space-x-4">
@@ -757,7 +768,7 @@
                     <div class="flex items-center space-x-4">
                         ${commonButtons}
                         <button onclick="window.module.toggleView('standard')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
-                            Login
+                            Standard Login
                         </button>
                     </div>
                 `;
