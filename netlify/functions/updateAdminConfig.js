@@ -14,7 +14,7 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-// CORRECTED PATH: Must match the path in getAdminConfig.js
+// CORRECTED PATH: Must match the path in getAdminConfig.js ('admin/config')
 const CONFIG_DOC_PATH = 'admin/config';
 
 exports.handler = async function (event) {
