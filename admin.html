@@ -42,13 +42,16 @@
         let globalNextPageToken = null;
         let globalConfig = { maintenanceMode: false };
 
+        const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+        let idleTimer; // Variable to hold the setTimeout ID
+
         const state = {
             activeTab: 'catalog',
             catalogs: [],
             items: [],
             loading: false,
-            searchTerm: '',     // NEW: For search functionality
-            editingItem: null   // NEW: Holds the item object being edited
+            searchTerm: '',     
+            editingItem: null   
         };
 
         // --- FIRESTORE COLLECTION PATHS ---
@@ -89,6 +92,29 @@
             checkAuthAndRender();
         }
 
+        // --- IDLE TIMEOUT LOGIC ---
+        function autoLogout() {
+            if (auth.currentUser && !auth.currentUser.isAnonymous) {
+                console.log("Admin idle for 15 minutes. Forcing logout.");
+                signOut(auth).then(() => {
+                    logAdminAction('ADMIN_AUTO_LOGOUT', { reason: 'Idle Timeout (15m)' });
+                    // Redirect to home page with status
+                    window.location.href = '/?error=idle_timeout';
+                }).catch(error => {
+                    console.error("Error during auto-logout:", error);
+                    window.location.href = '/?error=auto_logout_failed';
+                });
+            }
+        }
+
+        function resetTimer() {
+            clearTimeout(idleTimer);
+            // Only restart the timer if the user is logged in and not anonymous
+            if (auth.currentUser && !auth.currentUser.isAnonymous) {
+                idleTimer = setTimeout(autoLogout, IDLE_TIMEOUT_MS);
+            }
+        }
+
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
@@ -96,6 +122,13 @@
                     user.getIdTokenResult(true)
                         .then(idTokenResult => {
                             if (idTokenResult.claims.admin === true) {
+                                
+                                // --- START IDLE TIMER ---
+                                document.onmousemove = resetTimer;
+                                document.onkeydown = resetTimer;
+                                document.onclick = resetTimer;
+                                resetTimer(); // Start the initial timer
+                                
                                 setupRealtimeListeners();
                                 renderAdminPage(user.email || 'Admin');
                             } else {
@@ -109,6 +142,8 @@
                             window.location.href = '/?error=auth_failed';
                         });
                 } else {
+                    // User is logged out or anonymous, clear timer
+                    clearTimeout(idleTimer);
                     window.location.href = '/';
                 }
             });
@@ -120,7 +155,6 @@
 
             onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
                 state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Full re-render needed if state.editingItem is active, otherwise partial is fine
                 if (state.activeTab === 'catalog') {
                     renderProductListSection();
                 } else {
@@ -134,7 +168,6 @@
             onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
                 state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 
-                // Only render the product list section if on the catalog tab
                 if (state.activeTab === 'catalog') {
                     renderProductListSection();
                 } else {
@@ -187,7 +220,6 @@
             }
         }
         
-        // NEW: Filter items based on search term
         function getFilteredItems() {
             const term = state.searchTerm.toLowerCase();
             if (!term) return state.items;
@@ -205,9 +237,9 @@
         // --- TAB SWITCHING ---
         function switchAdminTab(tabName) {
             state.activeTab = tabName;
-            state.editingItem = null; // Clear edit form on tab switch
-            // Full render is necessary when switching tabs
+            state.editingItem = null;
             renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer(); // Reset timer on tab switch (activity)
 
             if (tabName === 'config') {
                 window.module.fetchAdminConfig();
@@ -223,29 +255,32 @@
         // --- PRODUCT EDITING AND SEARCH FUNCTIONS ---
         function handleSearchInput(event) {
             state.searchTerm = event.target.value;
-            // IMPORTANT FIX: Only re-render the list section to prevent input focus loss
-            renderProductListSection(); 
+            renderProductListSection();
+            resetTimer(); // Reset timer on search input (activity)
         }
 
         function showEditForm(item) {
             state.editingItem = item;
-            renderAdminPage(auth.currentUser?.email || 'Admin'); // Full re-render needed for the form to appear
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer(); // Reset timer on button click (activity)
         }
 
         function cancelEdit() {
             state.editingItem = null;
-            renderAdminPage(auth.currentUser?.email || 'Admin'); // Full re-render needed for the form to disappear
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer(); // Reset timer on button click (activity)
         }
 
         async function handleEditProduct(event) {
             event.preventDefault();
+            resetTimer(); // Reset timer on form submission (activity)
+
             const form = event.target;
             const itemId = form.itemId.value;
             const name = form.itemName.value.trim();
             const description = form.itemDescription.value.trim();
             const price = parseFloat(form.itemPrice.value.trim()) * 100;
             const catalogId = form.catalogId.value;
-            // If the user clears the URL, it should default back to the placeholder image
             const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
 
             if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
@@ -281,6 +316,8 @@
         // --- CATALOG & PRODUCT MANAGEMENT ---
         async function handleAddCatalog(event) {
             event.preventDefault();
+            resetTimer(); // Reset timer on form submission (activity)
+
             const name = event.target.catalogName.value.trim();
             if (!name) return;
             try {
@@ -301,6 +338,7 @@
         }
 
         async function handleDeleteCatalog(catalogId, catalogName) {
+            resetTimer(); // Reset timer on button click (activity)
             if (!confirm(`Delete catalog "${catalogName}"? All items will become 'Uncategorized'.`)) return;
             try {
                 const itemsToUpdate = state.items.filter(i => i.catalogId === catalogId);
@@ -320,6 +358,8 @@
 
         async function handleAddProduct(event) {
             event.preventDefault();
+            resetTimer(); // Reset timer on form submission (activity)
+
             const form = event.target;
             const name = form.itemName.value.trim();
             const description = form.itemDescription.value.trim();
@@ -354,6 +394,7 @@
         }
 
         async function handleDeleteProduct(itemId, itemName) {
+            resetTimer(); // Reset timer on button click (activity)
             if (!confirm(`Delete product "${itemName}"?`)) return;
             try {
                 await deleteDoc(doc(db, ITEMS_COLLECTION, itemId));
@@ -407,16 +448,13 @@
             `;
         }
 
-        // NEW: Function to render ONLY the product list section for search/filter updates
         function renderProductListSection() {
             const el = document.getElementById('productListContainer');
             if (!el) return;
 
             const filteredItems = getFilteredItems();
-            // Disable buttons if the edit form is visible to prevent simultaneous operations
             const isEditing = state.editingItem !== null; 
             
-            // Get the HTML for the product list grid
             const productGridHtml = `
                 <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${filteredItems.length} found / ${state.items.length} total)</h3>
                 <div class="overflow-x-auto">
@@ -581,9 +619,11 @@
                 </div>
             `;
 
-            document.getElementById('signOutButton')?.addEventListener('click', () => signOut(auth).then(() => location.href = '/'));
+            document.getElementById('signOutButton')?.addEventListener('click', () => {
+                clearTimeout(idleTimer); // Clear timer on manual sign-out
+                signOut(auth).then(() => location.href = '/');
+            });
 
-            // IMPORTANT: Call the partial render for the product list after the main HTML structure is in place
             if (state.activeTab === 'catalog') {
                 window.module.renderProductListSection();
             } else if (state.activeTab === 'config') {
@@ -624,6 +664,7 @@
         }
 
         async function updateMaintenanceMode(e) {
+            resetTimer();
             const enabled = e.target.checked;
             const status = document.getElementById('maintenanceStatus');
             status.textContent = 'Updating...';
@@ -644,6 +685,7 @@
         }
 
         async function fetchUsers(pageToken = null) {
+            resetTimer();
             const loading = document.getElementById('loadingMessage');
             const grid = document.getElementById('usersGrid');
             const nextBtn = document.getElementById('nextPageButton');
@@ -699,7 +741,6 @@
             handleDeleteCatalog,
             handleAddProduct,
             handleDeleteProduct,
-            // NEW EXPORTS
             handleSearchInput,
             showEditForm,
             cancelEdit,
