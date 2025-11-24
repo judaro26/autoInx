@@ -224,7 +224,6 @@
                 window.module.displayStaticIps();
             } else if (tab === 'users') {
                 const grid = document.getElementById('usersGrid');
-                // The grid check is deferred to renderAdminPage after renderAdminTabs finishes
             }
         }
 
@@ -427,9 +426,9 @@
                 <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
                     <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview</h2>
                     <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
-                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-scripts allow-same-origin allow-popups"></iframe>
+                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups"></iframe>
                     </div>
-                    <p class="text-sm text-gray-500 mt-4">Embedded view of your live site.</p>
+                    <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
                 </section>`;
         }
 
@@ -604,20 +603,19 @@
             }
         }
 
-        // --- CORRECTED fetchUsers function ---
         async function fetchUsers(pageToken = null) {
             resetTimer();
             const loading = document.getElementById('loadingMessage');
             const grid = document.getElementById('usersGrid');
             const nextBtn = document.getElementById('nextPageButton');
-            const noUsersEl = document.getElementById('noUsersMessage'); // Get the new element
+            const noUsersEl = document.getElementById('noUsersMessage');
 
             if (!grid || !nextBtn || !noUsersEl) return;
 
             loading.classList.remove('hidden');
-            noUsersEl.classList.add('hidden'); // Hide "No users" message
+            noUsersEl.classList.add('hidden');
             nextBtn.disabled = true;
-            if (!pageToken) Array.from(grid.children).slice(6).forEach(el => el.remove()); // Clear previous users
+            if (!pageToken) Array.from(grid.children).slice(6).forEach(el => el.remove());
 
             try {
                 const url = `${LIST_USERS_FUNCTION}?maxResults=100${pageToken ? `&nextPageToken=${pageToken}` : ''}`;
@@ -626,7 +624,6 @@
 
                 window.module.displayUsers(data.users);
 
-                // Check for empty list
                 if (data.users.length === 0 && !pageToken) {
                     noUsersEl.classList.remove('hidden');
                 }
@@ -643,14 +640,11 @@
                 loading.classList.add('hidden');
             }
         }
-        // --- END CORRECTED fetchUsers function ---
-
 
         function displayUsers(users) {
             const grid = document.getElementById('usersGrid');
             if (!grid) return;
             users.forEach(u => {
-                // Skips users without an email (e.g., truly anonymous Firebase users)
                 if (!u.email) return;
                 const statusColor = u.disabled ? 'text-red-500' : 'text-green-500';
                 grid.innerHTML += `
