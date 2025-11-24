@@ -11,7 +11,7 @@
         .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
         .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
         .admin-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-        .tab-button { transition: background-color 0.15s, color 0.15s; }
+        .tab-button { transition: background-color 0.15s, color: 0.15s; }
         .preview-iframe-container {
             height: 80vh;
         }
@@ -426,7 +426,7 @@
                 <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
                     <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview</h2>
                     <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
-                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups"></iframe>
+                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups allow-scripts allow-same-origin"></iframe>
                     </div>
                     <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
                 </section>`;
@@ -618,8 +618,22 @@
             if (!pageToken) Array.from(grid.children).slice(6).forEach(el => el.remove());
 
             try {
+                // Get the admin user's ID token for server-side authentication
+                const idToken = await auth.currentUser.getIdToken();
+
                 const url = `${LIST_USERS_FUNCTION}?maxResults=100${pageToken ? `&nextPageToken=${pageToken}` : ''}`;
-                const res = await fetch(url);
+                const res = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(`Failed to fetch user list. Status: ${res.status}. Details: ${errorDetails.error || res.statusText}`);
+                }
+                
                 const data = await res.json();
 
                 window.module.displayUsers(data.users);
@@ -651,8 +665,8 @@
                     <div class="grid-item">${u.email}</div>
                     <div class="grid-item text-xs">${u.uid.slice(0,8)}...</div>
                     <div class="grid-item">${u.emailVerified ? 'Yes' : 'No'}</div>
-                    <div class="grid-item text-xs">${formatTime(u.metadata.creationTime)}</div>
-                    <div class="grid-item text-xs">${formatTime(u.metadata.lastSignInTime)}</div>
+                    <div class="grid-item text-xs">${formatTime(u.createdAt)}</div>
+                    <div class="grid-item text-xs">${formatTime(u.lastSignInTime)}</div>
                     <div class="grid-item font-medium ${statusColor}">${u.disabled ? 'Disabled' : 'Active'}</div>
                 `;
             });
