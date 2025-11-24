@@ -82,6 +82,7 @@
         // --- MAINTENANCE MODE CHECK ---
         async function checkMaintenanceMode() {
             try {
+                // NOTE: This function's URL is relative, relying on the live environment for the full path
                 const response = await fetch('/.netlify/functions/checkMaintenance');
                 if (response.ok) {
                     const data = await response.json();
@@ -457,18 +458,29 @@
 
         async function handleStandardLogin(event) {
             event.preventDefault();
+            console.log('handleStandardLogin called.'); // DIAGNOSTIC 1
+
             const email = document.getElementById('email-input').value;
             const password = document.getElementById('password-input').value;
             const messageEl = document.getElementById('auth-message');
             messageEl.textContent = ''; // Clear previous messages
 
             if (state.modalType === 'admin') {
+                console.log('Attempting Admin login.'); // DIAGNOSTIC 2
+                // Manual check for empty password since we use novalidate
+                if (!password) {
+                     messageEl.textContent = '❌ Please enter the Admin Password.';
+                     return;
+                }
+                
                 // Simplified Admin Login Check (Local Password Check)
                 if (password === state.adminPassword) {
+                    console.log('Admin password correct. Redirecting.'); // DIAGNOSTIC 3
                     closeModal();
                     // NEW: Redirect to dedicated admin page on success
                     window.location.href = '/admin.html';
                 } else {
+                    console.log('Admin password incorrect.'); // DIAGNOSTIC 4
                     messageEl.textContent = '❌ Incorrect Admin Password.';
                 }
                 render();
@@ -787,9 +799,9 @@
             const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
 
             // Base fields (always needed for standard, or for admin registration)
-            let emailField = '';
+            // REMOVED 'required' attribute to prevent silent HTML5 validation failure
             let passwordField = `
-                <input type="password" id="password-input" placeholder="Password" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                <input type="password" id="password-input" placeholder="Password" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
             `;
 
             // Adjust fields based on mode/type
@@ -824,7 +836,7 @@
                         <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center">${title}</h2>
                         <div id="auth-message" class="text-red-500 text-sm mb-4 text-center font-medium"></div>
                         
-                        <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4">
+                        <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4" novalidate>
                             <div class="space-y-4">
                                 ${emailField}
                                 ${passwordField}
