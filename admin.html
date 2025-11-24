@@ -3,277 +3,930 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>autoInx Admin Dashboard</title>
+    <title>Catalog & Ordering System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
-        .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
-        .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
+        /* Custom scrollbar for better appearance */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
+        /* Modal background */
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
     </style>
-</head>
-<body class="bg-gray-100 min-h-screen">
-    <div id="app" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-        <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600">
-            <h1 class="text-4xl font-extrabold text-indigo-700">
-                Admin Dashboard
-            </h1>
-            <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
-                Sign Out
-            </button>
-        </header>
-
-        <main class="space-y-12">
-            <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500">
-                <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div>
-                        <h3 class="font-semibold text-lg mb-2 flex items-center">
-                            <svg class="w-5 h-5 mr-2 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.873-2.88.56-2.146 1.838a1.532 1.532 0 01-.582 2.286c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.582 2.286c-.873 1.3.56 2.88 1.838 2.146a1.532 1.532 0 012.286.582c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.873 2.88-.56 2.146-1.838a1.532 1.532 0 01.582-2.286c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.582-2.286c.873-1.3-.56-2.88-1.838-2.146a1.532 1.532 0 01-2.286-.582z" clip-rule="evenodd"></path></svg>
-                            Maintenance Mode
-                        </h3>
-                        <p class="text-sm text-gray-500 mb-3">Toggling this instantly locks the site for all regular users.</p>
-                        <label class="inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="maintenanceModeToggle" class="sr-only peer">
-                            <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 dark:peer-focus:ring-yellow-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-yellow-500"></div>
-                            <span class="ms-3 text-sm font-medium text-gray-900" id="maintenanceStatus">Loading...</span>
-                        </label>
-                    </div>
-
-                    <div>
-                        <h3 class="font-semibold text-lg mb-2 flex items-center">
-                            <svg class="w-5 h-5 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2h2V7A3 3 0 007 7v2h2V7a3 3 0 006 0z" clip-rule="evenodd"></path></svg>
-                            Admin IP Whitelist (Static)
-                        </h3>
-                        <p class="text-sm text-gray-500 mb-3">These IPs are loaded from **`netlify/functions/js/utilities/ipWhitelist.js`**. To update this list, you must modify the file directly and redeploy the site.</p>
-                        <div id="staticIpList" class="p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700" rows="4">Loading IPs...</div>
-                    </div>
-                </div>
-                <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
-            </section>
-
-            <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
-                <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
-                <div id="usersGrid" class="grid gap-x-4" style="grid-template-columns: repeat(6, minmax(0, 1fr));">
-                    <div class="grid-header">Email</div>
-                    <div class="grid-header">UID</div>
-                    <div class="grid-header">Verified</div>
-                    <div class="grid-header">Created</div>
-                    <div class="grid-header">Last Sign-In</div>
-                    <div class="grid-header">Status</div>
-                    </div>
-                <div id="loadingMessage" class="text-center p-4 hidden">
-                    <svg class="animate-spin h-5 w-5 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                </div>
-                <div class="flex justify-center space-x-4 mt-6">
-                    <button id="nextPageButton" onclick="fetchUsers(globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
-                </div>
-            </section>
-        </main>
-    </div>
-
     <script type="module">
-        import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // Import the IP whitelist module for display
-        import { ipWhitelist } from './netlify/functions/js/utilities/ipWhitelist.js';
-
-        // State
-        let globalNextPageToken = null;
-        let globalConfig = { maintenanceMode: false };
-
-        const AUTH = getAuth();
-        const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
-        const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
-        const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        // ADDED GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // --- HELPER FUNCTIONS ---
+        // Import IP Check Utility for Admin Gate
+        import { checkIPRange } from './netlify/functions/js/utilities/utils.js';
 
-        function formatTime(timestamp) {
-            if (!timestamp) return 'N/A';
-            const date = new Date(timestamp);
-            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-        }
-
-        function showMessage(type, text) {
-            const el = document.getElementById('configMessage');
-            let color = type === 'success' ? 'text-green-600' : 'text-red-600';
-            el.className = `mt-4 text-center text-sm font-medium ${color}`;
-            el.textContent = text;
-            setTimeout(() => { el.textContent = ''; }, 5000);
-        }
-
-        // --- AUTHENTICATION/INITIALIZATION ---
+        // Global variables provided by the Canvas environment (used if defined)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         
-        document.getElementById('signOutButton').addEventListener('click', async () => {
+        let app, db, auth;
+        let userId = null;
+        let isAuthReady = false;
+        let explicitSignOutOccurred = false; // FIX 1: New flag to prevent re-login after sign out
+
+        // --- GLOBAL STATE ---
+        const state = {
+            view: 'user', // 'user' or 'admin'
+            catalogs: [],
+            items: [],
+            cart: {}, // {itemId: {item: {}, quantity: 1}}
+            email: '',
+            adminPassword: 'admin', // Simple, insecure admin check for this demo
+            message: null,
+            loading: false,
+            isAdminIP: false, // New state for IP whitelist check
+            configLoaded: false, // Tracks if Firebase config is successfully loaded
+            isModalOpen: false, // New state for modal control
+            modalMode: 'login', // 'login' or 'register'
+            modalType: 'standard', // 'standard' or 'admin'
+            userName: null, // To store the logged-in user's name/email
+            isMaintenanceMode: false // NEW: Maintenance mode status
+        };
+
+        // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
+        async function loadFirebaseConfig() {
+            // Tier 1: Use Canvas injected config
+            if (typeof __firebase_config !== 'undefined' && __firebase_config && Object.keys(JSON.parse(__firebase_config)).length > 0) {
+                console.log("Tier 1: Loaded config from Canvas environment.");
+                return JSON.parse(__firebase_config);
+            }
+
+            // Tier 2: Fallback to Netlify Function (for standalone Netlify deployments)
             try {
-                await signOut(AUTH);
-                window.location.href = '/';
+                const netlifyFunctionUrl = '/.netlify/functions/getClientFirebaseConfig';
+                console.log("Tier 2: Attempting to load public config from Netlify Function...");
+                const response = await fetch(netlifyFunctionUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch config from Netlify Function (Status: ${response.status})`);
+                }
+                const config = await response.json();
+                console.log("Tier 2: Public config loaded successfully.");
+                return config;
             } catch (error) {
-                console.error("Sign out failed:", error);
-            }
-        });
-        
-        // Basic check to ensure user is logged in before running admin logic
-        AUTH.onAuthStateChanged(user => {
-            if (!user || user.isAnonymous) {
-                // Redirect unauthenticated or anonymous users
-                window.location.href = '/'; 
-            } else {
-                fetchAdminConfig();
-                displayStaticIps();
-                fetchUsers();
-            }
-        });
-
-        // --- IP WHITELIST DISPLAY ---
-        function displayStaticIps() {
-            const ipListEl = document.getElementById('staticIpList');
-            if (ipWhitelist && ipWhitelist.length > 0) {
-                ipListEl.innerHTML = ipWhitelist.join('<br>');
-            } else {
-                ipListEl.textContent = 'No IPs configured. Please update the ipWhitelist.js file.';
+                console.error("Tier 2 Failed. Falling back to empty config.", error);
+                return {}; // Tier 3: Empty config fallback
             }
         }
 
-        // --- MAINTENANCE MODE MANAGEMENT ---
-
-        async function fetchAdminConfig() {
+        // --- MAINTENANCE MODE CHECK ---
+        async function checkMaintenanceMode() {
             try {
-                const response = await fetch(CONFIG_FUNCTION);
-                if (!response.ok) throw new Error('Failed to fetch config.');
-                
-                globalConfig = await response.json();
-                
-                // Set Maintenance Mode Toggle
-                const toggle = document.getElementById('maintenanceModeToggle');
-                const statusSpan = document.getElementById('maintenanceStatus');
-                
-                // Use a non-nullish check since Firestore value might be undefined or false
-                const isMaintenanceEnabled = globalConfig.maintenanceMode === true;
-                
-                toggle.checked = isMaintenanceEnabled;
-                statusSpan.textContent = isMaintenanceEnabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
-
-                toggle.onchange = updateMaintenanceMode;
-
+                // NOTE: This function's URL is relative, relying on the live environment for the full path
+                const response = await fetch('/.netlify/functions/checkMaintenance');
+                if (response.ok) {
+                    const data = await response.json();
+                    state.isMaintenanceMode = data.maintenanceMode;
+                }
             } catch (error) {
-                showMessage('error', `Failed to load configuration: ${error.message}`);
-            }
-        }
-        
-        async function updateMaintenanceMode(event) {
-            const isEnabled = event.target.checked;
-            const statusSpan = document.getElementById('maintenanceStatus');
-            statusSpan.textContent = 'Updating...';
-
-            try {
-                const response = await fetch(UPDATE_CONFIG_FUNCTION, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ maintenanceMode: isEnabled })
-                });
-
-                if (!response.ok) throw new Error('Server rejected update.');
-                
-                statusSpan.textContent = isEnabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
-                showMessage('success', 'Maintenance Mode updated.');
-
-            } catch (error) {
-                event.target.checked = !isEnabled; // Revert toggle
-                statusSpan.textContent = isEnabled ? 'DISABLED (Update Failed)' : 'ENABLED (Update Failed)';
-                showMessage('error', 'Failed to update maintenance mode. See console.');
-                console.error('Maintenance Mode update error:', error);
+                console.error("Failed to check maintenance mode:", error);
+                state.isMaintenanceMode = false; // Default to off if check fails
             }
         }
 
-        // --- USER LISTING ---
 
-        async function fetchUsers(pageToken = null) {
-            const loading = document.getElementById('loadingMessage');
-            const grid = document.getElementById('usersGrid');
-            const nextButton = document.getElementById('nextPageButton');
-            
-            loading.classList.remove('hidden');
-            nextButton.disabled = true;
-
-            // Clear grid for first page load (but keep headers)
-            if (!pageToken) {
-                grid.querySelectorAll('.user-row').forEach(row => row.remove());
-            }
-
+        // --- FIREBASE INITIALIZATION & AUTH ---
+        async function setupFirebase() {
             try {
-                const url = `${LIST_USERS_FUNCTION}?maxResults=100` + (pageToken ? `&nextPageToken=${pageToken}` : '');
-                const response = await fetch(url);
-                
-                if (!response.ok) throw new Error('Failed to fetch users from Netlify function.');
-
-                const data = await response.json();
-                
-                displayUsers(data.users);
-                
-                globalNextPageToken = data.nextPageToken;
-                if (data.nextPageToken) {
-                    nextButton.disabled = false;
-                } else {
-                    nextButton.textContent = 'End of List';
+                // 1. Check maintenance mode before doing anything else
+                await checkMaintenanceMode();
+                if (state.isMaintenanceMode) {
+                    state.message = { type: 'warning', text: 'The site is currently undergoing maintenance. Please check back later.' };
+                    render();
+                    return; // Stop initialization if in maintenance mode
                 }
 
+                const firebaseConfig = await loadFirebaseConfig();
+                state.configLoaded = true;
+
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is missing or failed to load from Netlify Function.");
+                    state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
+                    render();
+                    return;
+                }
+                
+                setLogLevel('debug'); // Enable Firestore logging
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                // Perform IP Check right away
+                state.isAdminIP = await checkIPRange();
+                console.log(`IP Check complete. Is Admin IP: ${state.isAdminIP}`);
+
+                // Attempt to sign in
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        
+                        // FIX 3: Only set userName if the user is NOT anonymous (i.e., they have a persistent account)
+                        if (!user.isAnonymous) {
+                            state.userName = user.email || user.displayName || 'Authenticated User';
+                            console.log("User authenticated with persistent account. UID:", userId);
+                        } else {
+                            // User is anonymous (for cart persistence) but not shown as signed-in for UI
+                            state.userName = null;
+                        }
+                        
+                        explicitSignOutOccurred = false; // Clear flag on any successful login/session restore
+
+                    } else {
+                        // User is null (initial load or explicit sign out)
+                        userId = null;
+                        state.userName = null; // Clear name on sign-out
+
+                        if (explicitSignOutOccurred) {
+                            // FIX 2: If this was an explicit sign-out, clear the flag and prevent anonymous re-sign-in.
+                            console.log("Explicit sign-out processed. Preventing anonymous re-sign-in.");
+                            explicitSignOutOccurred = false;
+                        } else {
+                            // This branch handles initial load when no user (not even anonymous) is present.
+                            // Attempt anonymous sign-in for data persistence.
+                            console.log("No persistent user found. Attempting anonymous sign-in for data persistence.");
+                            try {
+                                // This will trigger the listener again with the anonymous user
+                                await signInAnonymously(auth); 
+                                userId = auth.currentUser?.uid || crypto.randomUUID();
+                            } catch (error) {
+                                console.error("Error during anonymous sign-in:", error);
+                            }
+                        }
+                    }
+                    isAuthReady = true;
+                    if (db) setupRealtimeListeners();
+                    render();
+                });
+
+                // Use the custom token if provided (e.g., from Canvas)
+                if (initialAuthToken) {
+                    signInWithCustomToken(auth, initialAuthToken)
+                        .catch(error => {
+                            console.error("Error signing in with custom token:", error);
+                            // Fallback to anonymous sign-in is handled by onAuthStateChanged
+                        });
+                } else if (!auth.currentUser) {
+                    signInAnonymously(auth);
+                }
+
+
             } catch (error) {
-                showMessage('error', 'Failed to load user list.');
-                console.error('User fetch error:', error);
-            } finally {
-                loading.classList.add('hidden');
-                nextButton.disabled = !globalNextPageToken;
+                console.error("Firebase setup failed:", error);
+                state.message = { type: 'error', text: 'Failed to initialize Firebase.' };
+                render();
             }
         }
 
-        function displayUsers(users) {
-            const grid = document.getElementById('usersGrid');
-            
-            users.forEach(user => {
-                // Skip anonymous users, only display permanent accounts
-                if (!user.email) return;
+        // --- FIRESTORE COLLECTION PATHS ---
+        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
+        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+        const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
 
-                const statusColor = user.disabled ? 'text-red-500' : 'text-green-500';
-                
-                // Email
-                const email = document.createElement('div');
-                email.className = 'grid-item user-row';
-                email.textContent = user.email || user.displayName || 'N/A';
-                
-                // UID (Truncated)
-                const uid = document.createElement('div');
-                uid.className = 'grid-item user-row text-xs';
-                uid.textContent = user.uid.slice(0, 8) + '...';
+        // --- FIRESTORE REALTIME LISTENERS ---
+        function setupRealtimeListeners() {
+            if (!isAuthReady || !db) return;
 
-                // Verified
-                const verified = document.createElement('div');
-                verified.className = 'grid-item user-row';
-                verified.textContent = user.emailVerified ? 'Yes' : 'No';
+            // 1. Catalogs Listener
+            onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
+                state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Catalogs updated:", state.catalogs.length);
+                render();
+            }, (error) => {
+                console.error("Error listening to catalogs:", error);
+                state.message = { type: 'error', text: 'Failed to fetch catalogs.' };
+                render();
+            });
 
-                // Created At
-                const created = document.createElement('div');
-                created.className = 'grid-item user-row text-xs';
-                created.textContent = formatTime(user.createdAt);
-
-                // Last Sign-In
-                const lastSignIn = document.createElement('div');
-                lastSignIn.className = 'grid-item user-row text-xs';
-                lastSignIn.textContent = formatTime(user.lastSignInTime);
-                
-                // Status
-                const status = document.createElement('div');
-                status.className = `grid-item user-row font-medium ${statusColor}`;
-                status.textContent = user.disabled ? 'Disabled' : 'Active';
-
-                grid.appendChild(email);
-                grid.appendChild(uid);
-                grid.appendChild(verified);
-                grid.appendChild(created);
-                grid.appendChild(lastSignIn);
-                grid.appendChild(status);
+            // 2. Items Listener
+            onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
+                state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Items updated:", state.items.length);
+                render();
+            }, (error) => {
+                console.error("Error listening to items:", error);
+                state.message = { type: 'error', text: 'Failed to fetch items.' };
+                render();
             });
         }
+
+
+        // --- HELPER FUNCTIONS ---
+        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
+        const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
+
+        function showMessage(type, text, duration = 4000) {
+            state.message = { type, text };
+            render();
+            setTimeout(() => {
+                state.message = null;
+                render();
+            }, duration);
+        }
+
+        // --- ADMIN ACTIONS ---
+
+        async function addCatalog(event) {
+            event.preventDefault();
+            const name = event.target.catalogName.value.trim();
+            if (!name) return;
+
+            try {
+                await addDoc(collection(db, CATALOGS_COLLECTION), { name, createdAt: serverTimestamp() });
+                event.target.catalogName.value = '';
+                showMessage('success', `Catalog "${name}" created successfully.`);
+            } catch (error) {
+                console.error("Error adding catalog:", error);
+                showMessage('error', 'Failed to add catalog. Check Firestore Rules.');
+            }
+        }
+
+        async function addItem(event) {
+            event.preventDefault();
+            const form = event.target;
+            const name = form.itemName.value.trim();
+            const price = parseFloat(form.itemPrice.value.trim()) * 100; // Store price in cents
+            const catalogId = form.catalogId.value;
+            // Use a placeholder image if the URL is empty or invalid
+            const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/6366f1/ffffff?text=Image+Missing';
+
+            if (!name || isNaN(price) || price <= 0 || !catalogId) {
+                showMessage('warning', 'Please fill all fields correctly.');
+                return;
+            }
+
+            try {
+                await addDoc(collection(db, ITEMS_COLLECTION), {
+                    name,
+                    price,
+                    catalogId,
+                    imageUrl,
+                    createdAt: serverTimestamp()
+                });
+                form.reset();
+                showMessage('success', `Item "${name}" added successfully.`);
+            } catch (error) {
+                console.error("Error adding item:", error);
+                showMessage('error', 'Failed to add item. Check Firestore Rules.');
+            }
+        }
+
+        // --- USER ACTIONS ---
+
+        function addToCart(item) {
+            const currentEntry = state.cart[item.id];
+            const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
+            state.cart = {
+                ...state.cart,
+                [item.id]: { item, quantity: newQuantity }
+            };
+            showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
+            render();
+        }
+
+        function updateCartQuantity(itemId, change) {
+            const currentEntry = state.cart[itemId];
+            if (!currentEntry) return;
+
+            const newQuantity = currentEntry.quantity + change;
+
+            if (newQuantity <= 0) {
+                // Remove item from cart
+                const newCart = { ...state.cart };
+                delete newCart[itemId];
+                state.cart = newCart;
+                showMessage('info', `${currentEntry.item.name} removed from cart.`, 2000);
+            } else {
+                // Update quantity
+                state.cart = {
+                    ...state.cart,
+                    [itemId]: { item: currentEntry.item, quantity: newQuantity }
+                };
+            }
+            render();
+        }
+
+        async function submitOrder(event) {
+            event.preventDefault();
+
+            if (Object.keys(state.cart).length === 0) {
+                showMessage('error', 'Your cart is empty!');
+                return;
+            }
+
+            const emailInput = document.getElementById('buyer-email');
+            const buyerEmail = emailInput.value.trim();
+            if (!buyerEmail || !buyerEmail.includes('@')) {
+                showMessage('error', 'Please enter a valid email address.');
+                return;
+            }
+
+            if (!userId) {
+                showMessage('error', 'Authentication failed. Cannot submit order without a User ID.');
+                return;
+            }
+
+            state.loading = true;
+            render();
+
+            const orderDetails = {
+                buyerEmail,
+                items: Object.values(state.cart).map(entry => ({
+                    id: entry.item.id,
+                    name: entry.item.name,
+                    price: entry.item.price, // in cents
+                    quantity: entry.quantity,
+                    catalog: state.catalogs.find(c => c.id === entry.item.catalogId)?.name || 'N/A'
+                })),
+                totalCents: getTotalCartPrice(),
+                userId: userId, // Current user ID
+                timestamp: new Date().toISOString()
+            };
+
+            let orderRef = null;
+            try {
+                // 1. Save the order to Firestore (in the user's private collection)
+                orderRef = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
+                    ...orderDetails,
+                    status: 'Pending',
+                    createdAt: serverTimestamp(),
+                });
+                console.log("Order saved to Firestore with ID:", orderRef.id);
+
+                // 2. Call Netlify Function to send email (Secure Server-Side Step)
+                const netlifyFunctionUrl = '/.netlify/functions/send-email';
+
+                const MAX_RETRIES = 3;
+                let response = null;
+                for (let i = 0; i < MAX_RETRIES; i++) {
+                    try {
+                        response = await fetch(netlifyFunctionUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ...orderDetails, orderId: orderRef.id })
+                        });
+
+                        if (response.ok) {
+                            break;
+                        } else if (i === MAX_RETRIES - 1) {
+                            throw new Error(`Server returned status ${response.status}`);
+                        }
+                    } catch (fetchError) {
+                        if (i === MAX_RETRIES - 1) {
+                            throw fetchError;
+                        }
+                        const delay = Math.pow(2, i) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        console.log(`Retrying API call... attempt ${i + 2}`);
+                    }
+                }
+
+                if (!response || !response.ok) {
+                    throw new Error("Failed to get a successful response from the email function.");
+                }
+
+                const result = await response.json();
+                console.log("Netlify Function response:", result);
+
+                // 3. Success Feedback and Cleanup
+                showMessage('success', `Order #${orderRef.id.slice(0, 8)}... submitted! A confirmation email has been sent to ${buyerEmail}.`, 8000);
+                state.cart = {};
+                emailInput.value = '';
+
+            } catch (error) {
+                console.error("Order submission failed:", error);
+                showMessage('error', `Order failed. Please check the console for details. (Order saved, but email might have failed.)`);
+                // Optionally update Firestore order status to 'Email Failed'
+                try {
+                    if (orderRef) {
+                        await setDoc(doc(db, ORDERS_COLLECTION(userId), orderRef.id), { emailStatus: 'Failed' }, { merge: true });
+                    }
+                } catch (e) {
+                    console.error("Could not update order status after email failure:", e);
+                }
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+
+        // --- AUTHENTICATION & MODAL FUNCTIONS ---
+
+        function showLoginModal(type, mode) {
+            // type: 'standard' (user) or 'admin')
+            // mode: 'login' or 'register'
+            state.isModalOpen = true;
+            state.modalMode = mode;
+            state.modalType = type;
+            render();
+            // Clear previous errors/fields
+            document.getElementById('auth-message').textContent = '';
+            // Only attempt to clear if the inputs are visible (not in admin mode)
+            const emailInput = document.getElementById('email-input');
+            const passwordInput = document.getElementById('password-input');
+            if (emailInput) emailInput.value = '';
+            if (passwordInput) passwordInput.value = '';
+        }
+
+        function closeModal() {
+            state.isModalOpen = false;
+            render();
+        }
+
+        // --- NEW SIGN OUT FUNCTION ---
+        async function handleSignOut() {
+            try {
+                explicitSignOutOccurred = true; // FIX 1: Set flag before signing out
+                await signOut(auth);
+                showMessage('info', 'Signed out successfully.', 3000);
+                state.view = 'user'; // Ensure we are back in user view
+            } catch (error) {
+                console.error("Error signing out:", error);
+                showMessage('error', 'Failed to sign out.');
+            }
+            render();
+        }
+
+        async function handleStandardLogin(event) {
+            event.preventDefault();
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+            const messageEl = document.getElementById('auth-message');
+            messageEl.textContent = ''; // Clear previous messages
+
+            if (state.modalType === 'admin') {
+                // Manual check for empty password since we use novalidate
+                if (!password) {
+                     messageEl.textContent = '❌ Please enter the Admin Password.';
+                     return;
+                }
+                
+                // Simplified Admin Login Check (Local Password Check)
+                if (password === state.adminPassword) {
+                    closeModal();
+                    // NEW: Redirect to dedicated admin page on success
+                    window.location.href = '/admin.html';
+                } else {
+                    messageEl.textContent = '❌ Incorrect Admin Password.';
+                }
+                render();
+                return;
+            }
+
+            // Standard User Login (Firebase Auth)
+            try {
+                if (state.modalMode === 'login') {
+                    // Log in the user
+                    await signInWithEmailAndPassword(auth, email, password);
+                    showMessage('success', 'Login successful!', 2000);
+                } else {
+                    // Register a new user
+                    // Using client-side registration to auto-login
+                    await createUserWithEmailAndPassword(auth, email, password);
+                    showMessage('success', 'Registration successful! You are now logged in.', 2000);
+                }
+                closeModal();
+            } catch (error) {
+                console.error("Authentication failed:", error.code, error);
+                let errorMessage = 'An error occurred during authentication.';
+                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    errorMessage = 'Invalid email or password.';
+                } else if (error.code === 'auth/email-already-in-use') {
+                    errorMessage = 'This email is already registered. Try logging in.';
+                } else if (error.code === 'auth/weak-password') {
+                    errorMessage = 'Password is too weak (must be 6+ characters).';
+                }
+                messageEl.textContent = `❌ ${errorMessage}`;
+            }
+            render();
+        }
+
+        async function handleGoogleSignIn() {
+            const provider = new GoogleAuthProvider();
+            const messageEl = document.getElementById('auth-message');
+            messageEl.textContent = 'Logging in with Google...';
+
+            try {
+                await signInWithPopup(auth, provider);
+                showMessage('success', 'Google Sign-In successful!', 2000);
+                closeModal();
+            } catch (error) {
+                console.error("Google Sign-In failed:", error);
+                messageEl.textContent = '❌ Google Sign-In failed. Check console for details.';
+            }
+            render();
+        }
+
+        // --- EXISTING FUNCTIONS (Modified for Modal Control) ---
+
+        async function requestPasswordReset() {
+            const email = prompt("Enter the email associated with your account to receive a password reset link:");
+            
+            if (!email) {
+                return;
+            }
+            
+            if (!email.includes('@') || email.length < 5) {
+                showMessage('error', 'Please enter a valid email address.');
+                return;
+            }
+
+            showMessage('info', 'Requesting password reset link...', 60000);
+            
+            const netlifyFunctionUrl = '/.netlify/functions/sendPasswordResetEmail';
+
+            try {
+                const MAX_RETRIES = 3;
+                let response = null;
+                for (let i = 0; i < MAX_RETRIES; i++) {
+                    try {
+                        response = await fetch(netlifyFunctionUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email })
+                        });
+
+                        if (response.ok) {
+                            break;
+                        } else if (i === MAX_RETRIES - 1) {
+                            throw new Error(`Server returned status ${response.status}`);
+                        }
+                    } catch (fetchError) {
+                        if (i === MAX_RETRIES - 1) {
+                            throw fetchError;
+                        }
+                        const delay = Math.pow(2, i) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        console.log(`Retrying password reset request... attempt ${i + 2}`);
+                    }
+                }
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showMessage('success', `If an account exists for ${email}, a password reset link has been sent. Check your inbox!`, 8000);
+                } else {
+                    showMessage('error', result.error || 'Failed to request password reset. Please try again later.');
+                }
+            } catch (error) {
+                console.error("Password reset request failed:", error);
+                showMessage('error', 'Network error. Could not connect to the password reset service.');
+            }
+        }
+        
+        async function registerUser() {
+            // Now just opens the modal in register mode
+            showLoginModal('standard', 'register');
+        }
+
+
+        // --- RENDER FUNCTIONS (Consolidated and Corrected) ---
+
+        function renderMessage() {
+            if (!state.message) return '';
+            const { type, text } = state.message;
+            let bgColor, icon;
+            if (type === 'success') { bgColor = 'bg-green-500'; icon = '✅'; }
+            else if (type === 'error') { bgColor = 'bg-red-500'; icon = '❌'; }
+            else if (type === 'warning') { bgColor = 'bg-yellow-500'; icon = '⚠️'; }
+            else { bgColor = 'bg-blue-500'; icon = 'ℹ️'; }
+
+            return `
+                <div class="fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white ${bgColor} transition-opacity duration-300">
+                    <div class="flex items-center">
+                        <span class="text-xl mr-2">${icon}</span>
+                        <span>${text}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminView() {
+            // THIS VIEW IS NOW DEPRECATED. Admin users are redirected to admin.html
+            if (state.view !== 'admin') return '';
+            return `
+                <div class="space-y-10 p-6 bg-gray-50 rounded-xl shadow-inner md:flex md:space-y-0 md:space-x-10">
+                    <p class="text-xl font-semibold text-gray-700">Redirecting to Admin Dashboard...</p>
+                </div>
+            `;
+        }
+
+        function renderUserView() {
+            if (state.isMaintenanceMode) {
+                return `<div class="p-10 text-center text-gray-600">
+                    <svg class="w-12 h-12 mx-auto text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
+                    <h2 class="text-2xl font-bold mt-4">System Under Maintenance</h2>
+                    <p class="mt-2">We are performing scheduled maintenance. We apologize for any inconvenience.</p>
+                </div>`;
+            }
+            if (state.view !== 'user') return '';
+
+            const itemsByCatalog = state.items.reduce((acc, item) => {
+                const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                if (!acc[catalogName]) acc[catalogName] = [];
+                acc[catalogName].push(item);
+                return acc;
+            }, {});
+
+            const totalCartPrice = getTotalCartPrice();
+
+            return `
+                <div class="md:flex md:space-x-8">
+                    <div class="w-full md:w-3/4 space-y-8">
+                        ${Object.keys(itemsByCatalog).length > 0
+                            ? Object.keys(itemsByCatalog).map(catalogName => `
+                                <div>
+                                    <h3 class="text-3xl font-bold mb-4 text-indigo-700">${catalogName}</h3>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        ${itemsByCatalog[catalogName].map(item => `
+                                            <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
+                                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                                                <div class="p-4">
+                                                    <h4 class="text-xl font-semibold text-gray-800 truncate">${item.name}</h4>
+                                                    <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
+                                                    <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
+                                                            class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
+                                                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                                        Add to Cart
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `).join('<hr class="my-8 border-indigo-200">')
+                            : '<p class="text-gray-500">The catalog is currently empty. Please switch to Admin View to add items.</p>'
+                        }
+                    </div>
+
+                    <div class="w-full md:w-1/4 mt-8 md:mt-0 sticky top-4">
+                        <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-pink-500">
+                            <h3 class="text-2xl font-bold mb-4 text-pink-600 flex items-center">
+                                <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
+                                Shopping Cart
+                            </h3>
+                            <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
+                                ${Object.values(state.cart).length > 0
+                                    ? Object.values(state.cart).map(entry => `
+                                        <div class="flex justify-between items-center border-b pb-2">
+                                            <div class="flex-1 min-w-0">
+                                                <p class="text-sm font-medium text-gray-900 truncate">${entry.item.name}</p>
+                                                <p class="text-xs text-gray-500">${formatPrice(entry.item.price)} each</p>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)"
+                                                        class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
+                                                <span class="text-sm font-semibold w-5 text-center">${entry.quantity}</span>
+                                                <button onclick="window.module.updateCartQuantity('${entry.item.id}', 1)"
+                                                        class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
+                                            </div>
+                                            <span class="text-sm font-bold ml-4">${formatPrice(entry.item.price * entry.quantity)}</span>
+                                        </div>
+                                    `).join('')
+                                    : '<p class="text-gray-500 italic">Your cart is empty.</p>'
+                                }
+                            </div>
+                            <div class="pt-4 mt-4 border-t border-gray-200">
+                                <div class="flex justify-between font-bold text-xl text-gray-800">
+                                    <span>Total:</span>
+                                    <span>${formatPrice(totalCartPrice)}</span>
+                                </div>
+                                <form onsubmit="window.module.submitOrder(event)" class="mt-4 space-y-3">
+                                    <input type="email" id="buyer-email" placeholder="Your Email for Confirmation" required
+                                        class="w-full p-3 border border-pink-300 rounded-lg focus:ring-pink-500 focus:border-pink-500">
+                                    <button type="submit" ${Object.keys(state.cart).length === 0 || state.loading ? 'disabled' : ''}
+                                            class="w-full bg-pink-600 text-white p-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-lg disabled:bg-pink-300 disabled:cursor-not-allowed flex justify-center items-center">
+                                        ${state.loading ? `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                        Processing...` : 'Submit Order & Pay'}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAuthToggle() {
+            // If the IP check is still pending or maintenance mode is on, show nothing except the maintenance message
+            if (!state.configLoaded || !isAuthReady || state.isMaintenanceMode) return ''; 
+
+            // 1. If currently in Admin view, show the exit button
+            if (state.view === 'admin') {
+                return `
+                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
+                        Exit Admin View
+                    </button>
+                `;
+            } 
+            
+            // 2. If a user is logged in (state.userName is set by onAuthStateChanged AND is not anonymous)
+            if (state.userName) {
+                return `
+                    <div class="flex items-center space-x-4">
+                        <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${state.userName}</span>
+                        ${state.isAdminIP ? 
+                            `<a href="/admin.html" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
+                                Admin Dashboard
+                            </a>` : ''}
+                        <button onclick="window.module.handleSignOut()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
+                            Sign Out
+                        </button>
+                    </div>
+                `;
+            }
+            
+            // 3. If no user is logged in (i.e., only anonymous or public view)
+            
+            // Common User View Buttons (Registration/Login/Reset)
+            const commonButtons = `
+                <button onclick="window.module.registerUser()" 
+                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
+                    Sign Up
+                </button>
+                <button onclick="window.module.requestPasswordReset()" 
+                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
+                    Forgot Password?
+                </button>
+            `;
+
+            if (state.isAdminIP) {
+                // If in User view AND IP is whitelisted, show Admin Login
+                return `
+                    <div class="flex items-center space-x-4">
+                        ${commonButtons}
+                        <button onclick="window.module.toggleView('admin')" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
+                            Admin Login
+                        </button>
+                    </div>
+                `;
+            } else {
+                // Standard Login flow
+                return `
+                    <div class="flex items-center space-x-4">
+                        ${commonButtons}
+                        <button onclick="window.module.toggleView('standard')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
+                            Standard Login
+                        </button>
+                    </div>
+                `;
+            }
+        }
+        
+        function renderModal() {
+            if (!state.isModalOpen) return '';
+            
+            const isLogin = state.modalMode === 'login';
+            const isStandard = state.modalType === 'standard';
+            const isRegister = state.modalMode === 'register';
+
+            const title = isLogin ? (isStandard ? 'User Login' : 'Admin Login') : 'Register New Account';
+            const submitText = isLogin ? 'Login' : 'Register';
+            const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
+
+            // Base fields (always needed for standard, or for admin registration)
+            let emailField = '';
+            let passwordField = `
+                <input type="password" id="password-input" placeholder="Password" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+            `;
+
+            // Adjust fields based on mode/type
+            if (isStandard || isRegister) {
+                // Standard login/register always needs email field
+                emailField = `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
+            } else if (!isStandard && isLogin) {
+                // Admin login (local check) uses hardcoded email, so we hide the input and add the helper message
+                emailField = `
+                    <p class="text-sm text-gray-500 mb-4">Enter the local admin password below (Email is not required for local check).</p>
+                    <input type="hidden" id="email-input" value="admin@local.com">
+                `;
+            }
+
+            // Google sign-in button is only for Standard or Register flow
+            const googleAuthButton = (isStandard || isRegister) ? `
+                <div class="my-4 flex items-center">
+                    <hr class="flex-grow border-gray-300">
+                    <span class="px-2 text-gray-500 text-sm">OR</span>
+                    <hr class="flex-grow border-gray-300">
+                </div>
+                <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google_reCAPTCHA.svg" class="w-5 h-5 mr-2" alt="Google Logo">
+                    ${isLogin ? 'Sign in with Google' : 'Register with Google'}
+                </button>
+            ` : '';
+
+
+            return `
+                <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
+                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm relative" onclick="event.stopPropagation()">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center">${title}</h2>
+                        <div id="auth-message" class="text-red-500 text-sm mb-4 text-center font-medium"></div>
+                        
+                        <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4" novalidate>
+                            <div class="space-y-4">
+                                ${emailField}
+                                ${passwordField}
+                            </div>
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
+                                ${submitText}
+                            </button>
+                            ${googleAuthButton}
+                        </form>
+
+                        <button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
+                                class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
+                            ${switchModeText}
+                        </button>
+
+                        <button onclick="window.module.closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+
+        function render() {
+            const appContainer = document.getElementById('app');
+            if (!appContainer) return;
+
+            // Simple admin check
+            const currentContent = state.view === 'admin' ? renderAdminView() : renderUserView();
+
+            appContainer.innerHTML = `
+                ${renderMessage()}
+                ${renderModal()}
+                <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+                    <header class="flex justify-between items-center mb-10 pb-4 border-b border-indigo-200">
+                        <h1 class="text-4xl font-extrabold text-indigo-700">
+                            ${state.view === 'admin' ? 'Administration Panel' : 'Online Store'}
+                        </h1>
+                        ${renderAuthToggle()}
+                    </header>
+                    ${currentContent}
+
+                    <footer class="mt-12 text-center text-sm text-gray-500 pt-6 border-t border-gray-100">
+                        <p>App ID: ${appId} | User ID: ${userId || 'N/A'}</p>
+                        <p>Data stored securely in Firestore.</p>
+                    </footer>
+                </div>
+            `;
+        }
+
+        // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
+
+        function toggleView(type = 'standard') {
+            if (state.view === 'user') {
+                // Show modal for login instead of prompting password
+                showLoginModal(type, 'login');
+            } else {
+                state.view = 'user';
+            }
+            render();
+        }
+
+        window.module = {
+            setupFirebase,
+            render,
+            toggleView,
+            addCatalog,
+            addItem,
+            addToCart,
+            updateCartQuantity,
+            submitOrder,
+            requestPasswordReset,
+            registerUser, 
+            showLoginModal,
+            handleStandardLogin,
+            handleGoogleSignIn,
+            closeModal,
+            handleSignOut
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setupFirebase();
+        });
     </script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="app">
+        <div class="text-center p-20">
+            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-600">Loading application and connecting to Firebase...</p>
+        </div>
+    </div>
 </body>
 </html>
