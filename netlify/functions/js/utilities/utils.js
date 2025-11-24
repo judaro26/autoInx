@@ -7,6 +7,7 @@ import { ipWhitelist } from './ipWhitelist.js';
  */
 export async function checkIPRange() {
     try {
+        // Fetch the user's public IP address
         const response = await fetch('https://api.ipify.org?format=json');
         
         if (!response.ok) {
