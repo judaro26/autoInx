@@ -15,6 +15,9 @@
         .preview-iframe-container {
             height: 80vh;
         }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -33,6 +36,8 @@
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // CORRECTED: Import static IP list directly from the new client-accessible path
+        import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js'; 
 
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
@@ -53,13 +58,12 @@
             adminCart: {},
         };
 
-        // --- FIRESTORE COLLECTION PATHS ---
+        // --- FIRESTORE COLLECTION PATHS & FUNCTION URLS ---
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
         const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
         const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
         const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
-        const GET_IP_WHITELIST_FUNCTION = '/.netlify/functions/getIpWhitelist';
         const LOG_ACTION_FUNCTION = '/.netlify/functions/logAdminAction';
         const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser';
         const CLEAR_ANON_FUNCTION = '/.netlify/functions/clearAnonymousUsers';
@@ -148,7 +152,7 @@
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
                 state.items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-                if (state.activeTab === 'orders' && !state.previewMode) renderAdminOrderSection();
+                if (state.activeTab === 'orders' && !state.previewMode) updateAdminCartDisplay();
             }, err => {
                 console.error("Error listening to items:", err);
                 showMessage('error', 'Failed to fetch items.');
@@ -226,7 +230,9 @@
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
             } else if (tab === 'users') {
-                if (document.getElementById('usersGrid')?.children.length <= 7) window.module.fetchUsers();
+                const grid = document.getElementById('usersGrid');
+                if (grid) Array.from(grid.children).slice(7).forEach(el => el.remove()); // Clear old data but keep headers
+                window.module.fetchUsers(null);
             } else if (tab === 'orders') {
                 window.module.updateAdminCartDisplay();
             }
@@ -587,7 +593,198 @@
             if (itemSelector) itemSelector.innerHTML = `<option value="">-- Select Product --</option>${renderItemSelectorOptions()}`;
         }
 
-        // --- RENDERING FUNCTIONS ---
+
+        // ----------------------------------------------------------------------
+        // --- IMPLEMENTED ADMIN FUNCTIONS ---
+        // ----------------------------------------------------------------------
+
+        /**
+         * Fetches the dynamic admin configuration from Firestore via Netlify Function.
+         */
+        async function fetchAdminConfig() {
+            try {
+                const response = await fetch(CONFIG_FUNCTION);
+                if (!response.ok) throw new Error('Failed to fetch admin config.');
+                
+                const config = await response.json();
+                window.module.globalConfig = config;
+                
+                // Update form values with fetched config
+                const maintenanceToggle = document.getElementById('maintenanceToggle');
+                if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
+
+                const ipListEl = document.getElementById('dynamicIpList');
+                if (ipListEl) {
+                    ipListEl.value = Array.isArray(config.ipWhitelist) ? config.ipWhitelist.join('\n') : '';
+                }
+
+                const lastUpdatedEl = document.getElementById('configLastUpdated');
+                if (lastUpdatedEl && config.lastUpdated) {
+                    const date = config.lastUpdated.toDate ? config.lastUpdated.toDate() : new Date(config.lastUpdated._seconds * 1000);
+                    lastUpdatedEl.textContent = `Last Updated: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+                }
+
+            } catch (error) {
+                console.error('Error fetching admin config:', error);
+                showMessage('error', 'Failed to load dynamic configuration.');
+            }
+        }
+
+        /**
+         * Displays the static IP whitelist imported directly from the client-side file.
+         */
+        function displayStaticIps() {
+            const staticIpEl = document.getElementById('staticIpListDisplay');
+            if (staticIpEl) {
+                staticIpEl.textContent = Array.isArray(staticIpWhitelist) && staticIpWhitelist.length > 0
+                    ? staticIpWhitelist.join('\n')
+                    : 'No static IPs configured.';
+            }
+        }
+        
+        /**
+         * Handles saving the configuration changes back to Firestore.
+         */
+        async function handleUpdateConfig(event) {
+            event.preventDefault();
+            resetTimer();
+            
+            const maintenanceMode = document.getElementById('maintenanceToggle').checked;
+            const ipListText = document.getElementById('dynamicIpList').value.trim();
+            
+            // Parse IP list: split by newline, filter empty, trim whitespace
+            const ipWhitelist = ipListText.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0);
+
+            const updates = {
+                maintenanceMode,
+                ipWhitelist
+            };
+
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const response = await fetch(UPDATE_CONFIG_FUNCTION, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify(updates)
+                });
+
+                if (!response.ok) {
+                    const errorDetails = await response.json();
+                    throw new Error(errorDetails.details || errorDetails.error || response.statusText);
+                }
+
+                showMessage('success', 'Configuration updated successfully.', 5000);
+                await logAdminAction('CONFIG_UPDATED', updates);
+                fetchAdminConfig(); // Reload config to update last updated time
+                
+            } catch (error) {
+                console.error('Error updating config:', error);
+                showMessage('error', `Failed to update configuration: ${error.message}`);
+            }
+        }
+
+        /**
+         * Fetches a batch of users from Firebase Auth via Netlify function for pagination.
+         */
+        async function fetchUsers(pageToken = null) {
+            resetTimer();
+            const grid = document.getElementById('usersGrid');
+            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
+            const msgEl = document.getElementById('usersMessage');
+            
+            if (msgEl) msgEl.textContent = pageToken ? 'Loading next batch...' : 'Loading users...';
+            if (loadMoreBtn) loadMoreBtn.disabled = true;
+
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const params = new URLSearchParams();
+                if (pageToken) params.append('nextPageToken', pageToken);
+                
+                const res = await fetch(`${LIST_USERS_FUNCTION}?${params.toString()}`, {
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`
+                    }
+                });
+
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(errorDetails.details || errorDetails.error || res.statusText);
+                }
+
+                const data = await res.json();
+                window.module.globalNextPageToken = data.nextPageToken;
+                
+                displayUsers(data.users);
+
+            } catch (error) {
+                console.error('Error fetching users:', error);
+                showMessage('error', `Failed to fetch users: ${error.message}`);
+            } finally {
+                if (msgEl) msgEl.textContent = '';
+                if (loadMoreBtn) loadMoreBtn.disabled = false;
+                renderUserControls(); 
+            }
+        }
+
+        /**
+         * Renders a list of user records into the users grid.
+         */
+        function displayUsers(users) {
+            const grid = document.getElementById('usersGrid');
+            if (!grid) return;
+
+            const userRows = users.map(user => {
+                const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
+                const emailVerifiedIcon = user.emailVerified ? '✅' : '❌';
+                const disabledButtonText = user.disabled ? 'Enable' : 'Disable';
+                const disabledButtonColor = user.disabled ? 'text-green-600 hover:text-green-800' : 'text-yellow-600 hover:text-yellow-800';
+
+                // Handle cases where email is null for anonymous users
+                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
+
+                return `
+                    <div class="grid-item text-xs font-mono truncate ${disabledClass}">${user.uid.slice(0, 8)}...</div>
+                    <div class="grid-item text-sm font-semibold truncate ${disabledClass}">${userEmail} ${emailVerifiedIcon}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.displayName}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleDateString() : 'N/A'}</div>
+                    <div class="grid-item text-xs font-bold ${disabledClass}">${user.disabled ? 'DISABLED' : 'Active'}</div>
+                    <div class="grid-item space-x-2 ${disabledClass}">
+                        <button onclick="window.module.promptForPasswordReset('${user.uid}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
+                        <button onclick="window.module.disableUser('${user.uid}', '${userEmail}', ${user.disabled})" class="${disabledButtonColor} text-sm font-semibold">${disabledButtonText}</button>
+                        <button onclick="window.module.deleteUser('${user.uid}', '${userEmail}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                    </div>
+                `;
+            }).join('');
+
+            grid.insertAdjacentHTML('beforeend', userRows);
+            renderUserControls();
+        }
+
+        /**
+         * Updates the state of the Load More Users button.
+         */
+        function renderUserControls() {
+            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
+            if (loadMoreBtn) {
+                if (window.module.globalNextPageToken) {
+                    loadMoreBtn.classList.remove('hidden');
+                    loadMoreBtn.textContent = 'Load More Users (100)';
+                    loadMoreBtn.disabled = false;
+                } else {
+                    loadMoreBtn.classList.add('hidden');
+                }
+            }
+        }
+
+
+        // ----------------------------------------------------------------------
+        // --- RENDERING FUNCTIONS (COMPLETED) ---
+        // ----------------------------------------------------------------------
+
         function renderEditProductForm() {
             if (!state.editingItem) return '';
             const item = state.editingItem;
@@ -670,10 +867,176 @@
 
         function renderAdminTabs() {
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-            return `
-                <!-- All your tab sections (catalog, config, users, orders) go here -->
-                <!-- Omitted for brevity, but same as your original -->
-            `;
+            
+            if (state.activeTab === 'catalog') {
+                return `
+                    <section class="space-y-10">
+                        <div id="catalogMessage"></div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                                <h3 class="text-xl font-bold mb-4 text-indigo-700">Manage Catalogs</h3>
+                                <form onsubmit="window.module.handleAddCatalog(event)" class="space-y-4">
+                                    <input type="text" name="catalogName" placeholder="New Catalog Name (e.g., 'Electronics')" required class="w-full p-2 border rounded-lg">
+                                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">Add New Catalog</button>
+                                </form>
+                                <div class="mt-4 space-y-2 max-h-40 custom-scrollbar overflow-y-auto">
+                                    ${state.catalogs.map(c => `
+                                        <div class="flex justify-between items-center text-sm p-2 bg-gray-50 rounded-lg">
+                                            <span class="font-medium">${c.name}</span>
+                                            <button onclick="window.module.handleDeleteCatalog('${c.id}', '${c.name}')" class="text-red-500 hover:text-red-700 text-xs font-semibold">Delete</button>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                                <h3 class="text-xl font-bold mb-4 text-green-700">Add New Product</h3>
+                                <form onsubmit="window.module.handleAddProduct(event)" class="space-y-4">
+                                    <input type="text" name="itemName" placeholder="Product Name" required class="w-full p-2 border rounded-lg">
+                                    <textarea name="itemDescription" rows="2" placeholder="Product Description" required class="w-full p-2 border rounded-lg"></textarea>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <input type="number" step="0.01" name="itemPrice" placeholder="Price (e.g., 19.99)" required min="0.01" class="w-full p-2 border rounded-lg">
+                                        <select name="catalogId" required class="w-full p-2 border rounded-lg">
+                                            <option value="">-- Select Category --</option>
+                                            ${catOpts}
+                                        </select>
+                                    </div>
+                                    <input type="url" name="itemImageUrl" placeholder="Image URL (Optional)" class="w-full p-2 border rounded-lg">
+                                    <button type="submit" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Add Product</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        ${renderEditProductForm()}
+
+                        <div class="bg-white p-6 rounded-xl shadow-lg">
+                            <div class="flex justify-between items-center mb-4">
+                                <input type="text" oninput="window.module.handleSearchInput(event)" placeholder="Search products, SKUs, or category..." class="p-2 border rounded-lg w-full max-w-md">
+                            </div>
+                            <div id="productListContainer">
+                                </div>
+                        </div>
+                    </section>
+                `;
+            } else if (state.activeTab === 'config') {
+                return `
+                    <section class="space-y-8">
+                        <div id="configMessage"></div>
+                        <h2 class="text-2xl font-bold text-indigo-700">Global System Configuration</h2>
+                        <form id="configForm" onsubmit="window.module.handleUpdateConfig(event)" class="bg-white p-6 rounded-xl shadow-lg space-y-6">
+                            
+                            <div class="flex items-center justify-between p-4 border rounded-lg bg-red-50 border-red-200">
+                                <label for="maintenanceToggle" class="text-lg font-medium text-gray-700">Maintenance Mode</label>
+                                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                    <input type="checkbox" name="maintenanceToggle" id="maintenanceToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                    <label for="maintenanceToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-red-300 cursor-pointer"></label>
+                                </div>
+                                <p class="text-sm text-red-600">Disables store functionality for public users.</p>
+                                <style>
+                                    #maintenanceToggle:checked { border-color: #10b981; }
+                                    #maintenanceToggle:checked + .toggle-label { background-color: #10b981; }
+                                    #maintenanceToggle:checked + .toggle-label { transform: translateX(20px); }
+                                </style>
+                            </div>
+
+                            <div>
+                                <h3 class="text-xl font-bold mb-2 text-gray-700">Dynamic Admin IP Whitelist (Stored in Firestore)</h3>
+                                <p class="text-sm text-gray-500 mb-4">Users from these IPs can access the Admin Login page even if Maintenance Mode is active. One IP address per line.</p>
+                                <textarea id="dynamicIpList" rows="4" placeholder="123.45.67.89&#10;98.76.54.32" class="w-full p-3 border rounded-lg font-mono text-sm"></textarea>
+                                <p id="configLastUpdated" class="text-xs text-gray-500 mt-2"></p>
+                            </div>
+
+                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <h3 class="text-xl font-bold mb-2 text-gray-700">Static Client IP Whitelist (Codebase)</h3>
+                                <p class="text-sm text-gray-500 mb-2">This is the hardcoded IP list used by the client-side code (index.html) to check for access before loading Firebase config. Requires redeployment to change.</p>
+                                <pre id="staticIpListDisplay" class="bg-white p-3 rounded-lg border font-mono text-sm text-gray-800"></pre>
+                            </div>
+                            
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">Save Configuration</button>
+                        </form>
+                    </section>
+                `;
+            } else if (state.activeTab === 'users') {
+                return `
+                    <section class="space-y-8">
+                        <h2 class="text-2xl font-bold text-indigo-700">Registered Users Management</h2>
+                        <div id="usersMessage"></div>
+
+                        <div class="flex justify-between items-center mb-4">
+                            <p class="text-sm text-gray-600">User accounts are managed directly through Firebase Auth.</p>
+                            <button id="clearAnonButton" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md">
+                                Clear All Anonymous Users
+                            </button>
+                        </div>
+                        
+                        <div class="bg-white p-6 rounded-xl shadow-lg overflow-x-auto">
+                            <div id="usersGrid" class="grid gap-x-4 min-w-[1200px]" style="grid-template-columns: 0.5fr 1.5fr 1fr 1fr 1fr 0.5fr 2fr;">
+                                <div class="grid-header">UID</div>
+                                <div class="grid-header">Email</div>
+                                <div class="grid-header">Display Name</div>
+                                <div class="grid-header">Created</div>
+                                <div class="grid-header">Last Sign-In</div>
+                                <div class="grid-header">Status</div>
+                                <div class="grid-header">Actions</div>
+                                </div>
+                            <div class="text-center mt-6">
+                                <button id="loadMoreUsersButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 shadow-md hidden">
+                                    Load More Users (100)
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+                `;
+            } else if (state.activeTab === 'orders') {
+                return `
+                    <section class="space-y-8">
+                        <h2 class="text-2xl font-bold text-indigo-700">Manual Order Creation</h2>
+                        <div id="ordersMessage"></div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-purple-500">
+                                <h3 class="text-xl font-bold mb-4 text-purple-700">Enter Customer Details</h3>
+                                <form id="createOrderForm" onsubmit="window.module.handleAdminOrderSubmit(event)" class="space-y-4">
+                                    <input type="text" id="buyerName" placeholder="Customer Name" required class="w-full p-2 border rounded-lg">
+                                    <input type="email" id="buyerEmail" placeholder="Customer Email (for confirmation)" required class="w-full p-2 border rounded-lg">
+                                    <input type="tel" id="buyerPhone" placeholder="Customer Phone (Optional)" class="w-full p-2 border rounded-lg">
+                                    <textarea id="deliveryAddress" rows="2" placeholder="Delivery Address" required class="w-full p-2 border rounded-lg"></textarea>
+                                    <textarea id="orderNotes" rows="2" placeholder="Internal Admin Notes (Optional)" class="w-full p-2 border rounded-lg"></textarea>
+                                    
+                                    <div class="pt-4 border-t">
+                                        <button type="submit" id="submitOrderButton" disabled
+                                                class="w-full bg-purple-600 text-white py-3 rounded-lg font-extrabold hover:bg-purple-700 transition duration-150 shadow-lg disabled:bg-purple-300 disabled:cursor-not-allowed">
+                                            SUBMIT ORDER & SEND EMAIL
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                            
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
+                                <h3 class="text-xl font-bold mb-4 text-pink-700">Build Order Cart</h3>
+                                
+                                <div class="space-y-4 mb-4 p-3 bg-pink-50 rounded-lg">
+                                    <div class="flex space-x-2">
+                                        <select id="itemSelector" class="flex-grow p-2 border rounded-lg">
+                                            </select>
+                                        <input type="number" id="itemQuantity" value="1" min="1" class="w-20 p-2 border rounded-lg text-center">
+                                    </div>
+                                    <button type="button" onclick="window.module.addAdminCartItem()" class="w-full bg-pink-600 text-white py-2 rounded-lg hover:bg-pink-700">Add to Order</button>
+                                </div>
+
+                                <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2" id="adminCartDisplay">
+                                    </div>
+                                
+                                <div class="pt-4 mt-4 border-t border-gray-200">
+                                    <div class="flex justify-between font-bold text-xl text-gray-800">
+                                        <span>Total:</span>
+                                        <span id="adminCartTotal">$0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                `;
+            }
         }
 
         function renderAdminPage(userName) {
@@ -709,17 +1072,16 @@
                 signOut(auth).then(() => location.href = '/');
             });
 
+            // Initial render based on active tab
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
             if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
-            if (state.activeTab === 'users' && !state.previewMode && document.getElementById('usersGrid')?.children.length <= 7) window.module.fetchUsers();
+            if (state.activeTab === 'users' && !state.previewMode) { 
+                const grid = document.getElementById('usersGrid');
+                // Only fetch users if the grid is empty or just headers exist
+                if (grid && grid.children.length <= 7) window.module.fetchUsers();
+            }
             if (state.activeTab === 'orders' && !state.previewMode) window.module.updateAdminCartDisplay();
         }
-
-        // --- CONFIG & USER LISTING (you probably have these functions already) ---
-        async function fetchUsers(pageToken = null) { /* your existing implementation */ }
-        function displayUsers(users) { /* your existing implementation */ }
-        async function fetchAdminConfig() { /* your implementation */ }
-        async function displayStaticIps() { /* your implementation */ }
 
         // --- EXPOSE TO WINDOW (ONLY ONCE!) ---
         window.module = {
@@ -729,6 +1091,7 @@
             displayUsers,
             fetchAdminConfig,
             displayStaticIps,
+            handleUpdateConfig, // NEW
 
             switchAdminTab,
             handleAddCatalog,
