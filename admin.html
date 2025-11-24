@@ -31,9 +31,6 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        
-        // FIX: Reverted to simple relative path (should be resolved by the server/Netlify build)
-        import { ipWhitelist } from '/netlify/functions/js/utilities/ipWhitelist.js';
 
         // --- GLOBAL VARIABLES (Mimicking index.html setup) ---
         let auth;
@@ -198,12 +195,21 @@
         // --- CONFIGURATION & DATA FETCHING ---
 
         // IP Whitelist Display (Static file)
-        function displayStaticIps() {
+        async function displayStaticIps() {
             const ipListEl = document.getElementById('staticIpList');
-            if (ipWhitelist && ipWhitelist.length > 0) {
-                ipListEl.innerHTML = ipWhitelist.join('<br>');
-            } else {
-                ipListEl.textContent = 'No IPs configured. Please update the ipWhitelist.js file.';
+        
+            try {
+                const response = await fetch('/.netlify/functions/getIpWhitelist');
+                const data = await response.json();
+        
+                if (data.ipWhitelist && data.ipWhitelist.length > 0) {
+                    ipListEl.innerHTML = data.ipWhitelist.join('<br>');
+                } else {
+                    ipListEl.textContent = 'No IPs configured.';
+                }
+            } catch (error) {
+                ipListEl.textContent = 'Failed to load IP whitelist.';
+                console.error('IP Whitelist fetch error:', error);
             }
         }
         
