@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>autoInx Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
+        .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="app" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600">
+            <h1 class="text-4xl font-extrabold text-indigo-700">
+                Admin Dashboard
+            </h1>
+            <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
+                Sign Out
+            </button>
+        </header>
+
+        <main class="space-y-12">
+            <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500">
+                <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h3 class="font-semibold text-lg mb-2 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.873-2.88.56-2.146 1.838a1.532 1.532 0 01-.582 2.286c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.582 2.286c-.873 1.3.56 2.88 1.838 2.146a1.532 1.532 0 012.286.582c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.873 2.88-.56 2.146-1.838a1.532 1.532 0 01.582-2.286c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.582-2.286c.873-1.3-.56-2.88-1.838-2.146a1.532 1.532 0 01-2.286-.582z" clip-rule="evenodd"></path></svg>
+                            Maintenance Mode
+                        </h3>
+                        <p class="text-sm text-gray-500 mb-3">Toggling this instantly locks the site for all regular users.</p>
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="maintenanceModeToggle" class="sr-only peer">
+                            <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 dark:peer-focus:ring-yellow-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-yellow-500"></div>
+                            <span class="ms-3 text-sm font-medium text-gray-900" id="maintenanceStatus">Loading...</span>
+                        </label>
+                    </div>
+
+                    <div>
+                        <h3 class="font-semibold text-lg mb-2 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2h2V7A3 3 0 007 7v2h2V7a3 3 0 006 0z" clip-rule="evenodd"></path></svg>
+                            Admin IP Whitelist
+                        </h3>
+                        <p class="text-sm text-gray-500 mb-3">List of IPs authorized for local Admin Login bypass.</p>
+                        <textarea id="ipWhitelistInput" rows="4" placeholder="Enter IPs, one per line (e.g., 181.63.24.48)" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500"></textarea>
+                        <button onclick="updateIpWhitelist()" class="w-full bg-green-600 text-white p-2 rounded-lg font-semibold hover:bg-green-700 transition duration-150 mt-2">
+                            Update IP Whitelist
+                        </button>
+                    </div>
+                </div>
+                <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
+            </section>
+
+            <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
+                <div id="usersGrid" class="grid gap-x-4" style="grid-template-columns: repeat(6, minmax(0, 1fr));">
+                    <div class="grid-header">Email</div>
+                    <div class="grid-header">UID</div>
+                    <div class="grid-header">Verified</div>
+                    <div class="grid-header">Created</div>
+                    <div class="grid-header">Last Sign-In</div>
+                    <div class="grid-header">Status</div>
+                    </div>
+                <div id="loadingMessage" class="text-center p-4 hidden">
+                    <svg class="animate-spin h-5 w-5 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                </div>
+                <div class="flex justify-center space-x-4 mt-6">
+                    <button id="nextPageButton" onclick="fetchUsers(globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module">
+        import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        
+        // State
+        let globalNextPageToken = null;
+        let globalConfig = { ipWhitelist: [], maintenanceMode: false };
+
+        const AUTH = getAuth();
+        const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
+        const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
+        const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
+        
+        // --- HELPER FUNCTIONS ---
+
+        function formatTime(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = new Date(timestamp);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        function showMessage(type, text) {
+            const el = document.getElementById('configMessage');
+            let color = type === 'success' ? 'text-green-600' : 'text-red-600';
+            el.className = `mt-4 text-center text-sm font-medium ${color}`;
+            el.textContent = text;
+            setTimeout(() => { el.textContent = ''; }, 5000);
+        }
+
+        // --- AUTHENTICATION/INITIALIZATION ---
+        
+        document.getElementById('signOutButton').addEventListener('click', async () => {
+            try {
+                await signOut(AUTH);
+                window.location.href = '/';
+            } catch (error) {
+                console.error("Sign out failed:", error);
+            }
+        });
+        
+        // Basic check to ensure user is logged in before running admin logic
+        AUTH.onAuthStateChanged(user => {
+            if (!user) {
+                window.location.href = '/'; // Redirect unauthenticated users
+            } else {
+                fetchAdminConfig();
+                fetchUsers();
+            }
+        });
+
+        // --- CONFIGURATION MANAGEMENT ---
+
+        async function fetchAdminConfig() {
+            try {
+                const response = await fetch(CONFIG_FUNCTION);
+                if (!response.ok) throw new Error('Failed to fetch config.');
+                
+                globalConfig = await response.json();
+                
+                // Populate IP Whitelist
+                const ipInput = document.getElementById('ipWhitelistInput');
+                ipInput.value = globalConfig.ipWhitelist.join('\n');
+
+                // Set Maintenance Mode Toggle
+                const toggle = document.getElementById('maintenanceModeToggle');
+                const statusSpan = document.getElementById('maintenanceStatus');
+                toggle.checked = globalConfig.maintenanceMode;
+                statusSpan.textContent = globalConfig.maintenanceMode ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
+
+                toggle.onchange = updateMaintenanceMode;
+
+            } catch (error) {
+                showMessage('error', `Failed to load configuration: ${error.message}`);
+            }
+        }
+        
+        async function updateMaintenanceMode(event) {
+            const isEnabled = event.target.checked;
+            const statusSpan = document.getElementById('maintenanceStatus');
+            statusSpan.textContent = 'Updating...';
+
+            try {
+                const response = await fetch(UPDATE_CONFIG_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ maintenanceMode: isEnabled })
+                });
+
+                if (!response.ok) throw new Error('Server rejected update.');
+                
+                statusSpan.textContent = isEnabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
+                showMessage('success', 'Maintenance Mode updated.');
+
+            } catch (error) {
+                event.target.checked = !isEnabled; // Revert toggle
+                statusSpan.textContent = isEnabled ? 'DISABLED (Update Failed)' : 'ENABLED (Update Failed)';
+                showMessage('error', 'Failed to update maintenance mode. See console.');
+                console.error('Maintenance Mode update error:', error);
+            }
+        }
+
+        async function updateIpWhitelist() {
+            const ipInput = document.getElementById('ipWhitelistInput').value;
+            // Clean and filter IPs
+            const newIps = ipInput.split('\n')
+                                   .map(ip => ip.trim())
+                                   .filter(ip => ip.length > 0);
+
+            try {
+                const response = await fetch(UPDATE_CONFIG_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ipWhitelist: newIps })
+                });
+
+                if (!response.ok) throw new Error('Server rejected update.');
+                
+                showMessage('success', 'IP Whitelist updated successfully.');
+                globalConfig.ipWhitelist = newIps; // Update local state
+                document.getElementById('ipWhitelistInput').value = newIps.join('\n'); // Keep input clean
+
+            } catch (error) {
+                showMessage('error', 'Failed to update IP Whitelist. See console.');
+                console.error('IP Whitelist update error:', error);
+            }
+        }
+
+        // --- USER LISTING ---
+
+        async function fetchUsers(pageToken = null) {
+            const loading = document.getElementById('loadingMessage');
+            const grid = document.getElementById('usersGrid');
+            const nextButton = document.getElementById('nextPageButton');
+            
+            loading.classList.remove('hidden');
+            nextButton.disabled = true;
+
+            // Clear grid for first page load
+            if (!pageToken) {
+                grid.querySelectorAll('.user-row').forEach(row => row.remove());
+            }
+
+            try {
+                const url = `${LIST_USERS_FUNCTION}?maxResults=100` + (pageToken ? `&nextPageToken=${pageToken}` : '');
+                const response = await fetch(url);
+                
+                if (!response.ok) throw new Error('Failed to fetch users from Netlify function.');
+
+                const data = await response.json();
+                
+                displayUsers(data.users);
+                
+                globalNextPageToken = data.nextPageToken;
+                if (data.nextPageToken) {
+                    nextButton.disabled = false;
+                } else {
+                    nextButton.textContent = 'End of List';
+                }
+
+            } catch (error) {
+                showMessage('error', 'Failed to load user list.');
+                console.error('User fetch error:', error);
+            } finally {
+                loading.classList.add('hidden');
+                nextButton.disabled = !globalNextPageToken;
+            }
+        }
+
+        function displayUsers(users) {
+            const grid = document.getElementById('usersGrid');
+            
+            users.forEach(user => {
+                const statusColor = user.disabled ? 'text-red-500' : 'text-green-500';
+                
+                // Email
+                const email = document.createElement('div');
+                email.className = 'grid-item user-row';
+                email.textContent = user.email || user.displayName || 'N/A';
+                
+                // UID (Truncated)
+                const uid = document.createElement('div');
+                uid.className = 'grid-item user-row text-xs';
+                uid.textContent = user.uid.slice(0, 8) + '...';
+
+                // Verified
+                const verified = document.createElement('div');
+                verified.className = 'grid-item user-row';
+                verified.textContent = user.emailVerified ? 'Yes' : 'No';
+
+                // Created At
+                const created = document.createElement('div');
+                created.className = 'grid-item user-row text-xs';
+                created.textContent = formatTime(user.createdAt);
+
+                // Last Sign-In
+                const lastSignIn = document.createElement('div');
+                lastSignIn.className = 'grid-item user-row text-xs';
+                lastSignIn.textContent = formatTime(user.lastSignInTime);
+                
+                // Status
+                const status = document.createElement('div');
+                status.className = `grid-item user-row font-medium ${statusColor}`;
+                status.textContent = user.disabled ? 'Disabled' : 'Active';
+
+                grid.appendChild(email);
+                grid.appendChild(uid);
+                grid.appendChild(verified);
+                grid.appendChild(created);
+                grid.appendChild(lastSignIn);
+                grid.appendChild(status);
+            });
+        }
+    </script>
+</body>
+</html>
