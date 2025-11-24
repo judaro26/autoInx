@@ -34,14 +34,15 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
         let db; // Firestore instance
-        const appId = 'default-app-id'; // Assuming Canvas environment variable is not directly available here
+        // NOTE: appId should be sourced securely, defaulting here for the client
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'; 
         let globalNextPageToken = null;
         let globalConfig = { maintenanceMode: false };
         let configLoaded = false;
@@ -151,17 +152,19 @@
         }
 
 
-        // --- HELPER FUNCTIONS ---
+        // --- HELPER FUNCTIONS (DEFINED ONCE) ---
 
-        const formatPrice = (priceInCents) => `$${(priceInCents / 100).toFixed(2)}`;
+        // Helper for formatting price (cents to $X.XX)
+        const formatPriceDisplay = (priceInCents) => `$${(priceInCents / 100).toFixed(2)}`;
 
+        // Helper for formatting time
         function formatTime(timestamp) {
             if (!timestamp) return 'N/A';
             const date = new Date(timestamp);
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
         }
 
-        function showMessage(type, text) {
+        function showMessage(type, text, duration = 5000) {
             // Find the appropriate message container based on the active tab, defaulting to a generic one
             let messageContainerId = 'genericMessageContainer';
             if (state.activeTab === 'config') messageContainerId = 'configMessage';
@@ -173,7 +176,7 @@
             let color = type === 'success' ? 'text-green-600' : 'text-red-600';
             el.className = `mt-4 text-center text-sm font-medium ${color}`;
             el.textContent = text;
-            setTimeout(() => { el.textContent = ''; }, 5000);
+            setTimeout(() => { el.textContent = ''; }, duration);
         }
         
         // --- UI FUNCTIONS ---
@@ -192,6 +195,7 @@
             } else if (tabName === 'users') {
                 // Check if users grid is empty before fetching
                 const grid = document.getElementById('usersGrid');
+                // The grid starts with 6 headers, so check if any user-rows exist.
                 if (grid && grid.children.length <= 6) { 
                     window.module.fetchUsers();
                 }
@@ -222,6 +226,7 @@
         }
 
         async function handleDeleteCatalog(catalogId, catalogName) {
+            // Use custom modal or prompt (using prompt for simplicity as per existing pattern)
             if (!confirm(`Are you sure you want to delete the catalog: ${catalogName}? All associated products will become 'Uncategorized'.`)) {
                 return;
             }
@@ -277,6 +282,7 @@
         }
 
         async function handleDeleteProduct(itemId, itemName) {
+            // Use custom modal or prompt (using prompt for simplicity as per existing pattern)
             if (!confirm(`Are you sure you want to delete the product: ${itemName}?`)) {
                 return;
             }
@@ -292,6 +298,8 @@
         // --- RENDERING SUB-COMPONENTS ---
 
         function renderCatalogManagementSection() {
+            // Note: formatPriceDisplay and formatTime are available in the scope now.
+
             const categorizedItems = state.items.reduce((acc, item) => {
                 const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
                 if (!acc[catalogName]) acc[catalogName] = [];
@@ -370,6 +378,7 @@
                             ${state.items.map(item => {
                                 const catalog = state.catalogs.find(c => c.id === item.catalogId);
                                 const catalogName = catalog ? catalog.name : 'Uncategorized';
+                                // The Firestore timestamp object needs to be converted to a JS Date object first
                                 const createdDate = item.createdAt ? formatTime(item.createdAt.toDate().toISOString()) : 'N/A';
 
                                 return `
@@ -377,7 +386,7 @@
                                         <p class="font-semibold">${item.name}</p>
                                         <p class="text-xs text-gray-500">${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}</p>
                                     </div>
-                                    <div class="grid-item font-bold text-green-700 flex items-center">${formatPrice(item.price)}</div>
+                                    <div class="grid-item font-bold text-green-700 flex items-center">${formatPriceDisplay(item.price)}</div>
                                     <div class="grid-item flex items-center">${catalogName}</div>
                                     <div class="grid-item text-xs text-blue-500 truncate flex items-center">
                                         <a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0, 30)}...</a>
@@ -532,8 +541,10 @@
 
         // --- HELPER FUNCTIONS ---
 
+        // Helper for formatting price (cents to $X.XX)
         const formatPriceDisplay = (priceInCents) => `$${(priceInCents / 100).toFixed(2)}`;
 
+        // Helper for formatting time
         function formatTime(timestamp) {
             if (!timestamp) return 'N/A';
             const date = new Date(timestamp);
