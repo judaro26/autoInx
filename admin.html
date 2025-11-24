@@ -16,6 +16,10 @@
             grid-template-columns: 2fr 1fr 1fr 1.5fr 1.5fr 1fr; 
         } 
         .tab-button { transition: background-color 0.15s, color 0.15s; }
+        /* NEW: Styles for the iframe preview */
+        .preview-iframe-container {
+            height: 80vh; 
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -51,7 +55,8 @@
             items: [],
             loading: false,
             searchTerm: '',     
-            editingItem: null   
+            editingItem: null,
+            previewMode: false, // NEW: Preview mode state
         };
 
         // --- FIRESTORE COLLECTION PATHS ---
@@ -220,7 +225,6 @@
             }
         }
         
-        // NEW: SKU GENERATOR
         function generateUniqueSku() {
             // Generate a short, unique alphanumeric string (e.g., 8 characters)
             const timestamp = Date.now().toString(36).toUpperCase(); 
@@ -228,7 +232,6 @@
             return `AX-${timestamp}${random}`; // e.g., 'AX-1K8X5NA7'
         }
 
-        // MODIFIED: Filter items to include SKU
         function getFilteredItems() {
             const term = state.searchTerm.toLowerCase();
             if (!term) return state.items;
@@ -239,15 +242,23 @@
                 return item.name.toLowerCase().includes(term) ||
                        item.description.toLowerCase().includes(term) ||
                        catalogName.toLowerCase().includes(term) ||
-                       item.sku?.toLowerCase().includes(term); // Search by SKU
+                       item.sku?.toLowerCase().includes(term);
             });
         }
 
+
+        // --- TOGGLE PREVIEW MODE ---
+        function togglePreviewMode(enable) {
+            state.previewMode = enable;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer(); 
+        }
 
         // --- TAB SWITCHING ---
         function switchAdminTab(tabName) {
             state.activeTab = tabName;
             state.editingItem = null;
+            state.previewMode = false; // Disable preview mode when switching tabs
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
 
@@ -292,7 +303,6 @@
             const price = parseFloat(form.itemPrice.value.trim()) * 100;
             const catalogId = form.catalogId.value;
             const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
-            // SKU is read-only, so we don't fetch it from the form for update
 
             if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
                 showMessage('error', 'Please fill all required fields correctly for the update.');
@@ -367,7 +377,6 @@
             }
         }
 
-        // MODIFIED: Added SKU generation and storage
         async function handleAddProduct(event) {
             event.preventDefault();
             resetTimer();
@@ -378,7 +387,7 @@
             const price = parseFloat(form.itemPrice.value.trim()) * 100;
             const catalogId = form.catalogId.value;
             const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
-            const sku = generateUniqueSku(); // NEW: Generate SKU
+            const sku = generateUniqueSku(); 
 
             if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
                 showMessage('error', 'Please fill all required fields correctly.');
@@ -387,13 +396,13 @@
 
             try {
                 const docRef = await addDoc(collection(db, ITEMS_COLLECTION), {
-                    name, description, price, catalogId, imageUrl, sku, // ADDED sku
+                    name, description, price, catalogId, imageUrl, sku, 
                     createdAt: serverTimestamp()
                 });
 
                 await logAdminAction('PRODUCT_CREATED', { 
                     name, 
-                    sku, // ADDED sku to log
+                    sku, 
                     priceInCents: price, 
                     catalogId, 
                     catalogName: state.catalogs.find(c => c.id === catalogId)?.name || 'N/A' 
@@ -422,7 +431,6 @@
             }
         }
 
-        // MODIFIED: Added SKU display (read-only)
         function renderEditProductForm() {
             const item = state.editingItem;
             if (!item) return '';
@@ -466,7 +474,6 @@
             `;
         }
 
-        // MODIFIED: Added SKU column
         function renderProductListSection() {
             const el = document.getElementById('productListContainer');
             if (!el) return;
@@ -478,7 +485,8 @@
                 <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${filteredItems.length} found / ${state.items.length} total)</h3>
                 <div class="overflow-x-auto">
                     <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1.5fr 1.5fr 1fr;">
-                        <div class="grid-header">SKU</div> <div class="grid-header">Name & Description</div>
+                        <div class="grid-header">SKU</div> 
+                        <div class="grid-header">Name & Description</div>
                         <div class="grid-header">Price</div>
                         <div class="grid-header">Category</div>
                         <div class="grid-header">Image URL</div>
@@ -489,7 +497,8 @@
                             const catName = cat ? cat.name : 'Uncategorized';
                             const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
                             return `
-                                <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div> <div class="grid-item flex flex-col justify-center">
+                                <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div> 
+                                <div class="grid-item flex flex-col justify-center">
                                     <p class="font-semibold">${item.name}</p>
                                     <p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length > 50 ? '...' : ''}</p>
                                 </div>
@@ -513,6 +522,63 @@
             el.innerHTML = productGridHtml;
         }
 
+        // NEW: Function to render the iframe preview section
+        function renderPreviewSite() {
+            return `
+                <section id="previewSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                    <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview (index.html)</h2>
+                    <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
+                        <iframe src="/" class="w-full h-full" frameborder="0"></iframe>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-4">Note: This is an embedded view of the live application. Functionality may be limited depending on the browser's security settings.</p>
+                </section>
+            `;
+        }
+        
+        // NEW: Function to return the standard admin tab content
+        function renderAdminTabs() {
+            return `
+                ${renderCatalogManagementSection()}
+
+                <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <h3 class="font-semibold text-lg mb-2">Maintenance Mode</h3>
+                            <p class="text-sm text-gray-500 mb-3">Locks the site for regular users.</p>
+                            <label class="inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="maintenanceModeToggle" class="sr-only peer">
+                                <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                                <span class="ms-3 text-sm font-medium text-gray-900" id="maintenanceStatus">Loading...</span>
+                            </label>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-lg mb-2">Admin IP Whitelist (Static)</h3>
+                            <p class="text-sm text-gray-500 mb-3">Loaded from Netlify function.</p>
+                            <div id="staticIpList" class="p-2 bg-gray-50 border rounded-lg text-sm text-gray-700">Loading IPs...</div>
+                        </div>
+                    </div>
+                    <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
+                </section>
+
+                <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
+                    <div id="usersGrid" class="grid gap-x-4 admin-grid">
+                        <div class="grid-header">Email</div><div class="grid-header">UID</div><div class="grid-header">Verified</div>
+                        <div class="grid-header">Created</div><div class="grid-header">Last Sign-In</div><div class="grid-header">Status</div>
+                    </div>
+                    <div id="loadingMessage" class="text-center p-4 hidden">Loading...</div>
+                    <div class="flex justify-center mt-6">
+                        <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
+                    </div>
+                </section>
+
+                <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
+                    <p class="text-gray-500">Order list coming soon.</p>
+                </section>
+            `;
+        }
 
         // --- RENDERING ---
         function renderCatalogManagementSection() {
@@ -580,13 +646,23 @@
                     <h1 class="text-4xl font-extrabold text-indigo-700">Admin Dashboard</h1>
                     <div class="flex items-center space-x-4">
                         <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${userName}</span>
+                        
+                        ${state.previewMode
+                            ? `<button onclick="window.module.togglePreviewMode(false)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
+                                Exit Preview
+                            </button>`
+                            : `<button onclick="window.module.togglePreviewMode(true)" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-500 hover:bg-green-600 transition duration-150 shadow-md">
+                                Preview Site
+                            </button>`
+                        }
+
                         <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600">Sign Out</button>
                     </div>
                 </header>
 
                 <div class="md:flex md:space-x-8">
                     <nav class="w-full md:w-1/4 mb-6 md:mb-0">
-                        <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4">
+                        <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4 ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
                             <button onclick="window.module.switchAdminTab('catalog')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">Catalog & Products</button>
                             <button onclick="window.module.switchAdminTab('config')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">Configuration</button>
                             <button onclick="window.module.switchAdminTab('users')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">Registered Users</button>
@@ -595,45 +671,7 @@
                     </nav>
 
                     <main class="w-full md:w-3/4 space-y-12" id="mainContentPanel">
-                        ${renderCatalogManagementSection()}
-
-                        <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">
-                            <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                <div>
-                                    <h3 class="font-semibold text-lg mb-2">Maintenance Mode</h3>
-                                    <p class="text-sm text-gray-500 mb-3">Locks the site for regular users.</p>
-                                    <label class="inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" id="maintenanceModeToggle" class="sr-only peer">
-                                        <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                                        <span class="ms-3 text-sm font-medium text-gray-900" id="maintenanceStatus">Loading...</span>
-                                    </label>
-                                </div>
-                                <div>
-                                    <h3 class="font-semibold text-lg mb-2">Admin IP Whitelist (Static)</h3>
-                                    <p class="text-sm text-gray-500 mb-3">Loaded from Netlify function.</p>
-                                    <div id="staticIpList" class="p-2 bg-gray-50 border rounded-lg text-sm text-gray-700">Loading IPs...</div>
-                                </div>
-                            </div>
-                            <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
-                        </section>
-
-                        <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
-                            <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
-                            <div id="usersGrid" class="grid gap-x-4 admin-grid">
-                                <div class="grid-header">Email</div><div class="grid-header">UID</div><div class="grid-header">Verified</div>
-                                <div class="grid-header">Created</div><div class="grid-header">Last Sign-In</div><div class="grid-header">Status</div>
-                            </div>
-                            <div id="loadingMessage" class="text-center p-4 hidden">Loading...</div>
-                            <div class="flex justify-center mt-6">
-                                <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
-                            </div>
-                        </section>
-
-                        <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
-                            <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
-                            <p class="text-gray-500">Order list coming soon.</p>
-                        </section>
+                        ${state.previewMode ? renderPreviewSite() : renderAdminTabs()}
                     </main>
                 </div>
             `;
@@ -643,12 +681,13 @@
                 signOut(auth).then(() => location.href = '/');
             });
 
-            if (state.activeTab === 'catalog') {
+            // IMPORTANT: Call the partial render for the product list after the main HTML structure is in place
+            if (state.activeTab === 'catalog' && !state.previewMode) {
                 window.module.renderProductListSection();
-            } else if (state.activeTab === 'config') {
+            } else if (state.activeTab === 'config' && !state.previewMode) {
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
-            } else if (state.activeTab === 'users' && document.getElementById('usersGrid').children.length <= 6) {
+            } else if (state.activeTab === 'users' && document.getElementById('usersGrid').children.length <= 6 && !state.previewMode) {
                 window.module.fetchUsers();
             }
         }
@@ -765,7 +804,8 @@
             showEditForm,
             cancelEdit,
             handleEditProduct,
-            renderProductListSection
+            renderProductListSection,
+            togglePreviewMode // Export new toggle function
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
