@@ -10,7 +10,7 @@
         body { font-family: 'Inter', sans-serif; }
         .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
         .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
-        .admin-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); } /* FIX: Updated to 7 columns for actions */
+        .admin-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); } /* Updated to 7 columns for actions */
         .tab-button { transition: background-color 0.15s, color 0.15s; }
         .preview-iframe-container {
             height: 80vh;
@@ -60,7 +60,8 @@
         const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
         const GET_IP_WHITELIST_FUNCTION = '/.netlify/functions/getIpWhitelist';
         const LOG_ACTION_FUNCTION = '/.netlify/functions/logAdminAction';
-        const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser'; // <-- NEW FUNCTION FOR USER MANAGEMENT
+        const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser'; 
+        const CLEAR_ANON_FUNCTION = '/.netlify/functions/clearAnonymousUsers'; // <-- NEW CONSTANT
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -417,6 +418,58 @@
             await handleUserAction(action, uid, data, successMsg);
         }
 
+        // --- ANONYMOUS USER CLEANUP ---
+        
+        async function handleClearAnonymousUsers(pageToken = null, totalDeleted = 0) {
+            resetTimer();
+            if (!pageToken && !confirm(`Are you sure you want to proceed with clearing ALL anonymous user records? This is irreversible.`)) {
+                return;
+            }
+
+            const nextBtn = document.getElementById('clearAnonButton');
+            nextBtn.disabled = true;
+            nextBtn.textContent = pageToken 
+                ? `Deleting Batch... (Total: ${totalDeleted})` 
+                : 'Searching for Anonymous Users...';
+
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const payload = { nextPageToken: pageToken };
+
+                const res = await fetch(CLEAR_ANON_FUNCTION, {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${idToken}`, 
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await res.json();
+                const newTotalDeleted = totalDeleted + (data.deletedCount || 0);
+
+                if (data.nextPageToken) {
+                    // Recursive call for the next batch
+                    await handleClearAnonymousUsers(data.nextPageToken, newTotalDeleted);
+                } else if (res.ok) {
+                    // Final success
+                    showMessage('success', `Successfully deleted ${newTotalDeleted} anonymous users. Cleanup complete.`, 10000);
+                    await logAdminAction('USER_CLEANUP', { type: 'anonymous', deletedCount: newTotalDeleted });
+                    // Refresh the user list after successful cleanup
+                    window.module.fetchUsers(null); 
+                } else {
+                    throw new Error(data.details || data.error || res.statusText);
+                }
+
+            } catch (error) {
+                console.error('Anonymous user cleanup failed:', error);
+                showMessage('error', `Cleanup failed: ${error.message}`);
+            } finally {
+                nextBtn.disabled = false;
+                nextBtn.textContent = 'Clear All Anonymous Users';
+            }
+        }
+
         // --- RENDERING ---
         function renderEditProductForm() {
             if (!state.editingItem) return '';
@@ -567,7 +620,8 @@
                     </div>
                     <div id="noUsersMessage" class="text-center p-4 text-gray-500 hidden">No registered users found.</div>
                     <div id="loadingMessage" class="text-center p-4 hidden">Loading...</div>
-                    <div class="flex justify-center mt-6">
+                    <div class="flex justify-between mt-6">
+                        <button id="clearAnonButton" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 bg-red-600 text-white rounded-lg disabled:bg-red-300 hover:bg-red-700">Clear All Anonymous Users</button>
                         <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
                     </div>
                 </section>
@@ -685,7 +739,7 @@
             if (!pageToken) Array.from(grid.children).slice(7).forEach(el => el.remove());
 
             try {
-                // FIX: Get the admin user's ID token for server-side authentication
+                // Get the admin user's ID token for server-side authentication
                 const idToken = await auth.currentUser.getIdToken();
 
                 const url = `${LIST_USERS_FUNCTION}?maxResults=100${pageToken ? `&nextPageToken=${pageToken}` : ''}`;
@@ -758,7 +812,9 @@
             handleSearchInput, showEditForm, cancelEdit, handleEditProduct, renderProductListSection,
             togglePreviewMode, logAdminAction,
             // ADDED USER MANAGEMENT FUNCTIONS:
-            handleUserAction, promptForPasswordReset, deleteUser, disableUser
+            handleUserAction, promptForPasswordReset, deleteUser, disableUser,
+            // ADDED ANONYMOUS CLEANUP FUNCTION:
+            handleClearAnonymousUsers
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
