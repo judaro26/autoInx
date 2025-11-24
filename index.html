@@ -16,7 +16,7 @@
         .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
     </style>
     <!-- Firebase SDK Imports -->
-    <script type="module">
+<script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -399,7 +399,6 @@
             if (state.view !== 'admin') return '';
             return `
                 <div class="space-y-10 p-6 bg-gray-50 rounded-xl shadow-inner md:flex md:space-y-0 md:space-x-10">
-                    <!-- Catalog Creation -->
                     <div class="w-full md:w-1/2 bg-white p-6 rounded-xl shadow-lg">
                         <h3 class="text-2xl font-bold mb-4 text-indigo-700">1. Create New Catalog</h3>
                         <form id="add-catalog-form" onsubmit="window.module.addCatalog(event)" class="space-y-4">
@@ -417,7 +416,6 @@
                         </div>
                     </div>
 
-                    <!-- Item Creation -->
                     <div class="w-full md:w-1/2 bg-white p-6 rounded-xl shadow-lg">
                         <h3 class="text-2xl font-bold mb-4 text-indigo-700">2. Create New Item</h3>
                         <form id="add-item-form" onsubmit="window.module.addItem(event)" class="space-y-4">
@@ -441,7 +439,6 @@
                     </div>
                 </div>
 
-                <!-- Admin Item List Preview -->
                 <h3 class="text-3xl font-bold mt-10 mb-6 text-gray-800">3. Current Inventory (${state.items.length})</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     ${state.items.length > 0
@@ -475,7 +472,6 @@
 
             return `
                 <div class="md:flex md:space-x-8">
-                    <!-- Catalog/Item List (Left/Main) -->
                     <div class="w-full md:w-3/4 space-y-8">
                         ${Object.keys(itemsByCatalog).length > 0
                             ? Object.keys(itemsByCatalog).map(catalogName => `
@@ -503,7 +499,6 @@
                         }
                     </div>
 
-                    <!-- Cart Summary (Right) -->
                     <div class="w-full md:w-1/4 mt-8 md:mt-0 sticky top-4">
                         <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-pink-500">
                             <h3 class="text-2xl font-bold mb-4 text-pink-600 flex items-center">
@@ -565,14 +560,25 @@
                         Exit Admin View
                     </button>
                 `;
-            } else if (state.isAdminIP) {
+            } 
+            
+            // Common User View Buttons (Registration/Login/Reset)
+            const commonButtons = `
+                <button onclick="window.module.registerUser()" 
+                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
+                    Sign Up
+                </button>
+                <button onclick="window.module.requestPasswordReset()" 
+                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
+                    Forgot Password?
+                </button>
+            `;
+
+            if (state.isAdminIP) {
                 // If in User view AND IP is whitelisted, show Admin Login
                 return `
                     <div class="flex items-center space-x-4">
-                        <button onclick="window.module.requestPasswordReset()" 
-                                class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
-                            Forgot Password?
-                        </button>
+                        ${commonButtons}
                         <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
                             Admin Login
                         </button>
@@ -582,10 +588,7 @@
                 // If in User view AND IP is NOT whitelisted, show standard placeholder login
                 return `
                     <div class="flex items-center space-x-4">
-                        <button onclick="window.module.requestPasswordReset()" 
-                                class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
-                            Forgot Password?
-                        </button>
+                        ${commonButtons}
                         <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
                             Standard Login
                         </button>
@@ -620,7 +623,58 @@
             `;
         }
 
-        // --- NEW PASSWORD RESET FUNCTION ---
+        // --- NEW USER REGISTRATION FUNCTION ---
+
+        async function registerUser() {
+            const email = prompt("Enter your email for a new account:");
+            if (!email) return;
+            if (!email.includes('@') || email.length < 5) {
+                showMessage('error', 'Please enter a valid email address.');
+                return;
+            }
+            
+            const password = prompt("Choose a password (min 6 characters):");
+            if (!password || password.length < 6) {
+                showMessage('error', 'Password must be at least 6 characters long.');
+                return;
+            }
+            
+            // Note: Phone/SMS consent collection omitted for brevity, but can be added via a proper form
+            const payload = { 
+                email, 
+                password,
+                // Placeholder values for phone/consent as requested in your original function
+                phone: null, 
+                smsConsentStatus: 'declined' 
+            };
+
+            showMessage('info', 'Submitting registration request...', 60000);
+            
+            const netlifyFunctionUrl = '/.netlify/functions/registerUser'; // New function
+
+            try {
+                // Using simplified fetch without exponential backoff for a front-end registration call
+                const response = await fetch(netlifyFunctionUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // Show a generic success message to avoid email enumeration
+                    showMessage('success', `Registration almost complete! A confirmation email has been sent to ${email}. Please check your inbox to activate your account.`, 10000);
+                } else {
+                    showMessage('error', result.error || 'Failed to register. The email might already be in use, or a server error occurred.');
+                }
+            } catch (error) {
+                console.error("Registration request failed:", error);
+                showMessage('error', 'Network error. Could not connect to the registration service.');
+            }
+        }
+        
+        // --- EXISTING PASSWORD RESET FUNCTION ---
 
         async function requestPasswordReset() {
             const email = prompt("Enter the email associated with your account to receive a password reset link:");
@@ -713,7 +767,8 @@
             addToCart,
             updateCartQuantity,
             submitOrder,
-            requestPasswordReset
+            requestPasswordReset,
+            registerUser // <<< ADDED THE NEW FUNCTION
         };
 
         document.addEventListener('DOMContentLoaded', () => {
