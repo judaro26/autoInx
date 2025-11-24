@@ -12,6 +12,7 @@
         .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
         /* Adjusted grid for better admin view */
         .admin-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+        .item-grid { grid-template-columns: 2fr 1fr 1fr 1.5fr 1.5fr 1fr; }
         @media (min-width: 768px) {
             .admin-grid { grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr; }
         }
@@ -33,20 +34,33 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
 
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
+        let db; // Firestore instance
+        const appId = 'default-app-id'; // Assuming Canvas environment variable is not directly available here
         let globalNextPageToken = null;
         let globalConfig = { maintenanceMode: false };
         let configLoaded = false;
-        // NEW STATE VARIABLE to track the active section
+        
         const state = {
-            activeTab: 'config' // 'config', 'users', or 'orders'
+            activeTab: 'catalog', // Defaulting to the new 'catalog' tab
+            catalogs: [],
+            items: [],
+            loading: false
         };
         
+        // --- FIRESTORE COLLECTION PATHS ---
+        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
+        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+
         const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
         const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
         const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
+        const GET_IP_WHITELIST_FUNCTION = '/.netlify/functions/getIpWhitelist';
         
         // --- CORE FIREBASE SETUP ---
 
@@ -70,8 +84,10 @@
                 return;
             }
             
+            setLogLevel('debug'); // Enable Firestore logging
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
+            db = getFirestore(app);
             configLoaded = true;
 
             // Start authentication listener
@@ -88,6 +104,7 @@
                         .then(idTokenResult => {
                             if (idTokenResult.claims.admin === true) {
                                 // User is authenticated AND authorized
+                                setupRealtimeListeners(); // Start data listeners
                                 renderAdminPage(user.email || 'Admin');
                             } else {
                                 // User is authenticated but NOT admin
@@ -107,15 +124,278 @@
             });
         }
         
-        // --- UI FUNCTIONS ---
+        // --- FIRESTORE REALTIME LISTENERS ---
 
-        // NEW: Function to switch tabs and trigger data load
-        function switchAdminTab(tabName) {
-            state.activeTab = tabName;
-            // Re-render the page content
-            renderAdminPage(auth.currentUser.email || 'Admin'); 
+        function setupRealtimeListeners() {
+            if (!db) return;
+
+            // 1. Catalogs Listener
+            onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
+                state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Admin: Catalogs updated:", state.catalogs.length);
+                renderAdminPage(auth.currentUser?.email || 'Admin'); // Re-render to update dependent sections
+            }, (error) => {
+                console.error("Error listening to catalogs:", error);
+                showMessage('error', 'Failed to fetch catalogs.');
+            });
+
+            // 2. Items Listener
+            onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
+                state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Admin: Items updated:", state.items.length);
+                renderAdminPage(auth.currentUser?.email || 'Admin'); // Re-render to update dependent sections
+            }, (error) => {
+                console.error("Error listening to items:", error);
+                showMessage('error', 'Failed to fetch items.');
+            });
         }
 
+
+        // --- HELPER FUNCTIONS ---
+
+        const formatPrice = (priceInCents) => `$${(priceInCents / 100).toFixed(2)}`;
+
+        function formatTime(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = new Date(timestamp);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        function showMessage(type, text) {
+            // Find the appropriate message container based on the active tab, defaulting to a generic one
+            let messageContainerId = 'genericMessageContainer';
+            if (state.activeTab === 'config') messageContainerId = 'configMessage';
+            if (state.activeTab === 'catalog') messageContainerId = 'catalogMessage';
+
+            const el = document.getElementById(messageContainerId);
+            if (!el) return;
+
+            let color = type === 'success' ? 'text-green-600' : 'text-red-600';
+            el.className = `mt-4 text-center text-sm font-medium ${color}`;
+            el.textContent = text;
+            setTimeout(() => { el.textContent = ''; }, 5000);
+        }
+        
+        // --- UI FUNCTIONS ---
+
+        // Function to switch tabs and trigger data load
+        function switchAdminTab(tabName) {
+            state.activeTab = tabName;
+            
+            // Re-render the page content
+            renderAdminPage(auth.currentUser?.email || 'Admin'); 
+
+            // Trigger data load/display for the new tab
+            if (tabName === 'config') {
+                window.module.fetchAdminConfig();
+                window.module.displayStaticIps();
+            } else if (tabName === 'users') {
+                // Check if users grid is empty before fetching
+                const grid = document.getElementById('usersGrid');
+                if (grid && grid.children.length <= 6) { 
+                    window.module.fetchUsers();
+                }
+            } else if (tabName === 'catalog') {
+                // Data for catalog and items is already loaded via onSnapshot
+            }
+        }
+
+        // --- CATALOG MANAGEMENT FUNCTIONS ---
+
+        async function handleAddCatalog(event) {
+            event.preventDefault();
+            const name = event.target.catalogName.value.trim();
+            if (!name) return;
+
+            try {
+                await addDoc(collection(db, CATALOGS_COLLECTION), { 
+                    name, 
+                    createdAt: serverTimestamp(),
+                    slug: name.toLowerCase().replace(/\s/g, '-') // Simple slug for cleaner URLs/references
+                });
+                event.target.catalogName.value = '';
+                showMessage('success', `Catalog "${name}" created successfully.`, 3000);
+            } catch (error) {
+                console.error("Error adding catalog:", error);
+                showMessage('error', 'Failed to add catalog. Check Firestore permissions.', 5000);
+            }
+        }
+
+        async function handleDeleteCatalog(catalogId, catalogName) {
+            if (!confirm(`Are you sure you want to delete the catalog: ${catalogName}? All associated products will become 'Uncategorized'.`)) {
+                return;
+            }
+
+            try {
+                // 1. Uncategorize all items associated with this catalog
+                const itemsToUpdate = state.items.filter(item => item.catalogId === catalogId);
+                const updates = itemsToUpdate.map(item => 
+                    updateDoc(doc(db, ITEMS_COLLECTION, item.id), { catalogId: 'uncategorized' })
+                );
+                await Promise.all(updates);
+
+                // 2. Delete the catalog document
+                await deleteDoc(doc(db, CATALOGS_COLLECTION, catalogId));
+
+                showMessage('success', `Catalog "${catalogName}" deleted and associated items uncategorized.`, 3000);
+            } catch (error) {
+                console.error("Error deleting catalog:", error);
+                showMessage('error', 'Failed to delete catalog.', 5000);
+            }
+        }
+
+        async function handleAddProduct(event) {
+            event.preventDefault();
+            const form = event.target;
+            const name = form.itemName.value.trim();
+            const description = form.itemDescription.value.trim();
+            // Price input is in dollars/local currency, convert to cents for secure storage
+            const price = parseFloat(form.itemPrice.value.trim()) * 100; 
+            const catalogId = form.catalogId.value;
+            const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
+
+            if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
+                showMessage('warning', 'Please fill all required fields correctly (Name, Description, Price, Category).', 5000);
+                return;
+            }
+
+            try {
+                await addDoc(collection(db, ITEMS_COLLECTION), {
+                    name,
+                    description,
+                    price, // Stored in cents
+                    catalogId,
+                    imageUrl,
+                    createdAt: serverTimestamp()
+                });
+                form.reset();
+                showMessage('success', `Product "${name}" added successfully.`, 3000);
+            } catch (error) {
+                console.error("Error adding product:", error);
+                showMessage('error', 'Failed to add product. Check Firestore permissions.', 5000);
+            }
+        }
+
+        async function handleDeleteProduct(itemId, itemName) {
+            if (!confirm(`Are you sure you want to delete the product: ${itemName}?`)) {
+                return;
+            }
+            try {
+                await deleteDoc(doc(db, ITEMS_COLLECTION, itemId));
+                showMessage('success', `Product "${itemName}" deleted successfully.`, 3000);
+            } catch (error) {
+                console.error("Error deleting product:", error);
+                showMessage('error', 'Failed to delete product.', 5000);
+            }
+        }
+        
+        // --- RENDERING SUB-COMPONENTS ---
+
+        function renderCatalogManagementSection() {
+            const categorizedItems = state.items.reduce((acc, item) => {
+                const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                if (!acc[catalogName]) acc[catalogName] = [];
+                acc[catalogName].push(item);
+                return acc;
+            }, {});
+
+            const catalogOptions = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+            return `
+                <section id="catalogSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'catalog' ? '' : 'hidden'}">
+                    <h2 class="text-2xl font-bold mb-6 text-indigo-700">Catalog & Product Management</h2>
+                    <div id="catalogMessage" class="mt-4 text-center text-sm font-medium"></div>
+
+                    <!-- 1. Catalog Creation -->
+                    <div class="mb-8 p-4 border rounded-lg bg-gray-50">
+                        <h3 class="text-xl font-semibold mb-3 text-indigo-600">Create New Catalog Category</h3>
+                        <form onsubmit="window.module.handleAddCatalog(event)" class="flex space-x-3">
+                            <input type="text" name="catalogName" placeholder="e.g., 'T-Shirts', 'Accessories'" required
+                                class="flex-grow p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                            <button type="submit" class="bg-indigo-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-indigo-600 transition duration-150">
+                                Add Category
+                            </button>
+                        </form>
+                        <div class="mt-3 text-sm text-gray-700">
+                            Current Catalogs: ${state.catalogs.length > 0 
+                                ? state.catalogs.map(c => 
+                                    `<span class="inline-flex items-center bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded-full mr-2">${c.name}
+                                        <button onclick="window.module.handleDeleteCatalog('${c.id}', '${c.name}')" class="ml-1 text-red-500 hover:text-red-700">×</button>
+                                    </span>`
+                                ).join('') 
+                                : 'None'}
+                        </div>
+                    </div>
+
+                    <!-- 2. Product Addition Form -->
+                    <div class="mb-10 p-6 border rounded-xl shadow-md bg-white">
+                        <h3 class="text-xl font-semibold mb-4 text-indigo-600">Add New Product</h3>
+                        <form onsubmit="window.module.handleAddProduct(event)" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input type="text" name="itemName" placeholder="Product Name" required
+                                    class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                                <select name="catalogId" required
+                                    class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                                    <option value="">-- Select Category --</option>
+                                    ${catalogOptions}
+                                </select>
+                            </div>
+
+                            <textarea name="itemDescription" placeholder="Product Description" rows="2" required
+                                class="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input type="number" step="0.01" name="itemPrice" placeholder="Price (e.g., 19.99)" required
+                                    class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                                <input type="url" name="itemImageUrl" placeholder="Image URL (e.g., https://placehold.co/...)" 
+                                    class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">
+                                Save Product
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- 3. Product List -->
+                    <h3 class="text-xl font-bold mb-4 text-indigo-700">All Products (${state.items.length})</h3>
+                    <div id="productsList" class="overflow-x-auto">
+                        <div class="grid gap-x-4 item-grid min-w-[700px]">
+                            <div class="grid-header">Name & Description</div>
+                            <div class="grid-header">Price</div>
+                            <div class="grid-header">Category</div>
+                            <div class="grid-header">Image URL</div>
+                            <div class="grid-header">Added At</div>
+                            <div class="grid-header">Actions</div>
+                            ${state.items.map(item => {
+                                const catalog = state.catalogs.find(c => c.id === item.catalogId);
+                                const catalogName = catalog ? catalog.name : 'Uncategorized';
+                                const createdDate = item.createdAt ? formatTime(item.createdAt.toDate().toISOString()) : 'N/A';
+
+                                return `
+                                    <div class="grid-item flex flex-col justify-center">
+                                        <p class="font-semibold">${item.name}</p>
+                                        <p class="text-xs text-gray-500">${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}</p>
+                                    </div>
+                                    <div class="grid-item font-bold text-green-700 flex items-center">${formatPrice(item.price)}</div>
+                                    <div class="grid-item flex items-center">${catalogName}</div>
+                                    <div class="grid-item text-xs text-blue-500 truncate flex items-center">
+                                        <a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0, 30)}...</a>
+                                    </div>
+                                    <div class="grid-item text-xs text-gray-500 flex items-center">${createdDate}</div>
+                                    <div class="grid-item flex items-center">
+                                        <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        ${state.items.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found.</p>' : ''}
+                    </div>
+                </section>
+            `;
+        }
+
+        // Main rendering function (modified to use tabs)
         function renderAdminPage(userName) {
             document.getElementById('app').innerHTML = `
                 <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600">
@@ -131,8 +411,15 @@
                 </header>
 
                 <div class="md:flex md:space-x-8">
+                    <!-- Sidebar Navigation -->
                     <nav class="w-full md:w-1/4 mb-6 md:mb-0">
                         <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4">
+                            <!-- NEW CATALOG & PRODUCTS TAB -->
+                            <button onclick="window.module.switchAdminTab('catalog')" 
+                                class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 00-8 8c0 2.87 1.487 5.43 3.75 6.81a1 1 0 001.2-1.63L6 14.16V10a1 1 0 10-2 0v4a1 1 0 00.5.87l-.02.01c2.14 1.34 4.8 2.06 7.6 2.06 4.41 0 8-3.59 8-8s-3.59-8-8-8zm-1 8a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z"></path></svg>
+                                Catalog & Products
+                            </button>
                             <button onclick="window.module.switchAdminTab('config')" 
                                 class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
                                 <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.873-2.88.56-2.146 1.838a1.532 1.532 0 01-.582 2.286c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.582 2.286c-.873 1.3.56 2.88 1.838 2.146a1.532 1.532 0 012.286.582c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.873 2.88-.56 2.146-1.838a1.532 1.532 0 01.582-2.286c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.582-2.286c.873-1.3-.56-2.88-1.838-2.146a1.532 1.532 0 01-2.286-.582z" clip-rule="evenodd"></path></svg>
@@ -151,8 +438,13 @@
                         </div>
                     </nav>
 
+                    <!-- Main Content Panel -->
                     <main class="w-full md:w-3/4 space-y-12" id="mainContentPanel">
                         
+                        <!-- 1. Catalog & Products Section -->
+                        ${renderCatalogManagementSection()}
+
+                        <!-- 2. Configuration Section -->
                         <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">
                             <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -182,35 +474,38 @@
                             </div>
                         </div>
                         <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
-                    </section>
+                        </section>
 
-                    <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
-                        <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
-                        <div id="usersGrid" class="grid gap-x-4 admin-grid">
-                            <div class="grid-header">Email</div>
-                            <div class="grid-header">UID</div>
-                            <div class="grid-header">Verified</div>
-                            <div class="grid-header">Created</div>
-                            <div class="grid-header">Last Sign-In</div>
-                            <div class="grid-header">Status</div>
+                        <!-- 3. Registered Users Section -->
+                        <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
+                            <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
+                            <div id="usersGrid" class="grid gap-x-4 admin-grid">
+                                <div class="grid-header">Email</div>
+                                <div class="grid-header">UID</div>
+                                <div class="grid-header">Verified</div>
+                                <div class="grid-header">Created</div>
+                                <div class="grid-header">Last Sign-In</div>
+                                <div class="grid-header">Status</div>
+                                </div>
+                            <div id="loadingMessage" class="text-center p-4 hidden">
+                                <svg class="animate-spin h-5 w-5 text-indigo-500 mx-auto" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             </div>
-                        <div id="loadingMessage" class="text-center p-4 hidden">
-                            <svg class="animate-spin h-5 w-5 text-indigo-500 mx-auto" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        </div>
-                        <div class="flex justify-center space-x-4 mt-6">
-                            <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
-                        </div>
-                    </section>
+                            <div class="flex justify-center space-x-4 mt-6">
+                                <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
+                            </div>
+                        </section>
 
-                    <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
-                        <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
-                        <p class="text-gray-500">Order list functionality will be implemented here. It will list recent orders, status, and total price.</p>
-                        <div class="mt-4 p-4 bg-gray-50 border rounded-lg">
-                            <p class="font-semibold">Order Data View Placeholder</p>
-                        </div>
-                    </section>
-                </main>
-            </div>
+                        <!-- 4. Orders Section (New Placeholder) -->
+                        <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
+                            <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
+                            <p class="text-gray-500">Order list functionality will be implemented here. It will list recent orders, status, and total price.</p>
+                            <!-- Orders Table Placeholder -->
+                            <div class="mt-4 p-4 bg-gray-50 border rounded-lg">
+                                <p class="font-semibold">Order Data View Placeholder</p>
+                            </div>
+                        </section>
+                    </main>
+                </div>
             `;
             // Re-attach sign out handler after rendering
             document.getElementById('signOutButton').addEventListener('click', async () => {
@@ -223,21 +518,21 @@
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
             } else if (state.activeTab === 'users') {
-                // Initial fetch when users tab is loaded (if grid is empty)
                 const grid = document.getElementById('usersGrid');
                 if (grid && grid.children.length <= 6) { // Check if only headers exist
                     window.module.fetchUsers();
                 } else {
-                    // If data is already loaded, ensure buttons are enabled if there's a next page token
                     const nextButton = document.getElementById('nextPageButton');
                     if (nextButton) nextButton.disabled = !window.module.globalNextPageToken;
                 }
-            } else if (state.activeTab === 'orders') {
-                // Future: Add fetchOrders() here
+            } else if (state.activeTab === 'catalog') {
+                // Data is handled by onSnapshot, but we need to ensure the Product Form is visible
             }
         }
 
         // --- HELPER FUNCTIONS ---
+
+        const formatPriceDisplay = (priceInCents) => `$${(priceInCents / 100).toFixed(2)}`;
 
         function formatTime(timestamp) {
             if (!timestamp) return 'N/A';
@@ -245,14 +540,19 @@
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
         }
 
-        function showMessage(type, text) {
-            // Updated to target 'configMessage' which is now inside the config section
-            const el = document.getElementById('configMessage');
+        function showMessage(type, text, duration = 5000) {
+            // Find the appropriate message container based on the active tab, defaulting to a generic one
+            let messageContainerId = 'genericMessageContainer';
+            if (state.activeTab === 'config') messageContainerId = 'configMessage';
+            if (state.activeTab === 'catalog') messageContainerId = 'catalogMessage';
+
+            const el = document.getElementById(messageContainerId);
             if (!el) return;
+
             let color = type === 'success' ? 'text-green-600' : 'text-red-600';
             el.className = `mt-4 text-center text-sm font-medium ${color}`;
             el.textContent = text;
-            setTimeout(() => { el.textContent = ''; }, 5000);
+            setTimeout(() => { el.textContent = ''; }, duration);
         }
         
         // --- CONFIGURATION & DATA FETCHING ---
@@ -263,7 +563,7 @@
             if (!ipListEl) return;
         
             try {
-                const response = await fetch('/.netlify/functions/getIpWhitelist');
+                const response = await fetch(GET_IP_WHITELIST_FUNCTION);
                 const data = await response.json();
         
                 if (data.ipWhitelist && data.ipWhitelist.length > 0) {
@@ -335,7 +635,7 @@
             const grid = document.getElementById('usersGrid');
             const nextButton = document.getElementById('nextPageButton');
             
-            if (!loading || !grid || !nextButton) return; // Guard against running when not visible
+            if (!loading || !grid || !nextButton) return; 
 
             loading.classList.remove('hidden');
             nextButton.disabled = true;
@@ -347,7 +647,6 @@
 
             try {
                 const url = `${LIST_USERS_FUNCTION}?maxResults=100` + (pageToken ? `&nextPageToken=${pageToken}` : '');
-                // Note: Auth token should ideally be passed here if Netlify functions are protected
                 const response = await fetch(url);
                 
                 if (!response.ok) throw new Error('Failed to fetch users from Netlify function.');
@@ -433,7 +732,11 @@
             fetchAdminConfig,
             updateMaintenanceMode,
             displayStaticIps,
-            switchAdminTab // NEW
+            switchAdminTab,
+            handleAddCatalog,
+            handleDeleteCatalog,
+            handleAddProduct,
+            handleDeleteProduct
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
