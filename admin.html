@@ -10,7 +10,6 @@
         body { font-family: 'Inter', sans-serif; }
         .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
         .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
-        /* Adjusted grid for better admin view */
         .admin-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
         .item-grid { grid-template-columns: 2fr 1fr 1fr 1.5fr 1.5fr 1fr; }
         @media (min-width: 768px) {
@@ -28,7 +27,6 @@
             </svg>
             <p class="text-gray-600">Checking authentication and loading configuration...</p>
         </div>
-
     </div>
 
     <script type="module">
@@ -37,38 +35,32 @@
         import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
-        let db; // Firestore instance
-        // NOTE: appId should be sourced securely, defaulting here for the client
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'; 
+        let db;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         let globalNextPageToken = null;
         let globalConfig = { maintenanceMode: false };
-        let configLoaded = false;
-        
+
         const state = {
-            activeTab: 'catalog', // Defaulting to the new 'catalog' tab
+            activeTab: 'catalog',
             catalogs: [],
             items: [],
             loading: false
         };
-        
+
         // --- FIRESTORE COLLECTION PATHS ---
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
-
         const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
         const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
         const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
         const GET_IP_WHITELIST_FUNCTION = '/.netlify/functions/getIpWhitelist';
-        
-        // --- CORE FIREBASE SETUP ---
 
+        // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
             try {
-                const netlifyFunctionUrl = '/.netlify/functions/getClientFirebaseConfig';
-                const response = await fetch(netlifyFunctionUrl);
+                const response = await fetch('/.netlify/functions/getClientFirebaseConfig');
                 if (!response.ok) throw new Error(`Failed to fetch config (Status: ${response.status})`);
                 return await response.json();
             } catch (error) {
@@ -76,40 +68,34 @@
                 return {};
             }
         }
-        
+
         async function setupFirebase() {
             const firebaseConfig = await loadFirebaseConfig();
-
             if (Object.keys(firebaseConfig).length === 0) {
                 console.error("Firebase config is missing.");
                 return;
             }
-            
-            setLogLevel('debug'); // Enable Firestore logging
+
+            setLogLevel('debug');
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-            configLoaded = true;
 
             // Start authentication listener
             checkAuthAndRender();
         }
 
         // --- AUTHENTICATION CHECK & REDIRECT ---
-
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
                 if (user && !user.isAnonymous) {
-                    // Check if the user has the admin claim
-                    user.getIdTokenResult(true) // Force refresh token
+                    user.getIdTokenResult(true)
                         .then(idTokenResult => {
                             if (idTokenResult.claims.admin === true) {
-                                // User is authenticated AND authorized
-                                setupRealtimeListeners(); // Start data listeners
+                                setupRealtimeListeners();
                                 renderAdminPage(user.email || 'Admin');
                             } else {
-                                // User is authenticated but NOT admin
-                                signOut(auth); // Log them out immediately
+                                signOut(auth);
                                 window.location.href = '/?error=unauthorized';
                             }
                         })
@@ -119,136 +105,102 @@
                             window.location.href = '/?error=auth_failed';
                         });
                 } else {
-                    // Not logged in or is anonymous, redirect to login page
-                    window.location.href = '/'; 
+                    window.location.href = '/';
                 }
             });
         }
-        
-        // --- FIRESTORE REALTIME LISTENERS ---
 
+        // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
             if (!db) return;
 
-            // 1. Catalogs Listener
             onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
                 state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                console.log("Admin: Catalogs updated:", state.catalogs.length);
-                renderAdminPage(auth.currentUser?.email || 'Admin'); // Re-render to update dependent sections
-            }, (error) => {
-                console.error("Error listening to catalogs:", error);
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+            }, err => {
+                console.error("Error listening to catalogs:", err);
                 showMessage('error', 'Failed to fetch catalogs.');
             });
 
-            // 2. Items Listener
             onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
                 state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                console.log("Admin: Items updated:", state.items.length);
-                renderAdminPage(auth.currentUser?.email || 'Admin'); // Re-render to update dependent sections
-            }, (error) => {
-                console.error("Error listening to items:", error);
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+            }, err => {
+                console.error("Error listening to items:", err);
                 showMessage('error', 'Failed to fetch items.');
             });
         }
 
-
-        // --- HELPER FUNCTIONS (DEFINED ONCE) ---
-
-        // Helper for formatting price (cents to $X.XX)
-        // FIXED: Changed from const to function declaration to avoid redeclaration error
-        function formatPriceDisplay(priceInCents) { 
+        // --- HELPER FUNCTIONS (defined only once) ---
+        function formatPriceDisplay(priceInCents) {
             return `$${(priceInCents / 100).toFixed(2)}`;
         }
 
-        // Helper for formatting time
         function formatTime(timestamp) {
             if (!timestamp) return 'N/A';
-            const date = new Date(timestamp);
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
         }
 
         function showMessage(type, text, duration = 5000) {
-            // Find the appropriate message container based on the active tab, defaulting to a generic one
             let messageContainerId = 'genericMessageContainer';
             if (state.activeTab === 'config') messageContainerId = 'configMessage';
             if (state.activeTab === 'catalog') messageContainerId = 'catalogMessage';
-
             const el = document.getElementById(messageContainerId);
             if (!el) return;
-
-            let color = type === 'success' ? 'text-green-600' : 'text-red-600';
+            const color = type === 'success' ? 'text-green-600' : 'text-red-600';
             el.className = `mt-4 text-center text-sm font-medium ${color}`;
             el.textContent = text;
             setTimeout(() => { el.textContent = ''; }, duration);
         }
-        
-        // --- UI FUNCTIONS ---
 
-        // Function to switch tabs and trigger data load
+        // --- TAB SWITCHING ---
         function switchAdminTab(tabName) {
             state.activeTab = tabName;
-            
-            // Re-render the page content
-            renderAdminPage(auth.currentUser?.email || 'Admin'); 
+            renderAdminPage(auth.currentUser?.email || 'Admin');
 
-            // Trigger data load/display for the new tab
             if (tabName === 'config') {
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
             } else if (tabName === 'users') {
-                // Check if users grid is empty before fetching
                 const grid = document.getElementById('usersGrid');
-                // The grid starts with 6 headers, so check if any user-rows exist.
-                if (grid && grid.children.length <= 6) { 
+                if (grid && grid.children.length <= 6) {
                     window.module.fetchUsers();
                 }
-            } else if (tabName === 'catalog') {
-                // Data for catalog and items is already loaded via onSnapshot
             }
         }
 
-        // --- CATALOG MANAGEMENT FUNCTIONS ---
-
+        // --- CATALOG & PRODUCT MANAGEMENT ---
         async function handleAddCatalog(event) {
             event.preventDefault();
             const name = event.target.catalogName.value.trim();
             if (!name) return;
-
             try {
-                await addDoc(collection(db, CATALOGS_COLLECTION), { 
-                    name, 
+                await addDoc(collection(db, CATALOGS_COLLECTION), {
+                    name,
                     createdAt: serverTimestamp(),
-                    slug: name.toLowerCase().replace(/\s/g, '-') // Simple slug for cleaner URLs/references
+                    slug: name.toLowerCase().replace(/\s/g, '-')
                 });
                 event.target.catalogName.value = '';
                 showMessage('success', `Catalog "${name}" created successfully.`, 3000);
             } catch (error) {
                 console.error("Error adding catalog:", error);
-                showMessage('error', 'Failed to add catalog. Check Firestore permissions.', 5000);
+                showMessage('error', 'Failed to add catalog.');
             }
         }
 
         async function handleDeleteCatalog(catalogId, catalogName) {
-            // Use custom modal or prompt (using prompt for simplicity as per existing pattern)
-            if (!confirm(`Are you sure you want to delete the catalog: ${catalogName}? All associated products will become 'Uncategorized'.`)) {
-                return;
-            }
-
+            if (!confirm(`Delete catalog "${catalogName}"? All items will become 'Uncategorized'.`)) return;
             try {
-                // 1. Uncategorize all items associated with this catalog
-                const itemsToUpdate = state.items.filter(item => item.catalogId === catalogId);
-                const updates = itemsToUpdate.map(item => 
+                const itemsToUpdate = state.items.filter(i => i.catalogId === catalogId);
+                await Promise.all(itemsToUpdate.map(item =>
                     updateDoc(doc(db, ITEMS_COLLECTION, item.id), { catalogId: 'uncategorized' })
-                );
-                await Promise.all(updates);
-
-                // 2. Delete the catalog document
+                ));
                 await deleteDoc(doc(db, CATALOGS_COLLECTION, catalogId));
-
-                showMessage('success', `Catalog "${catalogName}" deleted and associated items uncategorized.`, 3000);
+                showMessage('success', `Catalog "${catalogName}" deleted.`);
             } catch (error) {
-                console.error("Error deleting catalog:", error);
-                showMessage('error', 'Failed to delete catalog.', 5000);
+                console.error(error);
+                showMessage('error', 'Failed to delete catalog.');
             }
         }
 
@@ -257,59 +209,41 @@
             const form = event.target;
             const name = form.itemName.value.trim();
             const description = form.itemDescription.value.trim();
-            // Price input is in dollars/local currency, convert to cents for secure storage
-            const price = parseFloat(form.itemPrice.value.trim()) * 100; 
+            const price = parseFloat(form.itemPrice.value.trim()) * 100;
             const catalogId = form.catalogId.value;
             const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
 
             if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
-                showMessage('warning', 'Please fill all required fields correctly (Name, Description, Price, Category).', 5000);
+                showMessage('error', 'Please fill all required fields correctly.');
                 return;
             }
 
             try {
                 await addDoc(collection(db, ITEMS_COLLECTION), {
-                    name,
-                    description,
-                    price, // Stored in cents
-                    catalogId,
-                    imageUrl,
+                    name, description, price, catalogId, imageUrl,
                     createdAt: serverTimestamp()
                 });
                 form.reset();
-                showMessage('success', `Product "${name}" added successfully.`, 3000);
+                showMessage('success', `Product "${name}" added.`);
             } catch (error) {
-                console.error("Error adding product:", error);
-                showMessage('error', 'Failed to add product. Check Firestore permissions.', 5000);
+                console.error(error);
+                showMessage('error', 'Failed to add product.');
             }
         }
 
         async function handleDeleteProduct(itemId, itemName) {
-            // Use custom modal or prompt (using prompt for simplicity as per existing pattern)
-            if (!confirm(`Are you sure you want to delete the product: ${itemName}?`)) {
-                return;
-            }
+            if (!confirm(`Delete product "${itemName}"?`)) return;
             try {
                 await deleteDoc(doc(db, ITEMS_COLLECTION, itemId));
-                showMessage('success', `Product "${itemName}" deleted successfully.`, 3000);
+                showMessage('success', `Product "${itemName}" deleted.`);
             } catch (error) {
-                console.error("Error deleting product:", error);
-                showMessage('error', 'Failed to delete product.', 5000);
+                console.error(error);
+                showMessage('error', 'Failed to delete product.');
             }
         }
-        
-        // --- RENDERING SUB-COMPONENTS ---
 
+        // --- RENDERING ---
         function renderCatalogManagementSection() {
-            // Note: formatPriceDisplay and formatTime are available in the scope now.
-
-            const categorizedItems = state.items.reduce((acc, item) => {
-                const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                if (!acc[catalogName]) acc[catalogName] = [];
-                acc[catalogName].push(item);
-                return acc;
-            }, {});
-
             const catalogOptions = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
 
             return `
@@ -317,60 +251,45 @@
                     <h2 class="text-2xl font-bold mb-6 text-indigo-700">Catalog & Product Management</h2>
                     <div id="catalogMessage" class="mt-4 text-center text-sm font-medium"></div>
 
-                    <!-- 1. Catalog Creation -->
+                    <!-- Create Catalog -->
                     <div class="mb-8 p-4 border rounded-lg bg-gray-50">
                         <h3 class="text-xl font-semibold mb-3 text-indigo-600">Create New Catalog Category</h3>
                         <form onsubmit="window.module.handleAddCatalog(event)" class="flex space-x-3">
-                            <input type="text" name="catalogName" placeholder="e.g., 'T-Shirts', 'Accessories'" required
-                                class="flex-grow p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <button type="submit" class="bg-indigo-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-indigo-600 transition duration-150">
-                                Add Category
-                            </button>
+                            <input type="text" name="catalogName" placeholder="e.g., T-Shirts" required class="flex-grow p-2 border rounded-lg">
+                            <button type="submit" class="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600">Add Category</button>
                         </form>
                         <div class="mt-3 text-sm text-gray-700">
-                            Current Catalogs: ${state.catalogs.length > 0 
-                                ? state.catalogs.map(c => 
-                                    `<span class="inline-flex items-center bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded-full mr-2">${c.name}
-                                        <button onclick="window.module.handleDeleteCatalog('${c.id}', '${c.name}')" class="ml-1 text-red-500 hover:text-red-700">×</button>
-                                    </span>`
-                                ).join('') 
-                                : 'None'}
+                            Current Catalogs: ${state.catalogs.length ? state.catalogs.map(c => `
+                                <span class="inline-flex items-center bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded-full mr-2">
+                                    ${c.name}
+                                    <button onclick="window.module.handleDeleteCatalog('${c.id}', '${c.name}')" class="ml-1 text-red-500 hover:text-red-700">×</button>
+                                </span>`).join('') : 'None'}
                         </div>
                     </div>
 
-                    <!-- 2. Product Addition Form -->
+                    <!-- Add Product -->
                     <div class="mb-10 p-6 border rounded-xl shadow-md bg-white">
                         <h3 class="text-xl font-semibold mb-4 text-indigo-600">Add New Product</h3>
                         <form onsubmit="window.module.handleAddProduct(event)" class="space-y-4">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <input type="text" name="itemName" placeholder="Product Name" required
-                                    class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                                <select name="catalogId" required
-                                    class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                                <input type="text" name="itemName" placeholder="Product Name" required class="p-2 border rounded-lg">
+                                <select name="catalogId" required class="p-2 border rounded-lg">
                                     <option value="">-- Select Category --</option>
                                     ${catalogOptions}
                                 </select>
                             </div>
-
-                            <textarea name="itemDescription" placeholder="Product Description" rows="2" required
-                                class="w-full p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"></textarea>
-
+                            <textarea name="itemDescription" placeholder="Product Description" rows="2" required class="w-full p-2 border rounded-lg"></textarea>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <input type="number" step="0.01" name="itemPrice" placeholder="Price (e.g., 19.99)" required
-                                    class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                                <input type="url" name="itemImageUrl" placeholder="Image URL (e.g., https://placehold.co/...)" 
-                                    class="p-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                                <input type="number" step="0.01" name="itemPrice" placeholder="Price (e.g., 19.99)" required class="p-2 border rounded-lg">
+                                <input type="url" name="itemImageUrl" placeholder="Image URL" class="p-2 border rounded-lg">
                             </div>
-
-                            <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">
-                                Save Product
-                            </button>
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">Save Product</button>
                         </form>
                     </div>
 
-                    <!-- 3. Product List -->
+                    <!-- Product List -->
                     <h3 class="text-xl font-bold mb-4 text-indigo-700">All Products (${state.items.length})</h3>
-                    <div id="productsList" class="overflow-x-auto">
+                    <div class="overflow-x-auto">
                         <div class="grid gap-x-4 item-grid min-w-[700px]">
                             <div class="grid-header">Name & Description</div>
                             <div class="grid-header">Price</div>
@@ -379,25 +298,19 @@
                             <div class="grid-header">Added At</div>
                             <div class="grid-header">Actions</div>
                             ${state.items.map(item => {
-                                const catalog = state.catalogs.find(c => c.id === item.catalogId);
-                                const catalogName = catalog ? catalog.name : 'Uncategorized';
-                                // The Firestore timestamp object needs to be converted to a JS Date object first
-                                const createdDate = item.createdAt ? formatTime(item.createdAt.toDate().toISOString()) : 'N/A';
-
+                                const cat = state.catalogs.find(c => c.id === item.catalogId);
+                                const catName = cat ? cat.name : 'Uncategorized';
+                                const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
                                 return `
                                     <div class="grid-item flex flex-col justify-center">
                                         <p class="font-semibold">${item.name}</p>
-                                        <p class="text-xs text-gray-500">${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}</p>
+                                        <p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length > 50 ? '...' : ''}</p>
                                     </div>
-                                    <div class="grid-item font-bold text-green-700 flex items-center">${formatPriceDisplay(item.price)}</div>
-                                    <div class="grid-item flex items-center">${catalogName}</div>
-                                    <div class="grid-item text-xs text-blue-500 truncate flex items-center">
-                                        <a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0, 30)}...</a>
-                                    </div>
-                                    <div class="grid-item text-xs text-gray-500 flex items-center">${createdDate}</div>
-                                    <div class="grid-item flex items-center">
-                                        <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                                    </div>
+                                    <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
+                                    <div class="grid-item">${catName}</div>
+                                    <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
+                                    <div class="grid-item text-xs text-gray-500">${created}</div>
+                                    <div class="grid-item"><button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button></div>
                                 `;
                             }).join('')}
                         </div>
@@ -407,339 +320,175 @@
             `;
         }
 
-        // Main rendering function (modified to use tabs)
         function renderAdminPage(userName) {
             document.getElementById('app').innerHTML = `
                 <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600">
-                    <h1 class="text-4xl font-extrabold text-indigo-700">
-                        Admin Dashboard
-                    </h1>
+                    <h1 class="text-4xl font-extrabold text-indigo-700">Admin Dashboard</h1>
                     <div class="flex items-center space-x-4">
                         <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${userName}</span>
-                        <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
-                            Sign Out
-                        </button>
+                        <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600">Sign Out</button>
                     </div>
                 </header>
 
                 <div class="md:flex md:space-x-8">
-                    <!-- Sidebar Navigation -->
                     <nav class="w-full md:w-1/4 mb-6 md:mb-0">
                         <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4">
-                            <!-- NEW CATALOG & PRODUCTS TAB -->
-                            <button onclick="window.module.switchAdminTab('catalog')" 
-                                class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 00-8 8c0 2.87 1.487 5.43 3.75 6.81a1 1 0 001.2-1.63L6 14.16V10a1 1 0 10-2 0v4a1 1 0 00.5.87l-.02.01c2.14 1.34 4.8 2.06 7.6 2.06 4.41 0 8-3.59 8-8s-3.59-8-8-8zm-1 8a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z"></path></svg>
-                                Catalog & Products
-                            </button>
-                            <button onclick="window.module.switchAdminTab('config')" 
-                                class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.873-2.88.56-2.146 1.838a1.532 1.532 0 01-.582 2.286c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.582 2.286c-.873 1.3.56 2.88 1.838 2.146a1.532 1.532 0 012.286.582c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.873 2.88-.56 2.146-1.838a1.532 1.532 0 01.582-2.286c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.582-2.286c.873-1.3-.56-2.88-1.838-2.146a1.532 1.532 0 01-2.286-.582z" clip-rule="evenodd"></path></svg>
-                                Configuration
-                            </button>
-                            <button onclick="window.module.switchAdminTab('users')" 
-                                class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM10 10a5 5 0 000 10h4a5 5 0 00-5-5z"></path></svg>
-                                Registered Users
-                            </button>
-                            <button onclick="window.module.switchAdminTab('orders')" 
-                                class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                                <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
-                                Orders
-                            </button>
+                            <button onclick="window.module.switchAdminTab('catalog')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">Catalog & Products</button>
+                            <button onclick="window.module.switchAdminTab('config')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">Configuration</button>
+                            <button onclick="window.module.switchAdminTab('users')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">Registered Users</button>
+                            <button onclick="window.module.switchAdminTab('orders')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">Orders</button>
                         </div>
                     </nav>
 
-                    <!-- Main Content Panel -->
                     <main class="w-full md:w-3/4 space-y-12" id="mainContentPanel">
-                        
-                        <!-- 1. Catalog & Products Section -->
                         ${renderCatalogManagementSection()}
 
-                        <!-- 2. Configuration Section -->
+                        <!-- Config Section -->
                         <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">
                             <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 <div>
-                                    <h3 class="font-semibold text-lg mb-2 flex items-center">
-                                        <svg class="w-5 h-5 mr-2 text-yellow-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.873-2.88.56-2.146 1.838a1.532 1.532 0 01-.582 2.286c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.582 2.286c-.873 1.3.56 2.88 1.838 2.146a1.532 1.532 0 012.286.582c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.873 2.88-.56 2.146-1.838a1.532 1.532 0 01.582-2.286c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.582-2.286c.873-1.3-.56-2.88-1.838-2.146a1.532 1.532 0 01-2.286-.582z" clip-rule="evenodd"></path></svg>
-                                    Maintenance Mode
-                                </h3>
-                                <p class="text-sm text-gray-500 mb-3">Toggling this instantly locks the site for all regular users.</p>
-                                <label class="inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="maintenanceModeToggle" class="sr-only peer">
-                                    <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 dark:peer-focus:ring-yellow-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-yellow-500"></div>
-                                    <span class="ms-3 text-sm font-medium text-gray-900" id="maintenanceStatus">Loading...</span>
-                                </label>
+                                    <h3 class="font-semibold text-lg mb-2">Maintenance Mode</h3>
+                                    <p class="text-sm text-gray-500 mb-3">Locks the site for regular users.</p>
+                                    <label class="inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="maintenanceModeToggle" class="sr-only peer">
+                                        <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                                        <span class="ms-3 text-sm font-medium text-gray-900" id="maintenanceStatus">Loading...</span>
+                                    </label>
+                                </div>
+                                <div>
+                                    <h3 class="font-semibold text-lg mb-2">Admin IP Whitelist (Static)</h3>
+                                    <p class="text-sm text-gray-500 mb-3">Loaded from Netlify function.</p>
+                                    <div id="staticIpList" class="p-2 bg-gray-50 border rounded-lg text-sm text-gray-700">Loading IPs...</div>
+                                </div>
                             </div>
-
-                            <div>
-                                <h3 class="font-semibold text-lg mb-2 flex items-center">
-                                    <svg class="w-5 h-5 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2h2V7A3 3 0 007 7v2h2V7a3 3 0 006 0z"></path></svg>
-                                    Admin IP Whitelist (Static)
-                                </h3>
-                                <p class="text-sm text-gray-500 mb-3">
-                                    These IPs are loaded from netlify/functions/js/utilities/ipWhitelist.js.
-                                    To update this list, you must modify the file directly and redeploy the site.
-                                </p>
-                                <div id="staticIpList" class="p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700">Loading IPs...</div>
-                            </div>
-                        </div>
-                        <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
+                            <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
                         </section>
 
-                        <!-- 3. Registered Users Section -->
+                        <!-- Users Section -->
                         <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
                             <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
                             <div id="usersGrid" class="grid gap-x-4 admin-grid">
-                                <div class="grid-header">Email</div>
-                                <div class="grid-header">UID</div>
-                                <div class="grid-header">Verified</div>
-                                <div class="grid-header">Created</div>
-                                <div class="grid-header">Last Sign-In</div>
-                                <div class="grid-header">Status</div>
-                                </div>
-                            <div id="loadingMessage" class="text-center p-4 hidden">
-                                <svg class="animate-spin h-5 w-5 text-indigo-500 mx-auto" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <div class="grid-header">Email</div><div class="grid-header">UID</div><div class="grid-header">Verified</div>
+                                <div class="grid-header">Created</div><div class="grid-header">Last Sign-In</div><div class="grid-header">Status</div>
                             </div>
-                            <div class="flex justify-center space-x-4 mt-6">
+                            <div id="loadingMessage" class="text-center p-4 hidden">Loading...</div>
+                            <div class="flex justify-center mt-6">
                                 <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
                             </div>
                         </section>
 
-                        <!-- 4. Orders Section (New Placeholder) -->
+                        <!-- Orders Section -->
                         <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
                             <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
-                            <p class="text-gray-500">Order list functionality will be implemented here. It will list recent orders, status, and total price.</p>
-                            <!-- Orders Table Placeholder -->
-                            <div class="mt-4 p-4 bg-gray-50 border rounded-lg">
-                                <p class="font-semibold">Order Data View Placeholder</p>
-                            </div>
+                            <p class="text-gray-500">Order list coming soon.</p>
                         </section>
                     </main>
                 </div>
             `;
-            // Re-attach sign out handler after rendering
-            document.getElementById('signOutButton').addEventListener('click', async () => {
-                await signOut(auth);
-                window.location.href = '/';
-            });
-            
-            // Start fetching dynamic content based on active tab
+
+            document.getElementById('signOutButton')?.addEventListener('click', () => signOut(auth).then(() => location.href = '/'));
+
             if (state.activeTab === 'config') {
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
-            } else if (state.activeTab === 'users') {
-                const grid = document.getElementById('usersGrid');
-                if (grid && grid.children.length <= 6) { // Check if only headers exist
-                    window.module.fetchUsers();
-                } else {
-                    const nextButton = document.getElementById('nextPageButton');
-                    if (nextButton) nextButton.disabled = !window.module.globalNextPageToken;
-                }
-            } else if (state.activeTab === 'catalog') {
-                // Data is handled by onSnapshot, but we need to ensure the Product Form is visible
+            } else if (state.activeTab === 'users' && document.getElementById('usersGrid').children.length <= 6) {
+                window.module.fetchUsers();
             }
         }
 
-        // --- HELPER FUNCTIONS (DEFINED ONCE) ---
-
-        // Helper for formatting price (cents to $X.XX)
-        function formatPriceDisplay(priceInCents) { 
-            return `$${(priceInCents / 100).toFixed(2)}`;
-        }
-
-        // Helper for formatting time
-        function formatTime(timestamp) {
-            if (!timestamp) return 'N/A';
-            const date = new Date(timestamp);
-            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-        }
-
-        function showMessage(type, text, duration = 5000) {
-            // Find the appropriate message container based on the active tab, defaulting to a generic one
-            let messageContainerId = 'genericMessageContainer';
-            if (state.activeTab === 'config') messageContainerId = 'configMessage';
-            if (state.activeTab === 'catalog') messageContainerId = 'catalogMessage';
-
-            const el = document.getElementById(messageContainerId);
-            if (!el) return;
-
-            let color = type === 'success' ? 'text-green-600' : 'text-red-600';
-            el.className = `mt-4 text-center text-sm font-medium ${color}`;
-            el.textContent = text;
-            setTimeout(() => { el.textContent = ''; }, duration);
-        }
-        
-        // --- CONFIGURATION & DATA FETCHING ---
-
-        // IP Whitelist Display (Static file)
+        // --- CONFIG & USER FETCHING ---
         async function displayStaticIps() {
-            const ipListEl = document.getElementById('staticIpList');
-            if (!ipListEl) return;
-        
+            const el = document.getElementById('staticIpList');
+            if (!el) return;
             try {
-                const response = await fetch(GET_IP_WHITELIST_FUNCTION);
-                const data = await response.json();
-        
-                if (data.ipWhitelist && data.ipWhitelist.length > 0) {
-                    ipListEl.innerHTML = data.ipWhitelist.join('<br>');
-                } else {
-                    ipListEl.textContent = 'No IPs configured.';
-                }
-            } catch (error) {
-                ipListEl.textContent = 'Failed to load IP whitelist.';
-                console.error('IP Whitelist fetch error:', error);
+                const res = await fetch(GET_IP_WHITELIST_FUNCTION);
+                const data = await res.json();
+                el.innerHTML = data.ipWhitelist?.length ? data.ipWhitelist.join('<br>') : 'No IPs configured.';
+            } catch (e) {
+                el.textContent = 'Failed to load IP whitelist.';
             }
         }
-        
-        // Fetch Maintenance Mode Config (from Firestore via Netlify)
+
         async function fetchAdminConfig() {
             try {
-                const response = await fetch(CONFIG_FUNCTION);
-                if (!response.ok) throw new Error('Failed to fetch config.');
-                
-                window.module.globalConfig = await response.json();
-                
+                const res = await fetch(CONFIG_FUNCTION);
+                if (!res.ok) throw new Error('Failed');
+                window.module.globalConfig = await res.json();
                 const toggle = document.getElementById('maintenanceModeToggle');
-                const statusSpan = document.getElementById('maintenanceStatus');
-                
-                const isMaintenanceEnabled = window.module.globalConfig.maintenanceMode === true;
-                
-                if (toggle) toggle.checked = isMaintenanceEnabled;
-                if (statusSpan) statusSpan.textContent = isMaintenanceEnabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
-
+                const status = document.getElementById('maintenanceStatus');
+                const enabled = window.module.globalConfig.maintenanceMode === true;
+                if (toggle) toggle.checked = enabled;
+                if (status) status.textContent = enabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
                 if (toggle) toggle.onchange = window.module.updateMaintenanceMode;
-
-            } catch (error) {
-                showMessage('error', `Failed to load configuration: ${error.message}`);
+            } catch (e) {
+                showMessage('error', 'Failed to load config.');
             }
         }
-        
-        // Update Maintenance Mode (to Firestore via Netlify)
-        async function updateMaintenanceMode(event) {
-            const isEnabled = event.target.checked;
-            const statusSpan = document.getElementById('maintenanceStatus');
-            if (!statusSpan) return;
 
-            statusSpan.textContent = 'Updating...';
-
+        async function updateMaintenanceMode(e) {
+            const enabled = e.target.checked;
+            const status = document.getElementById('maintenanceStatus');
+            status.textContent = 'Updating...';
             try {
-                const response = await fetch(UPDATE_CONFIG_FUNCTION, {
+                const res = await fetch(UPDATE_CONFIG_FUNCTION, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ maintenanceMode: isEnabled })
+                    body: JSON.stringify({ maintenanceMode: enabled })
                 });
-
-                if (!response.ok) throw new Error('Server rejected update.');
-                
-                statusSpan.textContent = isEnabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
-                showMessage('success', 'Maintenance Mode updated.');
-
-            } catch (error) {
-                event.target.checked = !isEnabled; // Revert toggle
-                statusSpan.textContent = isEnabled ? 'DISABLED (Update Failed)' : 'ENABLED (Update Failed)';
-                showMessage('error', 'Failed to update maintenance mode. See console.');
-                console.error('Maintenance Mode update error:', error);
+                if (!res.ok) throw new Error();
+                status.textContent = enabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
+                showMessage('success', 'Maintenance mode updated.');
+            } catch (err) {
+                e.target.checked = !enabled;
+                status.textContent = 'Update failed';
+                showMessage('error', 'Failed to update.');
             }
         }
 
-
-        // Fetch Users (from Firebase Auth via Netlify)
         async function fetchUsers(pageToken = null) {
             const loading = document.getElementById('loadingMessage');
             const grid = document.getElementById('usersGrid');
-            const nextButton = document.getElementById('nextPageButton');
-            
-            if (!loading || !grid || !nextButton) return; 
+            const nextBtn = document.getElementById('nextPageButton');
+            if (!grid || !nextBtn) return;
 
             loading.classList.remove('hidden');
-            nextButton.disabled = true;
-
-            if (!pageToken) {
-                // Keep the first 6 children (headers)
-                Array.from(grid.children).slice(6).forEach(row => row.remove());
-            }
+            nextBtn.disabled = true;
+            if (!pageToken) Array.from(grid.children).slice(6).forEach(el => el.remove());
 
             try {
-                const url = `${LIST_USERS_FUNCTION}?maxResults=100` + (pageToken ? `&nextPageToken=${pageToken}` : '');
-                const response = await fetch(url);
-                
-                if (!response.ok) throw new Error('Failed to fetch users from Netlify function.');
-
-                const data = await response.json();
-                
+                const url = `${LIST_USERS_FUNCTION}?maxResults=100${pageToken ? `&nextPageToken=${pageToken}` : ''}`;
+                const res = await fetch(url);
+                const data = await res.json();
                 window.module.displayUsers(data.users);
-                
                 window.module.globalNextPageToken = data.nextPageToken;
-                if (data.nextPageToken) {
-                    nextButton.disabled = false;
-                } else {
-                    nextButton.textContent = 'End of List';
-                }
-
-            } catch (error) {
-                showMessage('error', 'Failed to load user list.');
-                console.error('User fetch error:', error);
+                nextBtn.disabled = !data.nextPageToken;
+                nextBtn.textContent = data.nextPageToken ? 'Load Next 100 Users' : 'End of List';
+            } catch (e) {
+                showMessage('error', 'Failed to load users.');
             } finally {
                 loading.classList.add('hidden');
-                nextButton.disabled = !window.module.globalNextPageToken;
             }
         }
 
-        // Display Users
         function displayUsers(users) {
             const grid = document.getElementById('usersGrid');
             if (!grid) return;
-            
-            users.forEach(user => {
-                // Skip anonymous users, only display permanent accounts
-                if (!user.email) return;
-
-                const statusColor = user.disabled ? 'text-red-500' : 'text-green-500';
-                
-                // Email
-                const email = document.createElement('div');
-                email.className = 'grid-item user-row';
-                email.textContent = user.email || user.displayName || 'N/A';
-                
-                // UID (Truncated)
-                const uid = document.createElement('div');
-                uid.className = 'grid-item user-row text-xs';
-                uid.textContent = user.uid.slice(0, 8) + '...';
-
-                // Verified
-                const verified = document.createElement('div');
-                verified.className = 'grid-item user-row';
-                verified.textContent = user.emailVerified ? 'Yes' : 'No';
-
-                // Created At
-                const created = document.createElement('div');
-                created.className = 'grid-item user-row text-xs';
-                created.textContent = formatTime(user.createdAt);
-
-                // Last Sign-In
-                const lastSignIn = document.createElement('div');
-                lastSignIn.className = 'grid-item user-row text-xs';
-                lastSignIn.textContent = formatTime(user.lastSignInTime);
-                
-                // Status
-                const status = document.createElement('div');
-                status.className = `grid-item user-row font-medium ${statusColor}`;
-                status.textContent = user.disabled ? 'Disabled' : 'Active';
-
-                grid.appendChild(email);
-                grid.appendChild(uid);
-                grid.appendChild(verified);
-                grid.appendChild(created);
-                grid.appendChild(lastSignIn);
-                grid.appendChild(status);
+            users.forEach(u => {
+                if (!u.email) return;
+                const statusColor = u.disabled ? 'text-red-500' : 'text-green-500';
+                grid.innerHTML += `
+                    <div class="grid-item">${u.email}</div>
+                    <div class="grid-item text-xs">${u.uid.slice(0,8)}...</div>
+                    <div class="grid-item">${u.emailVerified ? 'Yes' : 'No'}</div>
+                    <div class="grid-item text-xs">${formatTime(u.createdAt)}</div>
+                    <div class="grid-item text-xs">${formatTime(u.lastSignInTime)}</div>
+                    <div class="grid-item font-medium ${statusColor}">${u.disabled ? 'Disabled' : 'Active'}</div>
+                `;
             });
         }
 
-        // --- EXPOSED MODULE & INITIALIZATION ---
-
-        // Expose functions required by HTML attributes (onclick)
+        // --- EXPOSE TO WINDOW (for onclick handlers) ---
         window.module = {
             globalNextPageToken,
             globalConfig,
