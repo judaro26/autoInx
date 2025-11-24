@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Catalog & Ordering System</title>
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -14,11 +12,13 @@
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
+        /* Modal background */
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
     </style>
-    <!-- Firebase SDK Imports -->
-<script type="module">
+    <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // ADDED GoogleAuthProvider and signInWithPopup for Google Auth
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
@@ -45,6 +45,9 @@
             loading: false,
             isAdminIP: false, // New state for IP whitelist check
             configLoaded: false, // Tracks if Firebase config is successfully loaded
+            isModalOpen: false, // New state for modal control
+            modalMode: 'login', // 'login' or 'register'
+            modalType: 'standard' // 'standard' or 'admin'
         };
 
         // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
@@ -105,8 +108,11 @@
                         // Attempt anonymous sign-in if no user is signed in
                         console.log("No user signed in. Attempting anonymous sign-in.");
                         try {
-                            await signInAnonymously(auth);
-                            userId = auth.currentUser?.uid || crypto.randomUUID();
+                            // Check if anonymous auth is required (i.e., we are in the user view and need a UID)
+                            if (state.view === 'user' || !auth.currentUser) {
+                                await signInAnonymously(auth);
+                                userId = auth.currentUser?.uid || crypto.randomUUID();
+                            }
                         } catch (error) {
                              if (error.code === 'auth/admin-restricted-operation') {
                                 // Specific error if Anonymous Auth is not enabled in Firebase Console
@@ -374,309 +380,94 @@
             }
         }
 
-        // --- RENDER FUNCTIONS ---
+        // --- AUTHENTICATION & MODAL FUNCTIONS ---
 
-        function renderMessage() {
-            if (!state.message) return '';
-            const { type, text } = state.message;
-            let bgColor, icon;
-            if (type === 'success') { bgColor = 'bg-green-500'; icon = '✅'; }
-            else if (type === 'error') { bgColor = 'bg-red-500'; icon = '❌'; }
-            else if (type === 'warning') { bgColor = 'bg-yellow-500'; icon = '⚠️'; }
-            else { bgColor = 'bg-blue-500'; icon = 'ℹ️'; }
-
-            return `
-                <div class="fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white ${bgColor} transition-opacity duration-300">
-                    <div class="flex items-center">
-                        <span class="text-xl mr-2">${icon}</span>
-                        <span>${text}</span>
-                    </div>
-                </div>
-            `;
+        function showLoginModal(type, mode) {
+            // type: 'standard' (user) or 'admin'
+            // mode: 'login' or 'register'
+            state.isModalOpen = true;
+            state.modalMode = mode;
+            state.modalType = type;
+            render();
+            // Clear previous errors/fields
+            document.getElementById('auth-message').textContent = '';
+            document.getElementById('email-input').value = '';
+            document.getElementById('password-input').value = '';
         }
 
-        function renderAdminView() {
-            if (state.view !== 'admin') return '';
-            return `
-                <div class="space-y-10 p-6 bg-gray-50 rounded-xl shadow-inner md:flex md:space-y-0 md:space-x-10">
-                    <div class="w-full md:w-1/2 bg-white p-6 rounded-xl shadow-lg">
-                        <h3 class="text-2xl font-bold mb-4 text-indigo-700">1. Create New Catalog</h3>
-                        <form id="add-catalog-form" onsubmit="window.module.addCatalog(event)" class="space-y-4">
-                            <input type="text" name="catalogName" placeholder="Catalog Name (e.g., Summer Gear)" required
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <button type="submit" class="w-full bg-indigo-600 text-white p-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md">
-                                Add Catalog
-                            </button>
-                        </form>
-                        <div class="mt-6">
-                            <h4 class="font-semibold text-lg mb-2">Existing Catalogs</h4>
-                            <div class="max-h-40 custom-scrollbar overflow-y-auto space-y-2">
-                                ${state.catalogs.map(c => `<span class="inline-block bg-gray-200 text-gray-800 text-xs px-3 py-1 rounded-full">${c.name} (ID: ${c.id})</span>`).join('')}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="w-full md:w-1/2 bg-white p-6 rounded-xl shadow-lg">
-                        <h3 class="text-2xl font-bold mb-4 text-indigo-700">2. Create New Item</h3>
-                        <form id="add-item-form" onsubmit="window.module.addItem(event)" class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Catalog</label>
-                                <select name="catalogId" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                                    <option value="" disabled selected>Select Catalog</option>
-                                    ${state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-                                </select>
-                            </div>
-                            <input type="text" name="itemName" placeholder="Item Name" required
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <input type="number" name="itemPrice" placeholder="Price (e.g., 19.99)" step="0.01" min="0.01" required
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <input type="url" name="itemImageUrl" placeholder="Image URL (e.g., https://example.com/item.jpg)"
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                            <button type="submit" class="w-full bg-green-600 text-white p-3 rounded-lg font-semibold hover:bg-green-700 transition duration-150 shadow-md">
-                                Add Item
-                            </button>
-                        </form>
-                    </div>
-                </div>
-
-                <h3 class="text-3xl font-bold mt-10 mb-6 text-gray-800">3. Current Inventory (${state.items.length})</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    ${state.items.length > 0
-                        ? state.items.map(item => `
-                            <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
-                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
-                                <div class="p-4">
-                                    <h4 class="text-xl font-semibold text-gray-800">${item.name}</h4>
-                                    <p class="text-indigo-600 font-bold mt-1">${formatPrice(item.price)}</p>
-                                    <p class="text-sm text-gray-500 mt-2">Catalog: ${state.catalogs.find(c => c.id === item.catalogId)?.name || 'N/A'}</p>
-                                </div>
-                            </div>
-                        `).join('')
-                        : '<p class="text-gray-500 col-span-4">No items have been added yet.</p>'
-                    }
-                </div>
-            `;
+        function closeModal() {
+            state.isModalOpen = false;
+            render();
         }
 
-        function renderUserView() {
-            if (state.view !== 'user') return '';
+        async function handleStandardLogin(event) {
+            event.preventDefault();
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+            const messageEl = document.getElementById('auth-message');
+            messageEl.textContent = ''; // Clear previous messages
 
-            const itemsByCatalog = state.items.reduce((acc, item) => {
-                const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                if (!acc[catalogName]) acc[catalogName] = [];
-                acc[catalogName].push(item);
-                return acc;
-            }, {});
-
-            const totalCartPrice = getTotalCartPrice();
-
-            return `
-                <div class="md:flex md:space-x-8">
-                    <div class="w-full md:w-3/4 space-y-8">
-                        ${Object.keys(itemsByCatalog).length > 0
-                            ? Object.keys(itemsByCatalog).map(catalogName => `
-                                <div>
-                                    <h3 class="text-3xl font-bold mb-4 text-indigo-700">${catalogName}</h3>
-                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                                        ${itemsByCatalog[catalogName].map(item => `
-                                            <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
-                                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
-                                                <div class="p-4">
-                                                    <h4 class="text-xl font-semibold text-gray-800 truncate">${item.name}</h4>
-                                                    <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
-                                                    <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
-                                                            class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
-                                                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                                        Add to Cart
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            `).join('<hr class="my-8 border-indigo-200">')
-                            : '<p class="text-gray-500">The catalog is currently empty. Please switch to Admin View to add items.</p>'
-                        }
-                    </div>
-
-                    <div class="w-full md:w-1/4 mt-8 md:mt-0 sticky top-4">
-                        <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-pink-500">
-                            <h3 class="text-2xl font-bold mb-4 text-pink-600 flex items-center">
-                                <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
-                                Shopping Cart
-                            </h3>
-                            <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
-                                ${Object.values(state.cart).length > 0
-                                    ? Object.values(state.cart).map(entry => `
-                                        <div class="flex justify-between items-center border-b pb-2">
-                                            <div class="flex-1 min-w-0">
-                                                <p class="text-sm font-medium text-gray-900 truncate">${entry.item.name}</p>
-                                                <p class="text-xs text-gray-500">${formatPrice(entry.item.price)} each</p>
-                                            </div>
-                                            <div class="flex items-center space-x-2">
-                                                <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)"
-                                                        class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
-                                                <span class="text-sm font-semibold w-5 text-center">${entry.quantity}</span>
-                                                <button onclick="window.module.updateCartQuantity('${entry.item.id}', 1)"
-                                                        class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
-                                            </div>
-                                            <span class="text-sm font-bold ml-4">${formatPrice(entry.item.price * entry.quantity)}</span>
-                                        </div>
-                                    `).join('')
-                                    : '<p class="text-gray-500 italic">Your cart is empty.</p>'
-                                }
-                            </div>
-                            <div class="pt-4 mt-4 border-t border-gray-200">
-                                <div class="flex justify-between font-bold text-xl text-gray-800">
-                                    <span>Total:</span>
-                                    <span>${formatPrice(totalCartPrice)}</span>
-                                </div>
-                                <form onsubmit="window.module.submitOrder(event)" class="mt-4 space-y-3">
-                                    <input type="email" id="buyer-email" placeholder="Your Email for Confirmation" required
-                                        class="w-full p-3 border border-pink-300 rounded-lg focus:ring-pink-500 focus:border-pink-500">
-                                    <button type="submit" ${Object.keys(state.cart).length === 0 || state.loading ? 'disabled' : ''}
-                                            class="w-full bg-pink-600 text-white p-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-lg disabled:bg-pink-300 disabled:cursor-not-allowed flex justify-center items-center">
-                                        ${state.loading ? `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                        Processing...` : 'Submit Order & Pay'}
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderAuthToggle() {
-            const isUserView = state.view === 'user';
-            
-            // If the IP check is still pending, show nothing
-            if (!state.configLoaded || !isAuthReady) return ''; 
-
-            if (state.view === 'admin') {
-                // If currently in Admin view, show the exit button
-                return `
-                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
-                        Exit Admin View
-                    </button>
-                `;
-            } 
-            
-            // Common User View Buttons (Registration/Login/Reset)
-            const commonButtons = `
-                <button onclick="window.module.registerUser()" 
-                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
-                    Sign Up
-                </button>
-                <button onclick="window.module.requestPasswordReset()" 
-                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
-                    Forgot Password?
-                </button>
-            `;
-
-            if (state.isAdminIP) {
-                // If in User view AND IP is whitelisted, show Admin Login
-                return `
-                    <div class="flex items-center space-x-4">
-                        ${commonButtons}
-                        <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
-                            Admin Login
-                        </button>
-                    </div>
-                `;
-            } else {
-                // If in User view AND IP is NOT whitelisted, show standard placeholder login
-                return `
-                    <div class="flex items-center space-x-4">
-                        ${commonButtons}
-                        <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
-                            Standard Login
-                        </button>
-                    </div>
-                `;
-            }
-        }
-
-        function render() {
-            const appContainer = document.getElementById('app');
-            if (!appContainer) return;
-
-            // Simple admin check
-            const currentContent = state.view === 'admin' ? renderAdminView() : renderUserView();
-
-            appContainer.innerHTML = `
-                ${renderMessage()}
-                <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-                    <header class="flex justify-between items-center mb-10 pb-4 border-b border-indigo-200">
-                        <h1 class="text-4xl font-extrabold text-indigo-700">
-                            ${state.view === 'admin' ? 'Administration Panel' : 'Online Store'}
-                        </h1>
-                        ${renderAuthToggle()}
-                    </header>
-                    ${currentContent}
-
-                    <footer class="mt-12 text-center text-sm text-gray-500 pt-6 border-t border-gray-100">
-                        <p>App ID: ${appId} | User ID: ${userId || 'N/A'}</p>
-                        <p>Data stored securely in Firestore.</p>
-                    </footer>
-                </div>
-            `;
-        }
-
-        // --- NEW USER REGISTRATION FUNCTION ---
-
-        async function registerUser() {
-            const email = prompt("Enter your email for a new account:");
-            if (!email) return;
-            if (!email.includes('@') || email.length < 5) {
-                showMessage('error', 'Please enter a valid email address.');
+            if (state.modalType === 'admin') {
+                // Simplified Admin Login Check (Local Password Check)
+                if (password === state.adminPassword) {
+                    closeModal();
+                    state.view = 'admin';
+                    showMessage('success', 'Admin View unlocked.', 2000);
+                } else {
+                    messageEl.textContent = '❌ Incorrect Admin Password.';
+                }
+                render();
                 return;
             }
-            
-            const password = prompt("Choose a password (min 6 characters):");
-            if (!password || password.length < 6) {
-                showMessage('error', 'Password must be at least 6 characters long.');
-                return;
-            }
-            
-            // Note: Phone/SMS consent collection omitted for brevity, but can be added via a proper form
-            const payload = { 
-                email, 
-                password,
-                // Placeholder values for phone/consent as requested in your original function
-                phone: null, 
-                smsConsentStatus: 'declined' 
-            };
 
-            showMessage('info', 'Submitting registration request...', 60000);
-            
-            const netlifyFunctionUrl = '/.netlify/functions/registerUser'; // New function
+            // Standard User Login (Firebase Auth)
+            try {
+                if (state.modalMode === 'login') {
+                    // Log in the user
+                    await signInWithEmailAndPassword(auth, email, password);
+                    showMessage('success', 'Login successful!', 2000);
+                } else {
+                    // Register a new user
+                    await createUserWithEmailAndPassword(auth, email, password);
+                    showMessage('success', 'Registration successful! You are now logged in.', 2000);
+                }
+                closeModal();
+                state.view = 'user'; // Ensure user view is shown after successful auth
+            } catch (error) {
+                console.error("Authentication failed:", error.code, error);
+                let errorMessage = 'An error occurred during authentication.';
+                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+                    errorMessage = 'Invalid email or password.';
+                } else if (error.code === 'auth/email-already-in-use') {
+                    errorMessage = 'This email is already registered. Try logging in.';
+                }
+                messageEl.textContent = `❌ ${errorMessage}`;
+            }
+            render();
+        }
+
+        async function handleGoogleSignIn() {
+            const provider = new GoogleAuthProvider();
+            const messageEl = document.getElementById('auth-message');
+            messageEl.textContent = 'Logging in with Google...';
 
             try {
-                // Using simplified fetch without exponential backoff for a front-end registration call
-                const response = await fetch(netlifyFunctionUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const result = await response.json();
-
-                if (response.ok) {
-                    // Show a generic success message to avoid email enumeration
-                    showMessage('success', `Registration almost complete! A confirmation email has been sent to ${email}. Please check your inbox to activate your account.`, 10000);
-                } else {
-                    showMessage('error', result.error || 'Failed to register. The email might already be in use, or a server error occurred.');
-                }
+                await signInWithPopup(auth, provider);
+                showMessage('success', 'Google Sign-In successful!', 2000);
+                closeModal();
+                state.view = 'user';
             } catch (error) {
-                console.error("Registration request failed:", error);
-                showMessage('error', 'Network error. Could not connect to the registration service.');
+                console.error("Google Sign-In failed:", error);
+                messageEl.textContent = '❌ Google Sign-In failed. Check console for details.';
             }
+            render();
         }
-        
-        // --- EXISTING PASSWORD RESET FUNCTION ---
+
+        // --- EXISTING FUNCTIONS (Modified for Modal Control) ---
 
         async function requestPasswordReset() {
+            // Function logic remains the same, but it should be moved out of the modal handler if possible.
+            // For now, let's keep it as a standalone button action.
             const email = prompt("Enter the email associated with your account to receive a password reset link:");
             
             if (!email) {
@@ -721,7 +512,6 @@
                 const result = await response.json();
 
                 if (response.ok) {
-                    // Always show success message for security, regardless of whether the email exists in Auth
                     showMessage('success', `If an account exists for ${email}, a password reset link has been sent. Check your inbox!`, 8000);
                 } else {
                     showMessage('error', result.error || 'Failed to request password reset. Please try again later.');
@@ -731,27 +521,155 @@
                 showMessage('error', 'Network error. Could not connect to the password reset service.');
             }
         }
+        
+        async function registerUser() {
+            // This entire function is now effectively replaced by the modal + handleStandardLogin (with modalMode='register')
+            // However, to keep the existing button structure, we will just call the modal.
+            showLoginModal('standard', 'register');
+        }
 
+
+        // --- RENDER FUNCTIONS (Minor modifications) ---
+
+        function renderAuthToggle() {
+            // If the IP check is still pending, show nothing
+            if (!state.configLoaded || !isAuthReady) return ''; 
+
+            // If a user is logged in (not anonymous) or in Admin View, show Sign Out/Exit Admin
+            if (state.view === 'admin') {
+                return `
+                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
+                        Exit Admin View
+                    </button>
+                `;
+            } 
+            
+            // Common User View Buttons (Registration/Login/Reset)
+            const commonButtons = `
+                <button onclick="window.module.registerUser()" 
+                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
+                    Sign Up
+                </button>
+                <button onclick="window.module.requestPasswordReset()" 
+                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
+                    Forgot Password?
+                </button>
+            `;
+
+            if (state.isAdminIP) {
+                // If in User view AND IP is whitelisted, show Admin Login
+                return `
+                    <div class="flex items-center space-x-4">
+                        ${commonButtons}
+                        <button onclick="window.module.toggleView('admin')" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
+                            Admin Login
+                        </button>
+                    </div>
+                `;
+            } else {
+                // Standard Login flow
+                return `
+                    <div class="flex items-center space-x-4">
+                        ${commonButtons}
+                        <button onclick="window.module.toggleView('standard')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
+                            Standard Login
+                        </button>
+                    </div>
+                `;
+            }
+        }
+        
+        function renderModal() {
+            if (!state.isModalOpen) return '';
+            
+            const isLogin = state.modalMode === 'login';
+            const title = isLogin ? (state.modalType === 'admin' ? 'Admin Login' : 'User Login') : 'Register New Account';
+            const submitText = isLogin ? 'Login' : 'Register';
+            const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
+
+            // Special UI for Admin (only needs password input if using local adminPassword)
+            const adminUI = state.modalType === 'admin' && state.modalMode === 'login' ? `
+                <p class="text-sm text-gray-500 mb-4">Enter the local admin password below.</p>
+                <input type="hidden" id="email-input" value="admin@local.com">
+            ` : '';
+            
+            // Full UI for Standard (Email/Password + Google)
+            const standardUI = state.modalType === 'standard' || state.modalMode === 'register' ? `
+                <div class="space-y-4">
+                    ${adminUI ? '' : `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`}
+                    <input type="password" id="password-input" placeholder="Password" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
+                    ${submitText}
+                </button>
+                <div class="my-4 flex items-center">
+                    <hr class="flex-grow border-gray-300">
+                    <span class="px-2 text-gray-500 text-sm">OR</span>
+                    <hr class="flex-grow border-gray-300">
+                </div>
+                <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google_reCAPTCHA.svg" class="w-5 h-5 mr-2" alt="Google Logo">
+                    ${isLogin ? 'Sign in with Google' : 'Register with Google'}
+                </button>
+            ` : adminUI;
+
+
+            return `
+                <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
+                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm relative" onclick="event.stopPropagation()">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center">${title}</h2>
+                        <div id="auth-message" class="text-red-500 text-sm mb-4 text-center font-medium"></div>
+                        
+                        <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4">
+                            ${standardUI}
+                        </form>
+
+                        <button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
+                                class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
+                            ${switchModeText}
+                        </button>
+
+                        <button onclick="window.module.closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function render() {
+            const appContainer = document.getElementById('app');
+            if (!appContainer) return;
+
+            // Simple admin check
+            const currentContent = state.view === 'admin' ? renderAdminView() : renderUserView();
+
+            appContainer.innerHTML = `
+                ${renderMessage()}
+                ${renderModal()}
+                <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+                    <header class="flex justify-between items-center mb-10 pb-4 border-b border-indigo-200">
+                        <h1 class="text-4xl font-extrabold text-indigo-700">
+                            ${state.view === 'admin' ? 'Administration Panel' : 'Online Store'}
+                        </h1>
+                        ${renderAuthToggle()}
+                    </header>
+                    ${currentContent}
+
+                    <footer class="mt-12 text-center text-sm text-gray-500 pt-6 border-t border-gray-100">
+                        <p>App ID: ${appId} | User ID: ${userId || 'N/A'}</p>
+                        <p>Data stored securely in Firestore.</p>
+                    </footer>
+                </div>
+            `;
+        }
 
         // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
 
-        function toggleView() {
+        function toggleView(type = 'standard') {
             if (state.view === 'user') {
-                // Only proceed if IP is whitelisted or if the placeholder login is used
-                if (state.isAdminIP) {
-                    const password = prompt("Enter Admin Password:");
-                    if (password === state.adminPassword) {
-                        state.view = 'admin';
-                        showMessage('success', 'Admin View unlocked.', 2000);
-                    } else if (password !== null) {
-                        showMessage('error', 'Incorrect Admin Password.');
-                    }
-                } else {
-                    // Standard login flow (currently just a toggle for demonstration)
-                    state.view = 'admin';
-                    showMessage('info', 'Standard Login successful. Entering Admin View (simulated).', 2000);
-                }
-
+                // Show modal for login instead of prompting password
+                showLoginModal(type, 'login');
             } else {
                 state.view = 'user';
             }
@@ -768,7 +686,11 @@
             updateCartQuantity,
             submitOrder,
             requestPasswordReset,
-            registerUser // <<< ADDED THE NEW FUNCTION
+            registerUser, // Now calls the modal
+            showLoginModal,
+            handleStandardLogin,
+            handleGoogleSignIn,
+            closeModal
         };
 
         document.addEventListener('DOMContentLoaded', () => {
