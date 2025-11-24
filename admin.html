@@ -224,7 +224,7 @@
                 window.module.displayStaticIps();
             } else if (tab === 'users') {
                 const grid = document.getElementById('usersGrid');
-                if (grid && grid.children.length <= 6) window.module.fetchUsers();
+                // The grid check is deferred to renderAdminPage after renderAdminTabs finishes
             }
         }
 
@@ -499,6 +499,7 @@
                         <div class="grid-header">Email</div><div class="grid-header">UID</div><div class="grid-header">Verified</div>
                         <div class="grid-header">Created</div><div class="grid-header">Last Sign-In</div><div class="grid-header">Status</div>
                     </div>
+                    <div id="noUsersMessage" class="text-center p-4 text-gray-500 hidden">No registered users found.</div>
                     <div id="loadingMessage" class="text-center p-4 hidden">Loading...</div>
                     <div class="flex justify-center mt-6">
                         <button id="nextPageButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-indigo-300">Load Next 100 Users</button>
@@ -603,36 +604,53 @@
             }
         }
 
+        // --- CORRECTED fetchUsers function ---
         async function fetchUsers(pageToken = null) {
             resetTimer();
             const loading = document.getElementById('loadingMessage');
             const grid = document.getElementById('usersGrid');
             const nextBtn = document.getElementById('nextPageButton');
-            if (!grid || !nextBtn) return;
+            const noUsersEl = document.getElementById('noUsersMessage'); // Get the new element
+
+            if (!grid || !nextBtn || !noUsersEl) return;
 
             loading.classList.remove('hidden');
+            noUsersEl.classList.add('hidden'); // Hide "No users" message
             nextBtn.disabled = true;
-            if (!pageToken) Array.from(grid.children).slice(6).forEach(el => el.remove());
+            if (!pageToken) Array.from(grid.children).slice(6).forEach(el => el.remove()); // Clear previous users
 
             try {
                 const url = `${LIST_USERS_FUNCTION}?maxResults=100${pageToken ? `&nextPageToken=${pageToken}` : ''}`;
                 const res = await fetch(url);
                 const data = await res.json();
+
                 window.module.displayUsers(data.users);
+
+                // Check for empty list
+                if (data.users.length === 0 && !pageToken) {
+                    noUsersEl.classList.remove('hidden');
+                }
+
                 window.module.globalNextPageToken = data.nextPageToken;
                 nextBtn.disabled = !data.nextPageToken;
                 nextBtn.textContent = data.nextPageToken ? 'Load Next 100 Users' : 'End of List';
             } catch (e) {
+                console.error(e);
                 showMessage('error', 'Failed to load users.');
+                noUsersEl.textContent = 'Failed to load user data.';
+                noUsersEl.classList.remove('hidden');
             } finally {
                 loading.classList.add('hidden');
             }
         }
+        // --- END CORRECTED fetchUsers function ---
+
 
         function displayUsers(users) {
             const grid = document.getElementById('usersGrid');
             if (!grid) return;
             users.forEach(u => {
+                // Skips users without an email (e.g., truly anonymous Firebase users)
                 if (!u.email) return;
                 const statusColor = u.disabled ? 'text-red-500' : 'text-green-500';
                 grid.innerHTML += `
