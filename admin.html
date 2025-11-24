@@ -56,6 +56,9 @@
         const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
         const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
         const GET_IP_WHITELIST_FUNCTION = '/.netlify/functions/getIpWhitelist';
+        // NEW: Endpoint for logging administrative actions
+        const LOG_ACTION_FUNCTION = '/.netlify/functions/logAdminAction';
+
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -154,6 +157,26 @@
             setTimeout(() => { el.textContent = ''; }, duration);
         }
 
+        // NEW: Function to log administrative actions to a Netlify function
+        async function logAdminAction(actionType, details, objectId = null) {
+            const userEmail = auth.currentUser?.email || 'Unknown Admin';
+            try {
+                await fetch(LOG_ACTION_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        actionType,
+                        details,
+                        performedByEmail: userEmail,
+                        objectId
+                    })
+                });
+            } catch (error) {
+                console.error("Failed to log admin action:", error);
+            }
+        }
+
+
         // --- TAB SWITCHING ---
         function switchAdminTab(tabName) {
             state.activeTab = tabName;
@@ -176,11 +199,14 @@
             const name = event.target.catalogName.value.trim();
             if (!name) return;
             try {
-                await addDoc(collection(db, CATALOGS_COLLECTION), {
+                const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), {
                     name,
                     createdAt: serverTimestamp(),
                     slug: name.toLowerCase().replace(/\s/g, '-')
                 });
+                
+                await logAdminAction('CATALOG_CREATED', { name }, docRef.id); // LOGGED
+
                 event.target.catalogName.value = '';
                 showMessage('success', `Catalog "${name}" created successfully.`, 3000);
             } catch (error) {
@@ -197,6 +223,9 @@
                     updateDoc(doc(db, ITEMS_COLLECTION, item.id), { catalogId: 'uncategorized' })
                 ));
                 await deleteDoc(doc(db, CATALOGS_COLLECTION, catalogId));
+                
+                await logAdminAction('CATALOG_DELETED', { name: catalogName, affectedItems: itemsToUpdate.length }, catalogId); // LOGGED
+
                 showMessage('success', `Catalog "${catalogName}" deleted.`);
             } catch (error) {
                 console.error(error);
@@ -219,10 +248,18 @@
             }
 
             try {
-                await addDoc(collection(db, ITEMS_COLLECTION), {
+                const docRef = await addDoc(collection(db, ITEMS_COLLECTION), {
                     name, description, price, catalogId, imageUrl,
                     createdAt: serverTimestamp()
                 });
+
+                await logAdminAction('PRODUCT_CREATED', { 
+                    name, 
+                    priceInCents: price, 
+                    catalogId, 
+                    catalogName: state.catalogs.find(c => c.id === catalogId)?.name || 'N/A' 
+                }, docRef.id); // LOGGED
+
                 form.reset();
                 showMessage('success', `Product "${name}" added.`);
             } catch (error) {
@@ -235,6 +272,9 @@
             if (!confirm(`Delete product "${itemName}"?`)) return;
             try {
                 await deleteDoc(doc(db, ITEMS_COLLECTION, itemId));
+                
+                await logAdminAction('PRODUCT_DELETED', { name: itemName }, itemId); // LOGGED
+
                 showMessage('success', `Product "${itemName}" deleted.`);
             } catch (error) {
                 console.error(error);
@@ -251,7 +291,6 @@
                     <h2 class="text-2xl font-bold mb-6 text-indigo-700">Catalog & Product Management</h2>
                     <div id="catalogMessage" class="mt-4 text-center text-sm font-medium"></div>
 
-                    <!-- Create Catalog -->
                     <div class="mb-8 p-4 border rounded-lg bg-gray-50">
                         <h3 class="text-xl font-semibold mb-3 text-indigo-600">Create New Catalog Category</h3>
                         <form onsubmit="window.module.handleAddCatalog(event)" class="flex space-x-3">
@@ -267,7 +306,6 @@
                         </div>
                     </div>
 
-                    <!-- Add Product -->
                     <div class="mb-10 p-6 border rounded-xl shadow-md bg-white">
                         <h3 class="text-xl font-semibold mb-4 text-indigo-600">Add New Product</h3>
                         <form onsubmit="window.module.handleAddProduct(event)" class="space-y-4">
@@ -287,7 +325,6 @@
                         </form>
                     </div>
 
-                    <!-- Product List -->
                     <h3 class="text-xl font-bold mb-4 text-indigo-700">All Products (${state.items.length})</h3>
                     <div class="overflow-x-auto">
                         <div class="grid gap-x-4 item-grid min-w-[700px]">
@@ -343,7 +380,6 @@
                     <main class="w-full md:w-3/4 space-y-12" id="mainContentPanel">
                         ${renderCatalogManagementSection()}
 
-                        <!-- Config Section -->
                         <section id="configSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-500 ${state.activeTab === 'config' ? '' : 'hidden'}">
                             <h2 class="text-2xl font-bold mb-4 text-yellow-700">System Configuration</h2>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -365,7 +401,6 @@
                             <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
                         </section>
 
-                        <!-- Users Section -->
                         <section id="usersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'users' ? '' : 'hidden'}">
                             <h2 class="text-2xl font-bold mb-4 text-indigo-700">Registered Users</h2>
                             <div id="usersGrid" class="grid gap-x-4 admin-grid">
@@ -378,7 +413,6 @@
                             </div>
                         </section>
 
-                        <!-- Orders Section -->
                         <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
                             <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
                             <p class="text-gray-500">Order list coming soon.</p>
