@@ -120,7 +120,12 @@
 
             onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
                 state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderAdminPage(auth.currentUser?.email || 'Admin');
+                // Full re-render needed if state.editingItem is active, otherwise partial is fine
+                if (state.activeTab === 'catalog') {
+                    renderProductListSection();
+                } else {
+                    renderAdminPage(auth.currentUser?.email || 'Admin');
+                }
             }, err => {
                 console.error("Error listening to catalogs:", err);
                 showMessage('error', 'Failed to fetch catalogs.');
@@ -128,7 +133,13 @@
 
             onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
                 state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderAdminPage(auth.currentUser?.email || 'Admin');
+                
+                // Only render the product list section if on the catalog tab
+                if (state.activeTab === 'catalog') {
+                    renderProductListSection();
+                } else {
+                    renderAdminPage(auth.currentUser?.email || 'Admin');
+                }
             }, err => {
                 console.error("Error listening to items:", err);
                 showMessage('error', 'Failed to fetch items.');
@@ -195,6 +206,7 @@
         function switchAdminTab(tabName) {
             state.activeTab = tabName;
             state.editingItem = null; // Clear edit form on tab switch
+            // Full render is necessary when switching tabs
             renderAdminPage(auth.currentUser?.email || 'Admin');
 
             if (tabName === 'config') {
@@ -208,20 +220,21 @@
             }
         }
 
-        // --- PRODUCT EDITING FUNCTIONS ---
+        // --- PRODUCT EDITING AND SEARCH FUNCTIONS ---
         function handleSearchInput(event) {
-            state.searchTerm = event.target.value.trim();
-            renderAdminPage(auth.currentUser?.email || 'Admin');
+            state.searchTerm = event.target.value;
+            // IMPORTANT FIX: Only re-render the list section to prevent input focus loss
+            renderProductListSection(); 
         }
 
         function showEditForm(item) {
             state.editingItem = item;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
+            renderAdminPage(auth.currentUser?.email || 'Admin'); // Full re-render needed for the form to appear
         }
 
         function cancelEdit() {
             state.editingItem = null;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
+            renderAdminPage(auth.currentUser?.email || 'Admin'); // Full re-render needed for the form to disappear
         }
 
         async function handleEditProduct(event) {
@@ -232,7 +245,7 @@
             const description = form.itemDescription.value.trim();
             const price = parseFloat(form.itemPrice.value.trim()) * 100;
             const catalogId = form.catalogId.value;
-            // Allow empty string for imageUrl, use null if it was truly empty
+            // If the user clears the URL, it should default back to the placeholder image
             const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
 
             if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
@@ -394,11 +407,59 @@
             `;
         }
 
+        // NEW: Function to render ONLY the product list section for search/filter updates
+        function renderProductListSection() {
+            const el = document.getElementById('productListContainer');
+            if (!el) return;
+
+            const filteredItems = getFilteredItems();
+            // Disable buttons if the edit form is visible to prevent simultaneous operations
+            const isEditing = state.editingItem !== null; 
+            
+            // Get the HTML for the product list grid
+            const productGridHtml = `
+                <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${filteredItems.length} found / ${state.items.length} total)</h3>
+                <div class="overflow-x-auto">
+                    <div class="grid gap-x-4 item-grid min-w-[700px]">
+                        <div class="grid-header">Name & Description</div>
+                        <div class="grid-header">Price</div>
+                        <div class="grid-header">Category</div>
+                        <div class="grid-header">Image URL</div>
+                        <div class="grid-header">Added At</div>
+                        <div class="grid-header">Actions</div>
+                        ${filteredItems.map(item => {
+                            const cat = state.catalogs.find(c => c.id === item.catalogId);
+                            const catName = cat ? cat.name : 'Uncategorized';
+                            const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
+                            return `
+                                <div class="grid-item flex flex-col justify-center">
+                                    <p class="font-semibold">${item.name}</p>
+                                    <p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length > 50 ? '...' : ''}</p>
+                                </div>
+                                <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
+                                <div class="grid-item">${catName}</div>
+                                <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
+                                <div class="grid-item text-xs text-gray-500">${created}</div>
+                                <div class="grid-item">
+                                    <button onclick="window.module.showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})" 
+                                            class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-2" ${isEditing ? 'disabled' : ''}>Edit</button>
+                                    <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" 
+                                            class="text-red-600 hover:text-red-800 text-sm font-semibold" ${isEditing ? 'disabled' : ''}>Delete</button>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    ${filteredItems.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found matching the search criteria.</p>' : ''}
+                </div>
+            `;
+
+            el.innerHTML = productGridHtml;
+        }
+
 
         // --- RENDERING ---
         function renderCatalogManagementSection() {
             const catalogOptions = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-            const filteredItems = getFilteredItems();
 
             return `
                 <section id="catalogSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 ${state.activeTab === 'catalog' ? '' : 'hidden'}">
@@ -450,39 +511,8 @@
                     </div>
 
 
-                    <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${filteredItems.length} found / ${state.items.length} total)</h3>
-                    <div class="overflow-x-auto">
-                        <div class="grid gap-x-4 item-grid min-w-[700px]">
-                            <div class="grid-header">Name & Description</div>
-                            <div class="grid-header">Price</div>
-                            <div class="grid-header">Category</div>
-                            <div class="grid-header">Image URL</div>
-                            <div class="grid-header">Added At</div>
-                            <div class="grid-header">Actions</div>
-                            ${filteredItems.map(item => {
-                                const cat = state.catalogs.find(c => c.id === item.catalogId);
-                                const catName = cat ? cat.name : 'Uncategorized';
-                                const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
-                                return `
-                                    <div class="grid-item flex flex-col justify-center">
-                                        <p class="font-semibold">${item.name}</p>
-                                        <p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length > 50 ? '...' : ''}</p>
-                                    </div>
-                                    <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
-                                    <div class="grid-item">${catName}</div>
-                                    <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
-                                    <div class="grid-item text-xs text-gray-500">${created}</div>
-                                    <div class="grid-item">
-                                        <button onclick="window.module.showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})" 
-                                                class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-2">Edit</button>
-                                        <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" 
-                                                class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                                    </div>
-                                `;
-                            }).join('')}
+                    <div id="productListContainer">
                         </div>
-                        ${filteredItems.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found matching the search criteria.</p>' : ''}
-                    </div>
                 </section>
             `;
         }
@@ -553,7 +583,10 @@
 
             document.getElementById('signOutButton')?.addEventListener('click', () => signOut(auth).then(() => location.href = '/'));
 
-            if (state.activeTab === 'config') {
+            // IMPORTANT: Call the partial render for the product list after the main HTML structure is in place
+            if (state.activeTab === 'catalog') {
+                window.module.renderProductListSection();
+            } else if (state.activeTab === 'config') {
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
             } else if (state.activeTab === 'users' && document.getElementById('usersGrid').children.length <= 6) {
@@ -670,7 +703,8 @@
             handleSearchInput,
             showEditForm,
             cancelEdit,
-            handleEditProduct
+            handleEditProduct,
+            renderProductListSection
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
