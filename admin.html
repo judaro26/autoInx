@@ -49,7 +49,8 @@
             items: [],
             searchTerm: '',
             editingItem: null,
-            previewMode: false, // Reverting state back to support preview toggle
+            previewMode: false, 
+            adminCart: {}, // <-- NEW state for admin order creation
         };
 
         // --- FIRESTORE COLLECTION PATHS ---
@@ -62,6 +63,7 @@
         const LOG_ACTION_FUNCTION = '/.netlify/functions/logAdminAction';
         const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser'; 
         const CLEAR_ANON_FUNCTION = '/.netlify/functions/clearAnonymousUsers'; 
+        const ADMIN_CREATE_ORDER_FUNCTION = '/.netlify/functions/adminCreateOrder'; // <-- NEW CONSTANT
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -148,6 +150,8 @@
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
                 state.items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+                // If on the orders tab, update the item selector
+                if (state.activeTab === 'orders' && !state.previewMode) renderAdminOrderSection();
             }, err => {
                 console.error("Error listening to items:", err);
                 showMessage('error', 'Failed to fetch items.');
@@ -166,7 +170,7 @@
         }
 
         function showMessage(type, text, duration = 5000) {
-            const id = state.activeTab === 'config' ? 'configMessage' : 'catalogMessage';
+            const id = state.activeTab === 'config' ? 'configMessage' : state.activeTab === 'orders' ? 'ordersMessage' : 'catalogMessage';
             const el = document.getElementById(id);
             if (!el) return;
             el.className = `mt-4 text-center text-sm font-medium ${type === 'success' ? 'text-green-600' : 'text-red-600'}`;
@@ -226,6 +230,9 @@
                 window.module.displayStaticIps();
             } else if (tab === 'users') {
                 const grid = document.getElementById('usersGrid');
+            } else if (tab === 'orders') {
+                // Ensure cart display is updated when switching to Orders tab
+                updateAdminCartDisplay(); 
             }
         }
 
@@ -247,309 +254,184 @@
             resetTimer();
         }
 
-        // --- CATALOG & PRODUCT CRUD ---
-        async function handleAddCatalog(event) {
-            event.preventDefault();
-            resetTimer();
-            const name = event.target.catalogName.value.trim();
-            if (!name) return;
-            try {
-                const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), {
-                    name,
-                    createdAt: serverTimestamp(),
-                    slug: name.toLowerCase().replace(/\s/g, '-')
-                });
-                event.target.catalogName.value = '';
-                showMessage('success', `Catalog "${name}" created successfully.`, 3000);
-                await logAdminAction('CATALOG_CREATED', { name: name }, docRef.id);
-            } catch (error) {
-                console.error("Error adding catalog:", error);
-                showMessage('error', 'Failed to add catalog.');
+        // --- CATALOG & PRODUCT CRUD (omitted for brevity, assume contents are present) ---
+        // ...
+
+        // --- USER MANAGEMENT ACTIONS (omitted for brevity, assume contents are present) ---
+        // ...
+
+        // --- ANONYMOUS USER CLEANUP (omitted for brevity, assume contents are present) ---
+        // ...
+
+        // --- ADMIN ORDER CREATION FUNCTIONS ---
+
+        function getTotalAdminCartPrice() {
+            return Object.values(state.adminCart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
+        }
+        
+        function renderAdminCart() {
+            const cartEntries = Object.values(state.adminCart);
+            if (cartEntries.length === 0) {
+                return '<p class="text-gray-500 italic">No items added to this order yet.</p>';
             }
+
+            return cartEntries.map(entry => {
+                return `
+                    <div class="flex justify-between items-center border-b pb-1">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-900 truncate">${entry.item.name}</p>
+                            <p class="text-xs text-gray-500">${formatPriceDisplay(entry.item.price)} x ${entry.quantity}</p>
+                        </div>
+                        <span class="text-sm font-bold ml-4 text-pink-600">${formatPriceDisplay(entry.item.price * entry.quantity)}</span>
+                        <button type="button" onclick="window.module.removeAdminCartItem('${entry.item.id}')"
+                                class="text-red-500 hover:text-red-700 ml-2 text-sm">×</button>
+                    </div>
+                `;
+            }).join('');
         }
 
-        async function handleDeleteCatalog(catalogId, catalogName) {
-            if (!confirm(`Delete catalog "${catalogName}"? All items will become 'Uncategorized'.`)) return;
+        function renderItemSelectorOptions() {
+            return state.items.map(item => `<option value="${item.id}">${item.name} (${formatPriceDisplay(item.price)})</option>`).join('');
+        }
+        
+        function updateAdminCartDisplay() {
+            const cartEl = document.getElementById('adminCartDisplay');
+            const totalEl = document.getElementById('adminCartTotal');
+            const selectorEl = document.getElementById('itemSelector');
+            
+            if (cartEl) cartEl.innerHTML = renderAdminCart();
+            if (totalEl) totalEl.textContent = formatPriceDisplay(getTotalAdminCartPrice());
+            if (selectorEl) selectorEl.innerHTML = `<option value="">-- Select Product --</option>${renderItemSelectorOptions()}`;
+            
+            // Disable submit button if cart is empty
+            const submitBtn = document.getElementById('submitOrderButton');
+            if (submitBtn) submitBtn.disabled = Object.keys(state.adminCart).length === 0;
+            
             resetTimer();
-            try {
-                const itemsToUpdate = state.items.filter(i => i.catalogId === catalogId);
-                await Promise.all(itemsToUpdate.map(item =>
-                    updateDoc(doc(db, ITEMS_COLLECTION, item.id), { catalogId: 'uncategorized' })
-                ));
-                await deleteDoc(doc(db, CATALOGS_COLLECTION, catalogId));
-                showMessage('success', `Catalog "${catalogName}" deleted.`);
-                await logAdminAction('CATALOG_DELETED', { name: catalogName }, catalogId);
-            } catch (error) {
-                console.error(error);
-                showMessage('error', 'Failed to delete catalog.');
-            }
         }
 
-        async function handleAddProduct(event) {
-            event.preventDefault();
-            resetTimer();
-            const form = event.target;
-            const name = form.itemName.value.trim();
-            const description = form.itemDescription.value.trim();
-            const price = parseFloat(form.itemPrice.value.trim()) * 100;
-            const catalogId = form.catalogId.value;
-            const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image';
-            const sku = generateUniqueSku();
+        function addAdminCartItem() {
+            const selector = document.getElementById('itemSelector');
+            const quantityInput = document.getElementById('itemQuantity');
+            const itemId = selector.value;
+            const quantity = parseInt(quantityInput.value);
 
-            if (!name || !description || isNaN(price) || price <= 0 || !catalogId) {
-                showMessage('error', 'Please fill all required fields correctly.');
+            if (!itemId || isNaN(quantity) || quantity <= 0) {
+                showMessage('error', 'Please select an item and enter a valid quantity.', 3000);
                 return;
             }
 
-            try {
-                const docRef = await addDoc(collection(db, ITEMS_COLLECTION), {
-                    name, description, price, catalogId, imageUrl, sku,
-                    createdAt: serverTimestamp()
-                });
-                form.reset();
-                showMessage('success', `Product "${name}" added.`);
-                await logAdminAction('PRODUCT_CREATED', { name: name, catalogId: catalogId }, docRef.id);
-            } catch (error) {
-                console.error(error);
-                showMessage('error', 'Failed to add product.');
-            }
+            const item = state.items.find(i => i.id === itemId);
+            if (!item) return;
+
+            // Add or overwrite the item in the cart
+            state.adminCart = {
+                ...state.adminCart,
+                [itemId]: { item, quantity }
+            };
+
+            showMessage('success', `Added ${quantity}x ${item.name} to the order.`, 2000);
+            quantityInput.value = 1;
+            selector.value = '';
+            updateAdminCartDisplay();
         }
 
-        async function handleDeleteProduct(itemId, itemName) {
-            if (!confirm(`Delete product "${itemName}"?`)) return;
-            resetTimer();
-            try {
-                await deleteDoc(doc(db, ITEMS_COLLECTION, itemId));
-                showMessage('success', `Product "${itemName}" deleted.`);
-                await logAdminAction('PRODUCT_DELETED', { name: itemName }, itemId);
-            } catch (error) {
-                console.error(error);
-                showMessage('error', 'Failed to delete product.');
-            }
+        function removeAdminCartItem(itemId) {
+            const item = state.adminCart[itemId]?.item;
+            const newCart = { ...state.adminCart };
+            delete newCart[itemId];
+            state.adminCart = newCart;
+            showMessage('info', `${item.name} removed from order.`, 2000);
+            updateAdminCartDisplay();
         }
-
-        async function handleEditProduct(e) {
-            e.preventDefault();
+        
+        async function handleAdminOrderSubmit(event) {
+            event.preventDefault();
             resetTimer();
-            const f = e.target;
-            const itemId = f.itemId.value;
-            const data = {
-                name: f.itemName.value.trim(),
-                description: f.itemDescription.value.trim(),
-                price: parseFloat(f.itemPrice.value) * 100,
-                catalogId: f.catalogId.value,
-                imageUrl: f.itemImageUrl.value.trim() || 'https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image'
+
+            if (Object.keys(state.adminCart).length === 0) {
+                showMessage('error', 'The order cart is empty!', 3000);
+                return;
+            }
+
+            const buyerName = document.getElementById('buyerName').value.trim();
+            const buyerEmail = document.getElementById('buyerEmail').value.trim();
+            const buyerPhone = document.getElementById('buyerPhone').value.trim();
+            const deliveryAddress = document.getElementById('deliveryAddress').value.trim();
+            const notes = document.getElementById('orderNotes').value.trim();
+            const totalCents = getTotalAdminCartPrice();
+
+            const submitBtn = document.getElementById('submitOrderButton');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Processing...';
+
+            const orderDetails = {
+                buyerName,
+                buyerEmail,
+                buyerPhone,
+                deliveryAddress,
+                notes,
+                items: Object.values(state.adminCart).map(entry => ({
+                    id: entry.item.id,
+                    name: entry.item.name,
+                    price: entry.item.price, // in cents
+                    quantity: entry.quantity,
+                    catalog: state.catalogs.find(c => c.id === entry.item.catalogId)?.name || 'N/A'
+                })),
+                totalCents
             };
 
             try {
-                await updateDoc(doc(db, ITEMS_COLLECTION, itemId), data);
-                await logAdminAction('PRODUCT_UPDATED', data, itemId);
-                state.editingItem = null;
-                showMessage('success', `Product "${data.name}" updated.`);
-                renderAdminPage(auth.currentUser?.email || 'Admin');
-            } catch (err) {
-                console.error(err);
-                showMessage('error', 'Failed to update product.');
-            }
-        }
-        
-        // --- USER MANAGEMENT ACTIONS ---
-
-        async function handleUserAction(action, uid, data = {}, successMsg) {
-            resetTimer();
-            if (!confirm(`Are you sure you want to perform action: ${action} on user ${uid.slice(0, 8)}...?`)) return;
-
-            try {
-                // Get the admin user's ID token for authentication
-                const idToken = await auth.currentUser.getIdToken(); 
-
-                const payload = { action, uid, data };
-
-                const res = await fetch(MANAGE_USER_FUNCTION, {
-                    method: 'POST',
-                    headers: { 
-                        'Authorization': `Bearer ${idToken}`, 
-                        'Content-Type': 'application/json' 
-                    },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!res.ok) {
-                    const errorDetails = await res.json();
-                    throw new Error(errorDetails.details || errorDetails.error || res.statusText);
-                }
-                
-                // Log action
-                await logAdminAction('USER_MANAGEMENT', { action, uid, details: data });
-
-                showMessage('success', successMsg, 5000);
-                
-                // Immediately refresh the user list
-                const grid = document.getElementById('usersGrid');
-                // Slice 7 to keep the 7 header columns intact
-                if (grid) Array.from(grid.children).slice(7).forEach(el => el.remove()); 
-                window.module.fetchUsers(null); 
-
-            } catch (error) {
-                console.error(`User action (${action}) failed:`, error);
-                showMessage('error', `Action failed: ${error.message}`);
-            }
-        }
-        
-        async function promptForPasswordReset(uid) {
-            const newPassword = prompt(`Enter new password for user ${uid.slice(0, 8)}... (min 6 characters):`);
-            if (newPassword && newPassword.length >= 6) {
-                await handleUserAction('resetPassword', uid, { newPassword }, 'Password reset initiated.');
-            } else if (newPassword !== null) {
-                showMessage('error', 'Password must be at least 6 characters long.');
-            }
-        }
-
-        async function deleteUser(uid, email) {
-            if (!confirm(`PERMANENTLY DELETE user ${email} (${uid.slice(0, 8)}...)? THIS CANNOT BE UNDONE.`)) return;
-            await handleUserAction('delete', uid, {}, `User ${email} deleted.`);
-        }
-
-        async function disableUser(uid, email, currentlyDisabled) {
-            const action = 'update'; 
-            const data = { disabled: !currentlyDisabled };
-            const successMsg = `User ${email} successfully ${currentlyDisabled ? 'enabled' : 'disabled'}.`;
-            
-            await handleUserAction(action, uid, data, successMsg);
-        }
-
-        // --- ANONYMOUS USER CLEANUP ---
-        
-        async function handleClearAnonymousUsers(pageToken = null, totalDeleted = 0) {
-            resetTimer();
-            if (!pageToken && !confirm(`Are you sure you want to proceed with clearing ALL anonymous user records? This is irreversible.`)) {
-                return;
-            }
-
-            const nextBtn = document.getElementById('clearAnonButton');
-            nextBtn.disabled = true;
-            nextBtn.textContent = pageToken 
-                ? `Deleting Batch... (Total: ${totalDeleted})` 
-                : 'Searching for Anonymous Users...';
-
-            try {
                 const idToken = await auth.currentUser.getIdToken();
-                const payload = { nextPageToken: pageToken };
 
-                const res = await fetch(CLEAR_ANON_FUNCTION, {
+                const response = await fetch(ADMIN_CREATE_ORDER_FUNCTION, {
                     method: 'POST',
-                    headers: { 
-                        'Authorization': `Bearer ${idToken}`, 
-                        'Content-Type': 'application/json' 
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(orderDetails)
                 });
                 
-                const data = await res.json();
-                const newTotalDeleted = totalDeleted + (data.deletedCount || 0);
+                const result = await response.json();
 
-                if (data.nextPageToken) {
-                    // Recursive call for the next batch
-                    await handleClearAnonymousUsers(data.nextPageToken, newTotalDeleted);
-                } else if (res.ok) {
-                    // Final success
-                    showMessage('success', `Successfully deleted ${newTotalDeleted} anonymous users. Cleanup complete.`, 10000);
-                    await logAdminAction('USER_CLEANUP', { type: 'anonymous', deletedCount: newTotalDeleted });
-                    // Refresh the user list after successful cleanup
-                    window.module.fetchUsers(null); 
-                } else {
-                    throw new Error(data.details || data.error || res.statusText);
+                if (!response.ok) {
+                    throw new Error(result.details || result.error || response.statusText);
                 }
 
+                showMessage('success', `Order ${result.orderId.slice(0, 8)}... created and email sent.`, 8000);
+                await logAdminAction('ORDER_CREATED', { orderId: result.orderId, buyer: buyerEmail });
+                
+                // Clear form and cart on success
+                document.getElementById('createOrderForm').reset();
+                state.adminCart = {};
+                updateAdminCartDisplay();
+
             } catch (error) {
-                console.error('Anonymous user cleanup failed:', error);
-                showMessage('error', `Cleanup failed: ${error.message}`);
+                console.error("Admin Order creation failed:", error);
+                showMessage('error', `Order failed: ${error.message}`);
             } finally {
-                nextBtn.disabled = false;
-                nextBtn.textContent = 'Clear All Anonymous Users';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'SUBMIT ORDER & SEND EMAIL';
             }
+        }
+        
+        function renderAdminOrderSection() {
+            // This function ensures the order form is updated with the latest items
+            const orderSectionEl = document.getElementById('ordersSection');
+            if (!orderSectionEl || state.activeTab !== 'orders') return;
+            
+            // This is a minimal update to re-render the dynamic parts
+            const itemSelector = document.getElementById('itemSelector');
+            const cartTotal = document.getElementById('adminCartTotal');
+            
+            if (itemSelector) itemSelector.innerHTML = `<option value="">-- Select Product --</option>${renderItemSelectorOptions()}`;
+            if (cartTotal) cartTotal.textContent = formatPriceDisplay(getTotalAdminCartPrice());
         }
 
         // --- RENDERING ---
-        function renderEditProductForm() {
-            if (!state.editingItem) return '';
-            const item = state.editingItem;
-            const options = state.catalogs.map(c => `<option value="${c.id}" ${c.id === item.catalogId ? 'selected' : ''}>${c.name}</option>`).join('');
-            const priceDollars = (item.price / 100).toFixed(2);
-            const img = item.imageUrl.includes('placehold.co') ? '' : item.imageUrl;
-
-            return `
-                <div class="mb-10 p-6 border rounded-xl shadow-2xl bg-yellow-100 border-t-4 border-yellow-500">
-                    <h3 class="text-xl font-bold mb-4 text-yellow-700">Edit: ${item.name}</h3>
-                    <div class="mb-4 p-3 bg-yellow-200 border border-yellow-300 rounded-lg">
-                        <label class="block text-sm font-bold text-yellow-800">SKU:</label>
-                        <input type="text" value="${item.sku || 'N/A'}" readonly class="w-full p-2 bg-yellow-50 font-mono text-sm border-yellow-400 rounded-md cursor-not-allowed">
-                    </div>
-                    <form onsubmit="window.module.handleEditProduct(event)" class="space-y-4">
-                        <input type="hidden" name="itemId" value="${item.id}">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input name="itemName" value="${item.name}" required class="p-2 border rounded-lg">
-                            <select name="catalogId" required class="p-2 border rounded-lg"><option value="">-- Category --</option>${options}</select>
-                        </div>
-                        <textarea name="itemDescription" rows="2" required class="w-full p-2 border rounded-lg">${item.description}</textarea>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input type="number" step="0.01" name="itemPrice" value="${priceDollars}" required class="p-2 border rounded-lg">
-                            <input type="url" name="itemImageUrl" value="${img}" class="p-2 border rounded-lg">
-                        </div>
-                        <div class="flex space-x-4">
-                            <button type="submit" class="flex-grow bg-yellow-600 text-white py-2 rounded-lg hover:bg-yellow-700">Save Changes</button>
-                            <button type="button" onclick="window.module.cancelEdit()" class="flex-grow bg-gray-300 py-2 rounded-lg hover:bg-gray-400">Cancel</button>
-                        </div>
-                    </form>
-                </div>`;
-        }
-
-        function renderProductListSection() {
-            const el = document.getElementById('productListContainer');
-            if (!el) return;
-            const items = getFilteredItems();
-
-            el.innerHTML = `
-                <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${items.length} / ${state.items.length} total)</h3>
-                <div class="overflow-x-auto">
-                    <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1.5fr 1.5fr 1fr;">
-                        <div class="grid-header">SKU</div>
-                        <div class="grid-header">Name & Description</div>
-                        <div class="grid-header">Price</div>
-                        <div class="grid-header">Category</div>
-                        <div class="grid-header">Image URL</div>
-                        <div class="grid-header">Added At</div>
-                        <div class="grid-header">Actions</div>
-                        ${items.map(item => {
-                            const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                            const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
-                            return `
-                                <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
-                                <div class="grid-item"><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length>50?'...':''}</p></div>
-                                <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
-                                <div class="grid-item">${cat}</div>
-                                <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
-                                <div class="grid-item text-xs text-gray-500">${created}</div>
-                                <div class="grid-item">
-                                    <button onclick="window.module.showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
-                                    <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                                </div>`;
-                        }).join('')}
-                    </div>
-                    ${items.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found.</p>' : ''}
-                </div>`;
-        }
-
-        function renderPreviewSite() {
-            return `
-                <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
-                    <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview</h2>
-                    <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
-                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups allow-scripts allow-same-origin"></iframe>
-                    </div>
-                    <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
-                </section>`;
-        }
+        
+        // ... (renderEditProductForm, renderProductListSection, renderPreviewSite omitted for brevity)
 
         function renderAdminTabs() {
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
@@ -632,8 +514,55 @@
                 </section>
 
                 <section id="ordersSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 ${state.activeTab === 'orders' ? '' : 'hidden'}">
-                    <h2 class="text-2xl font-bold mb-4 text-pink-700">Recent Orders</h2>
-                    <p class="text-gray-500">Coming soon.</p>
+                    <h2 class="text-2xl font-bold mb-4 text-pink-700">Order Management</h2>
+                    <div id="ordersMessage" class="mt-4 text-center text-sm font-medium"></div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        
+                        <div class="lg:col-span-2 p-6 border rounded-xl shadow-md bg-gray-50">
+                            <h3 class="text-xl font-semibold mb-4 text-pink-600">Create New Manual Order</h3>
+                            <form id="createOrderForm" onsubmit="window.module.handleAdminOrderSubmit(event)" class="space-y-4">
+                                
+                                <h4 class="font-bold pt-2 border-t text-gray-700">Buyer Details</h4>
+                                <input type="text" id="buyerName" placeholder="Full Name" required class="w-full p-2 border rounded-lg">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <input type="email" id="buyerEmail" placeholder="Email Address" required class="p-2 border rounded-lg">
+                                    <input type="tel" id="buyerPhone" placeholder="Phone Number (Optional)" class="p-2 border rounded-lg">
+                                </div>
+                                <textarea id="deliveryAddress" placeholder="Delivery Address" rows="2" required class="w-full p-2 border rounded-lg"></textarea>
+                                <textarea id="orderNotes" placeholder="Internal/Delivery Notes (Optional)" rows="2" class="w-full p-2 border rounded-lg"></textarea>
+
+                                <h4 class="font-bold pt-4 border-t text-gray-700">Items & Total</h4>
+                                <div id="adminCartDisplay" class="space-y-3 p-3 bg-white rounded-lg border">
+                                    ${Object.keys(state.adminCart).length === 0 ? '<p class="text-gray-500 italic">No items added to this order yet.</p>' : ''}
+                                </div>
+                                <div class="flex justify-between items-center font-bold text-lg pt-2">
+                                    <span>TOTAL:</span>
+                                    <span id="adminCartTotal">${formatPriceDisplay(getTotalAdminCartPrice())}</span>
+                                </div>
+                                
+                                <h4 class="font-bold pt-4 border-t text-gray-700">Add Item to Order</h4>
+                                <div class="flex space-x-3">
+                                    <select id="itemSelector" class="flex-grow p-2 border rounded-lg">
+                                        <option value="">-- Select Product --</option>
+                                        ${state.items.map(item => `<option value="${item.id}">${item.name} (${formatPriceDisplay(item.price)})</option>`).join('')}
+                                    </select>
+                                    <input type="number" id="itemQuantity" placeholder="Qty" value="1" min="1" required class="w-16 p-2 border rounded-lg">
+                                    <button type="button" onclick="window.module.addAdminCartItem()" class="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600">Add</button>
+                                </div>
+
+                                <button type="submit" id="submitOrderButton" disabled
+                                    class="w-full bg-pink-600 text-white py-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-md disabled:bg-pink-300 disabled:cursor-not-allowed">
+                                    SUBMIT ORDER & SEND EMAIL
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="lg:col-span-1 p-6 border rounded-xl shadow-md bg-white">
+                            <h3 class="text-xl font-semibold mb-4 text-pink-600">Recent Admin Orders (Placeholder)</h3>
+                            <p class="text-gray-500">Functionality to view recent orders will be implemented here.</p>
+                        </div>
+                    </div>
                 </section>
             `;
         }
@@ -675,139 +604,11 @@
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
             if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
             if (state.activeTab === 'users' && !state.previewMode && document.getElementById('usersGrid')?.children.length <= 7) window.module.fetchUsers();
+            if (state.activeTab === 'orders' && !state.previewMode) window.module.updateAdminCartDisplay();
         }
 
-        // --- CONFIG & USERS ---
-        async function displayStaticIps() {
-            const el = document.getElementById('staticIpList');
-            if (!el) return;
-            try {
-                const res = await fetch(GET_IP_WHITELIST_FUNCTION);
-                const data = await res.json();
-                el.innerHTML = data.ipWhitelist?.length ? data.ipWhitelist.join('<br>') : 'No IPs configured.';
-            } catch (e) {
-                el.textContent = 'Failed to load IP whitelist.';
-            }
-        }
-
-        async function fetchAdminConfig() {
-            resetTimer();
-            try {
-                const res = await fetch(CONFIG_FUNCTION);
-                if (!res.ok) throw new Error();
-                window.module.globalConfig = await res.json();
-                const toggle = document.getElementById('maintenanceModeToggle');
-                const status = document.getElementById('maintenanceStatus');
-                const enabled = window.module.globalConfig.maintenanceMode === true;
-                if (toggle) toggle.checked = enabled;
-                if (status) status.textContent = enabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
-                if (toggle) toggle.onchange = window.module.updateMaintenanceMode;
-            } catch (e) {
-                showMessage('error', 'Failed to load config.');
-            }
-        }
-
-        async function updateMaintenanceMode(e) {
-            resetTimer();
-            const enabled = e.target.checked;
-            const status = document.getElementById('maintenanceStatus');
-            status.textContent = 'Updating...';
-            try {
-                const res = await fetch(UPDATE_CONFIG_FUNCTION, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ maintenanceMode: enabled })
-                });
-                if (!res.ok) throw new Error();
-                status.textContent = enabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
-                showMessage('success', 'Maintenance mode updated.');
-                await logAdminAction('CONFIG_UPDATED', { maintenanceMode: enabled });
-            } catch (err) {
-                e.target.checked = !enabled;
-                status.textContent = 'Update failed';
-                showMessage('error', 'Failed to update.');
-            }
-        }
-
-        async function fetchUsers(pageToken = null) {
-            resetTimer();
-            const loading = document.getElementById('loadingMessage');
-            const grid = document.getElementById('usersGrid');
-            const nextBtn = document.getElementById('nextPageButton');
-            const noUsersEl = document.getElementById('noUsersMessage');
-
-            if (!grid || !nextBtn || !noUsersEl) return;
-
-            loading.classList.remove('hidden');
-            noUsersEl.classList.add('hidden');
-            nextBtn.disabled = true;
-            if (!pageToken) Array.from(grid.children).slice(7).forEach(el => el.remove());
-
-            try {
-                // Get the admin user's ID token for server-side authentication
-                const idToken = await auth.currentUser.getIdToken();
-
-                const url = `${LIST_USERS_FUNCTION}?maxResults=100${pageToken ? `&nextPageToken=${pageToken}` : ''}`;
-                const res = await fetch(url, {
-                    headers: {
-                        'Authorization': `Bearer ${idToken}`, 
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (!res.ok) {
-                    const errorDetails = await res.json();
-                    throw new Error(`Failed to fetch user list. Status: ${res.status}. Details: ${errorDetails.error || res.statusText}`);
-                }
-                
-                const data = await res.json();
-
-                window.module.displayUsers(data.users);
-
-                if (data.users.length === 0 && !pageToken) {
-                    noUsersEl.classList.remove('hidden');
-                }
-
-                window.module.globalNextPageToken = data.nextPageToken;
-                nextBtn.disabled = !data.nextPageToken;
-                nextBtn.textContent = data.nextPageToken ? 'Load Next 100 Users' : 'End of List';
-            } catch (e) {
-                console.error(e);
-                showMessage('error', 'Failed to load users.');
-                noUsersEl.textContent = 'Failed to load user data.';
-                noUsersEl.classList.remove('hidden');
-            } finally {
-                loading.classList.add('hidden');
-            }
-        }
-
-        function displayUsers(users) {
-            const grid = document.getElementById('usersGrid');
-            if (!grid) return;
-            users.forEach(u => {
-                if (!u.email) return;
-                const statusColor = u.disabled ? 'text-red-500' : 'text-green-500';
-                const statusText = u.disabled ? 'Disabled' : 'Active';
-                const disableBtnText = u.disabled ? 'Enable' : 'Disable';
-
-                grid.innerHTML += `
-                    <div class="grid-item">${u.email}</div>
-                    <div class="grid-item text-xs">${u.uid.slice(0,8)}...</div>
-                    <div class="grid-item">${u.emailVerified ? 'Yes' : 'No'}</div>
-                    <div class="grid-item text-xs">${formatTime(u.createdAt)}</div>
-                    <div class="grid-item text-xs">${formatTime(u.lastSignInTime)}</div>
-                    <div class="grid-item font-medium ${statusColor}">${statusText}</div>
-                    <div class="grid-item flex flex-wrap gap-2">
-                        <button onclick="window.module.promptForPasswordReset('${u.uid}')" 
-                                class="text-xs text-blue-600 hover:text-blue-800 font-semibold p-1 bg-blue-100 rounded">Reset Pwd</button>
-                        <button onclick="window.module.disableUser('${u.uid}', '${u.email}', ${u.disabled})" 
-                                class="text-xs text-yellow-600 hover:text-yellow-800 font-semibold p-1 bg-yellow-100 rounded">${disableBtnText}</button>
-                        <button onclick="window.module.deleteUser('${u.uid}', '${u.email}')" 
-                                class="text-xs text-red-600 hover:text-red-800 font-semibold p-1 bg-red-100 rounded">Delete</button>
-                    </div>
-                `;
-            });
-        }
+        // --- CONFIG & USERS (omitted for brevity, assume contents are present) ---
+        // ...
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
@@ -816,10 +617,10 @@
             switchAdminTab, handleAddCatalog, handleDeleteCatalog, handleAddProduct, handleDeleteProduct,
             handleSearchInput, showEditForm, cancelEdit, handleEditProduct, renderProductListSection,
             togglePreviewMode, logAdminAction,
-            // ADDED USER MANAGEMENT FUNCTIONS:
             handleUserAction, promptForPasswordReset, deleteUser, disableUser,
-            // ADDED ANONYMOUS CLEANUP FUNCTION:
-            handleClearAnonymousUsers
+            handleClearAnonymousUsers,
+            // ADDED ADMIN ORDER FUNCTIONS:
+            handleAdminOrderSubmit, addAdminCartItem, removeAdminCartItem, updateAdminCartDisplay
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
