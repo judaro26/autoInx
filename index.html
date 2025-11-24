@@ -21,11 +21,14 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Import IP Check Utility for Admin Gate
+        import { checkIPRange } from './js/utilities/utils.js';
 
-        // Global variables provided by the Canvas environment
+        // Global variables provided by the Canvas environment (used if defined)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
+        
         let app, db, auth;
         let userId = null;
         let isAuthReady = false;
@@ -40,34 +43,113 @@
             adminPassword: 'admin', // Simple, insecure admin check for this demo
             message: null,
             loading: false,
+            isAdminIP: false, // New state for IP whitelist check
+            configLoaded: false, // Tracks if Firebase config is successfully loaded
         };
 
-        // --- FIRESTORE COLLECTION PATHS (Define these once authentication is complete) ---
-        let CATALOGS_COLLECTION;
-        let ITEMS_COLLECTION;
-        let ORDERS_COLLECTION;
-        
-        // --- HELPER FUNCTIONS ---
-        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
-        const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
+        // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
+        async function loadFirebaseConfig() {
+            // Tier 1: Use Canvas injected config
+            if (typeof __firebase_config !== 'undefined' && __firebase_config && Object.keys(JSON.parse(__firebase_config)).length > 0) {
+                console.log("Tier 1: Loaded config from Canvas environment.");
+                return JSON.parse(__firebase_config);
+            }
 
-        function showMessage(type, text, duration = 4000) {
-            state.message = { type, text };
-            render();
-            setTimeout(() => {
-                state.message = null;
-                render();
-            }, duration);
+            // Tier 2: Fallback to Netlify Function (for standalone Netlify deployments)
+            try {
+                const netlifyFunctionUrl = '/.netlify/functions/getClientFirebaseConfig';
+                console.log("Tier 2: Attempting to load public config from Netlify Function...");
+                const response = await fetch(netlifyFunctionUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch config from Netlify Function (Status: ${response.status})`);
+                }
+                const config = await response.json();
+                console.log("Tier 2: Public config loaded successfully.");
+                return config;
+            } catch (error) {
+                console.error("Tier 2 Failed. Falling back to empty config.", error);
+                return {}; // Tier 3: Empty config fallback
+            }
         }
+
+
+        // --- FIREBASE INITIALIZATION & AUTH ---
+        async function setupFirebase() {
+            try {
+                const firebaseConfig = await loadFirebaseConfig();
+                state.configLoaded = true;
+
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is missing or failed to load from Netlify Function.");
+                    state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
+                    render();
+                    return;
+                }
+                
+                setLogLevel('debug'); // Enable Firestore logging
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                // Perform IP Check right away
+                state.isAdminIP = await checkIPRange();
+                console.log(`IP Check complete. Is Admin IP: ${state.isAdminIP}`);
+
+                // Attempt to sign in
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("User authenticated. UID:", userId);
+                    } else {
+                        // Attempt anonymous sign-in if no user is signed in
+                        console.log("No user signed in. Attempting anonymous sign-in.");
+                        try {
+                            await signInAnonymously(auth);
+                            userId = auth.currentUser?.uid || crypto.randomUUID();
+                        } catch (error) {
+                             if (error.code === 'auth/admin-restricted-operation') {
+                                // Specific error if Anonymous Auth is not enabled in Firebase Console
+                                console.error("Authentication Failed: Client-side anonymous sign-in is disabled in the Firebase Console.", error);
+                                state.message = { type: 'error', text: 'Cannot proceed: Client Authentication is disabled for this project. Check Firebase console settings.' };
+                            } else {
+                                console.error("Error during anonymous sign-in:", error);
+                                state.message = { type: 'error', text: 'Authentication failed. Data saving may not work.' };
+                            }
+                        }
+                    }
+                    isAuthReady = true;
+                    if (db) setupRealtimeListeners();
+                    render();
+                });
+
+                // Use the custom token if provided (e.g., from Canvas)
+                if (initialAuthToken) {
+                    signInWithCustomToken(auth, initialAuthToken)
+                        .catch(error => {
+                            console.error("Error signing in with custom token:", error);
+                            // Fallback to anonymous sign-in is handled by onAuthStateChanged
+                        });
+                } else if (!auth.currentUser) {
+                    signInAnonymously(auth);
+                }
+
+
+            } catch (error) {
+                console.error("Firebase setup failed:", error);
+                state.message = { type: 'error', text: 'Failed to initialize Firebase.' };
+                render();
+            }
+        }
+
+        // --- FIRESTORE COLLECTION PATHS ---
+        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
+        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+        const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
 
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
             if (!isAuthReady || !db) return;
-            
-            // Define collections using the now-known userId
-            CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
-            ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
-            ORDERS_COLLECTION = `artifacts/${appId}/users/${userId}/orders`;
 
             // 1. Catalogs Listener
             onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
@@ -92,88 +174,19 @@
             });
         }
 
-        // --- FIREBASE INITIALIZATION & AUTH ---
 
-        async function fetchNetlifyConfig() {
-            // Netlify Function to get ONLY the public client Firebase configuration
-            const NETLIFY_CONFIG_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
-            try {
-                const response = await fetch(NETLIFY_CONFIG_FUNCTION);
-                if (!response.ok) throw new Error("Failed to fetch config from Netlify function.");
-                
-                const config = await response.json();
-                if (!config.apiKey) throw new Error("Netlify function returned invalid config.");
-                return config;
-            } catch (error) {
-                console.error("Error fetching Firebase config from Netlify Function:", error);
-                return null;
-            }
-        }
+        // --- HELPER FUNCTIONS ---
+        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
+        const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
 
-        async function setupFirebase() {
-            let firebaseConfig = {};
-            
-            // 1. Attempt to use Canvas injected config (Highest Priority)
-            const injectedConfig = typeof __firebase_config !== 'undefined' && __firebase_config ? JSON.parse(__firebase_config) : {};
-            
-            if (Object.keys(injectedConfig).length > 0) {
-                firebaseConfig = injectedConfig;
-            } else {
-                // 2. Fallback: Fetch config from Netlify Function (for non-Canvas environments)
-                showMessage('info', 'Canvas config missing. Attempting to fetch public config from Netlify...', 5000);
-                const fetchedConfig = await fetchNetlifyConfig();
-                if (fetchedConfig) {
-                    firebaseConfig = fetchedConfig;
-                }
-            }
-            
-            // 3. Final Check
-            if (Object.keys(firebaseConfig).length === 0 || !firebaseConfig.projectId) {
-                console.error("Firebase config is missing.");
-                state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot proceed.' };
+        function showMessage(type, text, duration = 4000) {
+            state.message = { type, text };
+            render();
+            setTimeout(() => {
+                state.message = null;
                 render();
-                return;
-            }
-
-            try {
-                setLogLevel('debug'); // Enable Firestore logging
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        console.log("User authenticated. UID:", userId);
-                    } else {
-                        // This handles the case if initial token fails or is not present
-                        console.log("No user signed in. Attempting anonymous sign-in.");
-                        await signInAnonymously(auth);
-                        userId = auth.currentUser?.uid || crypto.randomUUID();
-                    }
-                    isAuthReady = true;
-                    if (db) setupRealtimeListeners();
-                    render();
-                });
-
-                // Use the custom token if provided
-                if (initialAuthToken) {
-                    signInWithCustomToken(auth, initialAuthToken)
-                        .catch(error => {
-                            console.error("Error signing in with custom token:", error);
-                            // Fallback to anonymous sign-in is handled by onAuthStateChanged
-                        });
-                } else if (!auth.currentUser) {
-                    signInAnonymously(auth);
-                }
-
-            } catch (error) {
-                console.error("Firebase setup failed:", error);
-                state.message = { type: 'error', text: 'Failed to initialize Firebase.' };
-                render();
-            }
+            }, duration);
         }
-
 
         // --- ADMIN ACTIONS ---
 
@@ -188,7 +201,7 @@
                 showMessage('success', `Catalog "${name}" created successfully.`);
             } catch (error) {
                 console.error("Error adding catalog:", error);
-                showMessage('error', 'Failed to add catalog.');
+                showMessage('error', 'Failed to add catalog. Check Firestore Rules.');
             }
         }
 
@@ -198,7 +211,8 @@
             const name = form.itemName.value.trim();
             const price = parseFloat(form.itemPrice.value.trim()) * 100; // Store price in cents
             const catalogId = form.catalogId.value;
-            const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/6366f1/ffffff?text=No+Image';
+            // Use a placeholder image if the URL is empty or invalid
+            const imageUrl = form.itemImageUrl.value.trim() || 'https://placehold.co/400x300/6366f1/ffffff?text=Image+Missing';
 
             if (!name || isNaN(price) || price <= 0 || !catalogId) {
                 showMessage('warning', 'Please fill all fields correctly.');
@@ -217,7 +231,7 @@
                 showMessage('success', `Item "${name}" added successfully.`);
             } catch (error) {
                 console.error("Error adding item:", error);
-                showMessage('error', 'Failed to add item.');
+                showMessage('error', 'Failed to add item. Check Firestore Rules.');
             }
         }
 
@@ -271,6 +285,11 @@
                 return;
             }
 
+            if (!userId) {
+                showMessage('error', 'Authentication failed. Cannot submit order without a User ID.');
+                return;
+            }
+
             state.loading = true;
             render();
 
@@ -290,8 +309,8 @@
 
             let orderRef = null;
             try {
-                // 1. Save the order to Firestore
-                orderRef = await addDoc(collection(db, ORDERS_COLLECTION), {
+                // 1. Save the order to Firestore (in the user's private collection)
+                orderRef = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
                     ...orderDetails,
                     status: 'Pending',
                     createdAt: serverTimestamp(),
@@ -299,9 +318,8 @@
                 console.log("Order saved to Firestore with ID:", orderRef.id);
 
                 // 2. Call Netlify Function to send email (Secure Server-Side Step)
-                const netlifyFunctionUrl = '/.netlify/functions/send-email'; // Standard path for Netlify Functions
+                const netlifyFunctionUrl = '/.netlify/functions/send-email';
 
-                // We must use exponential backoff for the fetch call
                 const MAX_RETRIES = 3;
                 let response = null;
                 for (let i = 0; i < MAX_RETRIES; i++) {
@@ -313,7 +331,7 @@
                         });
 
                         if (response.ok) {
-                            break; // Success
+                            break;
                         } else if (i === MAX_RETRIES - 1) {
                             throw new Error(`Server returned status ${response.status}`);
                         }
@@ -321,7 +339,7 @@
                         if (i === MAX_RETRIES - 1) {
                             throw fetchError;
                         }
-                        const delay = Math.pow(2, i) * 1000; // Exponential backoff (1s, 2s, 4s)
+                        const delay = Math.pow(2, i) * 1000;
                         await new Promise(resolve => setTimeout(resolve, delay));
                         console.log(`Retrying API call... attempt ${i + 2}`);
                     }
@@ -337,7 +355,7 @@
                 // 3. Success Feedback and Cleanup
                 showMessage('success', `Order #${orderRef.id.slice(0, 8)}... submitted! A confirmation email has been sent to ${buyerEmail}.`, 8000);
                 state.cart = {};
-                emailInput.value = ''; // Clear email after successful order
+                emailInput.value = '';
 
             } catch (error) {
                 console.error("Order submission failed:", error);
@@ -345,7 +363,7 @@
                 // Optionally update Firestore order status to 'Email Failed'
                 try {
                     if (orderRef) {
-                        await setDoc(doc(db, ORDERS_COLLECTION, orderRef.id), { emailStatus: 'Failed' }, { merge: true });
+                        await setDoc(doc(db, ORDERS_COLLECTION(userId), orderRef.id), { emailStatus: 'Failed' }, { merge: true });
                     }
                 } catch (e) {
                     console.error("Could not update order status after email failure:", e);
@@ -536,23 +554,44 @@
 
         function renderAuthToggle() {
             const isUserView = state.view === 'user';
-            const buttonText = isUserView ? 'Admin Login' : 'Exit Admin View';
-            const buttonColor = isUserView ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-red-500 hover:bg-red-600';
+            
+            // If the IP check is still pending, show nothing
+            if (!state.configLoaded || !isAuthReady) return ''; 
 
-            // Wrap the button and add the Forgot Password link next to it
-            return `
-                <div class="flex items-center space-x-4">
-                    ${isUserView ? `
+            if (state.view === 'admin') {
+                // If currently in Admin view, show the exit button
+                return `
+                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
+                        Exit Admin View
+                    </button>
+                `;
+            } else if (state.isAdminIP) {
+                // If in User view AND IP is whitelisted, show Admin Login
+                return `
+                    <div class="flex items-center space-x-4">
                         <button onclick="window.module.requestPasswordReset()" 
                                 class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
                             Forgot Password?
                         </button>
-                    ` : ''}
-                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white ${buttonColor} transition duration-150 shadow-md">
-                        ${buttonText}
-                    </button>
-                </div>
-            `;
+                        <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
+                            Admin Login
+                        </button>
+                    </div>
+                `;
+            } else {
+                // If in User view AND IP is NOT whitelisted, show standard placeholder login
+                return `
+                    <div class="flex items-center space-x-4">
+                        <button onclick="window.module.requestPasswordReset()" 
+                                class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
+                            Forgot Password?
+                        </button>
+                        <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
+                            Standard Login
+                        </button>
+                    </div>
+                `;
+            }
         }
 
         function render() {
@@ -587,7 +626,6 @@
             const email = prompt("Enter the email associated with your account to receive a password reset link:");
             
             if (!email) {
-                // User clicked cancel or submitted empty
                 return;
             }
             
@@ -596,12 +634,11 @@
                 return;
             }
 
-            showMessage('info', 'Requesting password reset link...', 60000); // Show long message during processing
+            showMessage('info', 'Requesting password reset link...', 60000);
             
             const netlifyFunctionUrl = '/.netlify/functions/sendPasswordResetEmail';
 
             try {
-                // Exponential backoff retry loop for the fetch call
                 const MAX_RETRIES = 3;
                 let response = null;
                 for (let i = 0; i < MAX_RETRIES; i++) {
@@ -613,7 +650,7 @@
                         });
 
                         if (response.ok) {
-                            break; // Success
+                            break;
                         } else if (i === MAX_RETRIES - 1) {
                             throw new Error(`Server returned status ${response.status}`);
                         }
@@ -621,7 +658,7 @@
                         if (i === MAX_RETRIES - 1) {
                             throw fetchError;
                         }
-                        const delay = Math.pow(2, i) * 1000; // Exponential backoff (1s, 2s, 4s)
+                        const delay = Math.pow(2, i) * 1000;
                         await new Promise(resolve => setTimeout(resolve, delay));
                         console.log(`Retrying password reset request... attempt ${i + 2}`);
                     }
@@ -633,7 +670,6 @@
                     // Always show success message for security, regardless of whether the email exists in Auth
                     showMessage('success', `If an account exists for ${email}, a password reset link has been sent. Check your inbox!`, 8000);
                 } else {
-                    // Handle function error response
                     showMessage('error', result.error || 'Failed to request password reset. Please try again later.');
                 }
             } catch (error) {
@@ -647,13 +683,21 @@
 
         function toggleView() {
             if (state.view === 'user') {
-                // Prompt for admin password before switching
-                const password = prompt("Enter Admin Password:");
-                if (password === state.adminPassword) {
+                // Only proceed if IP is whitelisted or if the placeholder login is used
+                if (state.isAdminIP) {
+                    const password = prompt("Enter Admin Password:");
+                    if (password === state.adminPassword) {
+                        state.view = 'admin';
+                        showMessage('success', 'Admin View unlocked.', 2000);
+                    } else if (password !== null) {
+                        showMessage('error', 'Incorrect Admin Password.');
+                    }
+                } else {
+                    // Standard login flow (currently just a toggle for demonstration)
                     state.view = 'admin';
-                } else if (password !== null) {
-                    showMessage('error', 'Incorrect Admin Password.');
+                    showMessage('info', 'Standard Login successful. Entering Admin View (simulated).', 2000);
                 }
+
             } else {
                 state.view = 'user';
             }
@@ -669,7 +713,7 @@
             addToCart,
             updateCartQuantity,
             submitOrder,
-            requestPasswordReset // Export the new function
+            requestPasswordReset
         };
 
         document.addEventListener('DOMContentLoaded', () => {
