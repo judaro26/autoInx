@@ -43,13 +43,10 @@
                     <div>
                         <h3 class="font-semibold text-lg mb-2 flex items-center">
                             <svg class="w-5 h-5 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2h2V7A3 3 0 007 7v2h2V7a3 3 0 006 0z" clip-rule="evenodd"></path></svg>
-                            Admin IP Whitelist
+                            Admin IP Whitelist (Static)
                         </h3>
-                        <p class="text-sm text-gray-500 mb-3">List of IPs authorized for local Admin Login bypass.</p>
-                        <textarea id="ipWhitelistInput" rows="4" placeholder="Enter IPs, one per line (e.g., 181.63.24.48)" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500"></textarea>
-                        <button onclick="updateIpWhitelist()" class="w-full bg-green-600 text-white p-2 rounded-lg font-semibold hover:bg-green-700 transition duration-150 mt-2">
-                            Update IP Whitelist
-                        </button>
+                        <p class="text-sm text-gray-500 mb-3">These IPs are loaded from **`netlify/functions/js/utilities/ipWhitelist.js`**. To update this list, you must modify the file directly and redeploy the site.</p>
+                        <div id="staticIpList" class="p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700" rows="4">Loading IPs...</div>
                     </div>
                 </div>
                 <div id="configMessage" class="mt-4 text-center text-sm font-medium"></div>
@@ -77,10 +74,12 @@
 
     <script type="module">
         import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        
+        // Import the IP whitelist module for display
+        import { ipWhitelist } from './netlify/functions/js/utilities/ipWhitelist.js';
+
         // State
         let globalNextPageToken = null;
-        let globalConfig = { ipWhitelist: [], maintenanceMode: false };
+        let globalConfig = { maintenanceMode: false };
 
         const AUTH = getAuth();
         const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
@@ -116,15 +115,27 @@
         
         // Basic check to ensure user is logged in before running admin logic
         AUTH.onAuthStateChanged(user => {
-            if (!user) {
-                window.location.href = '/'; // Redirect unauthenticated users
+            if (!user || user.isAnonymous) {
+                // Redirect unauthenticated or anonymous users
+                window.location.href = '/'; 
             } else {
                 fetchAdminConfig();
+                displayStaticIps();
                 fetchUsers();
             }
         });
 
-        // --- CONFIGURATION MANAGEMENT ---
+        // --- IP WHITELIST DISPLAY ---
+        function displayStaticIps() {
+            const ipListEl = document.getElementById('staticIpList');
+            if (ipWhitelist && ipWhitelist.length > 0) {
+                ipListEl.innerHTML = ipWhitelist.join('<br>');
+            } else {
+                ipListEl.textContent = 'No IPs configured. Please update the ipWhitelist.js file.';
+            }
+        }
+
+        // --- MAINTENANCE MODE MANAGEMENT ---
 
         async function fetchAdminConfig() {
             try {
@@ -133,15 +144,15 @@
                 
                 globalConfig = await response.json();
                 
-                // Populate IP Whitelist
-                const ipInput = document.getElementById('ipWhitelistInput');
-                ipInput.value = globalConfig.ipWhitelist.join('\n');
-
                 // Set Maintenance Mode Toggle
                 const toggle = document.getElementById('maintenanceModeToggle');
                 const statusSpan = document.getElementById('maintenanceStatus');
-                toggle.checked = globalConfig.maintenanceMode;
-                statusSpan.textContent = globalConfig.maintenanceMode ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
+                
+                // Use a non-nullish check since Firestore value might be undefined or false
+                const isMaintenanceEnabled = globalConfig.maintenanceMode === true;
+                
+                toggle.checked = isMaintenanceEnabled;
+                statusSpan.textContent = isMaintenanceEnabled ? 'ENABLED (Site Locked)' : 'DISABLED (Site Open)';
 
                 toggle.onchange = updateMaintenanceMode;
 
@@ -175,32 +186,6 @@
             }
         }
 
-        async function updateIpWhitelist() {
-            const ipInput = document.getElementById('ipWhitelistInput').value;
-            // Clean and filter IPs
-            const newIps = ipInput.split('\n')
-                                   .map(ip => ip.trim())
-                                   .filter(ip => ip.length > 0);
-
-            try {
-                const response = await fetch(UPDATE_CONFIG_FUNCTION, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ipWhitelist: newIps })
-                });
-
-                if (!response.ok) throw new Error('Server rejected update.');
-                
-                showMessage('success', 'IP Whitelist updated successfully.');
-                globalConfig.ipWhitelist = newIps; // Update local state
-                document.getElementById('ipWhitelistInput').value = newIps.join('\n'); // Keep input clean
-
-            } catch (error) {
-                showMessage('error', 'Failed to update IP Whitelist. See console.');
-                console.error('IP Whitelist update error:', error);
-            }
-        }
-
         // --- USER LISTING ---
 
         async function fetchUsers(pageToken = null) {
@@ -211,7 +196,7 @@
             loading.classList.remove('hidden');
             nextButton.disabled = true;
 
-            // Clear grid for first page load
+            // Clear grid for first page load (but keep headers)
             if (!pageToken) {
                 grid.querySelectorAll('.user-row').forEach(row => row.remove());
             }
@@ -246,6 +231,9 @@
             const grid = document.getElementById('usersGrid');
             
             users.forEach(user => {
+                // Skip anonymous users, only display permanent accounts
+                if (!user.email) return;
+
                 const statusColor = user.disabled ? 'text-red-500' : 'text-green-500';
                 
                 // Email
