@@ -755,39 +755,77 @@
         }
         
         function renderModal() {
-            if (!state.isModalOpen) return '';
-            
-            const isLogin = state.modalMode === 'login';
-            const title = isLogin ? (state.modalType === 'admin' ? 'Admin Login' : 'User Login') : 'Register New Account';
-            const submitText = isLogin ? 'Login' : 'Register';
-            const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
-
-            // Special UI for Admin (only needs password input if using local adminPassword)
-            const adminUI = state.modalType === 'admin' && state.modalMode === 'login' ? `
-                <p class="text-sm text-gray-500 mb-4">Enter the local admin password below.</p>
-                <input type="hidden" id="email-input" value="admin@local.com">
-            ` : '';
-            
-            // Full UI for Standard (Email/Password + Google)
-            const standardUI = state.modalType === 'standard' || state.modalMode === 'register' ? `
-                <div class="space-y-4">
-                    ${adminUI ? '' : `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`}
-                    <input type="password" id="password-input" placeholder="Password" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-                <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
-                    ${submitText}
-                </button>
-                <div class="my-4 flex items-center">
-                    <hr class="flex-grow border-gray-300">
-                    <span class="px-2 text-gray-500 text-sm">OR</span>
-                    <hr class="flex-grow border-gray-300">
-                </div>
-                <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google_reCAPTCHA.svg" class="w-5 h-5 mr-2" alt="Google Logo">
-                    ${isLogin ? 'Sign in with Google' : 'Register with Google'}
-                </button>
-            ` : adminUI;
-
+                    if (!state.isModalOpen) return '';
+                    
+                    const isLogin = state.modalMode === 'login';
+                    const isStandard = state.modalType === 'standard';
+                    const isRegister = state.modalMode === 'register';
+        
+                    const title = isLogin ? (isStandard ? 'User Login' : 'Admin Login') : 'Register New Account';
+                    const submitText = isLogin ? 'Login' : 'Register';
+                    const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
+        
+                    // Base fields (always needed for standard, or for admin registration)
+                    let emailField = '';
+                    let passwordField = `
+                        <input type="password" id="password-input" placeholder="Password" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    `;
+        
+                    // Adjust fields based on mode/type
+                    if (isStandard || isRegister) {
+                        // Standard login/register always needs email field
+                        emailField = `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
+                    } else if (!isStandard && isLogin) {
+                        // Admin login (local check) uses hardcoded email, so we hide the input and add the helper message
+                        emailField = `
+                            <p class="text-sm text-gray-500 mb-4">Enter the local admin password below (Email is not required for local check).</p>
+                            <input type="hidden" id="email-input" value="admin@local.com">
+                        `;
+                    }
+        
+                    // Google sign-in button is only for Standard or Register flow
+                    const googleAuthButton = (isStandard || isRegister) ? `
+                        <div class="my-4 flex items-center">
+                            <hr class="flex-grow border-gray-300">
+                            <span class="px-2 text-gray-500 text-sm">OR</span>
+                            <hr class="flex-grow border-gray-300">
+                        </div>
+                        <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google_reCAPTCHA.svg" class="w-5 h-5 mr-2" alt="Google Logo">
+                            ${isLogin ? 'Sign in with Google' : 'Register with Google'}
+                        </button>
+                    ` : '';
+        
+        
+                    return `
+                        <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
+                            <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm relative" onclick="event.stopPropagation()">
+                                <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center">${title}</h2>
+                                <div id="auth-message" class="text-red-500 text-sm mb-4 text-center font-medium"></div>
+                                
+                                <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4">
+                                    <div class="space-y-4">
+                                        ${emailField}
+                                        ${passwordField}
+                                    </div>
+                                    <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
+                                        ${submitText}
+                                    </button>
+                                    ${googleAuthButton}
+                                </form>
+        
+                                <button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
+                                        class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
+                                    ${switchModeText}
+                                </button>
+        
+                                <button onclick="window.module.closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
 
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
