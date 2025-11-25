@@ -24,6 +24,24 @@
         .address-input { @apply w-full p-2 border rounded-lg transition-all duration-200; }
         .address-valid { @apply border-green-500 bg-green-50; }
         .address-invalid { @apply border-red-500 bg-red-50; }
+        
+        /* START FIX: Toggle Switch CSS moved from inline rendering */
+        .toggle-checkbox {
+            /* Ensures the handle (checkbox) is positioned relative to the container */
+            top: 0;
+            left: 0;
+            margin: 0;
+        }
+        
+        /* Chat Widget Toggle Styles */
+        #chatWidgetToggle:checked { border-color: #3b82f6; }
+        #chatWidgetToggle:checked + .toggle-label { background-color: #3b82f6; }
+        #chatWidgetToggle:checked + .toggle-label { transform: translateX(20px); }
+
+        /* Maintenance Toggle Styles */
+        #maintenanceToggle:checked { right: 0; border-color: #10b981; } 
+        #maintenanceToggle:checked + .toggle-label { background-color: #10b981; }
+        /* END FIX */
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -629,15 +647,16 @@
                 const chatWidgetToggle = document.getElementById('chatWidgetToggle');
                 const dynamicIpList = document.getElementById('dynamicIpList');
 
-                maintenanceToggle.checked = config.maintenanceMode;
-                chatWidgetToggle.checked = config.chatWidgetEnabled;
+                if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
+                if (chatWidgetToggle) chatWidgetToggle.checked = config.chatWidgetEnabled;
+                
                 if (dynamicIpList) {
                     dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
                 }
                 document.getElementById('configLastUpdated').textContent = config.lastUpdated ? 
                     `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
 
-                // --- START FIX: Attach listeners that update globalConfig state immediately ---
+                // --- START: Attach listeners that update globalConfig state immediately ---
                 
                 if (chatWidgetToggle && chatWidgetToggle.type === 'checkbox') {
                     // Remove existing listener to prevent stacking if the function is called multiple times
@@ -665,7 +684,7 @@
                     maintenanceToggle.addEventListener('change', maintenanceToggleHandler);
                 }
                 
-                // --- END FIX ---
+                // --- END ---
 
             } catch (error) {
                 console.error("Error fetching admin config:", error);
@@ -1008,11 +1027,6 @@
                                     <input type="checkbox" name="chatWidgetToggle" id="chatWidgetToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
                                     <label for="chatWidgetToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
                                 </div>
-                                <style>
-                                    #chatWidgetToggle:checked { border-color: #3b82f6; }
-                                    #chatWidgetToggle:checked + .toggle-label { background-color: #3b82f6; }
-                                    #chatWidgetToggle:checked + .toggle-label { transform: translateX(20px); }
-                                </style>
                             </div>
                             <p class="text-sm text-blue-600 mt-2">Controls visibility of the customer support chat widget on the public site.</p>
                         </div>
@@ -1033,12 +1047,7 @@
                                     <label for="maintenanceToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-red-300 cursor-pointer"></label>
                                 </div>
                                 <p class="text-sm text-red-600">Disables store functionality for public users.</p>
-                                <style>
-                                    /* FIX APPLIED HERE: The toggle visually moves when checked */
-                                    #maintenanceToggle:checked { right: 0; border-color: #10b981; } 
-                                    #maintenanceToggle:checked + .toggle-label { background-color: #10b981; }
-                                </style>
-                            </div>
+                                                            </div>
 
                             <div>
                                 <h3 class="text-xl font-bold mb-2 text-gray-700">Dynamic Admin IP Whitelist (Stored in Firestore)</h3>
