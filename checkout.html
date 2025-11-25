@@ -11,13 +11,22 @@
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
+        .phone-input-group {
+            @apply flex rounded-lg shadow-sm border border-gray-300 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500;
+        }
+        .country-select {
+            @apply bg-gray-50 border-0 px-3 py-3 text-gray-900 rounded-l-lg font-medium text-sm;
+        }
+        .phone-input {
+            @apply flex-1 block w-full min-w-0 rounded-none rounded-r-lg px-4 py-3 text-gray-900 placeholder-gray-400 focus:ring-0 focus:border-transparent;
+        }
     </style>
 </head>
 <body>
     <div id="app" class="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8">
         <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-500">
             <h1 class="text-3xl font-extrabold text-indigo-700">Checkout</h1>
-            <a href="/" class="text-indigo-600 hover:text-indigo-800 font-medium">← Back to Shopping</a>
+            <a href="/" class="text-indigo-600 hover:text-indigo-800 font-medium">Back to Shopping</a>
         </header>
 
         <div id="loadingState" class="text-center p-20">
@@ -27,35 +36,54 @@
             </svg>
             <p class="text-gray-600">Loading order details...</p>
         </div>
-        
+       
         <div id="checkoutContent" class="hidden grid grid-cols-1 md:grid-cols-3 gap-8">
-            
             <div class="md:col-span-2 bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
                 <h2 class="text-2xl font-bold mb-6 text-indigo-700">Customer & Payment</h2>
                 <div id="checkoutMessage" class="text-red-500 text-sm mb-4"></div>
-                
-                <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-4">
+               
+                <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-6">
                     <div class="space-y-2">
                         <label for="buyer-email" class="block text-sm font-medium text-gray-700">Email Address (for Confirmation)</label>
                         <input type="email" id="buyer-email" placeholder="e.g., jane.doe@example.com" required
                             class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
                     </div>
-                    
+                   
                     <div class="space-y-2">
                         <label for="buyer-name" class="block text-sm font-medium text-gray-700">Full Name</label>
                         <input type="text" id="buyer-name" placeholder="Enter your full name" required
                             class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
                     </div>
-                    
+
+                    <!-- ENHANCED PHONE NUMBER FIELD -->
+                    <div class="space-y-2">
+                        <label for="buyer-phone" class="block text-sm font-medium text-gray-700">
+                            Phone Number <span class="text-red-500">*</span>
+                        </label>
+                        <div class="phone-input-group">
+                            <select id="country-code" class="country-select">
+                                <option value="+57" data-flag="Colombia">Colombia +57</option>
+                                <option value="+1" data-flag="United States">United States +1</option>
+                            </select>
+                            <input type="tel" id="buyer-phone" placeholder="e.g., 3001234567" required
+                                class="phone-input"
+                                pattern="[0-9]{7,15}"
+                                title="Please enter a valid phone number (7-15 digits)">
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">
+                            We'll use this to contact you about delivery.
+                        </p>
+                    </div>
+
                     <div class="space-y-2">
                         <label for="delivery-address" class="block text-sm font-medium text-gray-700">Delivery Address</label>
-                        <textarea id="delivery-address" rows="2" placeholder="Street Address, City, Postal Code" required
+                        <textarea id="delivery-address" rows="3" placeholder="Street Address, Apartment, City, Department/State, Postal Code" required
                             class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"></textarea>
                     </div>
 
                     <div class="pt-6 border-t mt-6">
                         <button type="submit" id="submitButton"
-                                class="w-full bg-green-600 text-white p-4 rounded-lg font-extrabold hover:bg-green-700 transition duration-150 shadow-lg disabled:bg-green-300 disabled:cursor-not-allowed flex justify-center items-center">
+                                class="w-full bg-green-600 text-white p-4 rounded-lg font-extrabold hover:bg-green-700 transition duration-150 shadow-lg disabled:bg-green-300 disabled:cursor-not-allowed flex justify-center items-center text-lg">
                             <span id="buttonText">SUBMIT ORDER & PAY <span id="totalPriceDisplay"></span></span>
                             <svg id="spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -66,11 +94,11 @@
                 </form>
             </div>
 
+            <!-- Order Summary (unchanged) -->
             <div class="md:col-span-1">
                 <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 sticky top-8">
                     <h3 class="text-xl font-bold mb-4 text-pink-600">Order Summary</h3>
-                    <div id="cartSummary" class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
-                        </div>
+                    <div id="cartSummary" class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2"></div>
                     <div class="pt-4 mt-4 border-t border-gray-200">
                         <div class="flex justify-between font-bold text-lg text-gray-800">
                             <span>Total:</span>
@@ -81,6 +109,7 @@
             </div>
         </div>
     </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -95,9 +124,8 @@
         const NETLIFY_FUNCTION_URL = '/.netlify/functions/send-email';
         const CONFIG_FUNCTION_URL = '/.netlify/functions/getClientFirebaseConfig';
 
-        // --- HELPER FUNCTIONS ---
         const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
-        
+
         function showMessage(type, text) {
             const el = document.getElementById('checkoutMessage');
             if (!el) return;
@@ -109,20 +137,16 @@
             const button = document.getElementById('submitButton');
             const buttonText = document.getElementById('buttonText');
             const spinner = document.getElementById('spinner');
-            
             button.disabled = isLoading;
             spinner.classList.toggle('hidden', !isLoading);
             buttonText.classList.toggle('hidden', isLoading);
-            
             if (!isLoading) {
                 document.getElementById('totalPriceDisplay').textContent = formatPrice(cartTotalCents);
             }
         }
 
-        // --- FIREBASE CONFIGURATION LOAD ---
         async function loadFirebaseConfig() {
             try {
-                // CORRECTION: Use /.netlify/functions/ for Netlify function calls
                 const response = await fetch(CONFIG_FUNCTION_URL);
                 if (!response.ok) throw new Error(`Failed to fetch config (Status: ${response.status})`);
                 return await response.json();
@@ -132,68 +156,53 @@
             }
         }
 
-        // --- FIREBASE INITIALIZATION & AUTH ---
         async function setupFirebase() {
             const firebaseConfig = await loadFirebaseConfig();
             if (Object.keys(firebaseConfig).length === 0) {
                 document.getElementById('loadingState').innerHTML = '<p class="text-red-600">Error: Failed to load Firebase configuration.</p>';
                 return;
             }
-            
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-            
+
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     userId = user.uid;
                     initializeCheckout();
                 } else {
-                    // Redirect to login/home if no user (even anonymous) is found
                     window.location.href = '/';
                 }
             });
         }
-        
-        // --- CHECKOUT LOGIC ---
+
         function initializeCheckout() {
             try {
                 const cartJson = sessionStorage.getItem('autoInxCart');
-                if (!cartJson) {
-                    document.getElementById('loadingState').innerHTML = '<p class="text-red-600 font-bold">Error: Your cart is empty or expired. Please go back to shopping.</p>';
+                if (!cartJson || cartJson === '{}') {
+                    document.getElementById('loadingState').innerHTML = '<p class="text-red-600 font-bold">Your cart is empty. Please go back to shopping.</p>';
                     return;
                 }
-
                 cartData = JSON.parse(cartJson);
-                
-                if (Object.keys(cartData).length === 0) {
-                    document.getElementById('loadingState').innerHTML = '<p class="text-red-600 font-bold">Error: Your cart is empty. Please go back to shopping.</p>';
-                    return;
-                }
-
                 cartTotalCents = Object.values(cartData).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
-
                 renderCartSummary();
                 document.getElementById('loadingState').classList.add('hidden');
                 document.getElementById('checkoutContent').classList.remove('hidden');
-                toggleLoading(false); // Initialize button text with total price
-
+                toggleLoading(false);
             } catch (error) {
                 console.error("Error initializing checkout:", error);
-                document.getElementById('loadingState').innerHTML = '<p class="text-red-600">A critical error occurred while loading your cart.</p>';
+                document.getElementById('loadingState').innerHTML = '<p class="text-red-600">A critical error occurred.</p>';
             }
         }
 
         function renderCartSummary() {
             const summaryEl = document.getElementById('cartSummary');
             const totalEl = document.getElementById('orderTotal');
-
             if (Object.keys(cartData).length === 0) {
                 summaryEl.innerHTML = '<p class="text-gray-500 italic">Cart is empty.</p>';
                 totalEl.textContent = formatPrice(0);
                 return;
             }
-
             summaryEl.innerHTML = Object.values(cartData).map(entry => `
                 <div class="flex justify-between items-start border-b pb-2">
                     <div class="flex-1 min-w-0 pr-2">
@@ -203,58 +212,53 @@
                     <span class="text-sm font-bold ml-4 text-pink-600">${formatPrice(entry.item.price * entry.quantity)}</span>
                 </div>
             `).join('');
-
             totalEl.textContent = formatPrice(cartTotalCents);
         }
 
         async function submitOrder(event) {
             event.preventDefault();
-
-            const button = document.getElementById('submitButton');
-            const buttonText = document.getElementById('buttonText');
-            
             if (Object.keys(cartData).length === 0) {
-                showMessage('error', 'Your cart is empty! Cannot submit order.');
+                showMessage('error', 'Your cart is empty!');
                 return;
             }
 
             const buyerEmail = document.getElementById('buyer-email').value.trim();
             const buyerName = document.getElementById('buyer-name').value.trim();
+            const countryCode = document.getElementById('country-code').value;
+            const buyerPhone = countryCode + document.getElementById('buyer-phone').value.trim();
             const deliveryAddress = document.getElementById('delivery-address').value.trim();
-            
-            if (!buyerEmail || !buyerEmail.includes('@') || !buyerName || !deliveryAddress) {
-                showMessage('error', 'Please fill out all required fields (Email, Name, Address).');
+
+            if (!buyerEmail || !buyerName || !buyerPhone || !deliveryAddress) {
+                showMessage('error', 'Please fill out all required fields.');
                 return;
             }
 
             toggleLoading(true);
-            
+
             const orderDetails = {
                 buyerEmail,
                 buyerName,
+                buyerPhone,  // Now includes country code: e.g., +573001234567
                 deliveryAddress,
                 items: Object.values(cartData).map(entry => ({
                     id: entry.item.id,
                     name: entry.item.name,
-                    price: entry.item.price, // in cents
+                    price: entry.item.price,
                     quantity: entry.quantity,
-                    catalog: entry.item.catalogId || 'N/A' // Need a way to pass catalog name if needed
+                    catalog: entry.item.catalogId || 'N/A'
                 })),
                 totalCents: cartTotalCents,
-                userId: userId, 
+                userId: userId,
                 timestamp: new Date().toISOString()
             };
 
-            let orderRef = null;
             try {
-                // 1. Save the order to Firestore
-                orderRef = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
+                const orderRef = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
                     ...orderDetails,
                     status: 'Pending',
                     createdAt: serverTimestamp(),
                 });
-                
-                // 2. Call Netlify Function to send email
+
                 const emailPayload = { ...orderDetails, orderId: orderRef.id };
                 const response = await fetch(NETLIFY_FUNCTION_URL, {
                     method: 'POST',
@@ -262,45 +266,28 @@
                     body: JSON.stringify(emailPayload)
                 });
 
-                if (!response.ok) {
-                    throw new Error("Failed to get a successful response from the email function.");
-                }
+                if (!response.ok) throw new Error("Email failed");
 
-                // 3. Success Feedback and Cleanup
-                showMessage('success', `Order #${orderRef.id.slice(0, 8)}... submitted! Confirmation sent to ${buyerEmail}.`, 8000);
-                
-                // Clear cart from session storage and navigate to a success state/home
+                showMessage('success', `Order #${orderRef.id.slice(0, 8)}... submitted! Confirmation sent.`);
+
                 sessionStorage.removeItem('autoInxCart');
                 document.getElementById('checkoutContent').innerHTML = `
                     <div class="text-center p-20 bg-white rounded-xl shadow-lg mt-8">
-                        <h2 class="text-3xl font-bold text-green-600 mb-4">Order Successful! 🎉</h2>
-                        <p class="text-gray-700 mb-6">Your Order ID is: <span class="font-mono text-indigo-500">${orderRef.id}</span></p>
-                        <p class="mb-8">A confirmation email has been sent to ${buyerEmail}.</p>
-                        <a href="/" class="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition">Return to Home</a>
+                        <h2 class="text-3xl font-bold text-green-600 mb-4">Order Successful!</h2>
+                        <p class="text-gray-700 mb-6">Order ID: <span class="font-mono text-indigo-500">${orderRef.id}</span></p>
+                        <p class="mb-8">Confirmation sent to ${buyerEmail}</p>
+                        <a href="/" class="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700">Return Home</a>
                     </div>
                 `;
-
             } catch (error) {
-                console.error("Order submission failed:", error);
-                showMessage('error', `Order failed. Please check your connection and try again.`);
-                
-                try {
-                    if (orderRef) {
-                        await setDoc(doc(db, ORDERS_COLLECTION(userId), orderRef.id), { emailStatus: 'Failed' }, { merge: true });
-                    }
-                } catch (e) {
-                    console.error("Could not update order status after email failure:", e);
-                }
+                console.error("Order failed:", error);
+                showMessage('error', 'Order failed. Please try again.');
             } finally {
                 toggleLoading(false);
             }
         }
 
-        // --- EXPOSE MODULE FUNCTIONS & INITIALIZATION ---
-        window.module = {
-            submitOrder
-        };
-
+        window.module = { submitOrder };
         document.addEventListener('DOMContentLoaded', setupFirebase);
     </script>
 </body>
