@@ -860,6 +860,8 @@
                     if (ipResponse.ok) {
                         const data = await ipResponse.json();
                         clientIp = data.ip;
+                    } else {
+                        throw new Error("Failed to get client IP.");
                     }
                 } catch (e) {
                     console.error("IP Fetch Failed. Proceeding with null clientIp.", e);
@@ -887,6 +889,8 @@
                 // C. Apply Whitelist/Maintenance Logic
                 if (globalConfig) {
                     state.isMaintenanceMode = globalConfig.maintenanceMode === true;
+                    state.chatWidgetEnabled = (globalConfig.chatWidgetEnabled === true) && (state.isMaintenanceMode === false);
+                    
                     const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
                     const isStaticIp = clientIp ? await checkIPRange(clientIp) : false;
                     const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
@@ -939,7 +943,7 @@
                         if (explicitSignOutOccurred) explicitSignOutOccurred = false;
                     }
                     isAuthReady = true;
-                    await fetchAndApplyGlobalConfig(); 
+                    // No need to fetch config again, as it was fetched earlier. We just use the state.
                     if (db) setupRealtimeListeners();
                     render(); // FINAL SUCCESS RENDER
                 });
