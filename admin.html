@@ -51,7 +51,7 @@
         let autocomplete; // Global variable for Google Autocomplete instance
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         let globalNextPageToken = null;
-        let globalConfig = { maintenanceMode: false, chatWidgetEnabled: true }; 
+        let globalConfig = { maintenanceMode: false, chatWidgetEnabled: true, ipWhitelist: [] }; // Initialized ipWhitelist 
         const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
         let idleTimer;
 
@@ -454,21 +454,21 @@
              const categoryName = form.catalogName.value.trim();
 
              if (!categoryName) {
-                showMessage('error', 'Category name cannot be empty.');
-                return;
+                 showMessage('error', 'Category name cannot be empty.');
+                 return;
              }
 
              try {
-                const newCategory = {
-                    name: categoryName,
-                    createdAt: serverTimestamp(),
-                };
-                
-                const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), newCategory);
+                 const newCategory = {
+                     name: categoryName,
+                     createdAt: serverTimestamp(),
+                 };
+                 
+                 const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), newCategory);
 
-                await logAdminAction('CATEGORY_CREATED', newCategory, docRef.id);
-                showMessage('success', `Category "${categoryName}" added successfully!`);
-                form.reset();
+                 await logAdminAction('CATEGORY_CREATED', newCategory, docRef.id);
+                 showMessage('success', `Category "${categoryName}" added successfully!`);
+                 form.reset();
 
              } catch (error) {
                  console.error('Error adding category:', error);
@@ -627,31 +627,45 @@
                 // Update UI elements
                 const maintenanceToggle = document.getElementById('maintenanceToggle');
                 const chatWidgetToggle = document.getElementById('chatWidgetToggle');
+                const dynamicIpList = document.getElementById('dynamicIpList');
 
                 maintenanceToggle.checked = config.maintenanceMode;
                 chatWidgetToggle.checked = config.chatWidgetEnabled;
-                document.getElementById('dynamicIpList').value = config.ipWhitelist.join('\n');
+                if (dynamicIpList) {
+                    dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
+                }
                 document.getElementById('configLastUpdated').textContent = config.lastUpdated ? 
                     `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
 
-                // CRITICAL FIX 2: Add event listener to the chat toggle to ensure state is updated immediately
-                // FIX: Added addEventListener instead of onchange for robustness
-                if (chatWidgetToggle && chatWidgetToggle.hasListener !== true) {
-                    chatWidgetToggle.addEventListener('change', (e) => {
+                // --- START FIX: Attach listeners that update globalConfig state immediately ---
+                
+                if (chatWidgetToggle && chatWidgetToggle.type === 'checkbox') {
+                    // Remove existing listener to prevent stacking if the function is called multiple times
+                    chatWidgetToggle.removeEventListener('change', chatToggleHandler);
+                    
+                    // Define handler function for clean removal/re-attachment
+                    function chatToggleHandler(e) {
                         globalConfig.chatWidgetEnabled = e.target.checked;
                         resetTimer();
-                    });
-                    chatWidgetToggle.hasListener = true;
+                    }
+
+                    chatWidgetToggle.addEventListener('change', chatToggleHandler);
                 }
                 
-                // Add event listener to the maintenance toggle
-                if (maintenanceToggle && maintenanceToggle.hasListener !== true) {
-                    maintenanceToggle.addEventListener('change', (e) => {
+                if (maintenanceToggle && maintenanceToggle.type === 'checkbox') {
+                    // Remove existing listener to prevent stacking if the function is called multiple times
+                    maintenanceToggle.removeEventListener('change', maintenanceToggleHandler);
+                    
+                    // Define handler function for clean removal/re-attachment
+                    function maintenanceToggleHandler(e) {
                         globalConfig.maintenanceMode = e.target.checked;
                         resetTimer();
-                    });
-                    maintenanceToggle.hasListener = true;
+                    }
+
+                    maintenanceToggle.addEventListener('change', maintenanceToggleHandler);
                 }
+                
+                // --- END FIX ---
 
             } catch (error) {
                 console.error("Error fetching admin config:", error);
@@ -673,11 +687,17 @@
 
         async function handleUpdateConfig(e) {
             e.preventDefault();
+            
+            // Get the latest values from the DOM elements
+            const maintenanceToggle = document.getElementById('maintenanceToggle');
+            const chatWidgetToggle = document.getElementById('chatWidgetToggle');
+            const dynamicIpList = document.getElementById('dynamicIpList');
+            
+            // Use values directly from the toggles and the textarea
             const updates = {
-                // Use the latest state updated by the onchange handlers
-                maintenanceMode: document.getElementById('maintenanceToggle').checked,
-                chatWidgetEnabled: document.getElementById('chatWidgetToggle').checked,
-                ipWhitelist: document.getElementById('dynamicIpList').value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0)
+                maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
+                chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
+                ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist
             };
             
             try {
@@ -787,7 +807,7 @@
                 return `
                     <div class="grid-item ${disabledClass}">
                         <input type="checkbox" onchange="window.module.toggleUserSelection('${user.uid}')" 
-                               data-uid="${user.uid}" ${isSelected ? 'checked' : ''}>
+                                data-uid="${user.uid}" ${isSelected ? 'checked' : ''}>
                     </div>
                     <div class="grid-item text-xs font-mono truncate ${disabledClass}">${user.uid.slice(0, 8)}...</div>
                     <div class="grid-item text-sm font-semibold truncate ${disabledClass}">${userEmail} ${emailVerifiedIcon}</div>
