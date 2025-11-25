@@ -196,6 +196,7 @@
                     user.getIdTokenResult(true).then(idTokenResult => {
                         if (idTokenResult.claims.admin === true) {
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                            document.addEventListener('touchstart', resetTimer); // Added touch listener
                             resetTimer();
                             setupRealtimeListeners();
                             renderAdminPage(user.email || 'Admin');
@@ -464,9 +465,64 @@
              showMessage('info', 'User enable/disable is not implemented in this version.');
         }
         
-        function handleClearAnonymousUsers() {
-            // Placeholder: Clear Anonymous Users Logic
-             showMessage('info', 'Anonymous user cleanup is not implemented in this version.');
+        async function handleClearAnonymousUsers() {
+            if (!confirm("Are you sure you want to delete ALL anonymous users? This process is irreversible and may take time for large databases.")) {
+                return;
+            }
+
+            const msgEl = document.getElementById('clearAnonButtonConfig') || document.getElementById('clearAnonButton');
+            if (!msgEl) return;
+            
+            const originalText = msgEl.textContent;
+            msgEl.textContent = 'Processing...';
+            msgEl.disabled = true;
+
+            let pageToken = null;
+            let totalDeleted = 0;
+
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+
+                do {
+                    const payload = { nextPageToken: pageToken };
+                    const res = await fetch(CLEAR_ANON_FUNCTION, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${idToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!res.ok) {
+                        const errorDetails = await res.json();
+                        throw new Error(errorDetails.details || errorDetails.error || res.statusText);
+                    }
+
+                    const data = await res.json();
+                    
+                    totalDeleted += data.deletedCount || 0;
+                    pageToken = data.nextPageToken;
+
+                    if (pageToken) {
+                        msgEl.textContent = `Processing batch... (${totalDeleted} deleted)`;
+                    } else {
+                        showMessage('success', `Cleanup complete! Total anonymous users deleted: ${totalDeleted}.`, 8000);
+                        break; // Exit loop if no token is returned
+                    }
+
+                } while (pageToken);
+
+                await logAdminAction('CLEANUP_ANON_USERS', { totalDeleted });
+                if (state.activeTab === 'users') window.module.fetchUsers(null); // Refresh user list
+
+            } catch (error) {
+                console.error('Anonymous user cleanup failed:', error);
+                showMessage('error', `Cleanup failed: ${error.message}. Check Netlify logs.`, 8000);
+            } finally {
+                msgEl.textContent = originalText;
+                msgEl.disabled = false;
+            }
         }
         
         // --- ADMIN ORDER CREATION PLACEHOLDERS ---
@@ -500,14 +556,30 @@
                 if (!res.ok) throw new Error('Config fetch failed.');
                 const config = await res.json();
                 
-                state.globalConfig = config;
+                // CRITICAL FIX 1: Update global config state
+                globalConfig = config;
                 
                 // Update UI elements
-                document.getElementById('maintenanceToggle').checked = config.maintenanceMode;
-                document.getElementById('chatWidgetToggle').checked = config.chatWidgetEnabled;
+                const maintenanceToggle = document.getElementById('maintenanceToggle');
+                const chatWidgetToggle = document.getElementById('chatWidgetToggle');
+
+                maintenanceToggle.checked = config.maintenanceMode;
+                chatWidgetToggle.checked = config.chatWidgetEnabled;
                 document.getElementById('dynamicIpList').value = config.ipWhitelist.join('\n');
                 document.getElementById('configLastUpdated').textContent = config.lastUpdated ? 
                     `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
+
+                // CRITICAL FIX 2: Add event listener to the chat toggle to ensure state is updated immediately
+                chatWidgetToggle.onchange = (e) => {
+                    globalConfig.chatWidgetEnabled = e.target.checked;
+                    resetTimer();
+                };
+                
+                // Add event listener to the maintenance toggle
+                maintenanceToggle.onchange = (e) => {
+                    globalConfig.maintenanceMode = e.target.checked;
+                    resetTimer();
+                };
 
             } catch (error) {
                 console.error("Error fetching admin config:", error);
@@ -530,6 +602,7 @@
         async function handleUpdateConfig(e) {
             e.preventDefault();
             const updates = {
+                // Use the latest state updated by the onchange handlers
                 maintenanceMode: document.getElementById('maintenanceToggle').checked,
                 chatWidgetEnabled: document.getElementById('chatWidgetToggle').checked,
                 ipWhitelist: document.getElementById('dynamicIpList').value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0)
@@ -939,7 +1012,7 @@
                                 <div class="grid-header">Actions</div>
                                 </div>
                             <div class="text-center mt-6">
-                                <button id="loadMoreUsersButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 shadow-md hidden">
+                                <button id="loadMoreUsersButton" onclick="window.module.fetchUsers(globalNextPageToken)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 shadow-md hidden">
                                     Load More Users (100)
                                 </button>
                                 <p id="userCount" class="text-sm text-gray-500 mt-2">Showing 0 users.</p>
