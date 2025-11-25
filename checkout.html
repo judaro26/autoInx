@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout - autoInx</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
+    </style>
+</head>
+<body>
+    <div id="app" class="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-500">
+            <h1 class="text-3xl font-extrabold text-indigo-700">Checkout</h1>
+            <a href="/" class="text-indigo-600 hover:text-indigo-800 font-medium">← Back to Shopping</a>
+        </header>
+
+        <div id="loadingState" class="text-center p-20">
+            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-600">Loading order details...</p>
+        </div>
+        
+        <div id="checkoutContent" class="hidden grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            <div class="md:col-span-2 bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                <h2 class="text-2xl font-bold mb-6 text-indigo-700">Customer & Payment</h2>
+                <div id="checkoutMessage" class="text-red-500 text-sm mb-4"></div>
+                
+                <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-4">
+                    <div class="space-y-2">
+                        <label for="buyer-email" class="block text-sm font-medium text-gray-700">Email Address (for Confirmation)</label>
+                        <input type="email" id="buyer-email" placeholder="e.g., jane.doe@example.com" required
+                            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label for="buyer-name" class="block text-sm font-medium text-gray-700">Full Name</label>
+                        <input type="text" id="buyer-name" placeholder="Enter your full name" required
+                            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label for="delivery-address" class="block text-sm font-medium text-gray-700">Delivery Address</label>
+                        <textarea id="delivery-address" rows="2" placeholder="Street Address, City, Postal Code" required
+                            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                    </div>
+
+                    <div class="pt-6 border-t mt-6">
+                        <button type="submit" id="submitButton"
+                                class="w-full bg-green-600 text-white p-4 rounded-lg font-extrabold hover:bg-green-700 transition duration-150 shadow-lg disabled:bg-green-300 disabled:cursor-not-allowed flex justify-center items-center">
+                            <span id="buttonText">SUBMIT ORDER & PAY <span id="totalPriceDisplay"></span></span>
+                            <svg id="spinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="md:col-span-1">
+                <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500 sticky top-8">
+                    <h3 class="text-xl font-bold mb-4 text-pink-600">Order Summary</h3>
+                    <div id="cartSummary" class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
+                        </div>
+                    <div class="pt-4 mt-4 border-t border-gray-200">
+                        <div class="flex justify-between font-bold text-lg text-gray-800">
+                            <span>Total:</span>
+                            <span id="orderTotal">$0.00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, addDoc, collection, serverTimestamp, setDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        let app, db, auth;
+        let userId = null;
+        let cartData = {};
+        let cartTotalCents = 0;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
+        const NETLIFY_FUNCTION_URL = '/.netlify/functions/send-email';
+        const CONFIG_FUNCTION_URL = '/.netlify/functions/getClientFirebaseConfig';
+
+        // --- HELPER FUNCTIONS ---
+        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
+        
+        function showMessage(type, text) {
+            const el = document.getElementById('checkoutMessage');
+            if (!el) return;
+            el.className = `p-3 rounded-lg text-sm font-medium ${type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
+            el.textContent = text;
+        }
+
+        function toggleLoading(isLoading) {
+            const button = document.getElementById('submitButton');
+            const buttonText = document.getElementById('buttonText');
+            const spinner = document.getElementById('spinner');
+            
+            button.disabled = isLoading;
+            spinner.classList.toggle('hidden', !isLoading);
+            buttonText.classList.toggle('hidden', isLoading);
+            
+            if (!isLoading) {
+                document.getElementById('totalPriceDisplay').textContent = formatPrice(cartTotalCents);
+            }
+        }
+
+        // --- FIREBASE CONFIGURATION LOAD ---
+        async function loadFirebaseConfig() {
+            try {
+                // CORRECTION: Use /.netlify/functions/ for Netlify function calls
+                const response = await fetch(CONFIG_FUNCTION_URL);
+                if (!response.ok) throw new Error(`Failed to fetch config (Status: ${response.status})`);
+                return await response.json();
+            } catch (error) {
+                console.error("Failed to load Firebase configuration:", error);
+                return {};
+            }
+        }
+
+        // --- FIREBASE INITIALIZATION & AUTH ---
+        async function setupFirebase() {
+            const firebaseConfig = await loadFirebaseConfig();
+            if (Object.keys(firebaseConfig).length === 0) {
+                document.getElementById('loadingState').innerHTML = '<p class="text-red-600">Error: Failed to load Firebase configuration.</p>';
+                return;
+            }
+            
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    initializeCheckout();
+                } else {
+                    // Redirect to login/home if no user (even anonymous) is found
+                    window.location.href = '/';
+                }
+            });
+        }
+        
+        // --- CHECKOUT LOGIC ---
+        function initializeCheckout() {
+            try {
+                const cartJson = sessionStorage.getItem('autoInxCart');
+                if (!cartJson) {
+                    document.getElementById('loadingState').innerHTML = '<p class="text-red-600 font-bold">Error: Your cart is empty or expired. Please go back to shopping.</p>';
+                    return;
+                }
+
+                cartData = JSON.parse(cartJson);
+                
+                if (Object.keys(cartData).length === 0) {
+                    document.getElementById('loadingState').innerHTML = '<p class="text-red-600 font-bold">Error: Your cart is empty. Please go back to shopping.</p>';
+                    return;
+                }
+
+                cartTotalCents = Object.values(cartData).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
+
+                renderCartSummary();
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('checkoutContent').classList.remove('hidden');
+                toggleLoading(false); // Initialize button text with total price
+
+            } catch (error) {
+                console.error("Error initializing checkout:", error);
+                document.getElementById('loadingState').innerHTML = '<p class="text-red-600">A critical error occurred while loading your cart.</p>';
+            }
+        }
+
+        function renderCartSummary() {
+            const summaryEl = document.getElementById('cartSummary');
+            const totalEl = document.getElementById('orderTotal');
+
+            if (Object.keys(cartData).length === 0) {
+                summaryEl.innerHTML = '<p class="text-gray-500 italic">Cart is empty.</p>';
+                totalEl.textContent = formatPrice(0);
+                return;
+            }
+
+            summaryEl.innerHTML = Object.values(cartData).map(entry => `
+                <div class="flex justify-between items-start border-b pb-2">
+                    <div class="flex-1 min-w-0 pr-2">
+                        <p class="text-sm font-medium text-gray-900">${entry.item.name}</p>
+                        <p class="text-xs text-gray-500">Qty: ${entry.quantity} @ ${formatPrice(entry.item.price)}</p>
+                    </div>
+                    <span class="text-sm font-bold ml-4 text-pink-600">${formatPrice(entry.item.price * entry.quantity)}</span>
+                </div>
+            `).join('');
+
+            totalEl.textContent = formatPrice(cartTotalCents);
+        }
+
+        async function submitOrder(event) {
+            event.preventDefault();
+
+            const button = document.getElementById('submitButton');
+            const buttonText = document.getElementById('buttonText');
+            
+            if (Object.keys(cartData).length === 0) {
+                showMessage('error', 'Your cart is empty! Cannot submit order.');
+                return;
+            }
+
+            const buyerEmail = document.getElementById('buyer-email').value.trim();
+            const buyerName = document.getElementById('buyer-name').value.trim();
+            const deliveryAddress = document.getElementById('delivery-address').value.trim();
+            
+            if (!buyerEmail || !buyerEmail.includes('@') || !buyerName || !deliveryAddress) {
+                showMessage('error', 'Please fill out all required fields (Email, Name, Address).');
+                return;
+            }
+
+            toggleLoading(true);
+            
+            const orderDetails = {
+                buyerEmail,
+                buyerName,
+                deliveryAddress,
+                items: Object.values(cartData).map(entry => ({
+                    id: entry.item.id,
+                    name: entry.item.name,
+                    price: entry.item.price, // in cents
+                    quantity: entry.quantity,
+                    catalog: entry.item.catalogId || 'N/A' // Need a way to pass catalog name if needed
+                })),
+                totalCents: cartTotalCents,
+                userId: userId, 
+                timestamp: new Date().toISOString()
+            };
+
+            let orderRef = null;
+            try {
+                // 1. Save the order to Firestore
+                orderRef = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
+                    ...orderDetails,
+                    status: 'Pending',
+                    createdAt: serverTimestamp(),
+                });
+                
+                // 2. Call Netlify Function to send email
+                const emailPayload = { ...orderDetails, orderId: orderRef.id };
+                const response = await fetch(NETLIFY_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(emailPayload)
+                });
+
+                if (!response.ok) {
+                    throw new Error("Failed to get a successful response from the email function.");
+                }
+
+                // 3. Success Feedback and Cleanup
+                showMessage('success', `Order #${orderRef.id.slice(0, 8)}... submitted! Confirmation sent to ${buyerEmail}.`, 8000);
+                
+                // Clear cart from session storage and navigate to a success state/home
+                sessionStorage.removeItem('autoInxCart');
+                document.getElementById('checkoutContent').innerHTML = `
+                    <div class="text-center p-20 bg-white rounded-xl shadow-lg mt-8">
+                        <h2 class="text-3xl font-bold text-green-600 mb-4">Order Successful! 🎉</h2>
+                        <p class="text-gray-700 mb-6">Your Order ID is: <span class="font-mono text-indigo-500">${orderRef.id}</span></p>
+                        <p class="mb-8">A confirmation email has been sent to ${buyerEmail}.</p>
+                        <a href="/" class="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition">Return to Home</a>
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error("Order submission failed:", error);
+                showMessage('error', `Order failed. Please check your connection and try again.`);
+                
+                try {
+                    if (orderRef) {
+                        await setDoc(doc(db, ORDERS_COLLECTION(userId), orderRef.id), { emailStatus: 'Failed' }, { merge: true });
+                    }
+                } catch (e) {
+                    console.error("Could not update order status after email failure:", e);
+                }
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+        // --- EXPOSE MODULE FUNCTIONS & INITIALIZATION ---
+        window.module = {
+            submitOrder
+        };
+
+        document.addEventListener('DOMContentLoaded', setupFirebase);
+    </script>
+</body>
+</html>
