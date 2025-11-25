@@ -809,7 +809,7 @@
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
             try {
-                // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK (NEW BLOCK) ---
+                // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK ---
                 
                 // A. Fetch Client IP
                 const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
@@ -818,13 +818,22 @@
                 // B. Fetch Global Config (Maintenance Mode & Whitelist)
                 const configResponse = await fetch(GET_CONFIG_FUNCTION);
                 const globalConfig = await configResponse.json();
-
+        
                 state.isMaintenanceMode = globalConfig.maintenanceMode === true;
                 
-                // C. Check Whitelist
-                const ipWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
-                state.isAdminIP = ipWhitelist.includes(clientIp); // Set the isAdminIP state
+                // C. Combine Whitelists for Admin Access Check
+                const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
                 
+                // IMPORTANT: Use the statically imported list (if available) if the Firestore list is incomplete
+                // NOTE: The checkIPRange utility is assumed to use the static whitelist from './js/utilities/ipWhitelist.js'
+                // For a seamless temporary bypass, we check if the current IP is in EITHER the static list OR the Firestore list.
+                const isStaticIp = await checkIPRange(clientIp); 
+                
+                // Check if the current IP is whitelisted in EITHER the live Firestore config or the static code list
+                const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
+                
+                state.isAdminIP = isWhitelisted; // Set the isAdminIP state for header rendering
+        
                 // D. Apply Gate Logic
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     // CRITICAL: Stop loading Firebase/Data here and render the maintenance view for the public
@@ -836,7 +845,7 @@
                 }
                 
                 // --- END MAINTENANCE GATE ---
-
+        
                 // Proceed with Firebase Initialization if not in maintenance OR if IP is whitelisted
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
