@@ -39,7 +39,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         // CORRECTED: Import static IP list directly from the new client-accessible path
@@ -395,7 +395,55 @@
             resetTimer();
         }
 
-        // --- CATALOG & PRODUCT CRUD PLACEHOLDERS (Must be implemented) ---
+        // --- CATALOG & PRODUCT CRUD ---
+
+        // Implemented Add Product
+        async function handleAddProduct(e) {
+            e.preventDefault();
+            resetTimer();
+
+            const form = e.target;
+            const itemName = form.itemName.value.trim();
+            const itemDescription = form.itemDescription.value.trim();
+            const price = form.itemPrice.value;
+            const catalogId = form.catalogId.value;
+            let itemImageUrl = form.itemImageUrl.value.trim();
+
+            if (!itemName || !itemDescription || !price || !catalogId) {
+                showMessage('error', 'Please fill in all required product fields.');
+                return;
+            }
+
+            try {
+                // Use default placeholder if no URL is provided
+                if (!itemImageUrl) {
+                    itemImageUrl = `https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`;
+                }
+
+                // Convert price to cents (integer storage is preferred for currency)
+                const priceCents = Math.round(parseFloat(price) * 100);
+
+                const newProduct = {
+                    name: itemName,
+                    description: itemDescription,
+                    price: priceCents,
+                    catalogId: catalogId,
+                    imageUrl: itemImageUrl,
+                    sku: generateUniqueSku(),
+                    createdAt: serverTimestamp(),
+                };
+
+                const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
+
+                await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
+                showMessage('success', `Product "${itemName}" added successfully!`);
+                form.reset();
+
+            } catch (error) {
+                console.error('Error adding product:', error);
+                showMessage('error', `Failed to add product: ${error.message}`);
+            }
+        }
 
         // Placeholder for Add Catalog
         function handleAddCatalog(e) {
@@ -409,13 +457,6 @@
             if (!confirm(`Are you sure you want to delete catalog: ${name}?`)) return;
             showMessage('error', `Deleting catalog ${name} is not implemented in this version.`);
             resetTimer();
-        }
-
-        // Placeholder for Add Product
-        function handleAddProduct(e) {
-             e.preventDefault();
-             showMessage('info', 'Product creation not implemented in this version.');
-             resetTimer();
         }
 
         // Placeholder for Delete Product
