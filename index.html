@@ -14,18 +14,6 @@
         .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
         /* Modal background */
         .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
-        
-        /* Floating Chat Widget CSS (from checkout.html) */
-        #chatWidget {
-            animation: float 6s ease-in-out infinite;
-        }
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-        #chatWidget:hover {
-            animation-play-state: paused;
-        }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -48,10 +36,10 @@
         // --- LANGUAGE TEXT MAPPING (NEW) ---
         const TEXT = {
             es: {
-                logoTitle: 'Catálogo', welcome: 'Bienvenido,', signOut: 'Cerrar Sesión', adminDashboard: 'Panel Admin', adminLogin: 'Acceso Admin', standardLogin: 'Acceso Estándar', signUp: 'Registrarse', forgotPassword: '¿Olvidaste la Contraseña?', searchPlaceholder: 'Buscar productos por nombre o descripción...', categoriesHeader: 'Categorías', productsVisible: 'visibles', allProducts: 'Todos los Productos', noProducts: 'No se encontraron productos que coincidan con tus filtros.', shoppingCart: 'Carrito de Compras', cartEmpty: 'Tu carrito está vacío.', maintenanceTitle: 'Sistema en Mantenimiento', maintenanceMsg: 'Estamos realizando mantenimiento programado. Disculpa las molestias.', exitAdminView: 'Salir de la Vista Admin', loginSuccessful: '¡Inicio de sesión exitoso!', registerSuccessful: '¡Registro exitoso! Ya has iniciado sesión.', loginUser: 'Acceso de Usuario', loginAdmin: 'Acceso de Administrador (Seguro)', registerNew: 'Registrar Cuenta Nueva', loginBtn: 'Acceder', registerBtn: 'Registrar', needAccount: '¿Necesitas una cuenta? Regístrate', alreadyRegistered: '¿Ya estás registrado? Accede', adminSetupNote: 'Las cuentas de administrador deben ser configuradas por un administrador.', checkout: 'Finalizar Compra', perUnit: 'c/u', total: 'Total',
+                logoTitle: 'Catálogo', welcome: 'Bienvenido,', signOut: 'Cerrar Sesión', adminDashboard: 'Panel Admin', adminLogin: 'Acceso Admin', standardLogin: 'Acceso Estándar', signUp: 'Registrarse', forgotPassword: '¿Olvidaste la Contraseña?', searchPlaceholder: 'Buscar productos por nombre o descripción...', categoriesHeader: 'Categorías', productsVisible: 'visibles', allProducts: 'Todos los Productos', noProducts: 'No se encontraron productos que coincidan con tus filtros.', shoppingCart: 'Carrito de Compras', cartEmpty: 'Tu carrito está vacío.', maintenanceTitle: 'Sistema en Mantenimiento', maintenanceMsg: 'Estamos realizando mantenimiento programado. Disculpa las molestias.', exitAdminView: 'Salir de la Vista Admin', loginSuccessful: '¡Inicio de sesión exitoso!', registerSuccessful: '¡Registro exitoso! Ya has iniciado sesión.', loginUser: 'Acceso de Usuario', loginAdmin: 'Acceso de Administrador (Seguro)', registerNew: 'Registrar Cuenta Nueva', loginBtn: 'Acceder', registerBtn: 'Registrar', needAccount: '¿Necesitas una cuenta? Regístrate', alreadyRegistered: '¿Ya estás registrado? Accede', adminSetupNote: 'Las cuentas de administrador deben ser configuradas por un administrador.', checkout: 'Finalizar Compra',
             },
             en: {
-                logoTitle: 'Catalog', welcome: 'Welcome,', signOut: 'Sign Out', adminDashboard: 'Admin Dashboard', adminLogin: 'Admin Login', standardLogin: 'Standard Login', signUp: 'Sign Up', forgotPassword: 'Forgot Password?', searchPlaceholder: 'Search products by name or description...', categoriesHeader: 'Categories', productsVisible: 'visible', allProducts: 'All Products', noProducts: 'No products match your current filters.', shoppingCart: 'Shopping Cart', cartEmpty: 'Your cart is empty.', maintenanceTitle: 'System Under Maintenance', maintenanceMsg: 'We are performing scheduled maintenance. We apologize for any inconvenience.', exitAdminView: 'Exit View', loginSuccessful: 'Login successful!', registerSuccessful: 'Registration successful! You are now logged in.', loginUser: 'User Login', loginAdmin: 'Admin Login (Secure)', registerNew: 'Register New Account', loginBtn: 'Login', registerBtn: 'Register', needAccount: 'Need an account? Register', alreadyRegistered: 'Already registered? Login', adminSetupNote: 'Admin accounts must be set up by an administrator.', checkout: 'Checkout', perUnit: 'each', total: 'Total',
+                logoTitle: 'Catalog', welcome: 'Welcome,', signOut: 'Sign Out', adminDashboard: 'Admin Dashboard', adminLogin: 'Admin Login', standardLogin: 'Standard Login', signUp: 'Sign Up', forgotPassword: 'Forgot Password?', searchPlaceholder: 'Search products by name or description...', categoriesHeader: 'Categories', productsVisible: 'visible', allProducts: 'All Products', noProducts: 'No products match your current filters.', shoppingCart: 'Shopping Cart', cartEmpty: 'Your cart is empty.', maintenanceTitle: 'System Under Maintenance', maintenanceMsg: 'We are performing scheduled maintenance. We apologize for any inconvenience.', exitAdminView: 'Exit Admin View', loginSuccessful: 'Login successful!', registerSuccessful: 'Registration successful! You are now logged in.', loginUser: 'User Login', loginAdmin: 'Admin Login (Secure)', registerNew: 'Register New Account', loginBtn: 'Login', registerBtn: 'Register', needAccount: 'Need an account? Register', alreadyRegistered: 'Already registered? Login', adminSetupNote: 'Admin accounts must be set up by an administrator.', checkout: 'Checkout',
             }
         };
 
@@ -121,10 +109,9 @@
                     ${renderMessage()}
                     ${renderModal()}
                     ${renderItemDetailModal()}
+                    ${renderChatWidget()}
                 </div>
             `;
-            // Call chat widget render separately as its container is outside #app
-            renderChatWidget();
         }
 
         function renderItemDetailModal() {
@@ -346,26 +333,20 @@
             `;
         }
         function renderChatWidget() {
-            // Check if chat is enabled based on config AND not in admin view
-            const widget = document.getElementById('chatWidget');
-            if (!widget) return;
-
-            if (!state.chatWidgetEnabled || state.view === 'admin') {
-                 widget.classList.add('hidden');
-                 return;
-            }
-
-            widget.classList.remove('hidden');
-            widget.className = "fixed bottom-6 right-6 z-50"; // Re-apply external CSS animation/position
+            // Check 1: If Chat is globally disabled, or if the view is explicitly 'admin', hide it.
+            // Note: Since maintenanceMode is FALSE, state.isMaintenanceMode should be FALSE here.
+            if (!state.chatWidgetEnabled || state.view === 'admin') return '';
             
-            // Only update innerHTML if it's currently hidden/not set to prevent re-render flicker
-            if (!widget.innerHTML || widget.innerHTML.includes('hidden')) {
-                widget.innerHTML = `
+            // FIX: The original code in index.html had a conditional that was too strict. 
+            // We confirm that if chatWidgetEnabled is TRUE, it renders.
+        
+            return `
+                <div class="fixed bottom-6 right-6 z-50">
                     <button onclick="window.module.openChatWidget()" class="w-14 h-14 bg-indigo-600 rounded-full text-white shadow-xl hover:bg-indigo-700 transition transform hover:scale-110 flex items-center justify-center" aria-label="Open Chat">
                         <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                     </button>
-                `;
-            }
+                </div>
+            `;
         }
         function renderCategorySidebar() {
             const itemsToCount = getFilteredAndCategorizedItems();
@@ -567,7 +548,7 @@
                 const config = await response.json();
                 
                 // Ensure chat widget honors the current maintenance state
-                state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (config.maintenanceMode === false);
+                state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (state.isMaintenanceMode === false);
                 
             } catch (error) {
                 console.error("Error fetching global config:", error);
@@ -840,6 +821,11 @@
             showLoginModal('standard', 'register');
         }
         
+        // --- NEW CHAT WIDGET FUNCTION ---
+        function openChatWidget() {
+            showMessage('info', 'Chat widget clicked! (Placeholder: Actual chat implementation is required)', 3000);
+        }
+        
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
             try {
@@ -1026,6 +1012,5 @@
             </div>
         </div>
     </footer>
-    <div id="chatWidget" class="hidden"></div>
 </body>
 </html>
