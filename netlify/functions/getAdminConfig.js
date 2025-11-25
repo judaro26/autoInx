@@ -6,32 +6,14 @@ const admin = require('firebase-admin');
 
 // Ensure Firebase Admin is initialized once
 if (!admin.apps.length) {
-    // START FIX: Aggressively clean the private key string to ensure correct PEM formatting.
-    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
-    let cleanedPrivateKey = undefined;
-
-    if (privateKeyString) {
-        // Step 1: Replace all known/possible escaped newline sequences (\\n or \n) with a real newline (\n)
-        // We use a global regex replacement here, which is safer than relying on single backslashes in Netlify.
-        // The regex /\\n/g targets the literal two-character string '\n' used for escaping.
-        cleanedPrivateKey = privateKeyString.replace(/\\n/g, '\n');
-        
-        // Final sanity check: if the key contains no newlines at all, it's definitely corrupted.
-        if (!cleanedPrivateKey.includes('\n') && cleanedPrivateKey.includes('PRIVATE KEY')) {
-             console.error("Warning: Private key cleaning failed to create newlines.");
-             // Fallback for environments that pass the literal unescaped string
-             // In some cases, Node may receive a key that is already unescaped but compressed.
-             // We'll rely on the aggressive replacement above, but this remains the most likely failure point.
-        }
-    }
-    // END FIX
-
+    // FIX: Reverting to the proven working private key parsing logic.
+    // This expects the Netlify environment variable to contain newlines escaped as \\n.
     admin.initializeApp({
         credential: admin.credential.cert({
             projectId: process.env.FIREBASE_PROJECT_ID,
             clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            // Use the cleaned private key
-            privateKey: cleanedPrivateKey,
+            // RESTORED WORKING CODE: Simple replace to turn "\\n" into the required newline character "\n"
+            privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
         }),
     });
 }
@@ -50,7 +32,7 @@ exports.handler = async function (event) {
             const initialConfig = {
                 ipWhitelist: ["127.0.0.1"], // Default IP
                 maintenanceMode: false,
-                chatWidgetEnabled: true, 
+                chatWidgetEnabled: true, // Ensuring this field is present in the initial config
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             };
             await configRef.set(initialConfig);
@@ -62,10 +44,13 @@ exports.handler = async function (event) {
             };
         }
         
-        // Ensure old configs have the new field (default to true)
+        // Ensure new fields are added if missing from old config (chatWidgetEnabled added here)
         const configData = configDoc.data();
         if (configData.chatWidgetEnabled === undefined) {
-            configData.chatWidgetEnabled = true;
+             configData.chatWidgetEnabled = true;
+             // NOTE: We do NOT write this update back to Firestore in the fetch function, 
+             // we just use the updated data structure on the fly.
+
         }
 
         return {
@@ -76,7 +61,7 @@ exports.handler = async function (event) {
 
     } catch (error) {
         console.error('Error fetching admin config:', error);
-        // This log will only show if the error happened AFTER initialization.
+        // This log will only show if the error happened AFTER successful initialization.
         return {
             statusCode: 500, // Return 500 on server error
             body: JSON.stringify({ error: 'Failed to fetch admin configuration', details: error.message }),
