@@ -24,7 +24,6 @@
         
         // Import IP Check Utility for Admin Gate
         import { checkIPRange } from './js/utilities/utils.js';
-
         // Global variables provided by the Canvas environment (used if defined)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -32,8 +31,7 @@
         let app, db, auth;
         let userId = null;
         let isAuthReady = false;
-        let explicitSignOutOccurred = false; 
-
+        let explicitSignOutOccurred = false;
         // --- GLOBAL STATE (MODIFIED) ---
         const state = {
             view: 'user', // 'user' or 'admin'
@@ -55,64 +53,47 @@
             selectedCategoryId: 'all', // NEW: ID of the selected category, 'all' by default
             
             // NEW STATE FOR PRODUCT DETAIL MODAL
-            selectedItem: null 
+            selectedItem: null
         };
         
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig'; // Renamed to avoid confusion
-
         // --- RENDER FUNCTIONS (MODIFIED) ---
-
         function render() {
             const appElement = document.getElementById('app');
             if (!appElement) return;
-
             // Remove loading state if content is ready
             const loadingState = document.getElementById('loadingState');
             if (loadingState && (state.configLoaded && isAuthReady)) {
                  loadingState.remove();
             }
-
             const totalCartPrice = getTotalCartPrice();
             
             appElement.innerHTML = `
                 <div class="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50">
-                    <!-- Header -->
                     <header class="bg-white shadow-lg sticky top-0 z-40">
                         <div class="container mx-auto px-4 py-4 flex justify-between items-center">
                             
-                            <!-- LOGO INTEGRATION (MODIFIED) -->
                             <div class="flex items-center space-x-2">
                                 <img src="images/AutoInx logo.png" alt="AutoInx Logo" class="h-8 w-auto">
                                 <h1 class="text-3xl font-bold text-indigo-700">Catalog</h1>
                             </div>
-                            <!-- END LOGO INTEGRATION -->
-                            
                             <div class="flex items-center space-x-4">
                                 ${renderCartLink()}
                                 ${renderAuthToggle()}
                             </div>
                         </div>
                     </header>
-
-                    <!-- Main Content -->
                     <main class="container mx-auto px-4 py-8">
                         ${state.view === 'admin' ? renderAdminView() : renderUserView()}
                     </main>
-
-                    <!-- Messages -->
                     ${renderMessage()}
-
-                    <!-- Modals -->
                     ${renderModal()}
                     ${renderItemDetailModal()}
-
-                    <!-- Chat Widget -->
                     ${renderChatWidget()}
                 </div>
             `;
         }
-
         // --- NEW: ITEM DETAIL MODAL ---
         function renderItemDetailModal() {
             if (!state.selectedItem) return '';
@@ -120,7 +101,6 @@
             const item = state.selectedItem;
             const catalog = state.catalogs.find(c => c.id === item.catalogId);
             const categoryName = catalog ? catalog.name : 'Uncategorized';
-
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeItemDetailModal()">
                     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
@@ -128,10 +108,9 @@
                         <button onclick="window.module.closeItemDetailModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
-
                         <div class="flex flex-col md:flex-row gap-6">
-                            <img src="${item.imageUrl}" alt="${item.name}" 
-                                class="w-full md:w-1/2 h-48 object-cover rounded-lg shadow-md flex-shrink-0" 
+                            <img src="${item.imageUrl}" alt="${item.name}"
+                                class="w-full md:w-1/2 h-48 object-cover rounded-lg shadow-md flex-shrink-0"
                                 onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
                             
                             <div class="flex-grow">
@@ -141,10 +120,8 @@
                                 <div class="mb-4 text-sm text-gray-500">
                                     <span class="font-semibold">Category:</span> ${categoryName}
                                 </div>
-
                                 <h3 class="text-lg font-bold text-gray-800 mb-2 border-t pt-4">Description</h3>
                                 <p class="text-gray-600 leading-relaxed text-sm">${item.description}</p>
-
                                 <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot')})"
                                         class="mt-6 w-full bg-pink-500 text-white py-3 rounded-lg font-semibold hover:bg-pink-600 transition shadow-md flex items-center justify-center">
                                     <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
@@ -156,22 +133,19 @@
                 </div>
             `;
         }
-
-
         function renderProductCard(item) {
             // FIX: Safely stringify and escape single quotes and HTML entities for embedding in data-attribute.
             const itemJson = JSON.stringify(item)
-                                .replace(/'/g, "\\'")     // Escape single quote delimiter
-                                .replace(/&/g, '&amp;')   // Escape ampersand
-                                .replace(/</g, '&lt;')    // Escape <
-                                .replace(/>/g, '&gt;');    // Escape >
+                                 .replace(/'/g, "\\'") // Escape single quote delimiter
+                                 .replace(/&/g, '&amp;') // Escape ampersand
+                                 .replace(/</g, '&lt;') // Escape <
+                                 .replace(/>/g, '&gt;'); // Escape >
             
             return `
                 <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
                     <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
                     <div class="p-4">
-                        <!-- Clickable Title (Using data-item and JSON.parse for safety) -->
-                        <h4 onclick="window.module.openItemDetailModal(JSON.parse(this.dataset.item))" 
+                        <h4 onclick="window.module.openItemDetailModal(JSON.parse(this.dataset.item))"
                             class="text-xl font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition"
                             data-item='${itemJson}'
                         >
@@ -180,8 +154,8 @@
                         
                         <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
                         <button onclick="window.module.addToCart(JSON.parse(this.dataset.item))"
-                                data-item='${itemJson}'
-                                class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
+                                 data-item='${itemJson}'
+                                 class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
                             <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                             Add to Cart
                         </button>
@@ -189,14 +163,12 @@
                 </div>
             `;
         }
-
         function renderCartLink() {
             const itemCount = Object.values(state.cart).reduce((total, entry) => total + entry.quantity, 0);
             
-            if (itemCount === 0) return ''; 
-
+            if (itemCount === 0) return '';
             return `
-                <a href="/checkout.html" onclick="event.preventDefault(); window.module.continueToCheckout()" 
+                <a href="/checkout.html" onclick="event.preventDefault(); window.module.continueToCheckout()"
                    class="relative px-3 py-2 rounded-lg font-semibold text-white bg-pink-600 hover:bg-pink-700 transition duration-150 shadow-md flex items-center">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                     <span class="ml-2 hidden sm:inline">Checkout</span>
@@ -204,23 +176,21 @@
                 </a>
             `;
         }
-
         function renderAuthToggle() {
-            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName)) return ''; 
-
+            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName)) return '';
             if (state.view === 'admin') {
                 return `
                     <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
                         Exit Admin View
                     </button>
                 `;
-            } 
+            }
             
             if (state.userName) {
                 return `
                     <div class="flex items-center space-x-4">
                         <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${state.userName}</span>
-                        ${state.isAdminIP ? 
+                        ${state.isAdminIP ?
                             `<a href="/admin.html" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
                                 Admin Dashboard
                             </a>` : ''}
@@ -232,16 +202,15 @@
             }
             
             const commonButtons = `
-                <button onclick="window.module.registerUser()" 
+                <button onclick="window.module.registerUser()"
                         class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
                     Sign Up
                 </button>
-                <button onclick="window.module.requestPasswordReset()" 
+                <button onclick="window.module.requestPasswordReset()"
                         class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
                     Forgot Password?
                 </button>
             `;
-
             if (state.isAdminIP) {
                 return `
                     <div class="flex items-center space-x-4">
@@ -255,14 +224,13 @@
                 return `
                     <div class="flex items-center space-x-4">
                         ${commonButtons}
-                        <button onclick="window.module.toggleView('standard')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
+                        <button onclick="window.module.showLoginModal('standard', 'login')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
                             Standard Login
                         </button>
                     </div>
                 `;
             }
         }
-
         function renderModal() {
             if (!state.isModalOpen) return '';
             
@@ -270,21 +238,17 @@
             const isStandard = state.modalType === 'standard';
             const isRegister = state.modalMode === 'register';
             const isAdminLogin = state.modalType === 'admin' && isLogin;
-
             const title = isLogin ? (isStandard ? 'User Login' : 'Admin Login (Secure)') : 'Register New Account';
             const submitText = isLogin ? 'Login' : 'Register';
             const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
-
             let emailField = '';
             
             let passwordField = `
                 <input type="password" id="password-input" placeholder="Password" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
             `;
-
             if (isStandard || isRegister || isAdminLogin) {
                 emailField = `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
             }
-
             const googleAuthButton = (isStandard || isRegister) ? `
                 <div class="my-4 flex items-center">
                     <hr class="flex-grow border-gray-300">
@@ -296,14 +260,12 @@
                     ${isLogin ? 'Sign in with Google' : 'Register with Google'}
                 </button>
             ` : '';
-
-            const switchModeSection = isAdminLogin ? 
+            const switchModeSection = isAdminLogin ?
                 `<p class="w-full mt-4 text-sm text-gray-400 text-center">Admin accounts must be set up by an administrator.</p>` :
                 `<button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
                         class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
                     ${switchModeText}
                 </button>`;
-
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
                     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm relative" onclick="event.stopPropagation()">
@@ -320,9 +282,7 @@
                             </button>
                             ${googleAuthButton}
                         </form>
-
                         ${switchModeSection}
-
                         <button onclick="window.module.closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
@@ -330,7 +290,6 @@
                 </div>
             `;
         }
-
         function renderMessage() {
             if (!state.message) return '';
             const { type, text } = state.message;
@@ -339,7 +298,6 @@
             else if (type === 'error') { bgColor = 'bg-red-500'; icon = '❌'; }
             else if (type === 'warning') { bgColor = 'bg-yellow-500'; icon = '⚠️'; }
             else { bgColor = 'bg-blue-500'; icon = 'ℹ️'; }
-
             return `
                 <div class="fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white ${bgColor} transition-opacity duration-300">
                     <div class="flex items-center">
@@ -349,7 +307,6 @@
                 </div>
             `;
         }
-
         function renderChatWidget() {
             if (!state.chatWidgetEnabled || state.isMaintenanceMode || state.view === 'admin') return '';
             
@@ -361,20 +318,17 @@
                 </div>
             `;
         }
-
         function renderCategorySidebar() {
             const itemsToCount = getFilteredAndCategorizedItems();
-
             const allCategories = [{ id: 'all', name: 'All Products', count: state.items.length }]
-                .concat(state.catalogs.map(c => ({ 
-                    id: c.id, 
-                    name: c.name, 
-                    count: state.items.filter(i => i.catalogId === c.id).length 
+                .concat(state.catalogs.map(c => ({
+                    id: c.id,
+                    name: c.name,
+                    count: state.items.filter(i => i.catalogId === c.id).length
                 })))
                 .filter(c => c.count > 0 || c.id === 'all');
                 
             const totalProductsDisplayed = itemsToCount.length;
-
             return `
                 <div class="md:col-span-1">
                     <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-indigo-500 sticky top-4">
@@ -384,8 +338,8 @@
                                 const isActive = state.selectedCategoryId === cat.id;
                                 return `
                                     <button onclick="window.module.selectCategory('${cat.id}')"
-                                            class="w-full text-left p-2 rounded-lg transition duration-150 
-                                                   ${isActive ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 hover:bg-gray-100'}">
+                                            class="w-full text-left p-2 rounded-lg transition duration-150
+                                                     ${isActive ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 hover:bg-gray-100'}">
                                         ${cat.name} <span class="${isActive ? 'text-indigo-200' : 'text-gray-500'}">(${cat.count})</span>
                                     </button>
                                 `;
@@ -395,10 +349,8 @@
                 </div>
             `;
         }
-
         function renderProductGrid() {
             const itemsToDisplay = getFilteredAndCategorizedItems();
-
             if (itemsToDisplay.length === 0) {
                 return `
                     <div class="p-8 text-center bg-white rounded-xl shadow-lg">
@@ -406,14 +358,12 @@
                     </div>
                 `;
             }
-
             const itemsByCatalog = itemsToDisplay.reduce((acc, item) => {
                 const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
                 if (!acc[catalogName]) acc[catalogName] = [];
                 acc[catalogName].push(item);
                 return acc;
             }, {});
-
             return Object.keys(itemsByCatalog).map(catalogName => `
                 <div>
                     ${state.selectedCategoryId === 'all' ? `<h3 class="text-2xl font-bold mb-4 text-indigo-700">${catalogName}</h3>` : ''}
@@ -423,39 +373,9 @@
                 </div>
             `).join('<hr class="my-8 border-indigo-200">');
         }
-
-        function renderProductCard(item) {
-            // FIX: Safely stringify and escape single quotes and HTML entities for embedding in data-attribute.
-            const itemJson = JSON.stringify(item)
-                                .replace(/'/g, "\\'")     // Escape single quote delimiter
-                                .replace(/&/g, '&amp;')   // Escape ampersand
-                                .replace(/</g, '&lt;')    // Escape <
-                                .replace(/>/g, '&gt;');    // Escape >
-
-            return `
-                <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
-                    <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
-                    <div class="p-4">
-                        <!-- Clickable Title (Using data-item and JSON.parse for safety) -->
-                        <h4 onclick="window.module.openItemDetailModal(JSON.parse(this.dataset.item))" 
-                            class="text-xl font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition"
-                            data-item='${itemJson}'
-                        >
-                            ${item.name}
-                        </h4>
-                        
-                        <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
-                        <button onclick="window.module.addToCart(JSON.parse(this.dataset.item))"
-                                data-item='${itemJson}'
-                                class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
-                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                            Add to Cart
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
-
+        // Removed the second, redundant declaration of renderProductCard
+        // function renderProductCard(item) { ... }
+        
         function renderCartSidebar(totalCartPrice) {
             return `
                 <div class="md:col-span-1 mt-8 md:mt-0">
@@ -474,10 +394,10 @@
                                         </div>
                                         <div class="flex items-center space-x-2">
                                             <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)"
-                                                    class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
+                                                     class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
                                             <span class="text-sm font-semibold w-5 text-center">${entry.quantity}</span>
                                             <button onclick="window.module.updateCartQuantity('${entry.item.id}', 1)"
-                                                    class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
+                                                     class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
                                         </div>
                                         <span class="text-sm font-bold ml-4">${formatPrice(entry.item.price * entry.quantity)}</span>
                                     </div>
@@ -495,7 +415,6 @@
                 </div>
             `;
         }
-
         function renderAdminView() {
             if (state.view !== 'admin') return '';
             return `
@@ -514,36 +433,29 @@
                 </div>`;
             }
             if (state.view !== 'user') return '';
-
             const totalCartPrice = getTotalCartPrice();
-
             return `
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
                     
                     ${renderCategorySidebar()}
-
                     <div class="md:col-span-2 space-y-8">
                         
                         <div class="sticky top-0 bg-gray-100 z-10 py-2 -mt-2 -mx-4 md:m-0 md:p-0">
-                            <input type="text" 
-                                   oninput="window.module.handleProductSearchInput(event)" 
-                                   value="${state.productSearchTerm}"
-                                   placeholder="Search products by name or description..." 
-                                   class="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
+                            <input type="text"
+                                       oninput="window.module.handleProductSearchInput(event)"
+                                       value="${state.productSearchTerm}"
+                                       placeholder="Search products by name or description..."
+                                       class="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
                         </div>
-
                         ${renderProductGrid()}
                     </div>
-
                     ${renderCartSidebar(totalCartPrice)}
                 </div>
             `;
         }
-
         // --- HELPER FUNCTIONS ---
         const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
         const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
-
         function showMessage(type, text, duration = 4000) {
             state.message = { type, text };
             render();
@@ -556,18 +468,15 @@
         function getFilteredAndCategorizedItems() {
             let filtered = state.items;
             const term = state.productSearchTerm.toLowerCase();
-
             if (term) {
-                filtered = filtered.filter(item => 
-                    item.name.toLowerCase().includes(term) || 
+                filtered = filtered.filter(item =>
+                    item.name.toLowerCase().includes(term) ||
                     item.description.toLowerCase().includes(term)
                 );
             }
-
             if (state.selectedCategoryId && state.selectedCategoryId !== 'all') {
                 filtered = filtered.filter(item => item.catalogId === state.selectedCategoryId);
             }
-
             return filtered;
         }
         
@@ -575,20 +484,17 @@
             state.productSearchTerm = e.target.value;
             render();
         }
-
         function selectCategory(categoryId) {
             state.selectedCategoryId = categoryId;
-            state.productSearchTerm = ''; 
+            state.productSearchTerm = '';
             render();
         }
-
         // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
         async function loadFirebaseConfig() {
             if (typeof __firebase_config !== 'undefined' && __firebase_config && Object.keys(JSON.parse(__firebase_config)).length > 0) {
                 console.log("Tier 1: Loaded config from Canvas environment.");
                 return JSON.parse(__firebase_config);
             }
-
             try {
                 const response = await fetch(CONFIG_CLIENT_FUNCTION);
                 
@@ -603,12 +509,10 @@
                 return {};
             }
         }
-
         // --- MAINTENANCE MODE CHECK (Bypass for Admins) ---
         async function checkMaintenanceMode(user) {
             try {
                 const isAdminBypassing = user && !user.isAnonymous;
-
                 if (!isAdminBypassing) {
                     const response = await fetch('/.netlify/functions/checkMaintenance');
                     if (response.ok) {
@@ -618,7 +522,7 @@
                         state.isMaintenanceMode = false;
                     }
                 } else {
-                    state.isMaintenanceMode = false; 
+                    state.isMaintenanceMode = false;
                 }
                 
                 if (state.isMaintenanceMode) {
@@ -633,7 +537,6 @@
                 return false;
             }
         }
-
         // --- FETCH GLOBAL CONFIG AFTER FIREBASE IS READY ---
         async function fetchGlobalConfig() {
             try {
@@ -641,18 +544,16 @@
                 if (!response.ok) throw new Error('Failed to fetch global config.');
                 
                 const config = await response.json();
-                state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (config.maintenanceMode === false); 
+                state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (config.maintenanceMode === false);
                 
             } catch (error) {
                 console.error("Error fetching global config:", error);
                 state.chatWidgetEnabled = false;
             }
         }
-
         // --- FIRESTORE COLLECTION PATHS ---
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
-
         // --- PERSISTENCE & LISTENING ---
         
         function loadCartFromSession() {
@@ -667,13 +568,10 @@
                 sessionStorage.removeItem('autoInxCart');
             }
         }
-
         function setupRealtimeListeners() {
             if (!isAuthReady || !db) return;
-            if (state.isMaintenanceMode) return; 
-
+            if (state.isMaintenanceMode) return;
             loadCartFromSession();
-
             // 1. Catalogs Listener
             onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
                 state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -684,7 +582,6 @@
                 state.message = { type: 'error', text: 'Failed to fetch catalogs.' };
                 render();
             });
-
             // 2. Items Listener
             onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
                 state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -696,15 +593,12 @@
                 render();
             });
         }
-
         // --- USER ACTIONS ---
-
         function addToCart(item) {
             if (state.isMaintenanceMode) {
                 showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
                 return;
             }
-
             const currentEntry = state.cart[item.id];
             const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
             state.cart = {
@@ -714,15 +608,12 @@
             showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
             render();
         }
-
         function updateCartQuantity(itemId, change) {
             if (state.isMaintenanceMode) return;
             
             const currentEntry = state.cart[itemId];
             if (!currentEntry) return;
-
             const newQuantity = currentEntry.quantity + change;
-
             if (newQuantity <= 0) {
                 const newCart = { ...state.cart };
                 delete newCart[itemId];
@@ -736,13 +627,11 @@
             }
             render();
         }
-
         function continueToCheckout() {
             if (state.isMaintenanceMode) {
                 showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
                 return;
             }
-
             if (Object.keys(state.cart).length === 0) {
                 showMessage('error', 'Your cart is empty!');
                 return;
@@ -755,18 +644,14 @@
                 showMessage('error', 'Could not save cart for checkout. Try clearing your browser cache.', 5000);
                 return;
             }
-
             window.location.href = '/checkout.html';
         }
-
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
-
         // NEW: OPEN DETAIL MODAL FUNCTION
         function openItemDetailModal(item) {
             state.selectedItem = item;
             render();
         }
-
         // NEW: CLOSE DETAIL MODAL FUNCTION
         function closeItemDetailModal() {
             state.selectedItem = null;
@@ -784,12 +669,10 @@
             if (emailInput) emailInput.value = '';
             if (passwordInput) passwordInput.value = '';
         }
-
         function closeModal() {
             state.isModalOpen = false;
             render();
         }
-
         async function handleSignOut() {
             try {
                 explicitSignOutOccurred = true;
@@ -802,30 +685,28 @@
             }
             render();
         }
-
         async function handleStandardLogin(event) {
             event.preventDefault();
             console.log('handleStandardLogin called.');
-
-            const email = document.getElementById('email-input').value;
-            const password = document.getElementById('password-input').value;
+            const emailInput = document.getElementById('email-input');
+            const passwordInput = document.getElementById('password-input');
+            
+            const email = emailInput ? emailInput.value : ''; // Defensive check
+            const password = passwordInput ? passwordInput.value : ''; // Defensive check
+            
             const messageEl = document.getElementById('auth-message');
             messageEl.textContent = '';
-
             if (!email || !password) {
                 messageEl.textContent = '❌ Please enter both email and password.';
                 return;
             }
-
             if (state.modalType === 'admin') {
                 try {
                     const userCredential = await signInWithEmailAndPassword(auth, email, password);
                     const user = userCredential.user;
-
-                    const idTokenResult = await user.getIdTokenResult(true); 
-
+                    const idTokenResult = await user.getIdTokenResult(true);
                     if (idTokenResult.claims.admin === true) {
-                        console.log('Admin authenticated and authorized. Redirecting.'); 
+                        console.log('Admin authenticated and authorized. Redirecting.');
                         closeModal();
                         window.location.href = '/admin.html';
                     } else {
@@ -844,7 +725,6 @@
                 render();
                 return;
             }
-
             try {
                 if (state.modalMode === 'login') {
                     await signInWithEmailAndPassword(auth, email, password);
@@ -868,12 +748,10 @@
             }
             render();
         }
-
         async function handleGoogleSignIn() {
             const provider = new GoogleAuthProvider();
             const messageEl = document.getElementById('auth-message');
             messageEl.textContent = 'Logging in with Google...';
-
             try {
                 await signInWithPopup(auth, provider);
                 showMessage('success', 'Google Sign-In successful!', 2000);
@@ -884,7 +762,6 @@
             }
             render();
         }
-
         async function requestPasswordReset() {
             const email = prompt("Enter the email associated with your account to receive a password reset link:");
             
@@ -896,11 +773,9 @@
                 showMessage('error', 'Please enter a valid email address.');
                 return;
             }
-
             showMessage('info', 'Requesting password reset link...', 60000);
             
             const netlifyFunctionUrl = '/.netlify/functions/sendPasswordResetEmail';
-
             try {
                 const MAX_RETRIES = 3;
                 let response = null;
@@ -911,7 +786,6 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ email })
                         });
-
                         if (response.ok) {
                             break;
                         } else if (i === MAX_RETRIES - 1) {
@@ -926,9 +800,7 @@
                         console.log(`Retrying password reset request... attempt ${i + 2}`);
                     }
                 }
-
                 const result = await response.json();
-
                 if (response.ok) {
                     showMessage('success', `If an account exists for ${email}, a password reset link has been sent. Check your inbox!`, 8000);
                 } else {
@@ -943,9 +815,7 @@
         async function registerUser() {
             showLoginModal('standard', 'register');
         }
-
         // --- CORE FIREBASE INITIALIZATION ---
-
         async function setupFirebase() {
             try {
                 state.isAdminIP = await checkIPRange();
@@ -953,7 +823,6 @@
                 
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
-
                 if (Object.keys(firebaseConfig).length === 0) {
                     console.error("Firebase config is missing or failed to load from Netlify Function.");
                     state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
@@ -976,7 +845,6 @@
                         console.error("Error during initial anonymous sign-in:", error);
                     });
                 }
-
                 onAuthStateChanged(auth, async (user) => {
                     const isSiteLocked = await checkMaintenanceMode(user);
                     
@@ -985,7 +853,6 @@
                         render();
                         return;
                     }
-
                     if (user) {
                         userId = user.uid;
                         
@@ -997,31 +864,26 @@
                         }
                         
                         explicitSignOutOccurred = false;
-
                     } else {
                         userId = null;
                         state.userName = null;
-
                         if (explicitSignOutOccurred) {
                             console.log("Explicit sign-out processed. Preventing anonymous re-sign-in on this loop.");
                             explicitSignOutOccurred = false;
                         }
                     }
                     isAuthReady = true;
-                    await fetchGlobalConfig(); 
+                    await fetchGlobalConfig();
                     if (db) setupRealtimeListeners();
                     render();
                 });
-
             } catch (error) {
                 console.error("Firebase setup failed:", error);
                 state.message = { type: 'error', text: 'Failed to initialize Firebase.' };
                 render();
             }
         }
-
         // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
-
         function toggleView(type = 'standard') {
             if (state.view === 'user') {
                 showLoginModal(type, 'login');
@@ -1030,7 +892,6 @@
             }
             render();
         }
-
         window.module = {
             setupFirebase,
             render,
@@ -1041,17 +902,16 @@
             handleProductSearchInput,
             selectCategory,
             requestPasswordReset,
-            registerUser, 
+            registerUser,
             showLoginModal,
             handleStandardLogin,
             handleGoogleSignIn,
             closeModal,
             handleSignOut,
             // Exporting new modal functions
-            openItemDetailModal, 
+            openItemDetailModal,
             closeItemDetailModal
         };
-
         document.addEventListener('DOMContentLoaded', () => {
             setupFirebase();
         });
