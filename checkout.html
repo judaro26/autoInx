@@ -137,7 +137,8 @@
         function renderCartLink() {
             const count = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
             if (count === 0) return '';
-            $('checkoutCartLink').innerHTML = `
+            // NOTE: This now returns the HTML string directly instead of setting innerHTML via $()
+            return ` 
                 <a href="/" class="relative group">
                     <div class="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-6 py-4 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition transform hover:scale-110">
                         <span class="hidden sm:inline">Carrito</span>
@@ -161,13 +162,20 @@
                 script.async = true;
                 document.head.appendChild(script);
             } catch (err) {
-                $('addressStatus').textContent = "Autocompletado no disponible";
-                $('addressStatus').className = "text-red-600 font-bold";
+                // Ensure addressStatus exists before setting properties
+                const statusEl = $('addressStatus');
+                if (statusEl) {
+                    statusEl.textContent = "Autocompletado no disponible";
+                    statusEl.className = "text-red-600 font-bold";
+                }
             }
         }
 
         window.initPlaces = function() {
             const input = $('delivery-address');
+            // Check if input exists before attaching autocomplete or listeners
+            if (!input) return; 
+            
             autocomplete = new google.maps.places.Autocomplete(input, {
                 types: ['address'],
                 componentRestrictions: { country: ['co', 'us'] }
@@ -202,10 +210,11 @@
 
         function toggleLoading(on) {
             const btn = $('submitButton'), txt = $('buttonText'), spin = $('spinner');
-            btn.disabled = on;
-            spin.classList.toggle('hidden', !on);
-            txt.classList.toggle('hidden', on);
-            if (!on) $('totalPriceDisplay').textContent = formatPrice(cartTotalCents);
+            if (btn) btn.disabled = on;
+            if (spin) spin.classList.toggle('hidden', !on);
+            if (txt) txt.classList.toggle('hidden', on);
+            const totalDisplay = $('totalPriceDisplay');
+            if (!on && totalDisplay) totalDisplay.textContent = formatPrice(cartTotalCents);
         }
 
         async function initApp() {
@@ -218,7 +227,7 @@
                 auth = getAuth(appInstance); db = getFirestore(appInstance);
                 
                 await fetchChatStatus();
-                loadGoogleMaps();
+                // loadGoogleMaps(); // Moved to renderCheckoutContent
 
                 onAuthStateChanged(auth, user => {
                     // if (!user) return location.href = '/'; // Keep Anonymous users to allow checkout
@@ -227,8 +236,24 @@
                 });
             } catch (e) {
                 console.error("Initialization Error:", e);
-                $('loadingState').innerHTML = `<p class="text-red-600 text-3xl font-bold">Error crítico al cargar la página de pago. Recarga la página.</p>`;
+                const appEl = document.getElementById('app');
+                if (appEl) appEl.innerHTML = `<p class="text-red-600 text-3xl font-bold">Error crítico al cargar la página de pago. Recarga la página.</p>`;
             }
+        }
+        
+        // FIX 1: Define renderCartSummary here so renderCheckoutContent can call it.
+        function renderCartSummary() {
+            return Object.values(cartData).map(e => `
+                <div class="p-6 bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl shadow-lg">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="font-extrabold text-xl text-gray-800">${e.item.name}</p>
+                            <p class="text-gray-600 mt-1">${e.quantity} × ${formatPrice(e.item.price)}</p>
+                        </div>
+                        <span class="text-2xl font-bold text-pink-600">${formatPrice(e.item.price * e.quantity)}</span>
+                    </div>
+                </div>
+            `).join('');
         }
 
         function loadCheckout() {
@@ -248,9 +273,11 @@
 
             // Hide initial loading state and render main content structure
             document.getElementById('app').innerHTML = renderHeader() + renderCheckoutContent();
-            // renderCartLink(); // Already called by renderHeader/renderCheckoutContent structure
             renderChatWidget();
             toggleLoading(false); // Update button with final price
+            
+            // FIX 2: Call Google Maps initialization AFTER the form elements are added to the DOM.
+            loadGoogleMaps(); 
         }
         
         function renderHeader() {
