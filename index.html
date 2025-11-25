@@ -23,7 +23,7 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // Import IP Check Utility for Admin Gate
-        import { checkIPRange } from './js/utilities/utils.js'; // <-- CORRECTED PATH
+        import { checkIPRange } from './js/utilities/utils.js';
 
         // Global variables provided by the Canvas environment (used if defined)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -49,7 +49,9 @@
             modalMode: 'login', // 'login' or 'register'
             modalType: 'standard', // 'standard' or 'admin'
             userName: null, // To store the logged-in user's name/email
-            isMaintenanceMode: false // NEW: Maintenance mode status
+            isMaintenanceMode: false, // NEW: Maintenance mode status
+            productSearchTerm: '', // NEW: Search term for products
+            selectedCategoryId: 'all' // NEW: ID of the selected category, 'all' by default
         };
 
         // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
@@ -208,7 +210,6 @@
         // --- FIRESTORE COLLECTION PATHS ---
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
-        // Removed ORDERS_COLLECTION since order submission logic moved to checkout.html
 
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
@@ -252,6 +253,41 @@
                 render();
             }, duration);
         }
+        
+        // --- NEW FILTERING LOGIC ---
+        function getFilteredAndCategorizedItems() {
+            let filtered = state.items;
+            const term = state.productSearchTerm.toLowerCase();
+
+            // 1. Apply Search Filter
+            if (term) {
+                filtered = filtered.filter(item => 
+                    item.name.toLowerCase().includes(term) || 
+                    item.description.toLowerCase().includes(term)
+                );
+            }
+
+            // 2. Apply Category Filter
+            if (state.selectedCategoryId && state.selectedCategoryId !== 'all') {
+                filtered = filtered.filter(item => item.catalogId === state.selectedCategoryId);
+            }
+
+            return filtered;
+        }
+        
+        // --- NEW UI HANDLERS ---
+        function handleProductSearchInput(e) {
+            state.productSearchTerm = e.target.value;
+            render(); // Re-render to update product list
+        }
+
+        function selectCategory(categoryId) {
+            state.selectedCategoryId = categoryId;
+            // Clear search term when selecting a new category for focused filtering
+            state.productSearchTerm = ''; 
+            render();
+        }
+
 
         // --- USER ACTIONS ---
 
@@ -295,8 +331,6 @@
             render();
         }
 
-        // --- NEW USER ACTION: CONTINUE TO CHECKOUT ---
-
         function continueToCheckout() {
             if (state.isMaintenanceMode) {
                 showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
@@ -310,7 +344,6 @@
             
             // 1. Save the current cart state to Session Storage
             try {
-                // Note: sessionStorage clears when the browser tab/window is closed.
                 sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
             } catch (error) {
                 console.error("Failed to save cart to session storage:", error);
@@ -321,8 +354,6 @@
             // 2. Redirect to the new checkout page
             window.location.href = '/checkout.html';
         }
-
-        // --- END NEW USER ACTION ---
 
 
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
@@ -514,7 +545,131 @@
         }
 
 
-        // --- RENDER FUNCTIONS (Consolidated and Corrected) ---
+        // --- RENDER HELPERS ---
+
+        function renderCategorySidebar() {
+            const itemsToCount = getFilteredAndCategorizedItems();
+
+            const allCategories = [{ id: 'all', name: 'All Products', count: state.items.length }]
+                .concat(state.catalogs.map(c => ({ 
+                    id: c.id, 
+                    name: c.name, 
+                    count: state.items.filter(i => i.catalogId === c.id).length 
+                })))
+                .filter(c => c.count > 0 || c.id === 'all');
+                
+            const totalProductsDisplayed = itemsToCount.length;
+
+
+            return `
+                <div class="md:col-span-1">
+                    <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-indigo-500 sticky top-4">
+                        <h3 class="text-xl font-bold mb-4 text-indigo-700">Categories (${totalProductsDisplayed} visible)</h3>
+                        <div class="space-y-2 max-h-96 custom-scrollbar overflow-y-auto">
+                            ${allCategories.map(cat => {
+                                const isActive = state.selectedCategoryId === cat.id;
+                                return `
+                                    <button onclick="window.module.selectCategory('${cat.id}')"
+                                            class="w-full text-left p-2 rounded-lg transition duration-150 
+                                                   ${isActive ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 hover:bg-gray-100'}">
+                                        ${cat.name} <span class="${isActive ? 'text-indigo-200' : 'text-gray-500'}">(${cat.count})</span>
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderProductGrid() {
+            const itemsToDisplay = getFilteredAndCategorizedItems();
+
+            if (itemsToDisplay.length === 0) {
+                return `
+                    <div class="p-8 text-center bg-white rounded-xl shadow-lg">
+                        <p class="text-gray-500 text-lg">No products match your current filters.</p>
+                    </div>
+                `;
+            }
+
+            // Group by catalog name for visual structure
+            const itemsByCatalog = itemsToDisplay.reduce((acc, item) => {
+                const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                if (!acc[catalogName]) acc[catalogName] = [];
+                acc[catalogName].push(item);
+                return acc;
+            }, {});
+
+            return Object.keys(itemsByCatalog).map(catalogName => `
+                <div>
+                    ${state.selectedCategoryId === 'all' ? `<h3 class="text-2xl font-bold mb-4 text-indigo-700">${catalogName}</h3>` : ''}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        ${itemsByCatalog[catalogName].map(item => `
+                            <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
+                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                                <div class="p-4">
+                                    <h4 class="text-xl font-semibold text-gray-800 truncate">${item.name}</h4>
+                                    <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
+                                    <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
+                                            class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
+                                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                        Add to Cart
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('<hr class="my-8 border-indigo-200">');
+        }
+
+        function renderCartSidebar(totalCartPrice) {
+            return `
+                <div class="md:col-span-1 mt-8 md:mt-0">
+                    <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-pink-500 sticky top-4">
+                        <h3 class="text-2xl font-bold mb-4 text-pink-600 flex items-center">
+                            <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
+                            Shopping Cart
+                        </h3>
+                        <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
+                            ${Object.values(state.cart).length > 0
+                                ? Object.values(state.cart).map(entry => `
+                                    <div class="flex justify-between items-center border-b pb-2">
+                                        <div class="flex-1 min-w-0">
+                                            <p class="text-sm font-medium text-gray-900 truncate">${entry.item.name}</p>
+                                            <p class="text-xs text-gray-500">${formatPrice(entry.item.price)} each</p>
+                                        </div>
+                                        <div class="flex items-center space-x-2">
+                                            <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)"
+                                                    class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
+                                            <span class="text-sm font-semibold w-5 text-center">${entry.quantity}</span>
+                                            <button onclick="window.module.updateCartQuantity('${entry.item.id}', 1)"
+                                                    class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
+                                        </div>
+                                        <span class="text-sm font-bold ml-4">${formatPrice(entry.item.price * entry.quantity)}</span>
+                                    </div>
+                                `).join('')
+                                : '<p class="text-gray-500 italic">Your cart is empty.</p>'
+                            }
+                        </div>
+                        <div class="pt-4 mt-4 border-t border-gray-200">
+                            <div class="flex justify-between font-bold text-xl text-gray-800">
+                                <span>Total:</span>
+                                <span>${formatPrice(totalCartPrice)}</span>
+                            </div>
+                            <button onclick="window.module.continueToCheckout()" ${Object.keys(state.cart).length === 0 ? 'disabled' : ''}
+                                    class="w-full bg-pink-600 text-white p-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-lg disabled:bg-pink-300 disabled:cursor-not-allowed flex justify-center items-center mt-4">
+                                Continue to Order
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+
+        // --- MAIN RENDER FUNCTIONS ---
 
         function renderMessage() {
             if (!state.message) return '';
@@ -555,83 +710,27 @@
             }
             if (state.view !== 'user') return '';
 
-            const itemsByCatalog = state.items.reduce((acc, item) => {
-                const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                if (!acc[catalogName]) acc[catalogName] = [];
-                acc[catalogName].push(item);
-                return acc;
-            }, {});
-
             const totalCartPrice = getTotalCartPrice();
 
             return `
-                <div class="md:flex md:space-x-8">
-                    <div class="w-full md:w-3/4 space-y-8">
-                        ${Object.keys(itemsByCatalog).length > 0
-                            ? Object.keys(itemsByCatalog).map(catalogName => `
-                                <div>
-                                    <h3 class="text-3xl font-bold mb-4 text-indigo-700">${catalogName}</h3>
-                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                                        ${itemsByCatalog[catalogName].map(item => `
-                                            <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
-                                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
-                                                <div class="p-4">
-                                                    <h4 class="text-xl font-semibold text-gray-800 truncate">${item.name}</h4>
-                                                    <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
-                                                    <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
-                                                            class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
-                                                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                                        Add to Cart
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            `).join('<hr class="my-8 border-indigo-200">')
-                            : '<p class="text-gray-500">The catalog is currently empty. Please switch to Admin View to add items.</p>'
-                        }
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                    
+                    ${renderCategorySidebar()}
+
+                    <div class="md:col-span-2 space-y-8">
+                        
+                        <div class="sticky top-0 bg-gray-100 z-10 py-2 -mt-2 -mx-4 md:m-0 md:p-0">
+                            <input type="text" 
+                                   oninput="window.module.handleProductSearchInput(event)" 
+                                   value="${state.productSearchTerm}"
+                                   placeholder="Search products by name or description..." 
+                                   class="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
+                        </div>
+
+                        ${renderProductGrid()}
                     </div>
 
-                    <div class="w-full md:w-1/4 mt-8 md:mt-0 sticky top-4">
-                        <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-pink-500">
-                            <h3 class="text-2xl font-bold mb-4 text-pink-600 flex items-center">
-                                <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
-                                Shopping Cart
-                            </h3>
-                            <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
-                                ${Object.values(state.cart).length > 0
-                                    ? Object.values(state.cart).map(entry => `
-                                        <div class="flex justify-between items-center border-b pb-2">
-                                            <div class="flex-1 min-w-0">
-                                                <p class="text-sm font-medium text-gray-900 truncate">${entry.item.name}</p>
-                                                <p class="text-xs text-gray-500">${formatPrice(entry.item.price)} each</p>
-                                            </div>
-                                            <div class="flex items-center space-x-2">
-                                                <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)"
-                                                        class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
-                                                <span class="text-sm font-semibold w-5 text-center">${entry.quantity}</span>
-                                                <button onclick="window.module.updateCartQuantity('${entry.item.id}', 1)"
-                                                        class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
-                                            </div>
-                                            <span class="text-sm font-bold ml-4">${formatPrice(entry.item.price * entry.quantity)}</span>
-                                        </div>
-                                    `).join('')
-                                    : '<p class="text-gray-500 italic">Your cart is empty.</p>'
-                                }
-                            </div>
-                            <div class="pt-4 mt-4 border-t border-gray-200">
-                                <div class="flex justify-between font-bold text-xl text-gray-800">
-                                    <span>Total:</span>
-                                    <span>${formatPrice(totalCartPrice)}</span>
-                                </div>
-                                <button onclick="window.module.continueToCheckout()" ${Object.keys(state.cart).length === 0 ? 'disabled' : ''}
-                                        class="w-full bg-pink-600 text-white p-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-lg disabled:bg-pink-300 disabled:cursor-not-allowed flex justify-center items-center mt-4">
-                                    Continue to Order
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                    ${renderCartSidebar(totalCartPrice)}
                 </div>
             `;
         }
@@ -826,6 +925,8 @@
             addToCart,
             updateCartQuantity,
             continueToCheckout, // ADDED new checkout function
+            handleProductSearchInput, // NEW: Product Search
+            selectCategory, // NEW: Category Filter
             requestPasswordReset,
             registerUser, 
             showLoginModal,
