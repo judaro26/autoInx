@@ -1,7 +1,7 @@
 /**
  * Netlify Function: sendContactEmail.js
  * Receives contact form submissions and routes the email using Brevo SMTP,
- * using a template for professional formatting.
+ * utilizing the order confirmation template for professional formatting.
  */
 const nodemailer = require('nodemailer');
 const fs = require('fs').promises; // Node.js utility to read files
@@ -18,39 +18,73 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-// 2. Function to load and substitute template variables
+// 2. Function to load and adapt the template for contact submissions
 async function getContactTemplate(data) {
     const templatePath = path.resolve(process.env.LAMBDA_TASK_ROOT || process.cwd(), 'netlify/functions/emailTemplates/orderConfirmationTemplate.html');
     let template = await fs.readFile(templatePath, 'utf8');
 
-    // --- Template Adaptation: Replace Order-Specific Placeholders with Contact Data ---
+    // --- Template Adaptation ---
+
+    // 1. Update Header/Title (Assuming a general title placeholder is used)
+    template = template.replace(/Your autoInx Order is Confirmed/g, 
+        data.subjectType === 'order' ? 'New Order Inquiry Received' : 'New General Support Message');
     
-    // Replace standard template headers/titles (assuming they exist)
-    template = template.replace(/{{email_title}}/g, data.subjectType === 'order' ? 'Nueva Pregunta de Pedido' : 'Nueva Consulta General');
-    template = template.replace(/{{customer_name}}/g, data.name);
-    template = template.replace(/{{order_summary_header}}/g, 'Detalles de la Consulta');
-    
-    // Replace the main table/body content with the contact message
-    const messageTableContent = `
-        <tr>
-            <td style="padding: 20px 0; border-bottom: 1px solid #eee;">
-                <p style="font-size: 18px; color: #333; margin: 0 0 10px 0;"><strong>Remitente:</strong> ${data.name} (${data.email})</p>
-                <p style="font-size: 18px; color: #333; margin: 0 0 10px 0;"><strong>Tipo de Consulta:</strong> ${data.subjectType === 'order' ? 'Relacionada con Pedido' : 'General / Soporte'}</p>
-                <p style="font-size: 18px; color: #333; margin: 0 0 10px 0;"><strong>Mensaje:</strong></p>
-                <p style="font-size: 16px; color: #555; margin: 0;">${data.message.replace(/\n/g, '<br>')}</p>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding: 15px 0 0 0;">
-                <p style="font-size: 14px; color: #888;">Este email fue generado por el formulario de contacto de AutoInx.</p>
-            </td>
-        </tr>
+    // 2. Update Introductory Text
+    const introText = data.subjectType === 'order' 
+        ? `We have received a question regarding an order. Details below:` 
+        : `A new message has been submitted via the contact form. Details below:`;
+        
+    // 3. Construct the Contact Details Table HTML
+    const contactDetailsTable = `
+        <table width="100%" cellspacing="0" cellpadding="0" border="0" role="presentation" style="border-collapse: collapse; margin-top: 20px; table-layout: fixed; font-size: 16px;">
+            <tr style="background-color: #f3f4f6;">
+                <td colspan="2" style="padding: 12px; text-align: left; font-weight: bold; font-size: 18px; color: #6366f1;">
+                    Submission Details
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: bold; width: 30%;">Name:</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee;">${data.name}</td>
+            </tr>
+            <tr>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: bold;">Email:</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee;">${data.email}</td>
+            </tr>
+            <tr>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: bold;">Query Type:</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee;">${data.subjectType === 'order' ? 'ORDER QUESTION' : 'GENERAL SUPPORT'}</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="padding: 15px 12px; font-weight: bold; border-top: 1px solid #ddd;">Message:</td>
+            </tr>
+            <tr>
+                <td colspan="2" style="padding: 0 12px 15px 12px; color: #555;">
+                    ${data.message.replace(/\n/g, '<br>')}
+                </td>
+            </tr>
+        </table>
     `;
 
-    // You will need to identify the main content table placeholder in your HTML template (e.g., {{order_details_table}})
-    // For this example, I'll assume your template has a placeholder like {{main_content_details}}
-    // Please adjust this based on your actual template structure.
-    return template.replace(/{{main_content_details}}/g, messageTableContent);
+    // 4. Inject Content into the Template
+    // We must replace the Order ID, Date, and the entire Order Items Table block.
+    
+    // We target the entire section containing the IDs/Dates and the Item Table.
+    const patternToReplace = /<p style="font-size: 16px;"><strong>Order ID:<\/strong>[\s\S]*?<table width="100%" cellspacing="0" cellpadding="0" border="0" role="presentation" style="border-collapse: collapse; margin-top: 20px; table-layout: fixed;">[\s\S]*?<\/table>/;
+    
+    // Replace Order IDs, Dates, and the entire Items Table with the new Contact Table
+    template = template.replace(patternToReplace, contactDetailsTable);
+    
+    // Replace the default intro paragraph
+    template = template.replace(/Hello, thank you for your purchase! We've received your order and are preparing your items for delivery./g, introText);
+
+
+    // 5. Clean up any remaining Brevo/Nodemailer placeholders that are not standard Brevo tags
+    template = template.replace(/{{params\.orderId}}/g, '');
+    template = template.replace(/{{params\.orderDate}}/g, '');
+    template = template.replace(/{{params\.orderTableRows}}/g, '');
+    template = template.replace(/{{params\.totalPrice}}/g, '');
+    
+    return template;
 }
 
 exports.handler = async function (event) {
@@ -93,7 +127,6 @@ exports.handler = async function (event) {
         };
 
     } catch (error) {
-        // Log error and include details about file reading failure if applicable
         console.error('Email Processing Error:', error.message);
         return {
             statusCode: 500,
