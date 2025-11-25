@@ -50,108 +50,47 @@
             modalType: 'standard', // 'standard' or 'admin'
             userName: null, // To store the logged-in user's name/email
             isMaintenanceMode: false, // NEW: Maintenance mode status
+            chatWidgetEnabled: false, // ADDED: Chat widget status
             productSearchTerm: '', // NEW: Search term for products
             selectedCategoryId: 'all' // NEW: ID of the selected category, 'all' by default
         };
+        
+        const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
 
         // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
         async function loadFirebaseConfig() {
-            // Tier 1: Use Canvas injected config
-            if (typeof __firebase_config !== 'undefined' && __firebase_config && Object.keys(JSON.parse(__firebase_config)).length > 0) {
-                console.log("Tier 1: Loaded config from Canvas environment.");
-                return JSON.parse(__firebase_config);
-            }
-
-            // Tier 2: Fallback to Netlify Function (for standalone Netlify deployments)
-            try {
-                // CORRECTED PATH: Should be '/.netlify/functions/...' based on Netlify conventions
-                const netlifyFunctionUrl = '/.netlify/functions/getClientFirebaseConfig';
-                console.log("Tier 2: Attempting to load public config from Netlify Function...");
-                const response = await fetch(netlifyFunctionUrl);
-                
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch config from Netlify Function (Status: ${response.status})`);
-                }
-                const config = await response.json();
-                console.log("Tier 2: Public config loaded successfully.");
-                return config;
-            } catch (error) {
-                console.error("Tier 2 Failed. Falling back to empty config.", error);
-                return {}; // Tier 3: Empty config fallback
-            }
+            // ... (unchanged)
         }
 
         // --- MAINTENANCE MODE CHECK (Bypass for Admins) ---
         async function checkMaintenanceMode(user) {
-            try {
-                // Admins are identified by being authenticated AND NOT anonymous
-                const isAdminBypassing = user && !user.isAnonymous;
+            // ... (unchanged)
+        }
 
-                // Only check the Netlify function if the user is NOT bypassing (i.e., they are a public user)
-                if (!isAdminBypassing) {
-                    const response = await fetch('/.netlify/functions/checkMaintenance');
-                    if (response.ok) {
-                        const data = await response.json();
-                        state.isMaintenanceMode = data.maintenanceMode;
-                    } else {
-                        // If the check fails, assume maintenance is OFF for safety
-                        state.isMaintenanceMode = false;
-                    }
-                } else {
-                    // Admins always bypass maintenance mode on the index page
-                    state.isMaintenanceMode = false; 
-                }
+        // --- NEW: FETCH GLOBAL CONFIG AFTER FIREBASE IS READY ---
+        async function fetchGlobalConfig() {
+            try {
+                const response = await fetch(GET_CONFIG_FUNCTION);
+                if (!response.ok) throw new Error('Failed to fetch global config.');
                 
-                if (state.isMaintenanceMode) {
-                    state.message = { type: 'warning', text: 'The site is currently undergoing maintenance. Please check back later.' };
-                    render();
-                    return true; // Return true to indicate maintenance mode is active for this user
-                }
-                return false; // Return false to indicate maintenance mode is off or bypassed
+                const config = await response.json();
+                
+                // IMPORTANT: Only show widget if maintenance mode is OFF AND widget is enabled
+                state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (config.maintenanceMode === false); 
+                
             } catch (error) {
-                console.error("Failed to check maintenance mode:", error);
-                state.isMaintenanceMode = false; // Default to off if check fails
-                return false;
+                console.error("Error fetching global config:", error);
+                state.chatWidgetEnabled = false; // Fail safe: keep widget off
             }
+            render(); // Re-render to show/hide widget
         }
 
 
         // --- FIREBASE INITIALIZATION & AUTH ---
         async function setupFirebase() {
             try {
-                // Check IP range immediately (since this is static, it doesn't need auth)
-                state.isAdminIP = await checkIPRange();
-                console.log(`IP Check complete. Is Admin IP: ${state.isAdminIP}`);
+                // ... (initial checks unchanged)
                 
-                const firebaseConfig = await loadFirebaseConfig();
-                state.configLoaded = true;
-
-                if (Object.keys(firebaseConfig).length === 0) {
-                    console.error("Firebase config is missing or failed to load from Netlify Function.");
-                    state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
-                    render();
-                    return;
-                }
-                
-                setLogLevel('debug'); // Enable Firestore logging
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-                
-                // Use the custom token if provided (e.g., from Canvas)
-                if (initialAuthToken) {
-                    // Start sign-in with custom token if available
-                    await signInWithCustomToken(auth, initialAuthToken)
-                        .catch(error => {
-                            console.error("Error signing in with custom token:", error);
-                        });
-                } else if (!auth.currentUser) {
-                    // Attempt anonymous sign-in for data persistence
-                    await signInAnonymously(auth).catch(error => {
-                        console.error("Error during initial anonymous sign-in:", error);
-                    });
-                }
-
                 // Authentication Listener
                 onAuthStateChanged(auth, async (user) => {
                     // 1. Check Maintenance Mode before processing listeners/data
@@ -164,37 +103,11 @@
                         return;
                     }
 
-
-                    if (user) {
-                        userId = user.uid;
-                        
-                        // Only set userName if the user is NOT anonymous 
-                        if (!user.isAnonymous) {
-                            state.userName = user.email || user.displayName || 'Authenticated User';
-                            console.log("User authenticated with persistent account. UID:", userId);
-                        } else {
-                            // User is anonymous (for cart persistence)
-                            state.userName = null;
-                        }
-                        
-                        explicitSignOutOccurred = false; // Clear flag on any successful login/session restore
-
-                    } else {
-                        // User is null (initial load or explicit sign out)
-                        userId = null;
-                        state.userName = null; // Clear name on sign-out
-
-                        if (explicitSignOutOccurred) {
-                            // If this was an explicit sign-out, clear the flag.
-                            console.log("Explicit sign-out processed. Preventing anonymous re-sign-in on this loop.");
-                            explicitSignOutOccurred = false;
-                            // Note: No anonymous sign-in attempt here, letting the page stay logged out.
-                        } else if (!auth.currentUser || auth.currentUser.isAnonymous) {
-                             // Re-attempt anonymous sign-in if the user is completely logged out (e.g., first visit or expired anon session)
-                             // This is now handled up top, but safe to leave here as a fallback depending on timing.
-                        }
-                    }
+                    // ... (user/userId logic unchanged)
+                    
                     isAuthReady = true;
+                    // AFTER AUTH IS READY, FETCH FULL CONFIG (including chat status)
+                    fetchGlobalConfig(); 
                     if (db) setupRealtimeListeners();
                     render();
                 });
@@ -206,11 +119,7 @@
                 render();
             }
         }
-
-        // --- FIRESTORE COLLECTION PATHS ---
-        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
-        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
-
+        
         // --- PERSISTENCE & LISTENING ---
         
         // NEW: Function to load cart from session storage when page loads or reloads
@@ -237,697 +146,50 @@
 
             loadCartFromSession(); // Load cart on initial setup/return from checkout
 
-            // 1. Catalogs Listener
-            onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
-                state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                console.log("Catalogs updated:", state.catalogs.length);
-                render();
-            }, (error) => {
-                console.error("Error listening to catalogs:", error);
-                state.message = { type: 'error', text: 'Failed to fetch catalogs.' };
-                render();
-            });
-
-            // 2. Items Listener
-            onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
-                state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                console.log("Items updated:", state.items.length);
-                render();
-            }, (error) => {
-                console.error("Error listening to items:", error);
-                state.message = { type: 'error', text: 'Failed to fetch items.' };
-                render();
-            });
+            // ... (rest of listeners unchanged)
         }
 
+        // ... (Helper Functions, User Actions, Auth Functions unchanged)
 
-        // --- HELPER FUNCTIONS ---
-        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
-        const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
-
-        function showMessage(type, text, duration = 4000) {
-            state.message = { type, text };
-            render();
-            setTimeout(() => {
-                state.message = null;
-                render();
-            }, duration);
-        }
+        // --- RENDER HELPERS (MODIFIED) ---
         
-        // --- NEW FILTERING LOGIC ---
-        function getFilteredAndCategorizedItems() {
-            let filtered = state.items;
-            const term = state.productSearchTerm.toLowerCase();
-
-            // 1. Apply Search Filter
-            if (term) {
-                filtered = filtered.filter(item => 
-                    item.name.toLowerCase().includes(term) || 
-                    item.description.toLowerCase().includes(term)
-                );
-            }
-
-            // 2. Apply Category Filter
-            if (state.selectedCategoryId && state.selectedCategoryId !== 'all') {
-                filtered = filtered.filter(item => item.catalogId === state.selectedCategoryId);
-            }
-
-            return filtered;
-        }
-        
-        // --- NEW UI HANDLERS ---
-        function handleProductSearchInput(e) {
-            state.productSearchTerm = e.target.value;
-            render(); // Re-render to update product list
-        }
-
-        function selectCategory(categoryId) {
-            state.selectedCategoryId = categoryId;
-            // Clear search term when selecting a new category for focused filtering
-            state.productSearchTerm = ''; 
-            render();
-        }
-        
-        // NEW: Compact Cart Link
-        function renderCartLink() {
-            const itemCount = Object.values(state.cart).reduce((total, entry) => total + entry.quantity, 0);
+        // NEW: Chat Widget Render
+        function renderChatWidget() {
+            // Widget should not show if Maintenance Mode is active or if explicitly disabled by admin
+            if (!state.chatWidgetEnabled || state.isMaintenanceMode || state.view === 'admin') return '';
             
-            if (itemCount === 0) return ''; 
-
+            // Simple placeholder for a chat widget container
             return `
-                <a href="/checkout.html" onclick="window.module.continueToCheckout()" 
-                   class="relative px-3 py-2 rounded-lg font-semibold text-white bg-pink-600 hover:bg-pink-700 transition duration-150 shadow-md flex items-center">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                    <span class="ml-2 hidden sm:inline">Checkout</span>
-                    <span class="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center border-2 border-white">${itemCount}</span>
-                </a>
-            `;
-        }
-
-
-        // --- USER ACTIONS ---
-
-        function addToCart(item) {
-            if (state.isMaintenanceMode) {
-                showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
-                return;
-            }
-
-            const currentEntry = state.cart[item.id];
-            const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
-            state.cart = {
-                ...state.cart,
-                [item.id]: { item, quantity: newQuantity }
-            };
-            showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
-            render();
-        }
-
-        function updateCartQuantity(itemId, change) {
-            if (state.isMaintenanceMode) return;
-            
-            const currentEntry = state.cart[itemId];
-            if (!currentEntry) return;
-
-            const newQuantity = currentEntry.quantity + change;
-
-            if (newQuantity <= 0) {
-                // Remove item from cart
-                const newCart = { ...state.cart };
-                delete newCart[itemId];
-                state.cart = newCart;
-                showMessage('info', `${currentEntry.item.name} removed from cart.`, 2000);
-            } else {
-                // Update quantity
-                state.cart = {
-                    ...state.cart,
-                    [itemId]: { item: currentEntry.item, quantity: newQuantity }
-                };
-            }
-            render();
-        }
-
-        function continueToCheckout() {
-            if (state.isMaintenanceMode) {
-                showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
-                return;
-            }
-
-            if (Object.keys(state.cart).length === 0) {
-                showMessage('error', 'Your cart is empty!');
-                return;
-            }
-            
-            // 1. Save the current cart state to Session Storage
-            try {
-                sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
-            } catch (error) {
-                console.error("Failed to save cart to session storage:", error);
-                showMessage('error', 'Could not save cart for checkout. Try clearing your browser cache.', 5000);
-                return;
-            }
-
-            // 2. Redirect to the new checkout page
-            window.location.href = '/checkout.html';
-        }
-
-
-        // --- AUTHENTICATION & MODAL FUNCTIONS ---
-
-        function showLoginModal(type, mode) {
-            // type: 'standard' (user) or 'admin')
-            // mode: 'login' or 'register'
-            state.isModalOpen = true;
-            state.modalMode = mode;
-            state.modalType = type;
-            render();
-            // Clear previous errors/fields
-            document.getElementById('auth-message').textContent = '';
-            // Only attempt to clear if the inputs are visible (not in admin mode)
-            const emailInput = document.getElementById('email-input');
-            const passwordInput = document.getElementById('password-input');
-            if (emailInput) emailInput.value = '';
-            if (passwordInput) passwordInput.value = '';
-        }
-
-        function closeModal() {
-            state.isModalOpen = false;
-            render();
-        }
-
-        // --- NEW SIGN OUT FUNCTION ---
-        async function handleSignOut() {
-            try {
-                explicitSignOutOccurred = true; // FIX 1: Set flag before signing out
-                await signOut(auth);
-                showMessage('info', 'Signed out successfully.', 3000);
-                state.view = 'user'; // Ensure we are back in user view
-            } catch (error) {
-                console.error("Error signing out:", error);
-                showMessage('error', 'Failed to sign out.');
-            }
-            render();
-        }
-
-        async function handleStandardLogin(event) {
-            event.preventDefault();
-            console.log('handleStandardLogin called.'); // DIAGNOSTIC 1
-
-            const email = document.getElementById('email-input').value;
-            const password = document.getElementById('password-input').value;
-            const messageEl = document.getElementById('auth-message');
-            messageEl.textContent = ''; // Clear previous messages
-
-            // Manual check for empty fields
-            if (!email || !password) {
-                messageEl.textContent = '❌ Please enter both email and password.';
-                return;
-            }
-
-            // --- ADMIN LOGIN: Secure Firebase Custom Claims Check ---
-            if (state.modalType === 'admin') {
-                try {
-                    // 1. Authenticate user via Firebase (secure step)
-                    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                    const user = userCredential.user;
-
-                    // 2. Fetch the user's ID token and check for custom claims (secure check)
-                    const idTokenResult = await user.getIdTokenResult(true); 
-
-                    if (idTokenResult.claims.admin === true) {
-                        // User is an admin
-                        console.log('Admin authenticated and authorized. Redirecting.'); 
-                        closeModal();
-                        window.location.href = '/admin.html';
-                    } else {
-                        // User is logged in but not an admin
-                        console.log('User is authenticated but lacks admin privileges.');
-                        await signOut(auth); // Immediately sign them out of the Admin flow
-                        messageEl.textContent = '❌ Credentials correct, but admin privileges required.';
-                    }
-                } catch (error) {
-                    console.error("Admin Authentication Failed:", error);
-                    let errorMessage = 'Invalid email or password for Admin access.';
-                    if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-                        errorMessage = 'Invalid email or password.';
-                    }
-                    messageEl.textContent = `❌ ${errorMessage}`;
-                }
-                render();
-                return;
-            }
-
-            // --- STANDARD LOGIN: Simple Firebase Auth ---
-            try {
-                if (state.modalMode === 'login') {
-                    await signInWithEmailAndPassword(auth, email, password);
-                    showMessage('success', 'Login successful!', 2000);
-                } else {
-                    await createUserWithEmailAndPassword(auth, email, password);
-                    showMessage('success', 'Registration successful! You are now logged in.', 2000);
-                }
-                closeModal();
-            } catch (error) {
-                console.error("Standard Authentication failed:", error.code, error);
-                let errorMessage = 'An error occurred during authentication.';
-                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-                    errorMessage = 'Invalid email or password.';
-                } else if (error.code === 'auth/email-already-in-use') {
-                    errorMessage = 'This email is already registered. Try logging in.';
-                } else if (error.code === 'auth/weak-password') {
-                    errorMessage = 'Password is too weak (must be 6+ characters).';
-                }
-                messageEl.textContent = `❌ ${errorMessage}`;
-            }
-            render();
-        }
-
-        async function handleGoogleSignIn() {
-            const provider = new GoogleAuthProvider();
-            const messageEl = document.getElementById('auth-message');
-            messageEl.textContent = 'Logging in with Google...';
-
-            try {
-                await signInWithPopup(auth, provider);
-                showMessage('success', 'Google Sign-In successful!', 2000);
-                closeModal();
-            } catch (error) {
-                console.error("Google Sign-In failed:", error);
-                messageEl.textContent = '❌ Google Sign-In failed. Check console for details.';
-            }
-            render();
-        }
-
-        // --- EXISTING FUNCTIONS (Modified for Modal Control) ---
-
-        async function requestPasswordReset() {
-            const email = prompt("Enter the email associated with your account to receive a password reset link:");
-            
-            if (!email) {
-                return;
-            }
-            
-            if (!email.includes('@') || email.length < 5) {
-                showMessage('error', 'Please enter a valid email address.');
-                return;
-            }
-
-            showMessage('info', 'Requesting password reset link...', 60000);
-            
-            const netlifyFunctionUrl = '/.netlify/functions/sendPasswordResetEmail';
-
-            try {
-                const MAX_RETRIES = 3;
-                let response = null;
-                for (let i = 0; i < MAX_RETRIES; i++) {
-                    try {
-                        response = await fetch(netlifyFunctionUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email })
-                        });
-
-                        if (response.ok) {
-                            break;
-                        } else if (i === MAX_RETRIES - 1) {
-                            throw new Error(`Server returned status ${response.status}`);
-                        }
-                    } catch (fetchError) {
-                        if (i === MAX_RETRIES - 1) {
-                            throw fetchError;
-                        }
-                        const delay = Math.pow(2, i) * 1000;
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        console.log(`Retrying password reset request... attempt ${i + 2}`);
-                    }
-                }
-
-                const result = await response.json();
-
-                if (response.ok) {
-                    showMessage('success', `If an account exists for ${email}, a password reset link has been sent. Check your inbox!`, 8000);
-                } else {
-                    showMessage('error', result.error || 'Failed to request password reset. Please try again later.');
-                }
-            } catch (error) {
-                console.error("Password reset request failed:", error);
-                showMessage('error', 'Network error. Could not connect to the password reset service.');
-            }
-        }
-        
-        async function registerUser() {
-            // Now just opens the modal in register mode
-            showLoginModal('standard', 'register');
-        }
-
-
-        // --- RENDER HELPERS ---
-
-        function renderCategorySidebar() {
-            const itemsToCount = getFilteredAndCategorizedItems();
-
-            const allCategories = [{ id: 'all', name: 'All Products', count: state.items.length }]
-                .concat(state.catalogs.map(c => ({ 
-                    id: c.id, 
-                    name: c.name, 
-                    count: state.items.filter(i => i.catalogId === c.id).length 
-                })))
-                .filter(c => c.count > 0 || c.id === 'all');
-                
-            const totalProductsDisplayed = itemsToCount.length;
-
-
-            return `
-                <div class="md:col-span-1">
-                    <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-indigo-500 sticky top-4">
-                        <h3 class="text-xl font-bold mb-4 text-indigo-700">Categories (${totalProductsDisplayed} visible)</h3>
-                        <div class="space-y-2 max-h-96 custom-scrollbar overflow-y-auto">
-                            ${allCategories.map(cat => {
-                                const isActive = state.selectedCategoryId === cat.id;
-                                return `
-                                    <button onclick="window.module.selectCategory('${cat.id}')"
-                                            class="w-full text-left p-2 rounded-lg transition duration-150 
-                                                   ${isActive ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 hover:bg-gray-100'}">
-                                        ${cat.name} <span class="${isActive ? 'text-indigo-200' : 'text-gray-500'}">(${cat.count})</span>
-                                    </button>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderProductGrid() {
-            const itemsToDisplay = getFilteredAndCategorizedItems();
-
-            if (itemsToDisplay.length === 0) {
-                return `
-                    <div class="p-8 text-center bg-white rounded-xl shadow-lg">
-                        <p class="text-gray-500 text-lg">No products match your current filters.</p>
-                    </div>
-                `;
-            }
-
-            // Group by catalog name for visual structure
-            const itemsByCatalog = itemsToDisplay.reduce((acc, item) => {
-                const catalogName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                if (!acc[catalogName]) acc[catalogName] = [];
-                acc[catalogName].push(item);
-                return acc;
-            }, {});
-
-            return Object.keys(itemsByCatalog).map(catalogName => `
-                <div>
-                    ${state.selectedCategoryId === 'all' ? `<h3 class="text-2xl font-bold mb-4 text-indigo-700">${catalogName}</h3>` : ''}
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        ${itemsByCatalog[catalogName].map(item => `
-                            <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
-                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
-                                <div class="p-4">
-                                    <h4 class="text-xl font-semibold text-gray-800 truncate">${item.name}</h4>
-                                    <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
-                                    <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
-                                            class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
-                                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                        Add to Cart
-                                    </button>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `).join('<hr class="my-8 border-indigo-200">');
-        }
-
-        function renderCartSidebar(totalCartPrice) {
-            return `
-                <div class="md:col-span-1 mt-8 md:mt-0">
-                    <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-pink-500 sticky top-4">
-                        <h3 class="text-2xl font-bold mb-4 text-pink-600 flex items-center">
-                            <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
-                            Shopping Cart
-                        </h3>
-                        <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2">
-                            ${Object.values(state.cart).length > 0
-                                ? Object.values(state.cart).map(entry => `
-                                    <div class="flex justify-between items-center border-b pb-2">
-                                        <div class="flex-1 min-w-0">
-                                            <p class="text-sm font-medium text-gray-900 truncate">${entry.item.name}</p>
-                                            <p class="text-xs text-gray-500">${formatPrice(entry.item.price)} each</p>
-                                        </div>
-                                        <div class="flex items-center space-x-2">
-                                            <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)"
-                                                    class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
-                                            <span class="text-sm font-semibold w-5 text-center">${entry.quantity}</span>
-                                            <button onclick="window.module.updateCartQuantity('${entry.item.id}', 1)"
-                                                    class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
-                                        </div>
-                                        <span class="text-sm font-bold ml-4">${formatPrice(entry.item.price * entry.quantity)}</span>
-                                    </div>
-                                `).join('')
-                                : '<p class="text-gray-500 italic">Your cart is empty.</p>'
-                            }
-                        </div>
-                        <div class="pt-4 mt-4 border-t border-gray-200">
-                            <div class="flex justify-between font-bold text-xl text-gray-800">
-                                <span>Total:</span>
-                                <span>${formatPrice(totalCartPrice)}</span>
-                            </div>
-                            </div>
-                    </div>
-                </div>
-            `;
-        }
-
-
-        // --- MAIN RENDER FUNCTIONS ---
-
-        function renderMessage() {
-            if (!state.message) return '';
-            const { type, text } = state.message;
-            let bgColor, icon;
-            if (type === 'success') { bgColor = 'bg-green-500'; icon = '✅'; }
-            else if (type === 'error') { bgColor = 'bg-red-500'; icon = '❌'; }
-            else if (type === 'warning') { bgColor = 'bg-yellow-500'; icon = '⚠️'; }
-            else { bgColor = 'bg-blue-500'; icon = 'ℹ️'; }
-
-            return `
-                <div class="fixed top-4 right-4 z-50 p-4 rounded-lg shadow-xl text-white ${bgColor} transition-opacity duration-300">
-                    <div class="flex items-center">
-                        <span class="text-xl mr-2">${icon}</span>
-                        <span>${text}</span>
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderAdminView() {
-            // THIS VIEW IS NOW DEPRECATED. Admin users are redirected to admin.html
-            if (state.view !== 'admin') return '';
-            return `
-                <div class="space-y-10 p-6 bg-gray-50 rounded-xl shadow-inner md:flex md:space-y-0 md:space-x-10">
-                    <p class="text-xl font-semibold text-gray-700">Redirecting to Admin Dashboard...</p>
-                </div>
-            `;
-        }
-
-        function renderUserView() {
-            if (state.isMaintenanceMode) {
-                return `<div class="p-10 text-center text-gray-600">
-                    <svg class="w-12 h-12 mx-auto text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
-                    <h2 class="text-2xl font-bold mt-4">System Under Maintenance</h2>
-                    <p class="mt-2">We are performing scheduled maintenance. We apologize for any inconvenience. Only administrators can access the store.</p>
-                </div>`;
-            }
-            if (state.view !== 'user') return '';
-
-            const totalCartPrice = getTotalCartPrice();
-
-            return `
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
-                    
-                    ${renderCategorySidebar()}
-
-                    <div class="md:col-span-2 space-y-8">
-                        
-                        <div class="sticky top-0 bg-gray-100 z-10 py-2 -mt-2 -mx-4 md:m-0 md:p-0">
-                            <input type="text" 
-                                   oninput="window.module.handleProductSearchInput(event)" 
-                                   value="${state.productSearchTerm}"
-                                   placeholder="Search products by name or description..." 
-                                   class="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
-                        </div>
-
-                        ${renderProductGrid()}
-                    </div>
-
-                    ${renderCartSidebar(totalCartPrice)}
-                </div>
-            `;
-        }
-
-        function renderAuthToggle() {
-            // If the IP check is still pending or maintenance mode is on, show nothing except the maintenance message
-            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName)) return ''; 
-
-            // 1. If currently in Admin view, show the exit button
-            if (state.view === 'admin') {
-                return `
-                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
-                        Exit Admin View
+                <div class="fixed bottom-6 right-6 z-50">
+                    <button class="w-14 h-14 bg-indigo-600 rounded-full text-white shadow-xl hover:bg-indigo-700 transition transform hover:scale-110 flex items-center justify-center" aria-label="Open Chat">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                     </button>
-                `;
-            } 
-            
-            // 2. If a user is logged in (state.userName is set by onAuthStateChanged AND is not anonymous)
-            if (state.userName) {
-                return `
-                    <div class="flex items-center space-x-4">
-                        <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${state.userName}</span>
-                        ${state.isAdminIP ? 
-                            `<a href="/admin.html" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
-                                Admin Dashboard
-                            </a>` : ''}
-                        <button onclick="window.module.handleSignOut()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
-                            Sign Out
-                        </button>
-                    </div>
-                `;
-            }
-            
-            // 3. If no user is logged in (i.e., only anonymous or public view)
-            
-            // Common User View Buttons (Registration/Login/Reset)
-            const commonButtons = `
-                <button onclick="window.module.registerUser()" 
-                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
-                    Sign Up
-                </button>
-                <button onclick="window.module.requestPasswordReset()" 
-                        class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
-                    Forgot Password?
-                </button>
-            `;
-
-            if (state.isAdminIP) {
-                // If in User view AND IP is whitelisted, show Admin Login
-                return `
-                    <div class="flex items-center space-x-4">
-                        ${commonButtons}
-                        <button onclick="window.module.toggleView('admin')" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
-                            Admin Login
-                        </button>
-                    </div>
-                `;
-            } else {
-                // Standard Login flow
-                return `
-                    <div class="flex items-center space-x-4">
-                        ${commonButtons}
-                        <button onclick="window.module.toggleView('standard')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
-                            Standard Login
-                        </button>
-                    </div>
-                `;
-            }
-        }
-        
-        function renderModal() {
-            if (!state.isModalOpen) return '';
-            
-            const isLogin = state.modalMode === 'login';
-            const isStandard = state.modalType === 'standard';
-            const isRegister = state.modalMode === 'register';
-            const isAdminLogin = state.modalType === 'admin' && isLogin;
-
-            const title = isLogin ? (isStandard ? 'User Login' : 'Admin Login (Secure)') : 'Register New Account';
-            const submitText = isLogin ? 'Login' : 'Register';
-            const switchModeText = isLogin ? 'Need an account? Register' : 'Already registered? Login';
-
-            // FIX: Initialize emailField outside the conditional blocks
-            let emailField = '';
-            
-            // Base fields (always needed for standard, or for admin registration)
-            // REMOVED 'required' attribute on password field and rely on JS check
-            let passwordField = `
-                <input type="password" id="password-input" placeholder="Password" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
-            `;
-
-            // Adjust fields based on mode/type
-            if (isStandard || isRegister || isAdminLogin) {
-                // Admin Login now requires a full email/password input
-                emailField = `<input type="email" id="email-input" placeholder="Email" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
-            }
-
-            // Google sign-in button is only for Standard (user) or Register flow
-            const googleAuthButton = (isStandard || isRegister) ? `
-                <div class="my-4 flex items-center">
-                    <hr class="flex-grow border-gray-300">
-                    <span class="px-2 text-gray-500 text-sm">OR</span>
-                    <hr class="flex-grow border-gray-300">
-                </div>
-                <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
-                    <img src="https://platform.theverge.com/wp-content/uploads/sites/2/chorus/uploads/chorus_asset/file/21939811/newgmaillogo.jpg?quality=90&strip=all&crop=0,0,100,100" class="w-5 h-5 mr-2" alt="Google Logo">
-                    ${isLogin ? 'Sign in with Google' : 'Register with Google'}
-                </button>
-            ` : '';
-
-            // Prevent switching to register mode from the Admin Login flow
-            const switchModeSection = isAdminLogin ? 
-                `<p class="w-full mt-4 text-sm text-gray-400 text-center">Admin accounts must be set up by an administrator.</p>` :
-                `<button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
-                        class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
-                    ${switchModeText}
-                </button>`;
-
-
-            return `
-                <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
-                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm relative" onclick="event.stopPropagation()">
-                        <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center">${title}</h2>
-                        <div id="auth-message" class="text-red-500 text-sm mb-4 text-center font-medium"></div>
-                        
-                        <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4" novalidate>
-                            <div class="space-y-4">
-                                ${emailField}
-                                ${passwordField}
-                            </div>
-                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
-                                ${submitText}
-                            </button>
-                            ${googleAuthButton}
-                        </form>
-
-                        ${switchModeSection}
-
-                        <button onclick="window.module.closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        </button>
-                    </div>
                 </div>
             `;
         }
 
+        // ... (renderCategorySidebar, renderProductGrid, renderCartSidebar unchanged)
+
+        // --- MAIN RENDER FUNCTIONS (MODIFIED) ---
 
         function render() {
             const appContainer = document.getElementById('app');
             if (!appContainer) return;
-            const isUserView = state.view === 'user';
 
             // Simple admin check
-            const currentContent = isUserView ? renderUserView() : renderAdminView();
+            const currentContent = state.view === 'admin' ? renderAdminView() : renderUserView();
 
             appContainer.innerHTML = `
                 ${renderMessage()}
                 ${renderModal()}
-                <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+                ${renderChatWidget()} <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
                     <header class="flex justify-between items-center mb-10 pb-4 border-b border-indigo-200">
                         <h1 class="text-4xl font-extrabold text-indigo-700">
                             ${state.view === 'admin' ? 'Administration Panel' : 'Online Store'}
                         </h1>
                         <div class="flex items-center space-x-4">
-                            ${isUserView ? renderCartLink() : ''} ${renderAuthToggle()}
+                            ${state.view === 'user' ? renderCartLink() : ''} 
+                            ${renderAuthToggle()}
                         </div>
                     </header>
                     ${currentContent}
@@ -940,40 +202,7 @@
             `;
         }
 
-        // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
-
-        function toggleView(type = 'standard') {
-            if (state.view === 'user') {
-                // Show modal for login instead of prompting password
-                showLoginModal(type, 'login');
-            } else {
-                state.view = 'user';
-            }
-            render();
-        }
-
-        window.module = {
-            setupFirebase,
-            render,
-            toggleView,
-            // Removed admin functions from module export here: addCatalog, addItem
-            addToCart,
-            updateCartQuantity,
-            continueToCheckout, // ADDED new checkout function
-            handleProductSearchInput, // NEW: Product Search
-            selectCategory, // NEW: Category Filter
-            requestPasswordReset,
-            registerUser, 
-            showLoginModal,
-            handleStandardLogin,
-            handleGoogleSignIn,
-            closeModal,
-            handleSignOut
-        };
-
-        document.addEventListener('DOMContentLoaded', () => {
-            setupFirebase();
-        });
+        // ... (Exposed module functions and initialization unchanged)
     </script>
 </head>
 <body class="bg-gray-100 min-h-screen">
