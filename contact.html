@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,20 +14,28 @@
             min-height: 100vh; 
         }
         .input-field {
+            /* Adjusted for better visibility */
             @apply w-full p-4 border-2 border-gray-300 rounded-lg focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 transition;
         }
     </style>
 </head>
 <body class="antialiased">
     <div class="flex flex-col min-h-screen">
-        <div id="app" class="max-w-5xl mx-auto p-6 sm:p-8 lg:p-12 flex-grow">
-            
-            <div id="header-container">
-                </div>
+        
+        <div id="header-container">
+            </div>
 
-            <div id="contact-content" class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-indigo-600 mt-12">
+        <div class="max-w-5xl mx-auto p-6 sm:p-8 lg:p-12 flex-grow w-full">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                
+                <div id="contact-content-form" class="lg:col-span-2">
+                    <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-indigo-600">
+                        </div>
                 </div>
-
+                
+                <div id="contact-info-sidebar" class="lg:col-span-1">
+                    </div>
+            </div>
         </div>
 
         <footer class="bg-gray-900 text-white p-10 mt-10">
@@ -79,7 +87,7 @@
                 </div>
             </div>
         </footer>
-        </div>
+    </div>
     
     <div id="chatWidget" class="hidden"></div>
     
@@ -107,7 +115,9 @@
                 sendingMsg: 'Enviando...',
                 successMsg: '¡Mensaje enviado con éxito! Te responderemos pronto.',
                 errorMsg: 'Error al enviar el mensaje. Por favor, intenta de nuevo o usa el email directo.',
-                
+                contactInfo: 'Información de Contacto',
+                emailAddress: 'Correos Electrónicos',
+                phoneLabel: 'Teléfono (WhatsApp)',
             },
             en: {
                 title: 'Contact Us',
@@ -124,6 +134,9 @@
                 sendingMsg: 'Sending...',
                 successMsg: 'Message sent successfully! We will reply soon.',
                 errorMsg: 'Error sending message. Please try again or use the direct email.',
+                contactInfo: 'Contact Information',
+                emailAddress: 'Email Addresses',
+                phoneLabel: 'Phone (WhatsApp)',
             }
         };
 
@@ -144,13 +157,16 @@
             const spinner = $('spinner');
             const text = $('buttonText');
             if (!btn || !spinner || !text) return;
+            
             btn.disabled = on;
             spinner.classList.toggle('hidden', !on);
             text.classList.toggle('hidden', on);
+
+            // Update button text during loading
             if (on) {
-                btn.textContent = t('sendingMsg');
+                text.textContent = t('sendingMsg');
             } else {
-                btn.textContent = t('sendBtn');
+                text.textContent = t('sendBtn');
             }
         }
         
@@ -161,7 +177,7 @@
             setTimeout(() => { el.innerHTML = ''; }, duration);
         }
 
-        // --- NEW: Form Submission Logic ---
+        // --- FORM SUBMISSION LOGIC ---
         async function submitContactForm(e) {
             e.preventDefault();
             toggleLoading(true);
@@ -169,14 +185,14 @@
             const formData = {
                 name: $('contact-name').value.trim(),
                 email: $('contact-email').value.trim(),
-                subjectType: $('query-type').value, 
+                subjectType: $('query-type').value,  // 'general' or 'order'
                 message: $('contact-message').value.trim(),
             };
 
             // Basic Validation
             if (!formData.name || !formData.email || !formData.message) {
                 toggleLoading(false);
-                return showMessage('error', t('errorMsg')); // Simplified error message
+                return showMessage('error', t('errorMsg'));
             }
 
             try {
@@ -206,11 +222,14 @@
 
 
         // --- CHAT WIDGET LOGIC ---
+        const WHATSAPP_LINK = 'https://wa.me/573001234567'; // WhatsApp number from checkout.html
+
         async function fetchAdminConfig() {
             try {
                 const res = await fetch(GET_CONFIG_FUNCTION);
                 if (!res.ok) throw new Error("Config fetch failed");
                 const config = await res.json();
+                // Chat enabled only if globally enabled AND maintenance is OFF
                 chatWidgetEnabled = !!config.chatWidgetEnabled && !config.maintenanceMode; 
             } catch (err) {
                 console.warn("Configuration load error:", err);
@@ -221,16 +240,16 @@
         function renderChatWidget() {
             const widget = $('chatWidget');
             if (!widget) return;
-        
+
             if (!chatWidgetEnabled) {
                 widget.classList.add('hidden');
                 return;
             }
-        
+
             widget.classList.remove('hidden');
-            widget.className = "fixed bottom-6 right-6 z-50";
-        
-            // Use the WhatsApp button implementation from checkout.html
+            widget.className = "fixed bottom-6 right-6 z-50"; 
+            
+            // Render the functional WhatsApp button
             widget.innerHTML = `
                 <a href="${WHATSAPP_LINK}" target="_blank" rel="noopener"
                     class="block w-14 h-14 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-xl hover:shadow-2xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center animate-pulse"
@@ -244,10 +263,9 @@
 
 
         // --- RENDER FUNCTIONS ---
-
         function renderHeader() {
             const headerHtml = `
-                <header class="bg-white shadow-lg sticky top-0 z-40 rounded-b-3xl mb-12">
+                <header class="bg-white shadow-lg sticky top-0 z-40">
                     <div class="container mx-auto px-4 py-4">
                         
                         <div class="flex justify-between items-center mb-2">
@@ -277,12 +295,43 @@
                     </div>
                 </header>
             `;
-            // We update 'header-container' content which now includes the full header element
-            $('header-container').innerHTML = headerHtml; 
+            $('header-container').innerHTML = headerHtml;
+        }
+
+        function renderContactInfoSidebar() {
+            return `
+                <div class="bg-white p-8 rounded-3xl shadow-2xl border-t-8 border-pink-500 sticky lg:top-8">
+                    <h3 class="text-3xl font-extrabold text-pink-700 mb-6">${t('contactInfo')}</h3>
+                    
+                    <div class="space-y-6">
+                        <div>
+                            <h4 class="text-xl font-bold text-gray-800 mb-2 flex items-center">
+                                <svg class="w-5 h-5 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M17.707 15.293a1 1 0 01-1.414 0L13 11.414l-2.293 2.293a1 1 0 01-1.414 0l-2.293-2.293-3.293 3.293a1 1 0 01-1.414 0l-1-1a1 1 0 010-1.414l3.293-3.293L4.293 8.414a1 1 0 010-1.414L8 3.586l3.293 3.293a1 1 0 011.414 0l3.293-3.293a1 1 0 011.414 1.414l-3.293 3.293 2.293 2.293a1 1 0 010 1.414z" clip-rule="evenodd"></path></svg>
+                                ${t('phoneLabel')}
+                            </h4>
+                            <p class="text-gray-600 font-semibold mb-1">US Number:</p>
+                            <a href="https://wa.me/19377016185" target="_blank" class="text-indigo-600 hover:underline text-lg">(937) 701-6185</a>
+                            <p class="text-gray-600 font-semibold mt-3 mb-1">Colombian Number:</p>
+                            <a href="https://wa.me/573217040789" target="_blank" class="text-indigo-600 hover:underline text-lg">+57 321 704 0789</a>
+                        </div>
+
+                        <div>
+                            <h4 class="text-xl font-bold text-gray-800 mb-2 flex items-center">
+                                <svg class="w-5 h-5 mr-2 text-pink-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2.003 5.884L10 10.499l7.997-4.615H2.003zM18 8v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8l7.293 4.258a1 1 0 00.99 0L18 8z"/></svg>
+                                ${t('emailAddress')}
+                            </h4>
+                            <p class="text-gray-600 font-semibold mb-1">${t('subjectGeneral')}:</p>
+                            <a href="mailto:support@autoinx.com" class="text-indigo-600 hover:underline text-lg">support@autoinx.com</a>
+                            <p class="text-gray-600 font-semibold mt-3 mb-1">${t('subjectOrder')}:</p>
+                            <a href="mailto:orders@autoinx.com" class="text-indigo-600 hover:underline text-lg">orders@autoinx.com</a>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
 
         function renderContent() {
-            const contentHtml = `
+            const formHtml = `
                 <h2 class="text-3xl font-extrabold text-gray-900 mb-4">${t('formHeader')}</h2>
                 <p class="text-md text-gray-600 mb-10">${t('tagline')}</p>
                 
@@ -324,7 +373,10 @@
                     </div>
                 </form>
             `;
-            $('contact-content').innerHTML = contentHtml;
+            
+            // Inject content into the new structure containers
+            $('contact-content-form').querySelector('div').innerHTML = formHtml;
+            $('contact-info-sidebar').innerHTML = renderContactInfoSidebar();
         }
 
         function render() {
