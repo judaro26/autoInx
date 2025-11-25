@@ -223,8 +223,8 @@
                 state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
             }, err => {
-                console.error("Error listening to catalogs:", err);
-                showMessage('error', 'Failed to fetch catalogs.');
+                console.error("Error listening to categories:", err);
+                showMessage('error', 'Failed to fetch categories.');
             });
 
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
@@ -395,7 +395,7 @@
             resetTimer();
         }
 
-        // --- CATALOG & PRODUCT CRUD ---
+        // --- CATEGORY & PRODUCT CRUD ---
 
         // Implemented Add Product
         async function handleAddProduct(e) {
@@ -445,17 +445,41 @@
             }
         }
 
-        // Placeholder for Add Catalog
-        function handleAddCatalog(e) {
+        // Implemented Add Category
+        async function handleAddCatalog(e) {
              e.preventDefault();
-             showMessage('info', 'Catalog creation not implemented in this version.');
              resetTimer();
+
+             const form = e.target;
+             const categoryName = form.catalogName.value.trim();
+
+             if (!categoryName) {
+                showMessage('error', 'Category name cannot be empty.');
+                return;
+             }
+
+             try {
+                const newCategory = {
+                    name: categoryName,
+                    createdAt: serverTimestamp(),
+                };
+                
+                const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), newCategory);
+
+                await logAdminAction('CATEGORY_CREATED', newCategory, docRef.id);
+                showMessage('success', `Category "${categoryName}" added successfully!`);
+                form.reset();
+
+             } catch (error) {
+                 console.error('Error adding category:', error);
+                 showMessage('error', `Failed to add category: ${error.message}`);
+             }
         }
 
-        // Placeholder for Delete Catalog
+        // Placeholder for Delete Category
         function handleDeleteCatalog(id, name) {
-            if (!confirm(`Are you sure you want to delete catalog: ${name}?`)) return;
-            showMessage('error', `Deleting catalog ${name} is not implemented in this version.`);
+            if (!confirm(`Are you sure you want to delete category: ${name}?`)) return;
+            showMessage('error', `Deleting category ${name} is not implemented in this version.`);
             resetTimer();
         }
 
@@ -612,7 +636,7 @@
 
                 // CRITICAL FIX 2: Add event listener to the chat toggle to ensure state is updated immediately
                 // FIX: Added addEventListener instead of onchange for robustness
-                if (chatWidgetToggle.hasListener !== true) {
+                if (chatWidgetToggle && chatWidgetToggle.hasListener !== true) {
                     chatWidgetToggle.addEventListener('change', (e) => {
                         globalConfig.chatWidgetEnabled = e.target.checked;
                         resetTimer();
@@ -621,7 +645,7 @@
                 }
                 
                 // Add event listener to the maintenance toggle
-                if (maintenanceToggle.hasListener !== true) {
+                if (maintenanceToggle && maintenanceToggle.hasListener !== true) {
                     maintenanceToggle.addEventListener('change', (e) => {
                         globalConfig.maintenanceMode = e.target.checked;
                         resetTimer();
@@ -916,10 +940,10 @@
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
-                                <h3 class="text-xl font-bold mb-4 text-indigo-700">Manage Catalogs</h3>
+                                <h3 class="text-xl font-bold mb-4 text-indigo-700">Manage Categories</h3>
                                 <form onsubmit="window.module.handleAddCatalog(event)" class="space-y-4">
-                                    <input type="text" name="catalogName" placeholder="New Catalog Name (e.g., 'Electronics')" required class="w-full p-2 border rounded-lg">
-                                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">Add New Catalog</button>
+                                    <input type="text" name="catalogName" placeholder="New Category Name (e.g., 'Electronics')" required class="w-full p-2 border rounded-lg">
+                                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">Add New Category</button>
                                 </form>
                                 <div class="mt-4 space-y-2 max-h-40 custom-scrollbar overflow-y-auto">
                                     ${state.catalogs.map(c => `
@@ -1143,7 +1167,7 @@
                 <div class="md:flex md:space-x-8">
                     <nav class="w-full md:w-1/4 mb-6 md:mb-0">
                         <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4 ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
-                            <button onclick="window.module.switchAdminTab('catalog')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Catalog & Products</button>
+                            <button onclick="window.module.switchAdminTab('catalog')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Category & Products</button>
                             <button onclick="window.module.switchAdminTab('config')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Configuration</button>
                             <button onclick="window.module.switchAdminTab('users')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Registered Users</button>
                             <button onclick="window.module.switchAdminTab('orders')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Orders</button>
