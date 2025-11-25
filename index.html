@@ -59,12 +59,63 @@
 
         // --- FIREBASE CONFIGURATION LOAD (3-Tier Fallback) ---
         async function loadFirebaseConfig() {
-            // ... (unchanged)
+            // Tier 1: Use Canvas injected config
+            if (typeof __firebase_config !== 'undefined' && __firebase_config && Object.keys(JSON.parse(__firebase_config)).length > 0) {
+                console.log("Tier 1: Loaded config from Canvas environment.");
+                return JSON.parse(__firebase_config);
+            }
+
+            // Tier 2: Fallback to Netlify Function (for standalone Netlify deployments)
+            try {
+                // CORRECTED PATH: Should be '/.netlify/functions/...' based on Netlify conventions
+                const netlifyFunctionUrl = '/.netlify/functions/getClientFirebaseConfig';
+                console.log("Tier 2: Attempting to load public config from Netlify Function...");
+                const response = await fetch(netlifyFunctionUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch config from Netlify Function (Status: ${response.status})`);
+                }
+                const config = await response.json();
+                console.log("Tier 2: Public config loaded successfully.");
+                return config;
+            } catch (error) {
+                console.error("Tier 2 Failed. Falling back to empty config.", error);
+                return {}; // Tier 3: Empty config fallback
+            }
         }
 
         // --- MAINTENANCE MODE CHECK (Bypass for Admins) ---
         async function checkMaintenanceMode(user) {
-            // ... (unchanged)
+            try {
+                // Admins are identified by being authenticated AND NOT anonymous
+                const isAdminBypassing = user && !user.isAnonymous;
+
+                // Only check the Netlify function if the user is NOT bypassing (i.e., they are a public user)
+                if (!isAdminBypassing) {
+                    const response = await fetch('/.netlify/functions/checkMaintenance');
+                    if (response.ok) {
+                        const data = await response.json();
+                        state.isMaintenanceMode = data.maintenanceMode;
+                    } else {
+                        // If the check fails, assume maintenance is OFF for safety
+                        state.isMaintenanceMode = false;
+                    }
+                } else {
+                    // Admins always bypass maintenance mode on the index page
+                    state.isMaintenanceMode = false; 
+                }
+                
+                if (state.isMaintenanceMode) {
+                    state.message = { type: 'warning', text: 'The site is currently undergoing maintenance. Please check back later.' };
+                    render();
+                    return true; // Return true to indicate maintenance mode is active for this user
+                }
+                return false; // Return false to indicate maintenance mode is off or bypassed
+            } catch (error) {
+                console.error("Failed to check maintenance mode:", error);
+                state.isMaintenanceMode = false; // Default to off if check fails
+                return false;
+            }
         }
 
         // --- NEW: FETCH GLOBAL CONFIG AFTER FIREBASE IS READY ---
@@ -82,32 +133,62 @@
                 console.error("Error fetching global config:", error);
                 state.chatWidgetEnabled = false; // Fail safe: keep widget off
             }
-            render(); // Re-render to show/hide widget
+            // Removed redundant render() here
         }
 
 
         // --- FIREBASE INITIALIZATION & AUTH ---
         async function setupFirebase() {
             try {
-                // ... (initial checks unchanged)
+                // Check IP range immediately (since this is static, it doesn't need auth)
+                state.isAdminIP = await checkIPRange();
+                console.log(`IP Check complete. Is Admin IP: ${state.isAdminIP}`);
                 
+                const firebaseConfig = await loadFirebaseConfig();
+                state.configLoaded = true;
+
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is missing or failed to load from Netlify Function.");
+                    state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
+                    render();
+                    return;
+                }
+                
+                setLogLevel('debug'); // Enable Firestore logging
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                // Use the custom token if provided (e.g., from Canvas)
+                if (initialAuthToken) {
+                    // Start sign-in with custom token if available
+                    await signInWithCustomToken(auth, initialAuthToken)
+                        .catch(error => {
+                            console.error("Error signing in with custom token:", error);
+                        });
+                } else if (!auth.currentUser) {
+                    // Attempt anonymous sign-in for data persistence
+                    await signInAnonymously(auth).catch(error => {
+                        console.error("Error during initial anonymous sign-in:", error);
+                    });
+                }
+
                 // Authentication Listener
                 onAuthStateChanged(auth, async (user) => {
                     // 1. Check Maintenance Mode before processing listeners/data
                     const isSiteLocked = await checkMaintenanceMode(user);
                     
                     if (isSiteLocked) {
-                        // If site is locked and user is NOT an admin, stop data loading/listeners.
                         isAuthReady = true;
                         render();
                         return;
                     }
 
-                    // ... (user/userId logic unchanged)
-                    
+                    // ... (user check logic)
+
                     isAuthReady = true;
-                    // AFTER AUTH IS READY, FETCH FULL CONFIG (including chat status)
-                    fetchGlobalConfig(); 
+                    // FIX: AWAIT the global configuration fetch to ensure state is fully updated before final render
+                    await fetchGlobalConfig(); 
                     if (db) setupRealtimeListeners();
                     render();
                 });
@@ -119,7 +200,11 @@
                 render();
             }
         }
-        
+
+        // --- FIRESTORE COLLECTION PATHS ---
+        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
+        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+
         // --- PERSISTENCE & LISTENING ---
         
         // NEW: Function to load cart from session storage when page loads or reloads
@@ -146,10 +231,194 @@
 
             loadCartFromSession(); // Load cart on initial setup/return from checkout
 
-            // ... (rest of listeners unchanged)
+            // 1. Catalogs Listener
+            onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
+                state.catalogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Catalogs updated:", state.catalogs.length);
+                render();
+            }, (error) => {
+                console.error("Error listening to catalogs:", error);
+                state.message = { type: 'error', text: 'Failed to fetch catalogs.' };
+                render();
+            });
+
+            // 2. Items Listener
+            onSnapshot(collection(db, ITEMS_COLLECTION), (snapshot) => {
+                state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Items updated:", state.items.length);
+                render();
+            }, (error) => {
+                console.error("Error listening to items:", error);
+                state.message = { type: 'error', text: 'Failed to fetch items.' };
+                render();
+            });
         }
 
-        // ... (Helper Functions, User Actions, Auth Functions unchanged)
+
+        // --- HELPER FUNCTIONS ---
+        const formatPrice = (price) => `$${(price / 100).toFixed(2)}`;
+        const getTotalCartPrice = () => Object.values(state.cart).reduce((total, entry) => total + (entry.item.price || 0) * entry.quantity, 0);
+
+        function showMessage(type, text, duration = 4000) {
+            state.message = { type, text };
+            render();
+            setTimeout(() => {
+                state.message = null;
+                render();
+            }, duration);
+        }
+        
+        // --- NEW FILTERING LOGIC ---
+        function getFilteredAndCategorizedItems() {
+            let filtered = state.items;
+            const term = state.productSearchTerm.toLowerCase();
+
+            // 1. Apply Search Filter
+            if (term) {
+                filtered = filtered.filter(item => 
+                    item.name.toLowerCase().includes(term) || 
+                    item.description.toLowerCase().includes(term)
+                );
+            }
+
+            // 2. Apply Category Filter
+            if (state.selectedCategoryId && state.selectedCategoryId !== 'all') {
+                filtered = filtered.filter(item => item.catalogId === state.selectedCategoryId);
+            }
+
+            return filtered;
+        }
+        
+        // --- NEW UI HANDLERS ---
+        function handleProductSearchInput(e) {
+            state.productSearchTerm = e.target.value;
+            render(); // Re-render to update product list
+        }
+
+        function selectCategory(categoryId) {
+            state.selectedCategoryId = categoryId;
+            // Clear search term when selecting a new category for focused filtering
+            state.productSearchTerm = ''; 
+            render();
+        }
+        
+        // NEW: Compact Cart Link
+        function renderCartLink() {
+            const itemCount = Object.values(state.cart).reduce((total, entry) => total + entry.quantity, 0);
+            
+            if (itemCount === 0) return ''; 
+
+            return `
+                <a href="/checkout.html" onclick="window.module.continueToCheckout()" 
+                   class="relative px-3 py-2 rounded-lg font-semibold text-white bg-pink-600 hover:bg-pink-700 transition duration-150 shadow-md flex items-center">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    <span class="ml-2 hidden sm:inline">Checkout</span>
+                    <span class="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center border-2 border-white">${itemCount}</span>
+                </a>
+            `;
+        }
+
+
+        // --- USER ACTIONS ---
+
+        function addToCart(item) {
+            if (state.isMaintenanceMode) {
+                showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
+                return;
+            }
+
+            const currentEntry = state.cart[item.id];
+            const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
+            state.cart = {
+                ...state.cart,
+                [item.id]: { item, quantity: newQuantity }
+            };
+            showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
+            render();
+        }
+
+        function updateCartQuantity(itemId, change) {
+            if (state.isMaintenanceMode) return;
+            
+            const currentEntry = state.cart[itemId];
+            if (!currentEntry) return;
+
+            const newQuantity = currentEntry.quantity + change;
+
+            if (newQuantity <= 0) {
+                // Remove item from cart
+                const newCart = { ...state.cart };
+                delete newCart[itemId];
+                state.cart = newCart;
+                showMessage('info', `${currentEntry.item.name} removed from cart.`, 2000);
+            } else {
+                // Update quantity
+                state.cart = {
+                    ...state.cart,
+                    [itemId]: { item: currentEntry.item, quantity: newQuantity }
+                };
+            }
+            render();
+        }
+
+        function continueToCheckout() {
+            if (state.isMaintenanceMode) {
+                showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
+                return;
+            }
+
+            if (Object.keys(state.cart).length === 0) {
+                showMessage('error', 'Your cart is empty!');
+                return;
+            }
+            
+            // 1. Save the current cart state to Session Storage
+            try {
+                sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
+            } catch (error) {
+                console.error("Failed to save cart to session storage:", error);
+                showMessage('error', 'Could not save cart for checkout. Try clearing your browser cache.', 5000);
+                return;
+            }
+
+            // 2. Redirect to the new checkout page
+            window.location.href = '/checkout.html';
+        }
+
+
+        // --- AUTHENTICATION & MODAL FUNCTIONS ---
+
+        function showLoginModal(type, mode) {
+            // ... (unchanged)
+        }
+
+        function closeModal() {
+            // ... (unchanged)
+        }
+
+        // --- NEW SIGN OUT FUNCTION ---
+        async function handleSignOut() {
+            // ... (unchanged)
+        }
+
+        async function handleStandardLogin(event) {
+            // ... (unchanged)
+        }
+
+        async function handleGoogleSignIn() {
+            // ... (unchanged)
+        }
+
+        // --- EXISTING FUNCTIONS (Modified for Modal Control) ---
+
+        async function requestPasswordReset() {
+            // ... (unchanged)
+        }
+        
+        async function registerUser() {
+            // ... (unchanged)
+        }
+
 
         // --- RENDER HELPERS (MODIFIED) ---
         
@@ -175,9 +444,10 @@
         function render() {
             const appContainer = document.getElementById('app');
             if (!appContainer) return;
+            const isUserView = state.view === 'user';
 
             // Simple admin check
-            const currentContent = state.view === 'admin' ? renderAdminView() : renderUserView();
+            const currentContent = isUserView ? renderUserView() : renderAdminView();
 
             appContainer.innerHTML = `
                 ${renderMessage()}
@@ -188,7 +458,7 @@
                             ${state.view === 'admin' ? 'Administration Panel' : 'Online Store'}
                         </h1>
                         <div class="flex items-center space-x-4">
-                            ${state.view === 'user' ? renderCartLink() : ''} 
+                            ${isUserView ? renderCartLink() : ''} 
                             ${renderAuthToggle()}
                         </div>
                     </header>
@@ -202,7 +472,34 @@
             `;
         }
 
-        // ... (Exposed module functions and initialization unchanged)
+        // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
+
+        function toggleView(type = 'standard') {
+            // ... (unchanged)
+        }
+
+        window.module = {
+            setupFirebase,
+            render,
+            toggleView,
+            // Removed admin functions from module export here: addCatalog, addItem
+            addToCart,
+            updateCartQuantity,
+            continueToCheckout, // ADDED new checkout function
+            handleProductSearchInput, // NEW: Product Search
+            selectCategory, // NEW: Category Filter
+            requestPasswordReset,
+            registerUser, 
+            showLoginModal,
+            handleStandardLogin,
+            handleGoogleSignIn,
+            closeModal,
+            handleSignOut
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setupFirebase();
+        });
     </script>
 </head>
 <body class="bg-gray-100 min-h-screen">
