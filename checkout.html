@@ -3,347 +3,439 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>autoInx - Catálogo & Pedidos</title>
-    <meta name="description" content="Explora y compra productos premium">
+    <title>Checkout - autoInx</title>
+    <meta name="description" content="Finaliza tu compra de forma rápida y segura">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
     <style>
         body { font-family: 'Inter', sans-serif; background: linear-gradient(to bottom, #f8fafc, #e2e8f0); min-height: 100vh; }
         .custom-scrollbar::-webkit-scrollbar { width: 8px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(#a78bfa, #6366f1); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(to bottom, #a78bfa, #6366f1); border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #e5e7eb; border-radius: 4px; }
-        .modal-overlay { background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); }
-        #chatWidget a { animation: pulse 2s infinite; }
-        @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+
+        .phone-input-group {
+            @apply flex rounded-2xl shadow-lg border-2 border-gray-300 focus-within:ring-4 focus-within:ring-indigo-200 focus-within:border-indigo-600 overflow-hidden transition-all duration-300;
+        }
+        .country-select {
+            @apply bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-800 font-bold text-lg px-6 py-5 border-0;
+        }
+        .phone-input {
+            @apply flex-1 px-6 py-5 text-lg font-medium text-gray-900 placeholder-gray-400 focus:ring-0;
+        }
+        .address-input {
+            @apply w-full p-6 border-2 rounded-2xl text-lg font-medium transition-all duration-300 shadow-inner;
+        }
+        .address-valid { @apply border-green-500 bg-green-50 ring-4 ring-green-100; }
+        .address-invalid { @apply border-red-500 bg-red-50 ring-4 ring-red-100; }
+
+        /* Floating Chat Widget */
+        #chatWidget {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        #chatWidget:hover {
+            animation-play-state: paused;
+        }
     </style>
 </head>
 <body class="antialiased">
-    <div id="app">
-        <div id="loadingState" class="flex flex-col items-center justify-center min-h-screen">
-            <svg class="animate-spin h-16 w-16 text-indigo-600 mb-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p class="text-2xl font-bold text-gray-700">Cargando catálogo...</p>
+    <div class="flex flex-col min-h-screen"> 
+        <div id="app" class="max-w-5xl mx-auto p-6 sm:p-8 lg:p-12 flex-grow">
+            <!-- Header (Initial structure) -->
+            <header class="flex justify-between items-center mb-12 bg-white rounded-3xl shadow-2xl p-8 border-t-8 border-indigo-600">
+                <div class="flex items-center space-x-4">
+                    <!-- Logo Integration -->
+                    <img src="images/AutoInx logo.png" alt="AutoInx Logo" class="h-10 w-auto"> 
+                    <h1 class="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
+                        Pagar
+                    </h1>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <div id="checkoutCartLink"></div>
+                    <a href="/" class="text-indigo-600 hover:text-indigo-800 font-bold text-lg flex items-center transition hover:scale-105">
+                        ← Volver a la Tienda
+                    </a>
+                </div>
+            </header>
+            
+            <!-- Content will be replaced here by loadCheckout() -->
+            <div id="loadingState" class="text-center py-32 bg-white rounded-3xl shadow-2xl">
+                <div class="inline-flex flex-col items-center space-y-6">
+                    <svg class="animate-spin h-16 w-16 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="text-2xl font-bold text-gray-700">Preparando tu pedido...</p>
+                </div>
+            </div>
         </div>
+
+        <!-- Footer Addition -->
+        <footer class="bg-gray-800 text-white p-6 mt-10">
+            <div class="max-w-5xl mx-auto text-center text-sm">
+                <p>&copy; ${new Date().getFullYear()} autoInx. Todos los derechos reservados.</p>
+                <p class="text-xs text-gray-400 mt-1">Desarrollado con ❤️ y Netlify Functions.</p>
+            </div>
+        </footer>
     </div>
+    
+    <!-- Floating WhatsApp Chat Widget -->
+    <div id="chatWidget" class="hidden"></div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { checkIPRange } from './js/utilities/utils.js';
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        let db, auth, userId, cartData = {}, cartTotalCents = 0;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        let app, db, auth, userId = null, isAuthReady = false;
-
-        const state = {
-            view: 'user',
-            catalogs: [],
-            items: [],
-            cart: {},
-            message: null,
-            isAdminIP: false,
-            configLoaded: false,
-            isModalOpen: false,
-            modalMode: 'login',
-            modalType: 'standard',
-            userName: null,
-            isMaintenanceMode: false,
-            chatWidgetEnabled: false,
-            productSearchTerm: '',
-            selectedCategoryId: 'all'
-        };
-
+        const ORDERS_COLLECTION = uid => `artifacts/${appId}/users/${uid}/orders`;
+        const NETLIFY_FUNCTION_URL = '/.netlify/functions/send-email';
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
-        const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
-        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
-        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey';
+        const GET_ADMIN_CONFIG_URL = '/.netlify/functions/getAdminConfig';
 
-        // RENDER FIRST — THIS FIXES YOUR ERROR!
-        function render() {
-            if (!state.configLoaded || !isAuthReady) {
-                document.getElementById('app').innerHTML = document.getElementById('loadingState').outerHTML;
-                return;
+        let chatWidgetEnabled = false;
+        let autocomplete;
+
+        const $ = id => document.getElementById(id);
+
+        // Fetch admin config (chat widget toggle)
+        async function fetchChatStatus() {
+            try {
+                const res = await fetch(GET_ADMIN_CONFIG_URL);
+                if (!res.ok) throw new Error("Config fetch failed");
+                const config = await res.json();
+                chatWidgetEnabled = !!config.chatWidgetEnabled;
+            } catch (err) {
+                console.warn("Chat widget disabled (config error):", err);
+                chatWidgetEnabled = false;
             }
+        }
 
-            const totalPrice = Object.values(state.cart).reduce((t, e) => t + e.item.price * e.quantity, 0);
-            const itemCount = Object.values(state.cart).reduce((t, e) => t + e.quantity, 0);
+        // Render floating chat widget
+        function renderChatWidget() {
+            if (!chatWidgetEnabled) return;
+            const widget = $('chatWidget');
+            widget.className = "fixed bottom-8 right-8 z-50";
+            widget.innerHTML = `
+                <a href="https://wa.me/573001234567" target="_blank" rel="noopener"
+                   class="block w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-2xl hover:shadow-3xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center animate-pulse">
+                    <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.297-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.265c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488z"/>
+                    </svg>
+                </a>
+            `;
+            widget.classList.remove('hidden');
+        }
 
-            document.getElementById('app').innerHTML = `
-                <!-- Header -->
-                <header class="bg-white shadow-2xl sticky top-0 z-40 border-b-4 border-indigo-600">
-                    <div class="max-w-7xl mx-auto px-6 py-6 flex justify-between items-center">
-                        <h1 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
-                            autoInx
-                        </h1>
-                        <div class="flex items-center space-x-6">
-                            ${itemCount > 0 ? `
-                                <a href="/checkout.html" class="relative group">
-                                    <div class="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-2xl hover:shadow-3xl transition transform hover:scale-110">
-                                        <span class="hidden sm:inline">Ir a Pagar</span>
-                                        <span class="sm:hidden">Carrito</span>
-                                        <span class="absolute -top-3 -right-3 bg-red-600 text-white text-sm font-bold rounded-full h-10 w-10 flex items-center justify-center ring-4 ring-white">
-                                            ${itemCount}
-                                        </span>
-                                    </div>
-                                </a>
-                            ` : ''}
-                            <div class="flex items-center space-x-4 text-lg font-medium">
-                                ${state.userName ? `
-                                    <span class="hidden sm:inline text-gray-700">Hola, ${state.userName.split('@')[0]}</span>
-                                    <button onclick="window.module.handleSignOut()" class="text-red-600 hover:text-red-800">Salir</button>
-                                ` : `
-                                    <button onclick="window.module.showLoginModal('standard','login')" class="text-indigo-600 hover:text-indigo-800">Ingresar</button>
-                                    <button onclick="window.module.showLoginModal('standard','register')" class="text-gray-600 hover:text-gray-800">Registrarse</button>
-                                `}
-                            </div>
-                        </div>
+        // Cart badge
+        function renderCartLink() {
+            const count = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
+            if (count === 0) return '';
+            $('checkoutCartLink').innerHTML = `
+                <a href="/" class="relative group">
+                    <div class="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-6 py-4 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition transform hover:scale-110">
+                        <span class="hidden sm:inline">Carrito</span>
+                        <span class="sm:hidden">Items</span>
+                        <span class="absolute -top-3 -right-3 bg-red-600 text-white text-sm font-bold rounded-full h-10 w-10 flex items-center justify-center ring-4 ring-white shadow-lg">
+                            ${count}
+                        </span>
                     </div>
-                </header>
-
-                <!-- Messages -->
-                ${state.message ? `
-                    <div class="fixed top-6 right-6 z-50 p-5 rounded-2xl shadow-2xl text-white font-bold text-lg ${state.message.type === 'success' ? 'bg-green-600' : state.message.type === 'error' ? 'bg-red-600' : 'bg-yellow-600'} animate-pulse">
-                        ${state.message.text}
-                    </div>
-                ` : ''}
-
-                <!-- Maintenance Mode -->
-                ${state.isMaintenanceMode && !state.userName ? `
-                    <div class="max-w-2xl mx-auto text-center py-32">
-                        <h2 class="text-6xl font-extrabold text-yellow-600 mb-6">En Mantenimiento</h2>
-                        <p class="text-2xl text-gray-700">Estamos mejorando la tienda. Vuelve pronto!</p>
-                    </div>
-                ` : ''}
-
-                <!-- Main Catalog -->
-                <main class="max-w-7xl mx-auto px-6 py-12 ${state.isMaintenanceMode && !state.userName ? 'hidden' : ''}">
-                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-10">
-                        <!-- Categories -->
-                        <div class="lg:col-span-1">
-                            <div class="bg-white p-8 rounded-3xl shadow-2xl border-t-8 border-indigo-600 sticky top-28">
-                                <h3 class="text-2xl font-extrabold text-indigo-700 mb-6">Categorías</h3>
-                                <div class="space-y-3 custom-scrollbar max-h-96 overflow-y-auto">
-                                    <button onclick="window.module.selectCategory('all')" class="w-full text-left p-4 rounded-xl font-bold transition ${state.selectedCategoryId === 'all' ? 'bg-indigo-600 text-white' : 'bg-gray-50 hover:bg-gray-100'}">
-                                        Todos los Productos <span class="float-right">(${state.items.length})</span>
-                                    </button>
-                                    ${state.catalogs.map(cat => `
-                                        <button onclick="window.module.selectCategory('${cat.id}')" class="w-full text-left p-4 rounded-xl font-medium transition ${state.selectedCategoryId === cat.id ? 'bg-indigo-600 text-white' : 'bg-gray-50 hover:bg-gray-100'}">
-                                            ${cat.name} <span class="float-right">(${state.items.filter(i => i.catalogId === cat.id).length})</span>
-                                        </button>
-                                    `).join('')}
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Products -->
-                        <div class="lg:col-span-2 space-y-12">
-                            <input type="text" placeholder="Buscar productos..." oninput="window.module.handleSearch(this.value)"
-                                class="w-full p-5 text-lg border-2 border-indigo-200 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition"
-                                value="${state.productSearchTerm}">
-
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-8">
-                                ${getFilteredItems().map(item => `
-                                    <div class="bg-white rounded-3xl shadow-2xl overflow-hidden transform hover:scale-105 transition duration-300 border border-gray-100">
-                                        <img src="${item.imageUrl || 'https://placehold.co/600x400/indigo/white?text=Producto'}" alt="${item.name}" class="w-full h-64 object-cover">
-                                        <div class="p-6">
-                                            <h3 class="text-2xl font-extrabold text-gray-800">${item.name}</h3>
-                                            <p class="text-3xl font-extrabold text-indigo-600 mt-3">$${(item.price/100).toFixed(2)}</p>
-                                            <button onclick='window.module.addToCart(${JSON.stringify(item)})' 
-                                                class="mt-6 w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-5 rounded-2xl font-extrabold text-xl shadow-xl hover:shadow-2xl transition transform hover:scale-105">
-                                                Agregar al Carrito
-                                            </button>
-                                        </div>
-                                    </div>
-                                `).join('')}
-                            </div>
-
-                            ${getFilteredItems().length === 0 ? `
-                                <div class="text-center py-20">
-                                    <p class="text-3xl text-gray-500">No hay productos que coincidan con tu búsqueda</p>
-                                </div>
-                            ` : ''}
-                        </div>
-
-                        <!-- Cart Sidebar -->
-                        <div class="lg:col-span-1">
-                            <div class="bg-white p-8 rounded-3xl shadow-2xl border-t-8 border-pink-600 sticky top-28">
-                                <h3 class="text-3xl font-extrabold text-pink-700 mb-6">Tu Carrito</h3>
-                                ${Object.keys(state.cart).length === 0 ? `
-                                    <p class="text-gray-500 text-center py-10 text-xl">Vacío</p>
-                                ` : `
-                                    <div class="space-y-5 max-h-96 custom-scrollbar overflow-y-auto">
-                                        ${Object.values(state.cart).map(e => `
-                                            <div class="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
-                                                <div>
-                                                    <p class="font-bold">${e.item.name}</p>
-                                                    <p class="text-sm text-gray-600">$${(e.item.price/100).toFixed(2)} c/u</p>
-                                                </div>
-                                                <div class="flex items-center space-x-3">
-                                                    <button onclick="window.module.updateQty('${e.item.id}', -1)" class="text-red-600 font-bold text-2xl">-</button>
-                                                    <span class="font-bold text-xl w-10 text-center">${e.quantity}</span>
-                                                    <button onclick="window.module.updateQty('${e.item.id}', 1)" class="text-green-600 font-bold text-2xl">+</button>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                    <div class="mt-8 pt-8 border-t-4 border-gray-300">
-                                        <div class="flex justify-between text-3xl font-extrabold">
-                                            <span>Total:</span>
-                                            <span class="text-pink-600">$${(totalPrice/100).toFixed(2)}</span>
-                                        </div>
-                                        <a href="/checkout.html" onclick="window.module.saveCartAndGo()" 
-                                           class="block mt-6 text-center bg-gradient-to-r from-green-600 to-emerald-600 text-white py-6 rounded-2xl font-extrabold text-2xl shadow-2xl hover:shadow-3xl transition transform hover:scale-105">
-                                            IR A PAGAR
-                                        </a>
-                                    </div>
-                                `}
-                            </div>
-                        </div>
-                    </div>
-                </main>
-
-                <!-- Login Modal -->
-                ${renderModal()}
-
-                <!-- WhatsApp Widget -->
-                ${state.chatWidgetEnabled && !state.isMaintenanceMode ? `
-                    <div id="chatWidget" class="fixed bottom-8 right-8 z-50">
-                        <a href="https://wa.me/573001234567" target="_blank" class="block">
-                            <div class="w-16 h-16 bg-green-600 rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition">
-                                <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.297-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.265c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488z"/>
-                                </svg>
-                            </div>
-                        </a>
-                    </div>
-                ` : ''}
+                </a>
             `;
         }
 
-        function getFilteredItems() {
-            let items = state.items;
-            if (state.productSearchTerm) {
-                const term = state.productSearchTerm.toLowerCase();
-                items = items.filter(i => i.name.toLowerCase().includes(term) || (i.description && i.description.toLowerCase().includes(term)));
+        // Google Maps
+        async function loadGoogleMaps() {
+            try {
+                const res = await fetch(MAPS_KEY_FUNCTION_URL);
+                if (!res.ok) throw new Error("Key failed");
+                const { apiKey } = await res.json();
+                const script = document.createElement('script');
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initPlaces`;
+                script.async = true;
+                document.head.appendChild(script);
+            } catch (err) {
+                $('addressStatus').textContent = "Autocompletado no disponible";
+                $('addressStatus').className = "text-red-600 font-bold";
             }
-            if (state.selectedCategoryId !== 'all') {
-                items = items.filter(i => i.catalogId === state.selectedCategoryId);
-            }
-            return items;
         }
 
-        function renderModal() {
-            if (!state.isModalOpen) return '';
-            const isLogin = state.modalMode === 'login';
+        window.initPlaces = function() {
+            const input = $('delivery-address');
+            autocomplete = new google.maps.places.Autocomplete(input, {
+                types: ['address'],
+                componentRestrictions: { country: ['co', 'us'] }
+            });
+            autocomplete.addListener('place_changed', () => {
+                const place = autocomplete.getPlace();
+                if (place.formatted_address) {
+                    input.classList.remove('address-invalid');
+                    input.classList.add('address-valid');
+                    input.dataset.validated = 'true';
+                    $('addressStatus').textContent = "Dirección válida";
+                    $('addressStatus').className = "text-green-600 font-bold";
+                    $('addressError').classList.add('hidden');
+                }
+            });
+            input.addEventListener('input', () => {
+                input.classList.remove('address-valid');
+                input.classList.add('address-invalid');
+                input.dataset.validated = 'false';
+                $('addressStatus').textContent = "Selecciona de la lista";
+                $('addressStatus').className = "text-orange-600";
+            });
+        };
+
+        const formatPrice = c => `$${(c/100).toFixed(2)}`;
+
+        function showMessage(type, msg) {
+            const el = $('checkoutMessage');
+            el.innerHTML = `<div class="p-6 rounded-2xl border-4 font-bold text-xl ${type==='success'?'bg-green-100 border-green-500 text-green-800':'bg-red-100 border-red-500 text-red-800'}">${msg}</div>`;
+            el.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function toggleLoading(on) {
+            const btn = $('submitButton'), txt = $('buttonText'), spin = $('spinner');
+            btn.disabled = on;
+            spin.classList.toggle('hidden', !on);
+            txt.classList.toggle('hidden', on);
+            if (!on) $('totalPriceDisplay').textContent = formatPrice(cartTotalCents);
+        }
+
+        async function initApp() {
+            try {
+                const res = await fetch(CONFIG_CLIENT_FUNCTION);
+                if (!res.ok) throw new Error("Config fetch failed");
+                const cfg = await res.json();
+                
+                const appInstance = initializeApp(cfg);
+                auth = getAuth(appInstance); db = getFirestore(appInstance);
+                
+                await fetchChatStatus();
+                loadGoogleMaps();
+
+                onAuthStateChanged(auth, user => {
+                    // if (!user) return location.href = '/'; // Keep Anonymous users to allow checkout
+                    userId = user?.uid;
+                    loadCheckout();
+                });
+            } catch (e) {
+                console.error("Initialization Error:", e);
+                $('loadingState').innerHTML = `<p class="text-red-600 text-3xl font-bold">Error crítico al cargar la página de pago. Recarga la página.</p>`;
+            }
+        }
+
+        function loadCheckout() {
+            const json = sessionStorage.getItem('autoInxCart');
+            if (!json || json === '{}') {
+                document.getElementById('app').innerHTML = `
+                    <div id="loadingState" class="text-center py-32 bg-white rounded-3xl shadow-2xl">
+                        <p class="text-red-600 text-3xl font-bold">Tu carrito está vacío. 
+                            <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Volver a la tienda</a>
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+            cartData = JSON.parse(json);
+            cartTotalCents = Object.values(cartData).reduce((s,e) => s + e.item.price * e.quantity, 0);
+
+            // Hide initial loading state and render main content structure
+            document.getElementById('app').innerHTML = renderHeader() + renderCheckoutContent();
+            // renderCartLink(); // Already called by renderHeader/renderCheckoutContent structure
+            renderChatWidget();
+            toggleLoading(false); // Update button with final price
+        }
+        
+        function renderHeader() {
+            const itemCount = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
+
             return `
-                <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
-                    <div class="bg-white p-10 rounded-3xl shadow-3xl max-w-md w-full mx-4" onclick="event.stopPropagation()">
-                        <h2 class="text-3xl font-extrabold text-center mb-8">${isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}</h2>
-                        <form onsubmit="window.module.handleAuth(event)" class="space-y-6">
-                            <input type="email" id="email" placeholder="Correo electrónico" required class="w-full p-5 border-2 rounded-xl text-lg">
-                            <input type="password" id="password" placeholder="Contraseña" required class="w-full p-5 border-2 rounded-xl text-lg">
-                            <button type="submit" class="w-full bg-indigo-600 text-white py-5 rounded-xl font-bold text-xl hover:bg-indigo-700 transition">
-                                ${isLogin ? 'Ingresar' : 'Registrarse'}
-                            </button>
-                        </form>
-                        <div class="mt-6 text-center">
-                            <button onclick="window.module.toggleModalMode()" class="text-indigo-600 hover:underline">
-                                ${isLogin ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
-                            </button>
+                <header class="flex justify-between items-center mb-12 bg-white rounded-3xl shadow-2xl p-8 border-t-8 border-indigo-600">
+                    <div class="flex items-center space-x-4">
+                        <img src="images/AutoInx logo.png" alt="AutoInx Logo" class="h-10 w-auto"> 
+                        <h1 class="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
+                            Pagar
+                        </h1>
+                    </div>
+                    <div class="flex items-center space-x-6">
+                        <div id="checkoutCartLink">
+                            ${renderCartLink()}
                         </div>
-                        <button onclick="window.module.closeModal()" class="absolute top-6 right-6 text-gray-500 hover:text-gray-800">
-                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                        </button>
+                        <a href="/" class="text-indigo-600 hover:text-indigo-800 font-bold text-lg flex items-center transition hover:scale-105">
+                            ← Volver a la Tienda
+                        </a>
+                    </div>
+                </header>
+            `;
+        }
+
+
+        function renderCheckoutContent() {
+            return `
+                <div id="checkoutContent" class="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                    <!-- Form -->
+                    <div class="lg:col-span-2">
+                        <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-indigo-600">
+                            <h2 class="text-3xl font-extrabold text-indigo-700 mb-10">Información de Entrega</h2>
+                            <div id="checkoutMessage" class="mb-8"></div>
+
+                            <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-10">
+                                <!-- Email -->
+                                <div>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">Correo Electrónico <span class="text-red-500">*</span></label>
+                                    <input type="email" id="buyer-email" placeholder="tucorreo@ejemplo.com" required
+                                        class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
+                                </div>
+
+                                <!-- Name -->
+                                <div>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">Nombre Completo <span class="text-red-500">*</span></label>
+                                    <input type="text" id="buyer-name" placeholder="Juan Camilo Pérez" required
+                                        class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
+                                </div>
+
+                                <!-- Phone -->
+                                <div>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">Teléfono (WhatsApp) <span class="text-red-500">*</span></label>
+                                    <div class="phone-input-group">
+                                        <select id="country-code" class="country-select">
+                                            <option value="+57">Colombia +57</option>
+                                            <option value="+1">USA +1</option>
+                                        </select>
+                                        <input type="tel" id="buyer-phone" placeholder="3001234567" required pattern="[0-9]{7,15}"
+                                            class="phone-input" title="Solo números">
+                                    </div>
+                                    <p class="text-sm text-gray-600 mt-3">Te enviaremos actualizaciones por WhatsApp</p>
+                                </div>
+
+                                <!-- Address -->
+                                <div>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">Dirección de Entrega <span class="text-red-500">*</span></label>
+                                    <input type="text" id="delivery-address" placeholder="Escribe tu dirección completa..." required
+                                        class="address-input border-gray-300" autocomplete="off" data-validated="false">
+                                    <div class="mt-4 flex items-center space-x-3">
+                                        <span id="addressStatus" class="text-gray-600 font-medium">Escribe para ver sugerencias</span>
+                                    </div>
+                                    <p id="addressError" class="text-red-600 font-bold mt-3 hidden">
+                                        Por favor selecciona una dirección válida de la lista
+                                    </p>
+                                </div>
+
+                                <!-- Submit -->
+                                <div class="pt-10">
+                                    <button type="submit" id="submitButton"
+                                        class="w-full bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 text-white py-7 rounded-3xl font-extrabold text-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transform transition duration-300 disabled:opacity-60 disabled:cursor-not-allowed flex justify-center items-center">
+                                        <span id="buttonText">COMPLETAR PEDIDO <span id="totalPriceDisplay">${formatPrice(cartTotalCents)}</span></span>
+                                        <svg id="spinner" class="animate-spin ml-5 h-10 w-10 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Order Summary -->
+                    <div class="lg:col-span-1">
+                        <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-pink-600 sticky top-8">
+                            <h3 class="text-3xl font-extrabold text-pink-700 mb-8">Resumen del Pedido</h3>
+                            <div id="cartSummary" class="space-y-6 max-h-96 custom-scrollbar overflow-y-auto pr-3">
+                                ${renderCartSummary()}
+                            </div>
+                            <div class="pt-10 mt-10 border-t-4 border-gray-300">
+                                <div class="flex justify-between text-3xl font-extrabold">
+                                    <span class="text-gray-800">Total:</span>
+                                    <span id="orderTotal" class="text-pink-600">${formatPrice(cartTotalCents)}</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
         }
 
-        // App Logic
-        async function loadConfig() {
-            try {
-                const res = await fetch(CONFIG_CLIENT_FUNCTION);
-                const config = await res.json();
-                app = initializeApp(config);
-                auth = getAuth(app);
-                db = getFirestore(app);
-
-                if (initialAuthToken) await signInWithCustomToken(auth, initialAuthToken);
-                else await signInAnonymously(auth);
-
-                onAuthStateChanged(auth, async user => {
-                    if (user && !user.isAnonymous) state.userName = user.email;
-                    userId = user?.uid;
-
-                    // Check admin config (maintenance + chat)
-                    const adminRes = await fetch(GET_CONFIG_FUNCTION);
-                    const adminConfig = await adminRes.json();
-                    state.isMaintenanceMode = adminConfig.maintenanceMode === true;
-                    state.chatWidgetEnabled = adminConfig.chatWidgetEnabled === true && !state.isMaintenanceMode;
-
-                    // Load data
-                    onSnapshot(collection(db, CATALOGS_COLLECTION), s => { state.catalogs = s.docs.map(d => ({id: d.id, ...d.data()})); render(); });
-                    onSnapshot(collection(db, ITEMS_COLLECTION), s => { state.items = s.docs.map(d => ({id: d.id, ...d.data()})); render(); });
-
-                    isAuthReady = true;
-                    state.configLoaded = true;
-                    render();
-                });
-            } catch (err) {
-                console.error(err);
-                state.message = { type: 'error', text: 'Error al cargar la tienda' };
-                render();
-            }
-        }
 
         window.module = {
-            addToCart: item => {
-                state.cart[item.id] = state.cart[item.id] || { item, quantity: 0 };
-                state.cart[item.id].quantity++;
-                state.message = { type: 'success', text: '¡Agregado al carrito!' };
-                render();
-            },
-            updateQty: (id, delta) => {
-                if (!state.cart[id]) return;
-                state.cart[id].quantity += delta;
-                if (state.cart[id].quantity <= 0) delete state.cart[id];
-                render();
-            },
-            saveCartAndGo: () => {
-                sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
-                location.href = '/checkout.html';
-            },
-            handleSearch: val => { state.productSearchTerm = val; render(); },
-            selectCategory: id => { state.selectedCategoryId = id; state.productSearchTerm = ''; render(); },
-            showLoginModal: (type, mode) => { state.isModalOpen = true; state.modalType = type; state.modalMode = mode; render(); },
-            closeModal: () => { state.isModalOpen = false; render(); },
-            toggleModalMode: () => { state.modalMode = state.modalMode === 'login' ? 'register' : 'login'; render(); },
-            handleAuth: async e => {
+            async submitOrder(e) {
                 e.preventDefault();
-                const email = document.getElementById('email').value;
-                const password = document.getElementById('password').value;
-                try {
-                    if (state.modalMode === 'login') await signInWithEmailAndPassword(auth, email, password);
-                    else await createUserWithEmailAndPassword(auth, email, password);
-                    state.isModalOpen = false;
-                    state.message = { type: 'success', text: '¡Bienvenido!' };
-                } catch (err) {
-                    state.message = { type: 'error', text: 'Error de autenticación' };
+                if (Object.keys(cartData).length === 0) return;
+
+                const email = $('buyer-email').value.trim();
+                const name = $('buyer-name').value.trim();
+                const phone = $('country-code').value + $('buyer-phone').value.trim();
+                const addrIn = $('delivery-address');
+                const address = addrIn.value.trim();
+                const valid = addrIn.dataset.validated === 'true';
+
+                if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address || !valid) {
+                    if (!valid) {
+                        addrIn.classList.add('address-invalid');
+                        $('addressError').classList.remove('hidden');
+                    }
+                    return showMessage('error', 'Completa todos los campos y selecciona una dirección válida');
                 }
-                render();
-            },
-            handleSignOut: async () => { await signOut(auth); state.userName = null; render(); }
+
+                toggleLoading(true);
+
+                const order = {
+                    buyerEmail: email, buyerName: name, buyerPhone: phone, deliveryAddress: address,
+                    items: Object.values(cartData).map(e => ({ id: e.item.id, name: e.item.name, price: e.item.price, quantity: e.quantity })),
+                    totalCents: cartTotalCents, userId, timestamp: new Date().toISOString()
+                };
+
+                try {
+                    const ref = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
+                        ...order, status: 'Pending', createdAt: serverTimestamp()
+                    });
+
+                    // Call Netlify Function to send email
+                    await fetch(NETLIFY_FUNCTION_URL, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...order, orderId: ref.id })
+                    });
+
+                    sessionStorage.removeItem('autoInxCart');
+
+                    const waMsg = encodeURIComponent(`¡Hola! Acabo de hacer el pedido #${ref.id.slice(0,8)} en autoInx. Mi dirección: ${address}`);
+                    const waLink = `https://wa.me/573001234567?text=${waMsg}`;
+
+                    document.getElementById('app').innerHTML = `
+                        <div class="max-w-5xl mx-auto p-6 sm:p-8 lg:p-12">
+                            <div class="text-center py-40 bg-gradient-to-br from-emerald-50 to-teal-100 rounded-3xl shadow-3xl">
+                                <h2 class="text-6xl font-extrabold text-green-600 mb-10">¡Pedido Confirmado!</h2>
+                                <p class="text-3xl text-gray-800 mb-6">ID: <span class="font-mono bg-white px-8 py-4 rounded-2xl text-indigo-700">${ref.id}</span></p>
+                                <p class="text-xl text-gray-700 mb-12">Confirmación enviada a <strong>${email}</strong></p>
+                                <div class="space-x-8">
+                                    <a href="/" class="inline-block px-12 py-6 bg-indigo-600 text-white font-bold text-2xl rounded-3xl hover:bg-indigo-700 transition transform hover:scale-110">
+                                        Seguir Comprando
+                                    </a>
+                                    <a href="${waLink}" target="_blank" class="inline-block px-12 py-6 bg-green-600 text-white font-bold text-2xl rounded-3xl hover:bg-green-700 transition transform hover:scale-110">
+                                        Enviar WhatsApp
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    // Rerender the header to hide the cart badge
+                    // renderCartLink(); // This is no longer necessary as the entire #app is replaced
+                } catch (err) {
+                    console.error(err);
+                    showMessage('error', 'Error al procesar el pedido. Intenta de nuevo.');
+                } finally {
+                    toggleLoading(false);
+                }
+            }
         };
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadConfig();
-            const saved = sessionStorage.getItem('autoInxCart');
-            if (saved) state.cart = JSON.parse(saved);
-        });
+        document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>
