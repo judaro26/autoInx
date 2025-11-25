@@ -34,7 +34,7 @@
         let isAuthReady = false;
         let explicitSignOutOccurred = false; 
 
-        // --- GLOBAL STATE ---
+        // --- GLOBAL STATE (MODIFIED) ---
         const state = {
             view: 'user', // 'user' or 'admin'
             catalogs: [],
@@ -45,24 +45,33 @@
             loading: false,
             isAdminIP: false, // New state for IP whitelist check
             configLoaded: false, // Tracks if Firebase config is successfully loaded
-            isModalOpen: false, // New state for modal control
+            isModalOpen: false, // New state for login/register modal control
             modalMode: 'login', // 'login' or 'register'
             modalType: 'standard', // 'standard' or 'admin'
             userName: null, // To store the logged-in user's name/email
             isMaintenanceMode: false, // NEW: Maintenance mode status
             chatWidgetEnabled: false, // ADDED: Chat widget status
             productSearchTerm: '', // NEW: Search term for products
-            selectedCategoryId: 'all' // NEW: ID of the selected category, 'all' by default
+            selectedCategoryId: 'all', // NEW: ID of the selected category, 'all' by default
+            
+            // NEW STATE FOR PRODUCT DETAIL MODAL
+            selectedItem: null 
         };
         
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig'; // Renamed to avoid confusion
 
-        // --- RENDER FUNCTIONS (MOVED TO TOP) ---
+        // --- RENDER FUNCTIONS (MODIFIED) ---
 
         function render() {
             const appElement = document.getElementById('app');
             if (!appElement) return;
+
+            // Remove loading state if content is ready
+            const loadingState = document.getElementById('loadingState');
+            if (loadingState && (state.configLoaded && isAuthReady)) {
+                 loadingState.remove();
+            }
 
             const totalCartPrice = getTotalCartPrice();
             
@@ -87,11 +96,79 @@
                     <!-- Messages -->
                     ${renderMessage()}
 
-                    <!-- Modal -->
+                    <!-- Modals -->
                     ${renderModal()}
+                    ${renderItemDetailModal()}
 
                     <!-- Chat Widget -->
                     ${renderChatWidget()}
+                </div>
+            `;
+        }
+
+        // --- NEW: ITEM DETAIL MODAL ---
+        function renderItemDetailModal() {
+            if (!state.selectedItem) return '';
+            
+            const item = state.selectedItem;
+            const catalog = state.catalogs.find(c => c.id === item.catalogId);
+            const categoryName = catalog ? catalog.name : 'Uncategorized';
+
+            return `
+                <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeItemDetailModal()">
+                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                        
+                        <button onclick="window.module.closeItemDetailModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+
+                        <div class="flex flex-col md:flex-row gap-6">
+                            <img src="${item.imageUrl}" alt="${item.name}" 
+                                class="w-full md:w-1/2 h-48 object-cover rounded-lg shadow-md flex-shrink-0" 
+                                onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                            
+                            <div class="flex-grow">
+                                <h2 class="text-3xl font-extrabold text-indigo-700 mb-2">${item.name}</h2>
+                                <p class="text-xl font-bold text-pink-600 mb-4">${formatPrice(item.price)}</p>
+                                
+                                <div class="mb-4 text-sm text-gray-500">
+                                    <span class="font-semibold">Category:</span> ${categoryName}
+                                </div>
+
+                                <h3 class="text-lg font-bold text-gray-800 mb-2 border-t pt-4">Description</h3>
+                                <p class="text-gray-600 leading-relaxed text-sm">${item.description}</p>
+
+                                <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot')})"
+                                        class="mt-6 w-full bg-pink-500 text-white py-3 rounded-lg font-semibold hover:bg-pink-600 transition shadow-md flex items-center justify-center">
+                                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                    Add to Cart
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+
+        function renderProductCard(item) {
+            return `
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
+                    <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                    <div class="p-4">
+                        <!-- Clickable Title (MODIFIED) -->
+                        <h4 onclick="window.module.openItemDetailModal(${JSON.stringify(item).replace(/"/g, '&quot')})" 
+                            class="text-xl font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition">
+                            ${item.name}
+                        </h4>
+                        
+                        <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
+                        <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot')})"
+                                class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                            Add to Cart
+                        </button>
+                    </div>
                 </div>
             `;
         }
@@ -102,7 +179,7 @@
             if (itemCount === 0) return ''; 
 
             return `
-                <a href="/checkout.html" onclick="window.module.continueToCheckout()" 
+                <a href="/checkout.html" onclick="event.preventDefault(); window.module.continueToCheckout()" 
                    class="relative px-3 py-2 rounded-lg font-semibold text-white bg-pink-600 hover:bg-pink-700 transition duration-150 shadow-md flex items-center">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                     <span class="ml-2 hidden sm:inline">Checkout</span>
@@ -198,7 +275,7 @@
                     <hr class="flex-grow border-gray-300">
                 </div>
                 <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/768px-Google_%22G%22_logo.svg.png" class="w-5 h-5 mr-2" alt="Google Logo">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google_reCAPTCHA.svg" class="w-5 h-5 mr-2" alt="Google Logo">
                     ${isLogin ? 'Sign in with Google' : 'Register with Google'}
                 </button>
             ` : '';
@@ -324,23 +401,32 @@
                 <div>
                     ${state.selectedCategoryId === 'all' ? `<h3 class="text-2xl font-bold mb-4 text-indigo-700">${catalogName}</h3>` : ''}
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        ${itemsByCatalog[catalogName].map(item => `
-                            <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
-                                <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
-                                <div class="p-4">
-                                    <h4 class="text-xl font-semibold text-gray-800 truncate">${item.name}</h4>
-                                    <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
-                                    <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
-                                            class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
-                                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                        Add to Cart
-                                    </button>
-                                </div>
-                            </div>
-                        `).join('')}
+                        ${itemsByCatalog[catalogName].map(item => renderProductCard(item)).join('')}
                     </div>
                 </div>
             `).join('<hr class="my-8 border-indigo-200">');
+        }
+
+        function renderProductCard(item) {
+            return `
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
+                    <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                    <div class="p-4">
+                        <!-- Clickable Title (MODIFIED) -->
+                        <h4 onclick="window.module.openItemDetailModal(${JSON.stringify(item).replace(/"/g, '&quot')})" 
+                            class="text-xl font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition">
+                            ${item.name}
+                        </h4>
+                        
+                        <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
+                        <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot')})"
+                                class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                            Add to Cart
+                        </button>
+                    </div>
+                </div>
+            `;
         }
 
         function renderCartSidebar(totalCartPrice) {
@@ -648,6 +734,18 @@
 
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
 
+        // NEW: OPEN DETAIL MODAL FUNCTION
+        function openItemDetailModal(item) {
+            state.selectedItem = item;
+            render();
+        }
+
+        // NEW: CLOSE DETAIL MODAL FUNCTION
+        function closeItemDetailModal() {
+            state.selectedItem = null;
+            render();
+        }
+        
         function showLoginModal(type, mode) {
             state.isModalOpen = true;
             state.modalMode = mode;
@@ -921,7 +1019,10 @@
             handleStandardLogin,
             handleGoogleSignIn,
             closeModal,
-            handleSignOut
+            handleSignOut,
+            // Exporting new modal functions
+            openItemDetailModal, 
+            closeItemDetailModal
         };
 
         document.addEventListener('DOMContentLoaded', () => {
