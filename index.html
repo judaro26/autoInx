@@ -62,6 +62,7 @@
 
             // Tier 2: Fallback to Netlify Function (for standalone Netlify deployments)
             try {
+                // CORRECTED PATH: Should be '/.netlify/functions/...' based on Netlify conventions
                 const netlifyFunctionUrl = '/.netlify/functions/getClientFirebaseConfig';
                 console.log("Tier 2: Attempting to load public config from Netlify Function...");
                 const response = await fetch(netlifyFunctionUrl);
@@ -207,7 +208,7 @@
         // --- FIRESTORE COLLECTION PATHS ---
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
-        const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
+        // Removed ORDERS_COLLECTION since order submission logic moved to checkout.html
 
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
@@ -252,9 +253,6 @@
             }, duration);
         }
 
-        // --- ADMIN ACTIONS (Removed from Index, now managed in admin.html) ---
-        // Removed addCatalog and addItem
-
         // --- USER ACTIONS ---
 
         function addToCart(item) {
@@ -297,11 +295,11 @@
             render();
         }
 
-        async function submitOrder(event) {
-            event.preventDefault();
+        // --- NEW USER ACTION: CONTINUE TO CHECKOUT ---
 
+        function continueToCheckout() {
             if (state.isMaintenanceMode) {
-                showMessage('warning', 'Ordering is disabled during maintenance. Check back soon!', 4000);
+                showMessage('warning', 'The store is currently down for maintenance. Please try again later.', 4000);
                 return;
             }
 
@@ -309,102 +307,23 @@
                 showMessage('error', 'Your cart is empty!');
                 return;
             }
-
-            const emailInput = document.getElementById('buyer-email');
-            const buyerEmail = emailInput.value.trim();
-            if (!buyerEmail || !buyerEmail.includes('@')) {
-                showMessage('error', 'Please enter a valid email address.');
-                return;
-            }
-
-            if (!userId) {
-                showMessage('error', 'Authentication failed. Cannot submit order without a User ID.');
-                return;
-            }
-
-            state.loading = true;
-            render();
-
-            const orderDetails = {
-                buyerEmail,
-                items: Object.values(state.cart).map(entry => ({
-                    id: entry.item.id,
-                    name: entry.item.name,
-                    price: entry.item.price, // in cents
-                    quantity: entry.quantity,
-                    catalog: state.catalogs.find(c => c.id === entry.item.catalogId)?.name || 'N/A'
-                })),
-                totalCents: getTotalCartPrice(),
-                userId: userId, // Current user ID
-                timestamp: new Date().toISOString()
-            };
-
-            let orderRef = null;
+            
+            // 1. Save the current cart state to Session Storage
             try {
-                // 1. Save the order to Firestore (in the user's private collection)
-                orderRef = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
-                    ...orderDetails,
-                    status: 'Pending',
-                    createdAt: serverTimestamp(),
-                });
-                console.log("Order saved to Firestore with ID:", orderRef.id);
-
-                // 2. Call Netlify Function to send email (Secure Server-Side Step)
-                const netlifyFunctionUrl = '/.netlify/functions/send-email';
-
-                const MAX_RETRIES = 3;
-                let response = null;
-                for (let i = 0; i < MAX_RETRIES; i++) {
-                    try {
-                        response = await fetch(netlifyFunctionUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ...orderDetails, orderId: orderRef.id })
-                        });
-
-                        if (response.ok) {
-                            break;
-                        } else if (i === MAX_RETRIES - 1) {
-                            throw new Error(`Server returned status ${response.status}`);
-                        }
-                    } catch (fetchError) {
-                        if (i === MAX_RETRIES - 1) {
-                            throw fetchError;
-                        }
-                        const delay = Math.pow(2, i) * 1000;
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        console.log(`Retrying API call... attempt ${i + 2}`);
-                    }
-                }
-
-                if (!response || !response.ok) {
-                    throw new Error("Failed to get a successful response from the email function.");
-                }
-
-                const result = await response.json();
-                console.log("Netlify Function response:", result);
-
-                // 3. Success Feedback and Cleanup
-                showMessage('success', `Order #${orderRef.id.slice(0, 8)}... submitted! A confirmation email has been sent to ${buyerEmail}.`, 8000);
-                state.cart = {};
-                emailInput.value = '';
-
+                // Note: sessionStorage clears when the browser tab/window is closed.
+                sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
             } catch (error) {
-                console.error("Order submission failed:", error);
-                showMessage('error', `Order failed. Please check the console for details. (Order saved, but email might have failed.)`);
-                // Optionally update Firestore order status to 'Email Failed'
-                try {
-                    if (orderRef) {
-                        await setDoc(doc(db, ORDERS_COLLECTION(userId), orderRef.id), { emailStatus: 'Failed' }, { merge: true });
-                    }
-                } catch (e) {
-                    console.error("Could not update order status after email failure:", e);
-                }
-            } finally {
-                state.loading = false;
-                render();
+                console.error("Failed to save cart to session storage:", error);
+                showMessage('error', 'Could not save cart for checkout. Try clearing your browser cache.', 5000);
+                return;
             }
+
+            // 2. Redirect to the new checkout page
+            window.location.href = '/checkout.html';
         }
+
+        // --- END NEW USER ACTION ---
+
 
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
 
@@ -706,15 +625,10 @@
                                     <span>Total:</span>
                                     <span>${formatPrice(totalCartPrice)}</span>
                                 </div>
-                                <form onsubmit="window.module.submitOrder(event)" class="mt-4 space-y-3">
-                                    <input type="email" id="buyer-email" placeholder="Your Email for Confirmation" required
-                                        class="w-full p-3 border border-pink-300 rounded-lg focus:ring-pink-500 focus:border-pink-500">
-                                    <button type="submit" ${Object.keys(state.cart).length === 0 || state.loading ? 'disabled' : ''}
-                                            class="w-full bg-pink-600 text-white p-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-lg disabled:bg-pink-300 disabled:cursor-not-allowed flex justify-center items-center">
-                                        ${state.loading ? `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                        Processing...` : 'Submit Order & Pay'}
-                                    </button>
-                                </form>
+                                <button onclick="window.module.continueToCheckout()" ${Object.keys(state.cart).length === 0 ? 'disabled' : ''}
+                                        class="w-full bg-pink-600 text-white p-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-lg disabled:bg-pink-300 disabled:cursor-not-allowed flex justify-center items-center mt-4">
+                                    Continue to Order
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -911,7 +825,7 @@
             // Removed admin functions from module export here: addCatalog, addItem
             addToCart,
             updateCartQuantity,
-            submitOrder,
+            continueToCheckout, // ADDED new checkout function
             requestPasswordReset,
             registerUser, 
             showLoginModal,
