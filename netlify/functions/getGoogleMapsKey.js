@@ -10,8 +10,6 @@ exports.handler = async (event, context) => {
   const allowedOrigins = [
     'https://autoinx.netlify.app',
     'https://autoinx.com', // FIX: Added custom domain
-    'http://localhost:8888',        // Netlify dev
-    'http://localhost:3000',        // Vite/React dev (adjust as needed)
   ];
 
   const isDev = process.env.NETLIFY_DEV || process.env.CONTEXT === 'dev';
