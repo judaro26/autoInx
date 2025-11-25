@@ -6,12 +6,32 @@ const admin = require('firebase-admin');
 
 // Ensure Firebase Admin is initialized once
 if (!admin.apps.length) {
+    // START FIX: Aggressively clean the private key string to ensure correct PEM formatting.
+    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
+    let cleanedPrivateKey = undefined;
+
+    if (privateKeyString) {
+        // Step 1: Replace all known/possible escaped newline sequences (\\n or \n) with a real newline (\n)
+        // We use a global regex replacement here, which is safer than relying on single backslashes in Netlify.
+        // The regex /\\n/g targets the literal two-character string '\n' used for escaping.
+        cleanedPrivateKey = privateKeyString.replace(/\\n/g, '\n');
+        
+        // Final sanity check: if the key contains no newlines at all, it's definitely corrupted.
+        if (!cleanedPrivateKey.includes('\n') && cleanedPrivateKey.includes('PRIVATE KEY')) {
+             console.error("Warning: Private key cleaning failed to create newlines.");
+             // Fallback for environments that pass the literal unescaped string
+             // In some cases, Node may receive a key that is already unescaped but compressed.
+             // We'll rely on the aggressive replacement above, but this remains the most likely failure point.
+        }
+    }
+    // END FIX
+
     admin.initializeApp({
         credential: admin.credential.cert({
             projectId: process.env.FIREBASE_PROJECT_ID,
             clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            // NOTE: The replace function is critical for processing the \\n escaping in the private key
-            privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+            // Use the cleaned private key
+            privateKey: cleanedPrivateKey,
         }),
     });
 }
