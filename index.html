@@ -178,7 +178,14 @@
             `;
         }
         function renderAuthToggle() {
-            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName && !state.isAdminIP)) return '';
+            // CRITICAL FIX: The function must proceed if the IP is whitelisted (state.isAdminIP)
+            // OR if the config/auth isn't fully loaded yet (i.e., display login options while loading).
+            
+            // Condition reads: If not loaded, OR (if Maintenance AND not logged in AND not whitelisted), then return ''.
+            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName && !state.isAdminIP)) {
+                return '';
+            }
+        
             if (state.view === 'admin') {
                 return `
                     <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
@@ -212,11 +219,13 @@
                     Forgot Password?
                 </button>
             `;
+            
+            // This is the block that renders the Admin Login button when not logged in.
             if (state.isAdminIP) {
                 return `
                     <div class="flex items-center space-x-4">
                         ${commonButtons}
-                        <button onclick="window.module.toggleView('admin')" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
+                        <button onclick="window.module.showLoginModal('admin', 'login')" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
                             Admin Login
                         </button>
                     </div>
