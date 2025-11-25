@@ -54,10 +54,8 @@
 <body class="antialiased">
     <div class="flex flex-col min-h-screen"> 
         <div id="app" class="max-w-5xl mx-auto p-6 sm:p-8 lg:p-12 flex-grow">
-            <!-- Header (Initial structure) -->
             <header class="flex justify-between items-center mb-12 bg-white rounded-3xl shadow-2xl p-8 border-t-8 border-indigo-600">
                 <div class="flex items-center space-x-4">
-                    <!-- Logo Integration -->
                     <img src="images/AutoInx logo.png" alt="AutoInx Logo" class="h-10 w-auto"> 
                     <h1 class="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
                         Pagar
@@ -71,7 +69,6 @@
                 </div>
             </header>
             
-            <!-- Content will be replaced here by loadCheckout() -->
             <div id="loadingState" class="text-center py-32 bg-white rounded-3xl shadow-2xl">
                 <div class="inline-flex flex-col items-center space-y-6">
                     <svg class="animate-spin h-16 w-16 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -83,7 +80,6 @@
             </div>
         </div>
 
-        <!-- Footer Addition -->
         <footer class="bg-gray-800 text-white p-6 mt-10">
             <div class="max-w-5xl mx-auto text-center text-sm">
                 <p>&copy; ${new Date().getFullYear()} autoInx. Todos los derechos reservados.</p>
@@ -92,7 +88,6 @@
         </footer>
     </div>
     
-    <!-- Floating WhatsApp Chat Widget -->
     <div id="chatWidget" class="hidden"></div>
 
     <script type="module">
@@ -111,7 +106,8 @@
         let chatWidgetEnabled = false;
         let autocomplete;
         let map, marker, geocoder; // NEW: Map objects
-        let currentLang = 'es'; // Default language
+        let currentLang = 'es'; // Default language, overridden by localStorage/browser lang
+        let isMaintenanceMode = false; // NEW: Maintenance Mode State
 
         // --- LANGUAGE TEXT MAPPING ---
         const TEXT = {
@@ -141,6 +137,8 @@
                 cartEmpty: 'Tu carrito está vacío. <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Volver a la tienda</a>',
                 mapPinInstructions: 'Arrastra el pin para precisar tu ubicación exacta',
                 countrySelect: 'Colombia +57',
+                maintenanceTitle: 'Sitio en Mantenimiento',
+                maintenanceMsg: 'El checkout no está disponible actualmente. Por favor, inténtalo de nuevo más tarde.',
             },
             en: {
                 title: 'Checkout',
@@ -168,6 +166,8 @@
                 cartEmpty: 'Your cart is empty. <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Go back to store</a>',
                 mapPinInstructions: 'Drag the pin to pinpoint your exact location',
                 countrySelect: 'USA +1',
+                maintenanceTitle: 'Site Under Maintenance',
+                maintenanceMsg: 'Checkout is currently unavailable. Please try again later.',
             }
         };
 
@@ -176,6 +176,8 @@
         // --- CORE FUNCTIONS ---
 
         function setLanguage(lang) {
+            // FIX: Persist language setting
+            localStorage.setItem('checkoutLang', lang);
             currentLang = lang;
             loadCheckout(); // Rerender content in the new language
         }
@@ -185,25 +187,35 @@
         }
 
         // Fetch admin config (chat widget toggle)
-        async function fetchChatStatus() {
+        async function fetchAdminConfig() {
             try {
                 const res = await fetch(GET_ADMIN_CONFIG_URL);
                 if (!res.ok) throw new Error("Config fetch failed");
                 const config = await res.json();
-                chatWidgetEnabled = !!config.chatWidgetEnabled;
+                isMaintenanceMode = !!config.maintenanceMode; // Set maintenance state
+                // Chat widget is enabled only if globally enabled AND maintenance is off
+                chatWidgetEnabled = !!config.chatWidgetEnabled && !isMaintenanceMode; 
             } catch (err) {
-                console.warn("Chat widget disabled (config error):", err);
+                console.warn("Configuration load error: Defaulting to maintenance mode.", err);
+                isMaintenanceMode = true; // Default to safe state if config fetch fails
                 chatWidgetEnabled = false;
             }
         }
 
         // Render floating chat widget
         function renderChatWidget() {
-            if (!chatWidgetEnabled) return;
             const widget = $('chatWidget');
+            if (!widget) return;
+
+            if (!chatWidgetEnabled) {
+                 widget.classList.add('hidden');
+                 return;
+            }
+            
             widget.className = "fixed bottom-8 right-8 z-50";
             widget.innerHTML = `
                 <a href="https://wa.me/573001234567" target="_blank" rel="noopener"
+                   id="whatsapp-link"
                    class="block w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-2xl hover:shadow-3xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center animate-pulse">
                     <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.297-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.265c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488z"/>
@@ -217,7 +229,6 @@
         function renderCartLink() {
             const count = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
             if (count === 0) return '';
-            // NOTE: This now returns the HTML string directly instead of setting innerHTML via $()
             return ` 
                 <a href="/" class="relative group">
                     <div class="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-6 py-4 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition transform hover:scale-110">
@@ -257,8 +268,8 @@
                 geocoder = new google.maps.Geocoder();
             }
             geocoder.geocode({ 'location': latLng }, (results, status) => {
+                const addressInput = $('delivery-address');
                 if (status === 'OK' && results[0]) {
-                    const addressInput = $('delivery-address');
                     addressInput.value = results[0].formatted_address;
                     addressInput.classList.remove('address-invalid');
                     addressInput.classList.add('address-valid');
@@ -268,7 +279,12 @@
                     $('addressError').classList.add('hidden');
                 } else {
                     console.error('Geocoder failed due to: ' + status);
-                    showMessage('error', 'Error al obtener la dirección del pin.');
+                    addressInput.classList.remove('address-valid');
+                    addressInput.classList.add('address-invalid');
+                    addressInput.dataset.validated = 'false';
+                    $('addressStatus').textContent = t('addressStatusSelect');
+                    $('addressStatus').className = "text-orange-600 font-bold";
+                    showMessage('error', t('addressError'));
                 }
             });
         }
@@ -281,11 +297,12 @@
             // 1. Initialize Autocomplete
             autocomplete = new google.maps.places.Autocomplete(input, {
                 types: ['address'],
-                componentRestrictions: { country: ['co', 'us'] }
+                // Uses default country restrictions based on server-side config/location preference
+                componentRestrictions: { country: [currentLang === 'es' ? 'co' : 'us'] } 
             });
 
-            // 2. Initialize Map (Default: Bogota, Colombia)
-            const initialPos = { lat: 4.7110, lng: -74.0721 }; 
+            // 2. Initialize Map (Default: Bogota, Colombia, or US equivalent)
+            const initialPos = currentLang === 'es' ? { lat: 4.7110, lng: -74.0721 } : { lat: 39.8283, lng: -98.5795 }; 
             map = new google.maps.Map(mapEl, {
                 center: initialPos,
                 zoom: 12,
@@ -352,10 +369,34 @@
         }
 
         async function initApp() {
-            try {
-                // Determine language based on browser/session
+            // FIX: Load persisted language
+            const storedLang = localStorage.getItem('checkoutLang');
+            if (storedLang && TEXT[storedLang]) {
+                currentLang = storedLang;
+            } else {
+                // Fallback to browser preference if no storage exists
                 currentLang = (navigator.language || navigator.userLanguage).startsWith('en') ? 'en' : 'es';
+            }
+            
+            // CRITICAL FIX: Fetch config first to check maintenance mode
+            await fetchAdminConfig();
 
+            if (isMaintenanceMode) {
+                 // RENDER MAINTENANCE VIEW AND EXIT
+                 const appEl = document.getElementById('app');
+                 if (appEl) appEl.innerHTML = `
+                    ${renderHeader()}
+                    <div class="text-center py-32 bg-white rounded-3xl shadow-2xl mt-12">
+                        <svg class="w-16 h-16 mx-auto text-yellow-500 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
+                        <p class="text-red-600 text-3xl font-bold">${t('maintenanceTitle')}</p>
+                        <p class="text-red-600 text-xl mt-4">${t('maintenanceMsg')}</p>
+                        <p class="text-gray-600 text-lg mt-6">${t('cartEmpty')}</p>
+                    </div>
+                 `;
+                 return; // STOP EXECUTION
+            }
+
+            try {
                 const res = await fetch(CONFIG_CLIENT_FUNCTION);
                 if (!res.ok) throw new Error("Config fetch failed");
                 const cfg = await res.json();
@@ -363,8 +404,8 @@
                 const appInstance = initializeApp(cfg);
                 auth = getAuth(appInstance); db = getFirestore(appInstance);
                 
-                await fetchChatStatus();
-                // loadGoogleMaps(); // Moved to renderCheckoutContent
+                // Moved chat status fetch before app init to apply the maintenance filter
+                renderChatWidget();
 
                 onAuthStateChanged(auth, user => {
                     userId = user?.uid;
@@ -431,7 +472,7 @@
                         <a href="/" class="text-indigo-600 hover:text-indigo-800 font-bold text-lg flex items-center transition hover:scale-105">
                             ${t('return')}
                         </a>
-                        <button onclick="setLanguage('${currentLang === 'es' ? 'en' : 'es'}')"
+                        <button onclick="window.module.setLanguage('${currentLang === 'es' ? 'en' : 'es'}')"
                                 class="px-3 py-1 text-sm rounded-full bg-gray-100 hover:bg-gray-200">
                             ${currentLang === 'es' ? 'English' : 'Español'}
                         </button>
@@ -442,36 +483,36 @@
 
 
         function renderCheckoutContent() {
+            // FIX: Use the correct option text based on currentLang
+            const columbiaSelected = currentLang === 'es' ? 'selected' : '';
+            const usaSelected = currentLang === 'en' ? 'selected' : '';
+
             return `
                 <div id="checkoutContent" class="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                    <!-- Form -->
                     <div class="lg:col-span-2">
                         <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-indigo-600">
                             <h2 class="text-3xl font-extrabold text-indigo-700 mb-10">${t('formHeader')}</h2>
                             <div id="checkoutMessage" class="mb-8"></div>
 
                             <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-10">
-                                <!-- Email -->
                                 <div>
                                     <label class="block text-lg font-bold text-gray-800 mb-3">${t('emailLabel')} <span class="text-red-500">*</span></label>
                                     <input type="email" id="buyer-email" placeholder="tucorreo@ejemplo.com" required
                                         class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
                                 </div>
 
-                                <!-- Name -->
                                 <div>
                                     <label class="block text-lg font-bold text-gray-800 mb-3">${t('nameLabel')} <span class="text-red-500">*</span></label>
                                     <input type="text" id="buyer-name" placeholder="Juan Camilo Pérez" required
                                         class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
                                 </div>
 
-                                <!-- Phone -->
                                 <div>
                                     <label class="block text-lg font-bold text-gray-800 mb-3">${t('phoneLabel')} <span class="text-red-500">*</span></label>
                                     <div class="phone-input-group">
                                         <select id="country-code" class="country-select">
-                                            <option value="+57">Colombia +57</option>
-                                            <option value="+1">${t('countrySelect')}</option>
+                                            <option value="+57" ${columbiaSelected}>Colombia +57</option>
+                                            <option value="+1" ${usaSelected}>${t('countrySelect')}</option>
                                         </select>
                                         <input type="tel" id="buyer-phone" placeholder="3001234567" required pattern="[0-9]{7,15}"
                                             class="phone-input" title="Solo números">
@@ -479,7 +520,6 @@
                                     <p class="text-sm text-gray-600 mt-3">${t('phoneHelp')}</p>
                                 </div>
 
-                                <!-- Address -->
                                 <div>
                                     <label class="block text-lg font-bold text-gray-800 mb-3">${t('addressLabel')} <span class="text-red-500">*</span></label>
                                     
@@ -494,12 +534,10 @@
                                         ${t('addressError')}
                                     </p>
 
-                                    <!-- Map Container (NEW) -->
                                     <div id="map-container" class="mt-4"></div>
                                     <p class="text-xs text-gray-500 mt-2">${t('mapPinInstructions')}</p>
                                 </div>
 
-                                <!-- Submit -->
                                 <div class="pt-10">
                                     <button type="submit" id="submitButton"
                                         class="w-full bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 text-white py-7 rounded-3xl font-extrabold text-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transform transition duration-300 disabled:opacity-60 disabled:cursor-not-allowed flex justify-center items-center">
@@ -514,7 +552,6 @@
                         </div>
                     </div>
 
-                    <!-- Order Summary -->
                     <div class="lg:col-span-1">
                         <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-pink-600 sticky top-8">
                             <h3 class="text-3xl font-extrabold text-pink-700 mb-8">${t('summaryHeader')}</h3>
@@ -536,6 +573,11 @@
 
         window.module = {
             async submitOrder(e) {
+                // Prevent submission if in maintenance mode (although initApp should have blocked the rendering)
+                if (isMaintenanceMode) {
+                    return showMessage('error', t('maintenanceMsg'));
+                }
+
                 e.preventDefault();
                 if (Object.keys(cartData).length === 0) return;
 
