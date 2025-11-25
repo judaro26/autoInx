@@ -211,11 +211,31 @@
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
 
+        // --- PERSISTENCE & LISTENING ---
+        
+        // NEW: Function to load cart from session storage when page loads or reloads
+        function loadCartFromSession() {
+            try {
+                const cartJson = sessionStorage.getItem('autoInxCart');
+                if (cartJson && cartJson !== '{}') {
+                    // Overwrite empty state.cart with session data only if it exists
+                    state.cart = JSON.parse(cartJson);
+                    console.log("Cart loaded from session storage.");
+                }
+            } catch (error) {
+                console.error("Error loading cart from session storage:", error);
+                sessionStorage.removeItem('autoInxCart'); // Clear invalid data
+            }
+        }
+
+
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
             if (!isAuthReady || !db) return;
             // Prevent listeners from running if site is in maintenance mode for public users
             if (state.isMaintenanceMode) return; 
+
+            loadCartFromSession(); // Load cart on initial setup/return from checkout
 
             // 1. Catalogs Listener
             onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
@@ -286,6 +306,22 @@
             // Clear search term when selecting a new category for focused filtering
             state.productSearchTerm = ''; 
             render();
+        }
+        
+        // NEW: Compact Cart Link
+        function renderCartLink() {
+            const itemCount = Object.values(state.cart).reduce((total, entry) => total + entry.quantity, 0);
+            
+            if (itemCount === 0) return ''; 
+
+            return `
+                <a href="/checkout.html" onclick="window.module.continueToCheckout()" 
+                   class="relative px-3 py-2 rounded-lg font-semibold text-white bg-pink-600 hover:bg-pink-700 transition duration-150 shadow-md flex items-center">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    <span class="ml-2 hidden sm:inline">Checkout</span>
+                    <span class="absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center border-2 border-white">${itemCount}</span>
+                </a>
+            `;
         }
 
 
@@ -658,11 +694,7 @@
                                 <span>Total:</span>
                                 <span>${formatPrice(totalCartPrice)}</span>
                             </div>
-                            <button onclick="window.module.continueToCheckout()" ${Object.keys(state.cart).length === 0 ? 'disabled' : ''}
-                                    class="w-full bg-pink-600 text-white p-3 rounded-lg font-extrabold hover:bg-pink-700 transition duration-150 shadow-lg disabled:bg-pink-300 disabled:cursor-not-allowed flex justify-center items-center mt-4">
-                                Continue to Order
-                            </button>
-                        </div>
+                            </div>
                     </div>
                 </div>
             `;
@@ -836,7 +868,7 @@
                     <hr class="flex-grow border-gray-300">
                 </div>
                 <button type="button" onclick="window.module.handleGoogleSignIn()" class="w-full bg-white text-gray-700 py-3 rounded-lg font-semibold border border-gray-300 hover:bg-gray-50 transition duration-150 shadow-sm flex items-center justify-center">
-                    <img src="https://repository-images.githubusercontent.com/24650294/4d804b80-7e39-11e9-82fe-07761d844a8c" class="w-5 h-5 mr-2" alt="Google Logo">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google_reCAPTCHA.svg" class="w-5 h-5 mr-2" alt="Google Logo">
                     ${isLogin ? 'Sign in with Google' : 'Register with Google'}
                 </button>
             ` : '';
@@ -881,9 +913,10 @@
         function render() {
             const appContainer = document.getElementById('app');
             if (!appContainer) return;
+            const isUserView = state.view === 'user';
 
             // Simple admin check
-            const currentContent = state.view === 'admin' ? renderAdminView() : renderUserView();
+            const currentContent = isUserView ? renderUserView() : renderAdminView();
 
             appContainer.innerHTML = `
                 ${renderMessage()}
@@ -893,7 +926,9 @@
                         <h1 class="text-4xl font-extrabold text-indigo-700">
                             ${state.view === 'admin' ? 'Administration Panel' : 'Online Store'}
                         </h1>
-                        ${renderAuthToggle()}
+                        <div class="flex items-center space-x-4">
+                            ${isUserView ? renderCartLink() : ''} ${renderAuthToggle()}
+                        </div>
                     </header>
                     ${currentContent}
 
