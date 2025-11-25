@@ -17,7 +17,9 @@ if (!admin.apps.length) {
 
 // Helper to list, filter, and delete anonymous users in a batch-safe manner
 async function processAnonymousBatch(nextPageToken) {
-    let pageToken = nextPageToken;
+    // FIX: Coerce null/empty string to undefined.
+    // The Firebase Admin SDK listUsers function expects undefined for the first page.
+    const pageToken = nextPageToken || undefined;
     let usersToDelete = [];
     const BATCH_SIZE = 1000;
 
@@ -80,6 +82,7 @@ exports.handler = async function (event) {
     try {
         const { nextPageToken } = JSON.parse(event.body);
         
+        // The token is now correctly handled inside processAnonymousBatch(nextPageToken)
         const result = await processAnonymousBatch(nextPageToken);
 
         // If there are more pages, return 202 (Accepted for processing) to signal continuation
