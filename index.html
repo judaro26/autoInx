@@ -156,7 +156,7 @@
                                 <p class="text-gray-600 leading-relaxed text-sm">${item.description}</p>
                                 <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot')})"
                                         class="mt-6 w-full bg-pink-500 text-white py-3 rounded-lg font-semibold hover:bg-pink-600 transition shadow-md flex items-center justify-center">
-                                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                                     ${t('checkout')}
                                 </button>
                             </div>
@@ -842,28 +842,58 @@
         
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
+            // CRITICAL FIX: Wrap everything in a top-level try/catch for guaranteed fallback render
             try {
-                // FIX: Load language preference
+                // FIX 1: Load language preference
                 const storedLang = localStorage.getItem('siteLang');
                 if (storedLang && TEXT[storedLang]) {
                     currentLang = storedLang;
                 }
 
-                // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK ---
-                const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
-                const { ip: clientIp } = await ipResponse.json();
+                // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK (Safe Network Block) ---
+                let clientIp = null;
+                let globalConfig = null;
                 
-                const configResponse = await fetch(GET_CONFIG_FUNCTION);
-                const globalConfig = await configResponse.json();
+                try {
+                    // Fetch IP
+                    const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
+                    if (ipResponse.ok) {
+                        const data = await ipResponse.json();
+                        clientIp = data.ip;
+                    }
+                } catch (e) {
+                    console.error("IP Fetch Failed. Proceeding with null clientIp.", e);
+                }
+                
+                try {
+                    // Fetch Config
+                    const configResponse = await fetch(GET_CONFIG_FUNCTION);
+                    if (configResponse.ok) {
+                        globalConfig = await configResponse.json();
+                    } else {
+                        // Throw an error to lock the site if config is unavailable
+                        throw new Error(`Config function returned status: ${configResponse.status}`);
+                    }
+                } catch (e) {
+                    // Configuration failure: Lock the site and render immediately
+                    console.error("Global Config Fetch Failed. Locking site.", e);
+                    state.isMaintenanceMode = true;
+                    state.configLoaded = true;
+                    isAuthReady = true;
+                    render();
+                    return; 
+                }
+                
+                // C. Apply Whitelist/Maintenance Logic
+                if (globalConfig) {
+                    state.isMaintenanceMode = globalConfig.maintenanceMode === true;
+                    const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
+                    const isStaticIp = clientIp ? await checkIPRange(clientIp) : false;
+                    const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
+                    state.isAdminIP = isWhitelisted; 
+                }
 
-                state.isMaintenanceMode = globalConfig.maintenanceMode === true;
-                
-                const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
-                const isStaticIp = await checkIPRange(clientIp);
-                const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
-                
-                state.isAdminIP = isWhitelisted; 
-
+                // D. Apply Gate Logic
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
                     isAuthReady = true;
@@ -874,12 +904,13 @@
                 
                 // --- END MAINTENANCE GATE ---
 
+                // --- 2. FIREBASE INIT (Success Path) ---
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
                 
                 if (Object.keys(firebaseConfig).length === 0) {
-                    console.error("Firebase config is missing or failed to load from Netlify Function.");
                     state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
+                    isAuthReady = true;
                     render();
                     return;
                 }
@@ -891,44 +922,35 @@
                 
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken)
-                        .catch(error => {
-                            console.error("Error signing in with custom token:", error);
-                        });
+                        .catch(error => { console.error("Error signing in with custom token:", error); });
                 } else if (!auth.currentUser) {
-                    await signInAnonymously(auth).catch(error => {
-                        console.error("Error during initial anonymous sign-in:", error);
-                    });
+                    await signInAnonymously(auth).catch(error => { console.error("Error during initial anonymous sign-in:", error); });
                 }
+                
                 onAuthStateChanged(auth, async (user) => {
                     
                     if (user) {
                         userId = user.uid;
-                        
-                        if (!user.isAnonymous) {
-                            state.userName = user.email || user.displayName || 'Authenticated User';
-                            console.log("User authenticated with persistent account. UID:", userId);
-                        } else {
-                            state.userName = null;
-                        }
-                        
+                        state.userName = user.isAnonymous ? null : (user.email || user.displayName || 'Authenticated User');
                         explicitSignOutOccurred = false;
                     } else {
                         userId = null;
                         state.userName = null;
-                        if (explicitSignOutOccurred) {
-                            console.log("Explicit sign-out processed. Preventing anonymous re-sign-in on this loop.");
-                            explicitSignOutOccurred = false;
-                        }
+                        if (explicitSignOutOccurred) explicitSignOutOccurred = false;
                     }
                     isAuthReady = true;
                     await fetchAndApplyGlobalConfig(); 
                     if (db) setupRealtimeListeners();
-                    render();
+                    render(); // FINAL SUCCESS RENDER
                 });
+
             } catch (error) {
-                console.error("Firebase setup failed:", error);
-                state.message = { type: 'error', text: 'Failed to initialize Firebase.' };
-                render();
+                // GLOBAL FALLBACK CATCH: Guarantees the loading screen is replaced with an error message
+                console.error("Critical error during setupFirebase. Rendering generic error.", error);
+                state.message = { type: 'error', text: 'Critical error loading the application. Please check your connection.' };
+                state.configLoaded = true;
+                isAuthReady = true;
+                render(); 
             }
         }
         // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
