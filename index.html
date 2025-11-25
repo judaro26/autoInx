@@ -156,7 +156,7 @@
                                 <p class="text-gray-600 leading-relaxed text-sm">${item.description}</p>
                                 <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot')})"
                                         class="mt-6 w-full bg-pink-500 text-white py-3 rounded-lg font-semibold hover:bg-pink-600 transition shadow-md flex items-center justify-center">
-                                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                                     ${t('checkout')}
                                 </button>
                             </div>
@@ -358,12 +358,12 @@
             widget.classList.remove('hidden');
             widget.className = "fixed bottom-6 right-6 z-50"; // Re-apply external CSS animation/position
             
-            // Render WhatsApp Button HTML
+            // Only update innerHTML if it's currently hidden/not set to prevent re-render flicker
             if (!widget.innerHTML || widget.innerHTML.includes('hidden')) {
                 widget.innerHTML = `
-                    <a href="https://wa.me/573217040789" target="_blank" rel="noopener" class="w-14 h-14 bg-indigo-600 rounded-full text-white shadow-xl hover:bg-indigo-700 transition transform hover:scale-110 flex items-center justify-center" aria-label="Open Chat">
+                    <button onclick="window.module.openChatWidget()" class="w-14 h-14 bg-indigo-600 rounded-full text-white shadow-xl hover:bg-indigo-700 transition transform hover:scale-110 flex items-center justify-center" aria-label="Open Chat">
                         <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
-                    </a>
+                    </button>
                 `;
             }
         }
@@ -842,62 +842,28 @@
         
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
-            // CRITICAL FIX: Wrap everything in a top-level try/catch for guaranteed fallback render
             try {
-                // FIX 1: Load language preference
+                // FIX: Load language preference
                 const storedLang = localStorage.getItem('siteLang');
                 if (storedLang && TEXT[storedLang]) {
                     currentLang = storedLang;
                 }
 
-                // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK (Safe Network Block) ---
-                let clientIp = null;
-                let globalConfig = null;
+                // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK ---
+                const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
+                const { ip: clientIp } = await ipResponse.json();
                 
-                try {
-                    // Fetch IP
-                    const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
-                    if (ipResponse.ok) {
-                        const data = await ipResponse.json();
-                        clientIp = data.ip;
-                    } else {
-                        throw new Error("Failed to get client IP.");
-                    }
-                } catch (e) {
-                    console.error("IP Fetch Failed. Proceeding with null clientIp.", e);
-                }
-                
-                try {
-                    // Fetch Config
-                    const configResponse = await fetch(GET_CONFIG_FUNCTION);
-                    if (configResponse.ok) {
-                        globalConfig = await configResponse.json();
-                    } else {
-                        // Throw an error to lock the site if config is unavailable
-                        throw new Error(`Config function returned status: ${configResponse.status}`);
-                    }
-                } catch (e) {
-                    // Configuration failure: Lock the site and render immediately
-                    console.error("Global Config Fetch Failed. Locking site.", e);
-                    state.isMaintenanceMode = true;
-                    state.configLoaded = true;
-                    isAuthReady = true;
-                    render();
-                    return; 
-                }
-                
-                // C. Apply Whitelist/Maintenance Logic
-                if (globalConfig) {
-                    state.isMaintenanceMode = globalConfig.maintenanceMode === true;
-                    state.chatWidgetEnabled = (globalConfig.chatWidgetEnabled === true) && (state.isMaintenanceMode === false);
-                    
-                    const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
-                    const isStaticIp = clientIp ? await checkIPRange(clientIp) : false;
-                    const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
-                    state.isAdminIP = isWhitelisted; 
-                }
+                const configResponse = await fetch(GET_CONFIG_FUNCTION);
+                const globalConfig = await configResponse.json();
 
-                // D. Apply Gate Logic
+                state.isMaintenanceMode = globalConfig.maintenanceMode === true;
+                
+                const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
+                const isStaticIp = await checkIPRange(clientIp);
+                const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
+                
+                state.isAdminIP = isWhitelisted; 
+
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
                     isAuthReady = true;
@@ -908,13 +874,12 @@
                 
                 // --- END MAINTENANCE GATE ---
 
-                // --- 2. FIREBASE INIT (Success Path) ---
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
                 
                 if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is missing or failed to load from Netlify Function.");
                     state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
-                    isAuthReady = true;
                     render();
                     return;
                 }
@@ -926,35 +891,44 @@
                 
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken)
-                        .catch(error => { console.error("Error signing in with custom token:", error); });
+                        .catch(error => {
+                            console.error("Error signing in with custom token:", error);
+                        });
                 } else if (!auth.currentUser) {
-                    await signInAnonymously(auth).catch(error => { console.error("Error during initial anonymous sign-in:", error); });
+                    await signInAnonymously(auth).catch(error => {
+                        console.error("Error during initial anonymous sign-in:", error);
+                    });
                 }
-                
                 onAuthStateChanged(auth, async (user) => {
                     
                     if (user) {
                         userId = user.uid;
-                        state.userName = user.isAnonymous ? null : (user.email || user.displayName || 'Authenticated User');
+                        
+                        if (!user.isAnonymous) {
+                            state.userName = user.email || user.displayName || 'Authenticated User';
+                            console.log("User authenticated with persistent account. UID:", userId);
+                        } else {
+                            state.userName = null;
+                        }
+                        
                         explicitSignOutOccurred = false;
                     } else {
                         userId = null;
                         state.userName = null;
-                        if (explicitSignOutOccurred) explicitSignOutOccurred = false;
+                        if (explicitSignOutOccurred) {
+                            console.log("Explicit sign-out processed. Preventing anonymous re-sign-in on this loop.");
+                            explicitSignOutOccurred = false;
+                        }
                     }
                     isAuthReady = true;
-                    // No need to fetch config again, as it was fetched earlier. We just use the state.
+                    await fetchAndApplyGlobalConfig(); 
                     if (db) setupRealtimeListeners();
-                    render(); // FINAL SUCCESS RENDER
+                    render();
                 });
-
             } catch (error) {
-                // GLOBAL FALLBACK CATCH: Guarantees the loading screen is replaced with an error message
-                console.error("Critical error during setupFirebase. Rendering generic error.", error);
-                state.message = { type: 'error', text: 'Critical error loading the application. Please check your connection.' };
-                state.configLoaded = true;
-                isAuthReady = true;
-                render(); 
+                console.error("Firebase setup failed:", error);
+                state.message = { type: 'error', text: 'Failed to initialize Firebase.' };
+                render();
             }
         }
         // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
@@ -985,10 +959,73 @@
             setLanguage, // Exported language setter
             openItemDetailModal,
             closeItemDetailModal,
+            openChatWidget 
         };
         document.addEventListener('DOMContentLoaded', () => {
             setupFirebase();
         });
     </script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="app">
+        <div id="loadingState" class="text-center p-20">
+            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-600">Loading autoinx.com ...</p>
+        </div>
+    </div>
+
+    <footer class="bg-gray-900 text-white p-10 mt-10">
+        <div class="max-w-5xl mx-auto">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8 border-b border-gray-700 pb-8 mb-8">
+                
+                <div>
+                    <h4 class="text-2xl font-extrabold text-indigo-400 mb-4">AutoInx</h4>
+                    <p class="text-gray-400 text-sm">Your reliable source for high-quality auto parts in the Colombian and US markets. Family-owned and committed to service.</p>
+                </div>
+
+                <div>
+                    <h4 class="text-xl font-bold mb-4">General Support</h4>
+                    <p class="text-gray-400 mb-2">Non-Order Questions:</p>
+                    <a href="mailto:support@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">support@autoinx.com</a>
+                    
+                    <h4 class="text-xl font-bold mt-6 mb-4">Order Inquiries</h4>
+                    <p class="text-gray-400 mb-2">Order-Related Questions:</p>
+                    <a href="mailto:orders@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">orders@autoinx.com</a>
+                </div>
+                
+                <div>
+                    <h4 class="text-xl font-bold mb-4">Phone Contact</h4>
+                    <p class="text-gray-400 mb-2">US Number (WhatsApp):</p>
+                    <a href="tel:+19377016185" class="text-lg font-extrabold text-white block hover:text-indigo-400">
+                        (937) 701-6185
+                    </a>
+                    
+                    <p class="text-gray-400 mt-4 mb-2">Colombian Number (WhatsApp):</p>
+                    <a href="tel:+573217040789" class="text-lg font-extrabold text-white block hover:text-indigo-400">
+                        +57 321 704 0789
+                    </a>
+                </div>
+
+                <div>
+                    <h4 class="text-xl font-bold mb-4">Locations</h4>
+                    
+                    <p class="font-medium text-white">Colombia</p>
+                    <p class="text-gray-400 text-sm">Calle 68A 92-24, Bogota DC</p>
+                    <p class="text-gray-400 text-sm mb-4">Calle 68A 92-58, Bogota</p>
+                    
+                    <p class="font-medium text-white">United States</p>
+                    <p class="text-gray-400 text-sm">587 Paradise Blvd, Hayward, CA 94541</p>
+                </div>
+            </div>
+
+            <div class="text-center text-sm">
+                <p class="text-gray-500">&copy; 2025 AutoInx. All rights reserved. | Family-Owned Operation</p>
+            </div>
+        </div>
+    </footer>
+    <div id="chatWidget" class="hidden"></div>
 </body>
 </html>
