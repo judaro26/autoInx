@@ -6,14 +6,30 @@ const admin = require('firebase-admin');
 
 // Ensure Firebase Admin is initialized once
 if (!admin.apps.length) {
-    // FIX: Reverting to the proven working private key parsing logic.
-    // This expects the Netlify environment variable to contain newlines escaped as \\n.
+    // FIX: Reverting the Netlify variable value to single-backslash required a code adjustment.
+    // This logic handles the possibility of either '\n' or '\\n' being the delimiter.
+    
+    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
+    let cleanedPrivateKey = undefined;
+
+    if (privateKeyString) {
+        // Step 1: Replace all instances of single-backslash-n (\n) or double-backslash-n (\\n) 
+        // with the literal newline character (\n).
+        // The regex /\n/g targets the literal string "\n" passed from the environment (where the \ is already escaped by Node).
+        // Since we are reverting the environment variable to the single-backslash version, this should now work.
+        cleanedPrivateKey = privateKeyString
+                                .replace(/\\n/g, '\n') // Handles the case if Netlify auto-escapes or we used \\n
+                                .replace(/\n/g, '\n') // Handles the simple \n case, ensuring it's a newline
+                                .trim(); // Remove any leading/trailing whitespace that invalidates PEM
+
+    }
+
     admin.initializeApp({
         credential: admin.credential.cert({
             projectId: process.env.FIREBASE_PROJECT_ID,
             clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            // RESTORED WORKING CODE: Simple replace to turn "\\n" into the required newline character "\n"
-            privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+            // Use the cleaned private key
+            privateKey: cleanedPrivateKey,
         }),
     });
 }
