@@ -52,7 +52,9 @@
             activeTab: 'catalog',
             catalogs: [],
             items: [],
-            searchTerm: '',
+            searchTerm: '', // for products
+            userSearchTerm: '', // NEW: for users
+            allUsers: [], // NEW: Store all fetched users for client-side search
             editingItem: null,
             previewMode: false,
             adminCart: {},
@@ -72,6 +74,7 @@
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
             try {
+                // CORRECTION: Must use /.netlify/functions/ to correctly target the deployed function
                 const response = await fetch('/.netlify/functions/getClientFirebaseConfig');
                 if (!response.ok) throw new Error(`Failed to fetch config (Status: ${response.status})`);
                 return await response.json();
@@ -212,6 +215,27 @@
             });
         }
 
+        // --- NEW USER LIST UTILITIES ---
+        function getFilteredAuthUsers() {
+            if (!state.userSearchTerm) return state.allUsers;
+            const term = state.userSearchTerm.toLowerCase();
+            return state.allUsers.filter(user => {
+                // Handles anonymous users where email might be null
+                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)'); 
+                
+                const uidMatch = user.uid.toLowerCase().includes(term);
+                const emailMatch = userEmail.toLowerCase().includes(term);
+                const nameMatch = user.displayName && user.displayName.toLowerCase().includes(term);
+                return uidMatch || emailMatch || nameMatch;
+            });
+        }
+
+        function handleUserSearchInput(e) {
+            state.userSearchTerm = e.target.value;
+            renderUserList(); // Call the rendering function immediately
+            resetTimer();
+        }
+
         // --- UI ACTIONS ---
         function togglePreviewMode(enable) {
             state.previewMode = enable;
@@ -230,8 +254,10 @@
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
             } else if (tab === 'users') {
+                // Clear old data but keep headers before fetching new page. 
+                // We keep allUsers for filtering, so don't clear it here.
                 const grid = document.getElementById('usersGrid');
-                if (grid) Array.from(grid.children).slice(7).forEach(el => el.remove()); // Clear old data but keep headers
+                if (grid) Array.from(grid.children).slice(7).forEach(el => el.remove()); 
                 window.module.fetchUsers(null);
             } else if (tab === 'orders') {
                 window.module.updateAdminCartDisplay();
@@ -387,9 +413,8 @@
                 await logAdminAction('USER_MANAGEMENT', { action, uid, details: data });
                 showMessage('success', successMsg, 5000);
 
-                const grid = document.getElementById('usersGrid');
-                if (grid) Array.from(grid.children).slice(7).forEach(el => el.remove());
-                window.module.fetchUsers(null);
+                // Re-fetch users to update the list
+                window.module.fetchUsers(null); 
             } catch (error) {
                 console.error(`User action (${action}) failed:`, error);
                 showMessage('error', `Action failed: ${error.message}`);
@@ -422,10 +447,15 @@
             resetTimer();
             if (!pageToken && !confirm(`Are you sure you want to proceed with clearing ALL anonymous user records? This is irreversible.`)) return;
 
-            const nextBtn = document.getElementById('clearAnonButton');
-            nextBtn.disabled = true;
-            nextBtn.textContent = pageToken ? `Deleting Batch... (Total: ${totalDeleted})` : 'Searching for Anonymous Users...';
+            const nextBtnUsers = document.getElementById('clearAnonButton'); // User tab button
+            const nextBtnConfig = document.getElementById('clearAnonButtonConfig'); // Config tab button
+            const buttons = [nextBtnUsers, nextBtnConfig].filter(Boolean);
 
+            buttons.forEach(btn => {
+                btn.disabled = true;
+                btn.textContent = pageToken ? `Deleting Batch... (Total: ${totalDeleted})` : 'Searching for Anonymous Users...';
+            });
+            
             try {
                 const idToken = await auth.currentUser.getIdToken();
                 const payload = { nextPageToken: pageToken };
@@ -446,7 +476,8 @@
                 } else if (res.ok) {
                     showMessage('success', `Successfully deleted ${newTotalDeleted} anonymous users. Cleanup complete.`, 10000);
                     await logAdminAction('USER_CLEANUP', { type: 'anonymous', deletedCount: newTotalDeleted });
-                    window.module.fetchUsers(null);
+                    // Force a reload of the users list after cleanup
+                    if (state.activeTab === 'users') window.module.fetchUsers(null); 
                 } else {
                     throw new Error(data.details || data.error || res.statusText);
                 }
@@ -454,8 +485,10 @@
                 console.error('Anonymous user cleanup failed:', error);
                 showMessage('error', `Cleanup failed: ${error.message}`);
             } finally {
-                nextBtn.disabled = false;
-                nextBtn.textContent = 'Clear All Anonymous Users';
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = 'Clear All Anonymous Users';
+                });
             }
         }
 
@@ -688,15 +721,21 @@
 
         /**
          * Fetches a batch of users from Firebase Auth via Netlify function for pagination.
+         * Stores all fetched users in state.allUsers for client-side search/filtering.
          */
         async function fetchUsers(pageToken = null) {
             resetTimer();
-            const grid = document.getElementById('usersGrid');
             const loadMoreBtn = document.getElementById('loadMoreUsersButton');
             const msgEl = document.getElementById('usersMessage');
             
             if (msgEl) msgEl.textContent = pageToken ? 'Loading next batch...' : 'Loading users...';
             if (loadMoreBtn) loadMoreBtn.disabled = true;
+
+            // Clear current list on initial load or reset (e.g., after an action)
+            if (!pageToken) {
+                state.allUsers = []; 
+                window.module.globalNextPageToken = null;
+            }
 
             try {
                 const idToken = await auth.currentUser.getIdToken();
@@ -717,7 +756,10 @@
                 const data = await res.json();
                 window.module.globalNextPageToken = data.nextPageToken;
                 
-                displayUsers(data.users);
+                // Store fetched users to the state array
+                state.allUsers = state.allUsers.concat(data.users); 
+
+                renderUserList(); // Render the full, filtered list
 
             } catch (error) {
                 console.error('Error fetching users:', error);
@@ -730,11 +772,16 @@
         }
 
         /**
-         * Renders a list of user records into the users grid.
+         * Renders a list of user records into the users grid, applying search filter.
          */
-        function displayUsers(users) {
+        function renderUserList() {
             const grid = document.getElementById('usersGrid');
             if (!grid) return;
+
+            const users = getFilteredAuthUsers();
+            
+            // Clear existing rows but keep headers (which are the first 7 elements in the grid)
+            Array.from(grid.children).slice(7).forEach(el => el.remove());
 
             const userRows = users.map(user => {
                 const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
@@ -765,12 +812,17 @@
         }
 
         /**
-         * Updates the state of the Load More Users button.
+         * Updates the state of the Load More Users button and displays user count.
          */
         function renderUserControls() {
             const loadMoreBtn = document.getElementById('loadMoreUsersButton');
+            const userCountEl = document.getElementById('userCount');
+            const filteredCount = getFilteredAuthUsers().length;
+            const totalCount = state.allUsers.length;
+            
             if (loadMoreBtn) {
-                if (window.module.globalNextPageToken) {
+                // Only show "Load More" if there's no search term and a next page token exists
+                if (window.module.globalNextPageToken && !state.userSearchTerm) {
                     loadMoreBtn.classList.remove('hidden');
                     loadMoreBtn.textContent = 'Load More Users (100)';
                     loadMoreBtn.disabled = false;
@@ -778,11 +830,19 @@
                     loadMoreBtn.classList.add('hidden');
                 }
             }
+
+            if (userCountEl) {
+                if (state.userSearchTerm) {
+                    userCountEl.textContent = `Found ${filteredCount} matching users (from ${totalCount} loaded).`;
+                } else {
+                    userCountEl.textContent = `Showing ${filteredCount} users total.`;
+                }
+            }
         }
 
 
         // ----------------------------------------------------------------------
-        // --- RENDERING FUNCTIONS (COMPLETED) ---
+        // --- RENDERING FUNCTIONS (MODIFIED) ---
         // ----------------------------------------------------------------------
 
         function renderEditProductForm() {
@@ -872,6 +932,16 @@
                 return `
                     <section class="space-y-10">
                         <div id="catalogMessage"></div>
+                        
+                        ${renderEditProductForm()}
+
+                        <div class="bg-white p-6 rounded-xl shadow-lg">
+                            <div class="flex justify-between items-center mb-4">
+                                <input type="text" oninput="window.module.handleSearchInput(event)" placeholder="Search products, SKUs, or category..." class="p-2 border rounded-lg w-full max-w-md">
+                            </div>
+                            <div id="productListContainer">
+                            </div>
+                        </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
                                 <h3 class="text-xl font-bold mb-4 text-indigo-700">Manage Catalogs</h3>
@@ -906,15 +976,7 @@
                             </div>
                         </div>
 
-                        ${renderEditProductForm()}
-
-                        <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <div class="flex justify-between items-center mb-4">
-                                <input type="text" oninput="window.module.handleSearchInput(event)" placeholder="Search products, SKUs, or category..." class="p-2 border rounded-lg w-full max-w-md">
-                            </div>
-                            <div id="productListContainer">
-                                </div>
-                        </div>
+                        
                     </section>
                 `;
             } else if (state.activeTab === 'config') {
@@ -922,6 +984,14 @@
                     <section class="space-y-8">
                         <div id="configMessage"></div>
                         <h2 class="text-2xl font-bold text-indigo-700">Global System Configuration</h2>
+
+                        <div class="p-4 bg-red-100 rounded-xl shadow-inner border border-red-300">
+                            <p class="text-sm font-semibold text-red-700 mb-3">User Management Utility (Global Action):</p>
+                            <button id="clearAnonButtonConfig" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md">
+                                Clear All Anonymous Users
+                            </button>
+                            <p class="text-xs text-red-500 mt-2">Warning: This action is irreversible and should only be performed after careful consideration.</p>
+                        </div>
                         <form id="configForm" onsubmit="window.module.handleUpdateConfig(event)" class="bg-white p-6 rounded-xl shadow-lg space-y-6">
                             
                             <div class="flex items-center justify-between p-4 border rounded-lg bg-red-50 border-red-200">
@@ -962,8 +1032,11 @@
                         <div id="usersMessage"></div>
 
                         <div class="flex justify-between items-center mb-4">
-                            <p class="text-sm text-gray-600">User accounts are managed directly through Firebase Auth.</p>
-                            <button id="clearAnonButton" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md">
+                            <input type="text" oninput="window.module.handleUserSearchInput(event)" 
+                                placeholder="Search users by email, ID, or name..." 
+                                class="p-2 border rounded-lg w-full max-w-md">
+                            
+                            <button id="clearAnonButton" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md ml-4">
                                 Clear All Anonymous Users
                             </button>
                         </div>
@@ -982,6 +1055,7 @@
                                 <button id="loadMoreUsersButton" onclick="window.module.fetchUsers(window.module.globalNextPageToken)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 shadow-md hidden">
                                     Load More Users (100)
                                 </button>
+                                <p id="userCount" class="text-sm text-gray-500 mt-2">Showing 0 users.</p>
                             </div>
                         </div>
                     </section>
@@ -1077,8 +1151,8 @@
             if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
             if (state.activeTab === 'users' && !state.previewMode) { 
                 const grid = document.getElementById('usersGrid');
-                // Only fetch users if the grid is empty or just headers exist
-                if (grid && grid.children.length <= 7) window.module.fetchUsers();
+                // Only fetch users if the list is empty
+                if (grid && state.allUsers.length === 0) window.module.fetchUsers();
             }
             if (state.activeTab === 'orders' && !state.previewMode) window.module.updateAdminCartDisplay();
         }
@@ -1088,17 +1162,19 @@
             globalNextPageToken,
             globalConfig,
             fetchUsers,
-            displayUsers,
+            renderUserList, 
+
             fetchAdminConfig,
             displayStaticIps,
-            handleUpdateConfig, // NEW
+            handleUpdateConfig, 
 
             switchAdminTab,
             handleAddCatalog,
             handleDeleteCatalog,
             handleAddProduct,
             handleDeleteProduct,
-            handleSearchInput,
+            handleSearchInput, // Product search
+            handleUserSearchInput, // User search 
             showEditForm,
             cancelEdit,
             handleEditProduct,
