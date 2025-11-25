@@ -7,10 +7,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places&callback=initGooglePlaces"></script>
-
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f3ff6; }
+        <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
@@ -43,7 +41,7 @@
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p class="text-gray-600">Loading your order details...</p>
+            <p class="text-gray-600">Loading your order details and delivery service...</p>
         </div>
 
                 <div id="checkoutContent" class="hidden grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -130,7 +128,6 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // ADDED setLogLevel import
         import { getFirestore, addDoc, collection, serverTimestamp, setDoc, doc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         let db, auth, userId, cartData = {}, cartTotalCents = 0;
@@ -138,9 +135,36 @@
         const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
         const NETLIFY_FUNCTION_URL = '/.netlify/functions/send-email';
         const CONFIG_FUNCTION_URL = '/.netlify/functions/getClientFirebaseConfig';
+        // NEW: Function URL for the Google Maps API Key endpoint
+        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey';
 
         // Global Google Places Autocomplete instance
         let autocomplete;
+
+        // NEW: Function to dynamically load the Google Maps script using a fetched key
+        async function loadGoogleMapsScript() {
+            try {
+                // 1. Fetch API Key from the Netlify Function
+                const response = await fetch(MAPS_KEY_FUNCTION_URL);
+                if (!response.ok) throw new Error('Failed to fetch Maps API key.');
+                const { apiKey } = await response.json();
+                
+                // 2. Build the script URL
+                const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGooglePlaces`;
+
+                // 3. Dynamically create and append the script tag
+                const script = document.createElement('script');
+                script.src = scriptUrl;
+                script.async = true;
+                script.defer = true;
+                document.head.appendChild(script);
+
+            } catch (error) {
+                console.error('Delivery Service failed to load:', error);
+                document.getElementById('loadingState').innerHTML = `<p class="text-red-600 font-bold">Delivery address validation service failed to load. Please refresh or contact support.</p>`;
+            }
+        }
+
 
         // This function is called by Google when the script loads
         window.initGooglePlaces = function() {
@@ -201,17 +225,19 @@
             try {
                 const config = await loadFirebaseConfig();
                 
-                // FIX: Set logging level to 'error' to suppress general SDK messages 
-                // that might expose the config object/API key.
+                // Set logging level to 'error' to suppress general SDK messages 
                 if (typeof setLogLevel === 'function') {
                     setLogLevel('error');
                 } else {
-                    console.warn("setLogLevel not available. Debug messages may persist.");
+                    console.warn("setLogLevel not available.");
                 }
 
                 const app = initializeApp(config);
                 auth = getAuth(app);
                 db = getFirestore(app);
+                
+                // Start loading Google Maps script as soon as Firebase is set up
+                loadGoogleMapsScript();
 
                 onAuthStateChanged(auth, user => {
                     if (user) {
