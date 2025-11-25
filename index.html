@@ -182,10 +182,8 @@
             // OR if the config/auth isn't fully loaded yet (i.e., display login options while loading).
             
             // Condition reads: If not loaded, OR (if Maintenance AND not logged in AND not whitelisted), then return ''.
-            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName && !state.isAdminIP)) {
-                return '';
-            }
-        
+            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName && !state.isAdminIP)) return '';
+
             if (state.view === 'admin') {
                 return `
                     <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
@@ -433,15 +431,16 @@
         }
         
         function renderUserView() {
-            if (state.isMaintenanceMode) {
-                // If Maintenance Mode is TRUE, only show the maintenance view. 
-                // The logic to bypass is handled at the start of setupFirebase, which allows the AuthToggle to be rendered if whitelisted.
+            // CRITICAL FIX: Only show the maintenance message if Maintenance Mode is ON 
+            // AND the current user's IP is NOT whitelisted.
+            if (state.isMaintenanceMode && !state.isAdminIP) {
                 return `<div class="p-10 text-center text-gray-600">
                     <svg class="w-12 h-12 mx-auto text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
                     <h2 class="text-2xl font-bold mt-4">System Under Maintenance</h2>
                     <p class="mt-2">We are performing scheduled maintenance. We apologize for any inconvenience.</p>
                 </div>`;
             }
+            
             if (state.view !== 'user') return '';
             const totalCartPrice = getTotalCartPrice();
             return `
