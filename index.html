@@ -17,12 +17,11 @@
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        // ADDED GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // Import IP Check Utility for Admin Gate
+        // Import IP Check Utility for Admin Gate (NOTE: We rely on Netlify function now, but keep import for potential utility logic)
         import { checkIPRange } from './js/utilities/utils.js';
         // Global variables provided by the Canvas environment (used if defined)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -41,14 +40,14 @@
             email: '',
             message: null,
             loading: false,
-            isAdminIP: false, // New state for IP whitelist check
+            isAdminIP: false, // Updated by the new maintenance gate logic
             configLoaded: false, // Tracks if Firebase config is successfully loaded
             isModalOpen: false, // New state for login/register modal control
             modalMode: 'login', // 'login' or 'register'
             modalType: 'standard', // 'standard' or 'admin'
             userName: null, // To store the logged-in user's name/email
-            isMaintenanceMode: false, // NEW: Maintenance mode status
-            chatWidgetEnabled: false, // ADDED: Chat widget status
+            isMaintenanceMode: false, // UPDATED: Maintenance mode status
+            chatWidgetEnabled: false, // UPDATED: Chat widget status
             productSearchTerm: '', // NEW: Search term for products
             selectedCategoryId: 'all', // NEW: ID of the selected category, 'all' by default
             
@@ -57,7 +56,9 @@
         };
         
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
-        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig'; // Renamed to avoid confusion
+        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig'; 
+        const GET_CLIENT_IP_FUNCTION = '/.netlify/functions/getClientIp'; // NEW: Function to fetch client IP
+        
         // --- RENDER FUNCTIONS (MODIFIED) ---
         function render() {
             const appElement = document.getElementById('app');
@@ -136,10 +137,10 @@
         function renderProductCard(item) {
             // FIX: Safely stringify and escape single quotes and HTML entities for embedding in data-attribute.
             const itemJson = JSON.stringify(item)
-                                 .replace(/'/g, "\\'") // Escape single quote delimiter
-                                 .replace(/&/g, '&amp;') // Escape ampersand
-                                 .replace(/</g, '&lt;') // Escape <
-                                 .replace(/>/g, '&gt;'); // Escape >
+                                     .replace(/'/g, "\\'") 
+                                     .replace(/&/g, '&amp;') 
+                                     .replace(/</g, '&lt;') 
+                                     .replace(/>/g, '&gt;'); 
             
             return `
                 <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
@@ -177,7 +178,7 @@
             `;
         }
         function renderAuthToggle() {
-            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName)) return '';
+            if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName && !state.isAdminIP)) return '';
             if (state.view === 'admin') {
                 return `
                     <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
@@ -339,7 +340,7 @@
                                 return `
                                     <button onclick="window.module.selectCategory('${cat.id}')"
                                             class="w-full text-left p-2 rounded-lg transition duration-150
-                                                     ${isActive ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 hover:bg-gray-100'}">
+                                            ${isActive ? 'bg-indigo-600 text-white font-bold' : 'text-gray-700 hover:bg-gray-100'}">
                                         ${cat.name} <span class="${isActive ? 'text-indigo-200' : 'text-gray-500'}">(${cat.count})</span>
                                     </button>
                                 `;
@@ -392,10 +393,10 @@
                                         </div>
                                         <div class="flex items-center space-x-2">
                                             <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)"
-                                                     class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
+                                                    class="text-gray-500 hover:text-red-500 font-bold p-1 rounded-full transition">-</button>
                                             <span class="text-sm font-semibold w-5 text-center">${entry.quantity}</span>
                                             <button onclick="window.module.updateCartQuantity('${entry.item.id}', 1)"
-                                                     class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
+                                                    class="text-gray-500 hover:text-green-500 font-bold p-1 rounded-full transition">+</button>
                                         </div>
                                         <span class="text-sm font-bold ml-4">${formatPrice(entry.item.price * entry.quantity)}</span>
                                     </div>
@@ -424,10 +425,12 @@
         
         function renderUserView() {
             if (state.isMaintenanceMode) {
+                // If Maintenance Mode is TRUE, only show the maintenance view. 
+                // The logic to bypass is handled at the start of setupFirebase, which allows the AuthToggle to be rendered if whitelisted.
                 return `<div class="p-10 text-center text-gray-600">
                     <svg class="w-12 h-12 mx-auto text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
                     <h2 class="text-2xl font-bold mt-4">System Under Maintenance</h2>
-                    <p class="mt-2">We are performing scheduled maintenance. We apologize for any inconvenience. Only administrators can access the store.</p>
+                    <p class="mt-2">We are performing scheduled maintenance. We apologize for any inconvenience.</p>
                 </div>`;
             }
             if (state.view !== 'user') return '';
@@ -440,10 +443,10 @@
                         
                         <div class="sticky top-0 bg-gray-100 z-10 py-2 -mt-2 -mx-4 md:m-0 md:p-0">
                             <input type="text"
-                                       oninput="window.module.handleProductSearchInput(event)"
-                                       value="${state.productSearchTerm}"
-                                       placeholder="Search products by name or description..."
-                                       class="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
+                                            oninput="window.module.handleProductSearchInput(event)"
+                                            value="${state.productSearchTerm}"
+                                            placeholder="Search products by name or description..."
+                                            class="w-full p-3 border border-indigo-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
                         </div>
                         ${renderProductGrid()}
                     </div>
@@ -507,42 +510,17 @@
                 return {};
             }
         }
-        // --- MAINTENANCE MODE CHECK (Bypass for Admins) ---
-        async function checkMaintenanceMode(user) {
-            try {
-                const isAdminBypassing = user && !user.isAnonymous;
-                if (!isAdminBypassing) {
-                    const response = await fetch('/.netlify/functions/checkMaintenance');
-                    if (response.ok) {
-                        const data = await response.json();
-                        state.isMaintenanceMode = data.maintenanceMode;
-                    } else {
-                        state.isMaintenanceMode = false;
-                    }
-                } else {
-                    state.isMaintenanceMode = false;
-                }
-                
-                if (state.isMaintenanceMode) {
-                    state.message = { type: 'warning', text: 'The site is currently undergoing maintenance. Please check back later.' };
-                    render();
-                    return true;
-                }
-                return false;
-            } catch (error) {
-                console.error("Failed to check maintenance mode:", error);
-                state.isMaintenanceMode = false;
-                return false;
-            }
-        }
+        
         // --- FETCH GLOBAL CONFIG AFTER FIREBASE IS READY ---
-        async function fetchGlobalConfig() {
+        async function fetchAndApplyGlobalConfig() {
             try {
                 const response = await fetch(GET_CONFIG_FUNCTION);
                 if (!response.ok) throw new Error('Failed to fetch global config.');
                 
                 const config = await response.json();
-                state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (config.maintenanceMode === false);
+                
+                // Ensure chat widget honors the current maintenance state
+                state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (state.isMaintenanceMode === false);
                 
             } catch (error) {
                 console.error("Error fetching global config:", error);
@@ -819,14 +797,42 @@
             showMessage('info', 'Chat widget clicked! (Placeholder: Actual chat implementation is required)', 3000);
             // In a real application, you would initialize and open a chat window here.
         }
+        
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
             try {
-                state.isAdminIP = await checkIPRange();
-                console.log(`IP Check complete. Is Admin IP: ${state.isAdminIP}`);
+                // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK (NEW BLOCK) ---
                 
+                // A. Fetch Client IP
+                const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
+                const { ip: clientIp } = await ipResponse.json();
+                
+                // B. Fetch Global Config (Maintenance Mode & Whitelist)
+                const configResponse = await fetch(GET_CONFIG_FUNCTION);
+                const globalConfig = await configResponse.json();
+
+                state.isMaintenanceMode = globalConfig.maintenanceMode === true;
+                
+                // C. Check Whitelist
+                const ipWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
+                state.isAdminIP = ipWhitelist.includes(clientIp); // Set the isAdminIP state
+                
+                // D. Apply Gate Logic
+                if (state.isMaintenanceMode && !state.isAdminIP) {
+                    // CRITICAL: Stop loading Firebase/Data here and render the maintenance view for the public
+                    state.configLoaded = true;
+                    isAuthReady = true;
+                    render();
+                    console.log("Site locked by maintenance mode. IP not whitelisted. Exiting setup.");
+                    return; // EXIT FUNCTION: Prevents all Firebase initialization and data fetching
+                }
+                
+                // --- END MAINTENANCE GATE ---
+
+                // Proceed with Firebase Initialization if not in maintenance OR if IP is whitelisted
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
+                
                 if (Object.keys(firebaseConfig).length === 0) {
                     console.error("Firebase config is missing or failed to load from Netlify Function.");
                     state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
@@ -850,13 +856,7 @@
                     });
                 }
                 onAuthStateChanged(auth, async (user) => {
-                    const isSiteLocked = await checkMaintenanceMode(user);
                     
-                    if (isSiteLocked) {
-                        isAuthReady = true;
-                        render();
-                        return;
-                    }
                     if (user) {
                         userId = user.uid;
                         
@@ -877,7 +877,8 @@
                         }
                     }
                     isAuthReady = true;
-                    await fetchGlobalConfig();
+                    // FIX: Set final state of chat widget
+                    await fetchAndApplyGlobalConfig(); 
                     if (db) setupRealtimeListeners();
                     render();
                 });
