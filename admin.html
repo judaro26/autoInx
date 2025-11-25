@@ -18,6 +18,10 @@
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
+        /* NEW: Address Validation Styles */
+        .address-input { @apply w-full p-2 border rounded-lg transition-all duration-200; }
+        .address-valid { @apply border-green-500 bg-green-50; }
+        .address-invalid { @apply border-red-500 bg-red-50; }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -42,6 +46,7 @@
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
         let db;
+        let autocomplete; // Global variable for Google Autocomplete instance
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         let globalNextPageToken = null;
         let globalConfig = { maintenanceMode: false };
@@ -70,6 +75,7 @@
         const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser';
         const CLEAR_ANON_FUNCTION = '/.netlify/functions/clearAnonymousUsers';
         const ADMIN_CREATE_ORDER_FUNCTION = '/.netlify/functions/adminCreateOrder';
+        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey'; // NEW
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -94,8 +100,73 @@
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
+            
+            loadGoogleMapsScript(); // Load Maps Script after Firebase setup
             checkAuthAndRender();
         }
+
+        // --- NEW: Google Maps Autocomplete Logic ---
+
+        // Function called by the dynamically loaded Google Maps script
+        window.initGooglePlaces = function() {
+            const input = document.getElementById('deliveryAddress');
+            if (!input) return;
+
+            // Initialize Autocomplete, restricting to addresses and selected countries
+            autocomplete = new google.maps.places.Autocomplete(input, {
+                types: ['address'],
+                componentRestrictions: { country: ['co', 'us'] },
+                fields: ['formatted_address', 'geometry']
+            });
+
+            // Set initial state
+            input.dataset.validated = 'false';
+            input.classList.add('border-gray-300');
+
+            // Listener: When the user selects an address from the dropdown
+            autocomplete.addListener('place_changed', () => {
+                const place = autocomplete.getPlace();
+                if (place.geometry) {
+                    input.classList.remove('address-invalid');
+                    input.classList.add('address-valid');
+                    document.getElementById('addressErrorAdmin').classList.add('hidden');
+                    input.dataset.validated = 'true';
+                }
+            });
+
+            // Listener: Mark as invalid if user manually types after initialization/selection
+            input.addEventListener('input', () => {
+                input.classList.remove('address-valid');
+                input.classList.add('address-invalid');
+                document.getElementById('addressErrorAdmin').classList.add('hidden');
+                input.dataset.validated = 'false';
+            });
+        };
+
+        async function loadGoogleMapsScript() {
+            try {
+                // 1. Fetch API Key securely from the Netlify Function
+                const response = await fetch(MAPS_KEY_FUNCTION_URL);
+                if (!response.ok) throw new Error('Failed to fetch Maps API key.');
+                const { apiKey } = await response.json();
+                
+                // 2. Build the script URL
+                const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGooglePlaces`;
+
+                // 3. Dynamically create and append the script tag
+                const script = document.createElement('script');
+                script.src = scriptUrl;
+                script.async = true;
+                script.defer = true;
+                document.head.appendChild(script);
+
+            } catch (error) {
+                console.warn('Delivery Address Validation service disabled:', error);
+                // Fail silently, allows admin to manually enter orders without validation
+            }
+        }
+        // --- END: Google Maps Autocomplete Logic ---
+
 
         // --- IDLE TIMEOUT LOGIC ---
         function autoLogout() {
@@ -565,18 +636,33 @@
             event.preventDefault();
             resetTimer();
 
+            const submitBtn = document.getElementById('submitOrderButton');
+            
             if (Object.keys(state.adminCart).length === 0) {
-                showMessage('error', 'The order cart is empty!', 3000);
-                return;
+                return showMessage('error', 'The order cart is empty!', 3000);
             }
 
             const buyerName = document.getElementById('buyerName').value.trim();
             const buyerEmail = document.getElementById('buyerEmail').value.trim();
             const buyerPhone = document.getElementById('buyerPhone').value.trim();
-            const deliveryAddress = document.getElementById('deliveryAddress').value.trim();
+            const deliveryAddressInput = document.getElementById('deliveryAddress');
+            const deliveryAddress = deliveryAddressInput.value.trim();
             const notes = document.getElementById('orderNotes').value.trim();
             const totalCents = getTotalAdminCartPrice();
-            const submitBtn = document.getElementById('submitOrderButton');
+            
+            // NEW: Address validation check
+            const isAddressValidated = deliveryAddressInput.dataset.validated === 'true';
+            const hasAutocompleteLoaded = typeof google !== 'undefined' && typeof google.maps !== 'undefined';
+
+            if ((hasAutocompleteLoaded && !isAddressValidated) || !deliveryAddress) {
+                deliveryAddressInput.classList.add('address-invalid');
+                document.getElementById('addressErrorAdmin').classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'SUBMIT ORDER & SEND EMAIL';
+                return showMessage('error', 'Please ensure you select a valid address from the dropdown suggestions.');
+            }
+            // End validation check
+
             submitBtn.disabled = true;
             submitBtn.textContent = 'Processing...';
 
@@ -612,6 +698,11 @@
                 document.getElementById('createOrderForm').reset();
                 state.adminCart = {};
                 updateAdminCartDisplay();
+                // Clear address validation visual state on successful submit
+                deliveryAddressInput.classList.remove('address-valid', 'address-invalid');
+                deliveryAddressInput.classList.add('border-gray-300');
+
+
             } catch (error) {
                 console.error("Admin Order creation failed:", error);
                 showMessage('error', `Order failed: ${error.message}`);
@@ -624,6 +715,8 @@
         function renderAdminOrderSection() {
             const itemSelector = document.getElementById('itemSelector');
             if (itemSelector) itemSelector.innerHTML = `<option value="">-- Select Product --</option>${renderItemSelectorOptions()}`;
+            // Re-initialize Autocomplete if the tab is re-rendered
+            if (window.initGooglePlaces) window.initGooglePlaces();
         }
 
 
@@ -1073,7 +1166,13 @@
                                     <input type="text" id="buyerName" placeholder="Customer Name" required class="w-full p-2 border rounded-lg">
                                     <input type="email" id="buyerEmail" placeholder="Customer Email (for confirmation)" required class="w-full p-2 border rounded-lg">
                                     <input type="tel" id="buyerPhone" placeholder="Customer Phone (Optional)" class="w-full p-2 border rounded-lg">
-                                    <textarea id="deliveryAddress" rows="2" placeholder="Delivery Address" required class="w-full p-2 border rounded-lg"></textarea>
+                                    
+                                    <input type="text" id="deliveryAddress" placeholder="Start typing address for validation..." required 
+                                        class="w-full p-2 border rounded-lg address-input" 
+                                        autocomplete="off" data-validated="false">
+                                    <p id="addressErrorAdmin" class="text-sm text-red-600 mt-1 hidden">
+                                        Please select a valid address from the dropdown.
+                                    </p>
                                     <textarea id="orderNotes" rows="2" placeholder="Internal Admin Notes (Optional)" class="w-full p-2 border rounded-lg"></textarea>
                                     
                                     <div class="pt-4 border-t">
