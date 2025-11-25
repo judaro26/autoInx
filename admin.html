@@ -77,13 +77,14 @@
             activeTab: 'catalog',
             catalogs: [],
             items: [],
-            searchTerm: '', // for products
+            searchTerm: '', // for products (catalog tab)
+            orderSearchTerm: '', // <<< NEW: For searching items in the Orders tab
             userSearchTerm: '', // NEW: for users
             allUsers: [], // NEW: Store all fetched users for client-side search
             selectedUsers: [], // NEW: Array of selected user UIDs
             editingItem: null,
             previewMode: false,
-            adminCart: {},
+            adminCart: {}, // Tracks items in the manual order creation cart
         };
 
         // --- FIRESTORE COLLECTION PATHS & FUNCTION URLS ---
@@ -133,14 +134,16 @@
         function updateSubmitButtonState() {
             const submitButton = document.getElementById('submitOrderButton');
             const addressInput = document.getElementById('deliveryAddress');
-            // Check if address is validated (data-validated="true") and if the admin cart has items (placeholder for cart logic)
+            
+            // Check if address is validated (data-validated="true") 
             const isAddressValid = addressInput?.dataset.validated === 'true';
-            // Placeholder: Check if cart has items (will always be false in this non-implemented version, but ready for future logic)
+            
+            // Check if cart has items
             const isCartNotEmpty = Object.keys(state.adminCart).length > 0; 
             
-            // For now, only check address validity, as cart functions are placeholders
             if (submitButton) {
-                submitButton.disabled = !isAddressValid;
+                // Button is enabled only if address is valid AND the cart is not empty
+                submitButton.disabled = !(isAddressValid && isCartNotEmpty);
             }
         }
 
@@ -259,6 +262,7 @@
             onSnapshot(collection(db, CATALOGS_COLLECTION), snap => {
                 state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+                if (state.activeTab === 'orders' && !state.previewMode) updateItemSelector(); // FIX: Update selector on catalog change
             }, err => {
                 console.error("Error listening to categories:", err);
                 showMessage('error', 'Failed to fetch categories.');
@@ -267,7 +271,10 @@
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
                 state.items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-                if (state.activeTab === 'orders' && !state.previewMode) updateAdminCartDisplay();
+                if (state.activeTab === 'orders' && !state.previewMode) {
+                    updateItemSelector(); // FIX: Update selector on item change
+                    updateAdminCartDisplay(); // FIX: Update cart display if prices/items change
+                }
             }, err => {
                 console.error("Error listening to items:", err);
                 showMessage('error', 'Failed to fetch items.');
@@ -321,9 +328,9 @@
             return state.items.filter(item => {
                 const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
                 return item.name.toLowerCase().includes(term) ||
-                       item.description.toLowerCase().includes(term) ||
-                       catName.toLowerCase().includes(term) ||
-                       (item.sku && item.sku.toLowerCase().includes(term));
+                               item.description.toLowerCase().includes(term) ||
+                               catName.toLowerCase().includes(term) ||
+                               (item.sku && item.sku.toLowerCase().includes(term));
             });
         }
 
@@ -411,6 +418,7 @@
                 state.selectedUsers = []; // Clear selection when switching tab
             } else if (tab === 'orders') {
                 window.module.updateAdminCartDisplay();
+                window.module.updateItemSelector();
             }
         }
 
@@ -554,17 +562,17 @@
 
         function promptForPasswordReset(uid) {
              // Placeholder: Password Reset Logic
-              showMessage('info', 'Password reset is not implemented in this version.');
+             showMessage('info', 'Password reset is not implemented in this version.');
         }
 
         function deleteUser(uid, email) {
              // Placeholder: Delete User Logic
-              showMessage('info', 'User deletion is not implemented in this version.');
+             showMessage('info', 'User deletion is not implemented in this version.');
         }
 
         function disableUser(uid, email, currentlyDisabled) {
              // Placeholder: Disable User Logic
-              showMessage('info', 'User enable/disable is not implemented in this version.');
+             showMessage('info', 'User enable/disable is not implemented in this version.');
         }
         
         async function handleClearAnonymousUsers() {
@@ -627,30 +635,147 @@
             }
         }
         
-        // --- ADMIN ORDER CREATION PLACEHOLDERS ---
+        // --- ADMIN ORDER CREATION IMPLEMENTATION (FIXED) ---
         
+        // NEW: Filtering logic specifically for the Orders tab's selector
+        function getItemsForOrderSelector() {
+            if (!state.orderSearchTerm) return state.items;
+            
+            const term = state.orderSearchTerm.toLowerCase();
+            
+            return state.items.filter(item => {
+                const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                return item.name.toLowerCase().includes(term) ||
+                       (item.sku && item.sku.toLowerCase().includes(term)) ||
+                       catName.toLowerCase().includes(term);
+            });
+        }
+
+        // NEW: Handler for the search input in the Orders tab
+        function handleOrderSearchInput(e) {
+            state.orderSearchTerm = e.target.value;
+            updateItemSelector(); // Rerender the item selector based on search
+            resetTimer();
+        }
+
+        // IMPLEMENTED: Adds the selected item/quantity to the adminCart state
+        function addAdminCartItem() {
+            const selector = document.getElementById('itemSelector');
+            const quantityEl = document.getElementById('itemQuantity');
+            
+            if (!selector || !quantityEl) return;
+            
+            const itemId = selector.value;
+            const quantity = parseInt(quantityEl.value, 10);
+            
+            if (!itemId || quantity <= 0) {
+                showMessage('error', 'Please select a product and quantity.', 3000);
+                return;
+            }
+
+            const item = state.items.find(i => i.id === itemId);
+            if (!item) return;
+
+            state.adminCart = {
+                ...state.adminCart,
+                [itemId]: { 
+                    item, 
+                    quantity: (state.adminCart[itemId]?.quantity || 0) + quantity 
+                }
+            };
+            
+            showMessage('success', `Added ${quantity}x ${item.name} to the order cart.`, 2000);
+            quantityEl.value = 1; // Reset quantity input
+            updateAdminCartDisplay();
+        }
+
+        // IMPLEMENTED: Removes item completely or updates quantity by -1
+        function removeAdminCartItem(itemId) {
+            const currentEntry = state.adminCart[itemId];
+            if (!currentEntry) return;
+
+            const newCart = { ...state.adminCart };
+            delete newCart[itemId];
+            state.adminCart = newCart;
+
+            showMessage('info', `${currentEntry.item.name} removed from order cart.`, 2000);
+            updateAdminCartDisplay();
+        }
+
+        // IMPLEMENTED: Renders the order cart display
+        function updateAdminCartDisplay() {
+            const cartEl = document.getElementById('adminCartDisplay');
+            const totalEl = document.getElementById('adminCartTotal');
+            let totalCents = 0;
+
+            if (!cartEl || !totalEl) return;
+
+            const itemsInCart = Object.values(state.adminCart);
+            
+            if (itemsInCart.length === 0) {
+                cartEl.innerHTML = '<p class="text-gray-500 italic">No items added to the order yet. Start searching above!</p>';
+                totalEl.textContent = formatPriceDisplay(0);
+                updateSubmitButtonState();
+                return;
+            }
+
+            const cartHtml = itemsInCart.map(entry => {
+                const subtotal = entry.item.price * entry.quantity;
+                totalCents += subtotal;
+                
+                return `
+                    <div class="flex justify-between items-center border-b pb-2">
+                        <div class="flex-1 min-w-0 pr-2">
+                            <p class="text-sm font-semibold text-gray-900 truncate">${entry.item.name}</p>
+                            <p class="text-xs text-gray-500">${entry.quantity} x ${formatPriceDisplay(entry.item.price)}</p>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-sm font-bold text-pink-700 flex-shrink-0">${formatPriceDisplay(subtotal)}</span>
+                            <button onclick="window.module.removeAdminCartItem('${entry.item.id}')" class="text-red-500 hover:text-red-700 text-sm font-semibold">❌</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            cartEl.innerHTML = cartHtml;
+            totalEl.textContent = formatPriceDisplay(totalCents);
+            updateSubmitButtonState();
+        }
+
+        // NEW: Renders the item selector dropdown with search results
+        function updateItemSelector() {
+            const selectorEl = document.getElementById('itemSelector');
+            if (!selectorEl) return;
+            
+            const items = getItemsForOrderSelector();
+            
+            // Default option
+            let optionsHtml = '<option value="" disabled selected>-- Select Product or Search --</option>';
+            
+            if (items.length > 0) {
+                optionsHtml += items.map(item => {
+                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                    return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
+                }).join('');
+            } else if (state.orderSearchTerm) {
+                optionsHtml += `<option value="" disabled>No results found for "${state.orderSearchTerm}"</option>`;
+            } else {
+                 // Initial state when items are loaded and no search is performed
+                 optionsHtml += state.items.map(item => {
+                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                    return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
+                }).join('');
+            }
+            
+            selectorEl.innerHTML = optionsHtml;
+        }
+
+        // Placeholder submission function
         function handleAdminOrderSubmit(e) {
             e.preventDefault();
             showMessage('info', 'Manual order submission is not implemented in this version.');
         }
 
-        function addAdminCartItem() {
-            showMessage('info', 'Adding item to Admin Cart is not implemented.');
-        }
-
-        function removeAdminCartItem(itemId) {
-            showMessage('info', 'Removing item from Admin Cart is not implemented.');
-        }
-
-        function updateAdminCartDisplay() {
-            // Placeholder: Renders order cart for manual creation
-            const el = document.getElementById('adminCartDisplay');
-            if (el) el.innerHTML = '<p class="text-gray-500 italic">Add items from the selector above.</p>';
-            const total = document.getElementById('adminCartTotal');
-            if (total) total.textContent = formatPriceDisplay(0);
-
-            updateSubmitButtonState(); // CRITICAL FIX 4: Call this on cart update
-        }
 
         // --- ADMIN CONFIG FUNCTIONS (DEFINITIONS ADDED TO FIX REFERENCE ERRORS) ---
         
@@ -1166,8 +1291,8 @@
                                     
                                     <div class="pt-4 border-t">
                                         <button type="submit" id="submitOrderButton" disabled
-                                                class="w-full bg-purple-600 text-white py-3 rounded-lg font-extrabold hover:bg-purple-700 transition duration-150 shadow-lg disabled:bg-purple-300 disabled:cursor-not-allowed">
-                                            SUBMIT ORDER & SEND EMAIL
+                                                    class="w-full bg-purple-600 text-white py-3 rounded-lg font-extrabold hover:bg-purple-700 transition duration-150 shadow-lg disabled:bg-purple-300 disabled:cursor-not-allowed">
+                                                SUBMIT ORDER & SEND EMAIL
                                         </button>
                                     </div>
                                 </form>
@@ -1176,6 +1301,11 @@
                             <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
                                 <h3 class="text-xl font-bold mb-4 text-pink-700">Build Order Cart</h3>
                                 
+                                <div class="mb-4">
+                                    <input type="text" id="orderItemSearch" oninput="window.module.handleOrderSearchInput(event)" 
+                                        placeholder="Search products by name or SKU..." class="w-full p-2 border rounded-lg">
+                                </div>
+
                                 <div class="space-y-4 mb-4 p-3 bg-pink-50 rounded-lg">
                                     <div class="flex space-x-2">
                                         <select id="itemSelector" class="flex-grow p-2 border rounded-lg">
@@ -1261,8 +1391,9 @@
             handleDeleteCatalog,
             handleAddProduct,
             handleDeleteProduct,
-            handleSearchInput, // Product search
+            handleSearchInput, // Product search (Catalog tab)
             handleUserSearchInput, // User search 
+            handleOrderSearchInput, // Product search (Orders tab)
             showEditForm,
             cancelEdit,
             handleEditProduct,
@@ -1283,7 +1414,8 @@
             handleAdminOrderSubmit,
             addAdminCartItem,
             removeAdminCartItem,
-            updateAdminCartDisplay
+            updateAdminCartDisplay, // Exports the core cart update function
+            updateItemSelector // Exports the item selector update function
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
