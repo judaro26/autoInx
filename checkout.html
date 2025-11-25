@@ -40,6 +40,15 @@
         #chatWidget:hover {
             animation-play-state: paused;
         }
+
+        /* Map Styles */
+        #map-container {
+            height: 300px;
+            width: 100%;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        }
     </style>
 </head>
 <body class="antialiased">
@@ -101,8 +110,79 @@
 
         let chatWidgetEnabled = false;
         let autocomplete;
+        let map, marker, geocoder; // NEW: Map objects
+        let currentLang = 'es'; // Default language
+
+        // --- LANGUAGE TEXT MAPPING ---
+        const TEXT = {
+            es: {
+                title: 'Finalizar Compra',
+                return: '← Volver a la Tienda',
+                formHeader: 'Información de Entrega',
+                emailLabel: 'Correo Electrónico',
+                nameLabel: 'Nombre Completo',
+                phoneLabel: 'Teléfono (WhatsApp)',
+                phoneHelp: 'Te enviaremos actualizaciones por WhatsApp',
+                addressLabel: 'Dirección de Entrega',
+                addressHelp: 'Escribe y selecciona la dirección, luego afina tu ubicación en el mapa.',
+                addressPlaceholder: 'Escribe tu dirección completa...',
+                addressStatusDefault: 'Escribe para ver sugerencias',
+                addressStatusValid: 'Dirección válida',
+                addressStatusSelect: 'Selecciona de la lista',
+                addressError: 'Por favor selecciona una dirección válida de la lista',
+                buttonText: 'COMPLETAR PEDIDO',
+                summaryHeader: 'Resumen del Pedido',
+                total: 'Total:',
+                orderConfirmed: '¡Pedido Confirmado!',
+                orderId: 'ID:',
+                confirmationSent: 'Confirmación enviada a',
+                continueShopping: 'Seguir Comprando',
+                sendWhatsapp: 'Enviar WhatsApp',
+                cartEmpty: 'Tu carrito está vacío. <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Volver a la tienda</a>',
+                mapPinInstructions: 'Arrastra el pin para precisar tu ubicación exacta',
+                countrySelect: 'Colombia +57',
+            },
+            en: {
+                title: 'Checkout',
+                return: '← Back to Store',
+                formHeader: 'Delivery Information',
+                emailLabel: 'Email Address',
+                nameLabel: 'Full Name',
+                phoneLabel: 'Phone (WhatsApp)',
+                phoneHelp: 'We will send you updates via WhatsApp',
+                addressLabel: 'Delivery Address',
+                addressHelp: 'Type and select the address, then refine your location on the map.',
+                addressPlaceholder: 'Enter your full address...',
+                addressStatusDefault: 'Type to see suggestions',
+                addressStatusValid: 'Valid address',
+                addressStatusSelect: 'Select from list',
+                addressError: 'Please select a valid address from the list',
+                buttonText: 'COMPLETE ORDER',
+                summaryHeader: 'Order Summary',
+                total: 'Total:',
+                orderConfirmed: 'Order Confirmed!',
+                orderId: 'ID:',
+                confirmationSent: 'Confirmation sent to',
+                continueShopping: 'Continue Shopping',
+                sendWhatsapp: 'Send WhatsApp',
+                cartEmpty: 'Your cart is empty. <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Go back to store</a>',
+                mapPinInstructions: 'Drag the pin to pinpoint your exact location',
+                countrySelect: 'USA +1',
+            }
+        };
 
         const $ = id => document.getElementById(id);
+
+        // --- CORE FUNCTIONS ---
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            loadCheckout(); // Rerender content in the new language
+        }
+
+        function t(key) {
+            return TEXT[currentLang][key] || TEXT['es'][key];
+        }
 
         // Fetch admin config (chat widget toggle)
         async function fetchChatStatus() {
@@ -141,7 +221,7 @@
             return ` 
                 <a href="/" class="relative group">
                     <div class="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-6 py-4 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition transform hover:scale-110">
-                        <span class="hidden sm:inline">Carrito</span>
+                        <span class="hidden sm:inline">${t('summaryHeader')}</span>
                         <span class="sm:hidden">Items</span>
                         <span class="absolute -top-3 -right-3 bg-red-600 text-white text-sm font-bold rounded-full h-10 w-10 flex items-center justify-center ring-4 ring-white shadow-lg">
                             ${count}
@@ -151,59 +231,113 @@
             `;
         }
 
-        // Google Maps
+        // Google Maps (MODIFIED FOR MAP PINNING)
         async function loadGoogleMaps() {
             try {
                 const res = await fetch(MAPS_KEY_FUNCTION_URL);
                 if (!res.ok) throw new Error("Key failed");
                 const { apiKey } = await res.json();
                 const script = document.createElement('script');
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initPlaces`;
+                // Ensure the map library is included
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry&callback=initPlaces`;
                 script.async = true;
                 document.head.appendChild(script);
             } catch (err) {
-                // Ensure addressStatus exists before setting properties
                 const statusEl = $('addressStatus');
                 if (statusEl) {
-                    statusEl.textContent = "Autocompletado no disponible";
+                    statusEl.textContent = t('addressStatusDefault');
                     statusEl.className = "text-red-600 font-bold";
                 }
             }
         }
 
+        // Geocoder helper to reverse geocode a location
+        function reverseGeocode(latLng) {
+            if (!geocoder) {
+                geocoder = new google.maps.Geocoder();
+            }
+            geocoder.geocode({ 'location': latLng }, (results, status) => {
+                if (status === 'OK' && results[0]) {
+                    const addressInput = $('delivery-address');
+                    addressInput.value = results[0].formatted_address;
+                    addressInput.classList.remove('address-invalid');
+                    addressInput.classList.add('address-valid');
+                    addressInput.dataset.validated = 'true';
+                    $('addressStatus').textContent = t('addressStatusValid');
+                    $('addressStatus').className = "text-green-600 font-bold";
+                    $('addressError').classList.add('hidden');
+                } else {
+                    console.error('Geocoder failed due to: ' + status);
+                    showMessage('error', 'Error al obtener la dirección del pin.');
+                }
+            });
+        }
+
         window.initPlaces = function() {
             const input = $('delivery-address');
-            // Check if input exists before attaching autocomplete or listeners
-            if (!input) return; 
-            
+            const mapEl = $('map-container');
+            if (!input || !mapEl) return; 
+
+            // 1. Initialize Autocomplete
             autocomplete = new google.maps.places.Autocomplete(input, {
                 types: ['address'],
                 componentRestrictions: { country: ['co', 'us'] }
             });
+
+            // 2. Initialize Map (Default: Bogota, Colombia)
+            const initialPos = { lat: 4.7110, lng: -74.0721 }; 
+            map = new google.maps.Map(mapEl, {
+                center: initialPos,
+                zoom: 12,
+                fullscreenControl: false,
+                streetViewControl: false,
+                mapTypeControl: false,
+            });
+
+            // 3. Initialize Marker (Draggable)
+            marker = new google.maps.Marker({
+                position: initialPos,
+                map: map,
+                draggable: true,
+                title: t('mapPinInstructions')
+            });
+
+            // 4. Listen for Autocomplete Place Selection
             autocomplete.addListener('place_changed', () => {
                 const place = autocomplete.getPlace();
-                if (place.formatted_address) {
-                    input.classList.remove('address-invalid');
-                    input.classList.add('address-valid');
-                    input.dataset.validated = 'true';
-                    $('addressStatus').textContent = "Dirección válida";
-                    $('addressStatus').className = "text-green-600 font-bold";
-                    $('addressError').classList.add('hidden');
+                if (place.geometry) {
+                    map.setCenter(place.geometry.location);
+                    map.setZoom(16);
+                    marker.setPosition(place.geometry.location);
+                    
+                    // Trigger reverse geocode to confirm the address/pinning
+                    reverseGeocode(place.geometry.location); 
                 }
             });
+
+            // 5. Listen for Manual Marker Drag End (Pinning)
+            marker.addListener('dragend', () => {
+                const latLng = marker.getPosition();
+                // Update address input based on the new marker location
+                reverseGeocode(latLng);
+            });
+            
+            // 6. Address Input Listener (Cleanup and validation indicator)
             input.addEventListener('input', () => {
                 input.classList.remove('address-valid');
                 input.classList.add('address-invalid');
                 input.dataset.validated = 'false';
-                $('addressStatus').textContent = "Selecciona de la lista";
+                $('addressStatus').textContent = t('addressStatusSelect');
                 $('addressStatus').className = "text-orange-600";
             });
         };
+
 
         const formatPrice = c => `$${(c/100).toFixed(2)}`;
 
         function showMessage(type, msg) {
             const el = $('checkoutMessage');
+            if (!el) return;
             el.innerHTML = `<div class="p-6 rounded-2xl border-4 font-bold text-xl ${type==='success'?'bg-green-100 border-green-500 text-green-800':'bg-red-100 border-red-500 text-red-800'}">${msg}</div>`;
             el.scrollIntoView({ behavior: 'smooth' });
         }
@@ -219,6 +353,9 @@
 
         async function initApp() {
             try {
+                // Determine language based on browser/session
+                currentLang = (navigator.language || navigator.userLanguage).startsWith('en') ? 'en' : 'es';
+
                 const res = await fetch(CONFIG_CLIENT_FUNCTION);
                 if (!res.ok) throw new Error("Config fetch failed");
                 const cfg = await res.json();
@@ -230,7 +367,6 @@
                 // loadGoogleMaps(); // Moved to renderCheckoutContent
 
                 onAuthStateChanged(auth, user => {
-                    // if (!user) return location.href = '/'; // Keep Anonymous users to allow checkout
                     userId = user?.uid;
                     loadCheckout();
                 });
@@ -241,7 +377,6 @@
             }
         }
         
-        // FIX 1: Define renderCartSummary here so renderCheckoutContent can call it.
         function renderCartSummary() {
             return Object.values(cartData).map(e => `
                 <div class="p-6 bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl shadow-lg">
@@ -261,9 +396,7 @@
             if (!json || json === '{}') {
                 document.getElementById('app').innerHTML = `
                     <div id="loadingState" class="text-center py-32 bg-white rounded-3xl shadow-2xl">
-                        <p class="text-red-600 text-3xl font-bold">Tu carrito está vacío. 
-                            <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Volver a la tienda</a>
-                        </p>
+                        <p class="text-red-600 text-3xl font-bold">${t('cartEmpty')}</p>
                     </div>
                 `;
                 return;
@@ -274,7 +407,7 @@
             // Hide initial loading state and render main content structure
             document.getElementById('app').innerHTML = renderHeader() + renderCheckoutContent();
             renderChatWidget();
-            toggleLoading(false); // Update button with final price
+            toggleLoading(false); 
             
             // FIX 2: Call Google Maps initialization AFTER the form elements are added to the DOM.
             loadGoogleMaps(); 
@@ -288,7 +421,7 @@
                     <div class="flex items-center space-x-4">
                         <img src="images/AutoInx logo.png" alt="AutoInx Logo" class="h-10 w-auto"> 
                         <h1 class="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
-                            Pagar
+                            ${t('title')}
                         </h1>
                     </div>
                     <div class="flex items-center space-x-6">
@@ -296,8 +429,12 @@
                             ${renderCartLink()}
                         </div>
                         <a href="/" class="text-indigo-600 hover:text-indigo-800 font-bold text-lg flex items-center transition hover:scale-105">
-                            ← Volver a la Tienda
+                            ${t('return')}
                         </a>
+                        <button onclick="setLanguage('${currentLang === 'es' ? 'en' : 'es'}')"
+                                class="px-3 py-1 text-sm rounded-full bg-gray-100 hover:bg-gray-200">
+                            ${currentLang === 'es' ? 'English' : 'Español'}
+                        </button>
                     </div>
                 </header>
             `;
@@ -310,56 +447,63 @@
                     <!-- Form -->
                     <div class="lg:col-span-2">
                         <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-indigo-600">
-                            <h2 class="text-3xl font-extrabold text-indigo-700 mb-10">Información de Entrega</h2>
+                            <h2 class="text-3xl font-extrabold text-indigo-700 mb-10">${t('formHeader')}</h2>
                             <div id="checkoutMessage" class="mb-8"></div>
 
                             <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-10">
                                 <!-- Email -->
                                 <div>
-                                    <label class="block text-lg font-bold text-gray-800 mb-3">Correo Electrónico <span class="text-red-500">*</span></label>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('emailLabel')} <span class="text-red-500">*</span></label>
                                     <input type="email" id="buyer-email" placeholder="tucorreo@ejemplo.com" required
                                         class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
                                 </div>
 
                                 <!-- Name -->
                                 <div>
-                                    <label class="block text-lg font-bold text-gray-800 mb-3">Nombre Completo <span class="text-red-500">*</span></label>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('nameLabel')} <span class="text-red-500">*</span></label>
                                     <input type="text" id="buyer-name" placeholder="Juan Camilo Pérez" required
                                         class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
                                 </div>
 
                                 <!-- Phone -->
                                 <div>
-                                    <label class="block text-lg font-bold text-gray-800 mb-3">Teléfono (WhatsApp) <span class="text-red-500">*</span></label>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('phoneLabel')} <span class="text-red-500">*</span></label>
                                     <div class="phone-input-group">
                                         <select id="country-code" class="country-select">
                                             <option value="+57">Colombia +57</option>
-                                            <option value="+1">USA +1</option>
+                                            <option value="+1">${t('countrySelect')}</option>
                                         </select>
                                         <input type="tel" id="buyer-phone" placeholder="3001234567" required pattern="[0-9]{7,15}"
                                             class="phone-input" title="Solo números">
                                     </div>
-                                    <p class="text-sm text-gray-600 mt-3">Te enviaremos actualizaciones por WhatsApp</p>
+                                    <p class="text-sm text-gray-600 mt-3">${t('phoneHelp')}</p>
                                 </div>
 
                                 <!-- Address -->
                                 <div>
-                                    <label class="block text-lg font-bold text-gray-800 mb-3">Dirección de Entrega <span class="text-red-500">*</span></label>
-                                    <input type="text" id="delivery-address" placeholder="Escribe tu dirección completa..." required
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('addressLabel')} <span class="text-red-500">*</span></label>
+                                    
+                                    <input type="text" id="delivery-address" placeholder="${t('addressPlaceholder')}" required
                                         class="address-input border-gray-300" autocomplete="off" data-validated="false">
-                                    <div class="mt-4 flex items-center space-x-3">
-                                        <span id="addressStatus" class="text-gray-600 font-medium">Escribe para ver sugerencias</span>
+                                        
+                                    <div class="mt-4 flex flex-col space-y-3">
+                                        <p class="text-sm text-gray-600">${t('addressHelp')}</p>
+                                        <span id="addressStatus" class="text-gray-600 font-medium">${t('addressStatusDefault')}</span>
                                     </div>
                                     <p id="addressError" class="text-red-600 font-bold mt-3 hidden">
-                                        Por favor selecciona una dirección válida de la lista
+                                        ${t('addressError')}
                                     </p>
+
+                                    <!-- Map Container (NEW) -->
+                                    <div id="map-container" class="mt-4"></div>
+                                    <p class="text-xs text-gray-500 mt-2">${t('mapPinInstructions')}</p>
                                 </div>
 
                                 <!-- Submit -->
                                 <div class="pt-10">
                                     <button type="submit" id="submitButton"
                                         class="w-full bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 text-white py-7 rounded-3xl font-extrabold text-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transform transition duration-300 disabled:opacity-60 disabled:cursor-not-allowed flex justify-center items-center">
-                                        <span id="buttonText">COMPLETAR PEDIDO <span id="totalPriceDisplay">${formatPrice(cartTotalCents)}</span></span>
+                                        <span id="buttonText">${t('buttonText')} <span id="totalPriceDisplay">${formatPrice(cartTotalCents)}</span></span>
                                         <svg id="spinner" class="animate-spin ml-5 h-10 w-10 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -373,13 +517,13 @@
                     <!-- Order Summary -->
                     <div class="lg:col-span-1">
                         <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-pink-600 sticky top-8">
-                            <h3 class="text-3xl font-extrabold text-pink-700 mb-8">Resumen del Pedido</h3>
+                            <h3 class="text-3xl font-extrabold text-pink-700 mb-8">${t('summaryHeader')}</h3>
                             <div id="cartSummary" class="space-y-6 max-h-96 custom-scrollbar overflow-y-auto pr-3">
                                 ${renderCartSummary()}
                             </div>
                             <div class="pt-10 mt-10 border-t-4 border-gray-300">
                                 <div class="flex justify-between text-3xl font-extrabold">
-                                    <span class="text-gray-800">Total:</span>
+                                    <span class="text-gray-800">${t('total')}</span>
                                     <span id="orderTotal" class="text-pink-600">${formatPrice(cartTotalCents)}</span>
                                 </div>
                             </div>
@@ -397,7 +541,8 @@
 
                 const email = $('buyer-email').value.trim();
                 const name = $('buyer-name').value.trim();
-                const phone = $('country-code').value + $('buyer-phone').value.trim();
+                // Ensure phone number starts with + and country code
+                const phone = $('country-code').value + $('buyer-phone').value.trim(); 
                 const addrIn = $('delivery-address');
                 const address = addrIn.value.trim();
                 const valid = addrIn.dataset.validated === 'true';
@@ -407,7 +552,7 @@
                         addrIn.classList.add('address-invalid');
                         $('addressError').classList.remove('hidden');
                     }
-                    return showMessage('error', 'Completa todos los campos y selecciona una dirección válida');
+                    return showMessage('error', t('addressError'));
                 }
 
                 toggleLoading(true);
@@ -417,6 +562,15 @@
                     items: Object.values(cartData).map(e => ({ id: e.item.id, name: e.item.name, price: e.item.price, quantity: e.quantity })),
                     totalCents: cartTotalCents, userId, timestamp: new Date().toISOString()
                 };
+                
+                // Add Geo-Coordinates (optional but highly recommended for delivery apps)
+                if (marker && marker.getPosition) {
+                    const position = marker.getPosition();
+                    order.geolocation = {
+                        lat: position.lat(),
+                        lng: position.lng()
+                    };
+                }
 
                 try {
                     const ref = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
@@ -437,29 +591,28 @@
                     document.getElementById('app').innerHTML = `
                         <div class="max-w-5xl mx-auto p-6 sm:p-8 lg:p-12">
                             <div class="text-center py-40 bg-gradient-to-br from-emerald-50 to-teal-100 rounded-3xl shadow-3xl">
-                                <h2 class="text-6xl font-extrabold text-green-600 mb-10">¡Pedido Confirmado!</h2>
-                                <p class="text-3xl text-gray-800 mb-6">ID: <span class="font-mono bg-white px-8 py-4 rounded-2xl text-indigo-700">${ref.id}</span></p>
-                                <p class="text-xl text-gray-700 mb-12">Confirmación enviada a <strong>${email}</strong></p>
+                                <h2 class="text-6xl font-extrabold text-green-600 mb-10">${t('orderConfirmed')}</h2>
+                                <p class="text-3xl text-gray-800 mb-6">${t('orderId')} <span class="font-mono bg-white px-8 py-4 rounded-2xl text-indigo-700">${ref.id}</span></p>
+                                <p class="text-xl text-gray-700 mb-12">${t('confirmationSent')} <strong>${email}</strong></p>
                                 <div class="space-x-8">
                                     <a href="/" class="inline-block px-12 py-6 bg-indigo-600 text-white font-bold text-2xl rounded-3xl hover:bg-indigo-700 transition transform hover:scale-110">
-                                        Seguir Comprando
+                                        ${t('continueShopping')}
                                     </a>
                                     <a href="${waLink}" target="_blank" class="inline-block px-12 py-6 bg-green-600 text-white font-bold text-2xl rounded-3xl hover:bg-green-700 transition transform hover:scale-110">
-                                        Enviar WhatsApp
+                                        ${t('sendWhatsapp')}
                                     </a>
                                 </div>
                             </div>
                         </div>
                     `;
-                    // Rerender the header to hide the cart badge
-                    // renderCartLink(); // This is no longer necessary as the entire #app is replaced
                 } catch (err) {
                     console.error(err);
                     showMessage('error', 'Error al procesar el pedido. Intenta de nuevo.');
                 } finally {
                     toggleLoading(false);
                 }
-            }
+            },
+            setLanguage, // Export language switcher for debugging/manual use
         };
 
         document.addEventListener('DOMContentLoaded', initApp);
