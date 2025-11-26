@@ -4,14 +4,11 @@
  * and routes the email using Brevo SMTP with dynamic templating.
  */
 const nodemailer = require("nodemailer");
-// --- FIX APPLIED: Corrected assignment to import fs.promises ---
+// --- FIXED: Corrected assignment for fs.promises ---
 const fs = require("fs").promises;
 const path = require("path");
 
 // --- CRITICAL FIX: Global Rate Limiting Variables ---
-// These must be defined at the top level of the file scope.
-
-// Rate Limiting Globals (Simple in-memory cache)
 const rateLimitStore = {}; 
 const MAX_REQUESTS_PER_HOUR = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
@@ -31,7 +28,6 @@ const transporter = nodemailer.createTransport({
 // Load base HTML template
 async function getEmailHtml() {
     try {
-        // Ensure this path is correct relative to your function's root directory
         const templatePath = path.join(__dirname, "emailTemplates", "contactSubmissionTemplate.html");
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
@@ -91,7 +87,23 @@ async function getContactTemplate(data, runtimeData) {
     template = template.replace(/href="mailto:{{email}}[^"]*"/, `href="${dynamicMailTo}"`);
     
     
-    // 4. --- Cleanup Order Placeholders ---
+    // 4. --- Response Time SLA Message (NEW LOGIC) ---
+    const dayOfWeek = new Date().getDay(); // 0 = Sunday, 6 = Saturday
+    let responseTimeMessage;
+
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+        // It's Saturday or Sunday
+        responseTimeMessage = "Reconocemos tu consulta. Un agente de soporte se pondrá en contacto contigo durante el **próximo día hábil**.";
+    } else {
+        // It's Monday through Friday
+        responseTimeMessage = "Reconocemos tu consulta. Un agente de soporte se pondrá en contacto contigo en las **próximas 24 horas hábiles**.";
+    }
+
+    // Replace the new placeholder in the template
+    template = template.replace(/{{responseTimeMessage}}/g, responseTimeMessage);
+
+
+    // 5. --- Cleanup Order Placeholders ---
     template = template
         .replace(/{{params\.orderId}}/g, "")
         .replace(/{{params\.orderDate}}/g, "")
@@ -166,7 +178,7 @@ exports.handler = async function (event) {
             ip: clientIp,
         };
 
-        // Generate the HTML body (this content is suitable for both admin and customer)
+        // Generate the HTML body
         const htmlBody = await getContactTemplate({ name, email, subjectType, message }, runtimeData);
 
         // 7. --- Send Emails ---
