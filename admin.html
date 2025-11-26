@@ -721,31 +721,60 @@
             showMessage('info', 'Bulk user actions are not implemented in this version.', 5000, 'users');
             resetTimer();
         }
-        
+
+        // MODIFIED: Central function to execute actions against a user via Netlify function
         async function handleUserAction(action, uid, data = {}, successMsg, suppressRefresh = false) {
-            // Placeholder: Individual User Action Logic
-            showMessage('info', `Action ${action} for user ${uid} is not fully implemented.`, 5000, 'users');
-            // Important: Re-throw the error for bulk handler to catch if needed
-            if (!suppressRefresh) {
-                window.module.fetchUsers(null); 
+            resetTimer();
+        
+            if (action !== 'resetPassword' && !confirm(`Are you sure you want to perform the action: ${action} on user ${uid}?`)) {
+                throw new Error('Action cancelled by user.');
+            }
+        
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                
+                const payload = { 
+                    action, 
+                    uid, 
+                    data 
+                };
+        
+                const res = await fetch(MANAGE_USER_FUNCTION, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+        
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(errorDetails.details || errorDetails.error || res.statusText);
+                }
+                
+                // Log the successful action
+                await logAdminAction(action.toUpperCase() + '_USER', { uid, details: data }, uid);
+        
+                showMessage('success', successMsg, 5000, 'users');
+        
+                if (!suppressRefresh) {
+                    // After successful individual action, fetch users from the start
+                    // This is safer than just updating local state for complex changes.
+                    window.module.fetchUsers(null); 
+                }
+        
+                return await res.json(); // Return data (e.g., reset link)
+                
+            } catch (error) {
+                console.error(`User Action (${action}) failed for ${uid}:`, error);
+                showMessage('error', `Action failed: ${error.message}`, 8000, 'users');
+                throw error; // Re-throw the error for other handlers (like bulk) to catch
             }
         }
     
     
-        function promptForPasswordReset(uid) {
-             // Placeholder: Password Reset Logic
-             showMessage('info', 'Password reset is not implemented in this version.', 5000, 'users');
-        }
-    
-        function deleteUser(uid, email) {
-             // Placeholder: Delete User Logic
-             showMessage('info', 'User deletion is not implemented in this version.', 5000, 'users');
-        }
-    
-        function disableUser(uid, email, currentlyDisabled) {
-             // Placeholder: Disable User Logic
-             showMessage('info', 'User enable/disable is not implemented in this version.', 5000, 'users');
-        }
+
         
         async function handleClearAnonymousUsers() {
             if (!confirm("Are you sure you want to delete ALL anonymous users? This process is irreversible and may take time for large databases.")) {
@@ -1373,7 +1402,7 @@
                     <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleDateString() : 'N/A'}</div>
                     <div class="grid-item text-xs font-bold ${disabledClass}">${user.disabled ? 'DISABLED' : 'Active'}</div>
                     <div class="grid-item space-x-2 ${disabledClass}">
-                        <button onclick="window.module.promptForPasswordReset('${user.uid}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
+                        <button onclick="window.module.promptForPasswordReset('${user.uid}', '${userEmail}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
                         <button onclick="window.module.disableUser('${user.uid}', '${userEmail}', ${user.disabled})" class="${disabledButtonColor} text-sm font-semibold">${disabledButtonText}</button>
                         <button onclick="window.module.deleteUser('${user.uid}', '${userEmail}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
                     </div>
