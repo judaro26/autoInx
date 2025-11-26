@@ -55,6 +55,18 @@
         </div>
     </div>
 
+    <script>
+        // Placeholder for the global maps object. The module will overwrite this,
+        // but defining it here ensures the Maps SDK can find it immediately.
+        window.initGooglePlaces = function() {
+            // This is just a stub. The real function logic runs in the module scope
+            // once all module variables (like state, updateSubmitButtonState) are available.
+            if (window.module && window.module.initPlacesModule) {
+                window.module.initPlacesModule();
+            }
+        };
+    </script>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -147,9 +159,8 @@
             }
         }
 
-
-        // Function called by the dynamically loaded Google Maps script
-        window.initGooglePlaces = function() {
+        // MOVED FROM GLOBAL SCOPE INTO MODULE FUNCTION (NEW NAME: initPlacesModule)
+        function initPlacesModule() {
             const input = document.getElementById('deliveryAddress');
             if (!input) return;
 
@@ -195,6 +206,7 @@
                 const { apiKey } = await response.json();
                 
                 // 2. Build the script URL
+                // Uses the globally defined callback: initGooglePlaces
                 const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGooglePlaces`;
 
                 // 3. Dynamically create and append the script tag
@@ -616,7 +628,53 @@
             // Placeholder function for the 'Order More' button
             showMessage('info', `Simulating creation of Purchase Order for ${itemName} (${itemId}). (Not Implemented)`, 5000, 'inventory');
         }
-        
+
+        function renderInventorySection() {
+            const el = document.getElementById('inventoryContent');
+            if (!el) return '';
+            
+            const lowStockThreshold = 10;
+            const items = state.items;
+
+            const inventoryListHtml = items.map(item => {
+                const isLowStock = item.stock <= lowStockThreshold;
+                const stockColor = isLowStock ? 'text-red-600 font-bold' : 'text-green-700 font-semibold';
+                const rowClass = isLowStock ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200';
+
+                return `
+                    <div class="grid grid-cols-12 gap-4 items-center p-3 border-b ${rowClass}">
+                        <div class="col-span-4 truncate text-sm font-medium">${item.name} <span class="text-xs text-gray-500 ml-2">(${item.sku})</span></div>
+                        <div class="col-span-2 text-center ${stockColor}">${item.stock}</div>
+                        <div class="col-span-6">
+                            <form onsubmit="window.module.handleUpdateStock(event, '${item.id}')" class="flex space-x-2 items-center">
+                                <input type="number" name="stockAdjustment" placeholder="Amount" min="1" required class="w-20 p-1 border rounded text-sm">
+                                <select name="stockAction" class="p-1 border rounded text-sm">
+                                    <option value="add">Add Stock</option>
+                                    <option value="remove">Remove Stock</option>
+                                </select>
+                                <button type="submit" class="px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition duration-150">Update</button>
+                                <button type="button" onclick="window.module.showPurchaseOrderForm('${item.id}', '${item.name}')" class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition duration-150">Order More</button>
+                            </form>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            el.innerHTML = `
+                <div class="space-y-4">
+                    <div class="grid grid-cols-12 gap-4 font-bold bg-gray-100 p-3 rounded-lg border-b border-gray-300">
+                        <div class="col-span-4">Product Name (SKU)</div>
+                        <div class="col-span-2 text-center">Current Stock</div>
+                        <div class="col-span-6">Adjust Stock / Order</div>
+                    </div>
+                    <div id="inventoryList" class="space-y-1 custom-scrollbar max-h-[60vh] overflow-y-auto">
+                        ${inventoryListHtml.length > 0 ? inventoryListHtml : '<p class="text-center p-4 text-gray-500">No products found in inventory.</p>'}
+                    </div>
+                </div>
+            `;
+            return '';
+        }
+
         // --- USER MANAGEMENT (MODIFIED for Bulk) ---
         
         async function handleBulkUserAction() {
@@ -710,361 +768,6 @@
             }
         }
         
-        // --- ADMIN ORDER CREATION IMPLEMENTATION (FIXED) ---
-        
-        // NEW: Filtering logic specifically for the Orders tab's selector
-        function getItemsForOrderSelector() {
-            if (!state.orderSearchTerm) return state.items;
-            
-            const term = state.orderSearchTerm.toLowerCase();
-            
-            return state.items.filter(item => {
-                const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                return item.name.toLowerCase().includes(term) ||
-                       (item.sku && item.sku.toLowerCase().includes(term)) ||
-                       catName.toLowerCase().includes(term);
-            });
-        }
-
-        // NEW: Handler for the search input in the Orders tab
-        function handleOrderSearchInput(e) {
-            state.orderSearchTerm = e.target.value;
-            updateItemSelector(); // Rerender the item selector based on search
-            resetTimer();
-        }
-
-        // IMPLEMENTED: Adds the selected item/quantity to the adminCart state
-        function addAdminCartItem() {
-            const selector = document.getElementById('itemSelector');
-            const quantityEl = document.getElementById('itemQuantity');
-            
-            if (!selector || !quantityEl) return;
-            
-            const itemId = selector.value;
-            const quantity = parseInt(quantityEl.value, 10);
-            
-            if (!itemId || quantity <= 0) {
-                showMessage('error', 'Please select a product and quantity.', 3000, 'orders');
-                return;
-            }
-
-            const item = state.items.find(i => i.id === itemId);
-            if (!item) return;
-
-            state.adminCart = {
-                ...state.adminCart,
-                [itemId]: { 
-                    item, 
-                    quantity: (state.adminCart[itemId]?.quantity || 0) + quantity 
-                }
-            };
-            
-            showMessage('success', `Added ${quantity}x ${item.name} to the order cart.`, 2000, 'orders');
-            quantityEl.value = 1; // Reset quantity input
-            updateAdminCartDisplay();
-        }
-
-        // IMPLEMENTED: Removes item completely or updates quantity by -1
-        function removeAdminCartItem(itemId) {
-            const currentEntry = state.adminCart[itemId];
-            if (!currentEntry) return;
-
-            const newCart = { ...state.adminCart };
-            delete newCart[itemId];
-            state.adminCart = newCart;
-
-            showMessage('info', `${currentEntry.item.name} removed from order cart.`, 2000, 'orders');
-            updateAdminCartDisplay();
-        }
-
-        // IMPLEMENTED: Renders the order cart display
-        function updateAdminCartDisplay() {
-            const cartEl = document.getElementById('adminCartDisplay');
-            const totalEl = document.getElementById('adminCartTotal');
-            let totalCents = 0;
-
-            if (!cartEl || !totalEl) return;
-
-            const itemsInCart = Object.values(state.adminCart);
-            
-            if (itemsInCart.length === 0) {
-                cartEl.innerHTML = '<p class="text-gray-500 italic">No items added to the order yet. Start searching above!</p>';
-                totalEl.textContent = formatPriceDisplay(0);
-                updateSubmitButtonState();
-                return;
-            }
-
-            const cartHtml = itemsInCart.map(entry => {
-                const subtotal = entry.item.price * entry.quantity;
-                totalCents += subtotal;
-                
-                return `
-                    <div class="flex justify-between items-center border-b pb-2">
-                        <div class="flex-1 min-w-0 pr-2">
-                            <p class="text-sm font-semibold text-gray-900 truncate">${entry.item.name}</p>
-                            <p class="text-xs text-gray-500">${entry.quantity} x ${formatPriceDisplay(entry.item.price)}</p>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <span class="text-sm font-bold text-pink-700 flex-shrink-0">${formatPriceDisplay(subtotal)}</span>
-                            <button onclick="window.module.removeAdminCartItem('${entry.item.id}')" class="text-red-500 hover:text-red-700 text-sm font-semibold">❌</button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            cartEl.innerHTML = cartHtml;
-            totalEl.textContent = formatPriceDisplay(totalCents);
-            updateSubmitButtonState();
-        }
-
-        // NEW: Renders the item selector dropdown with search results
-        function updateItemSelector() {
-            const selectorEl = document.getElementById('itemSelector');
-            if (!selectorEl) return;
-            
-            const items = getItemsForOrderSelector();
-            
-            // Default option
-            let optionsHtml = '<option value="" disabled selected>-- Select Product or Search --</option>';
-            
-            if (items.length > 0) {
-                optionsHtml += items.map(item => {
-                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                    return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
-                }).join('');
-            } else if (state.orderSearchTerm) {
-                optionsHtml += `<option value="" disabled>No results found for "${state.orderSearchTerm}"</option>`;
-            } else {
-                 // Initial state when items are loaded and no search is performed
-                 optionsHtml += state.items.map(item => {
-                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                    return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
-                }).join('');
-            }
-            
-            selectorEl.innerHTML = optionsHtml;
-        }
-
-        // IMPLEMENTED: Order submission function with inventory adjustment
-        async function handleAdminOrderSubmit(e) {
-            e.preventDefault();
-            resetTimer();
-
-            const form = document.getElementById('createOrderForm');
-            const buyerName = form.buyerName.value.trim();
-            const buyerEmail = form.buyerEmail.value.trim();
-            const deliveryAddress = document.getElementById('deliveryAddress');
-            const orderNotes = form.orderNotes.value.trim();
-
-            const itemsToOrder = Object.values(state.adminCart);
-
-            if (itemsToOrder.length === 0) {
-                showMessage('error', 'The order cart is empty.', 3000, 'orders');
-                return;
-            }
-
-            // Check if address is validated
-            if (deliveryAddress.dataset.validated !== 'true') {
-                 showMessage('error', 'Please select a valid delivery address from the dropdown.', 5000, 'orders');
-                 return;
-            }
-            
-            // 1. Prepare data for the cloud function (Order creation)
-            const orderData = {
-                buyerName,
-                buyerEmail,
-                deliveryAddress: deliveryAddress.value, // Send the validated address
-                items: itemsToOrder.map(entry => ({
-                    id: entry.item.id,
-                    name: entry.item.name,
-                    price: entry.item.price,
-                    quantity: entry.quantity,
-                    sku: entry.item.sku,
-                })),
-                total: itemsToOrder.reduce((acc, entry) => acc + (entry.item.price * entry.quantity), 0),
-                notes: orderNotes,
-                adminEmail: auth.currentUser?.email || 'Admin',
-            };
-            
-            // Disable button during processing
-            const submitButton = document.getElementById('submitOrderButton');
-            submitButton.disabled = true;
-            submitButton.textContent = 'Processing...';
-
-            try {
-                // 2. Process Inventory Updates (Local Firestore Operation)
-                const inventoryUpdates = itemsToOrder.map(async entry => {
-                    const itemId = entry.item.id;
-                    const orderQty = entry.quantity;
-                    const currentItem = state.items.find(i => i.id === itemId);
-                    
-                    if (!currentItem) return;
-
-                    const newStock = Math.max(0, (currentItem.stock || 0) - orderQty);
-                    
-                    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
-                    await updateDoc(itemRef, { stock: newStock });
-
-                    // Log the inventory change internally
-                    await logAdminAction('INVENTORY_DECREASED', { 
-                        itemId, 
-                        item: currentItem.name, 
-                        amount: orderQty, 
-                        oldStock: currentItem.stock, 
-                        newStock 
-                    }, itemId);
-                });
-
-                // Wait for all inventory updates to complete
-                await Promise.all(inventoryUpdates);
-
-
-                // 3. Submit Order to Cloud Function (Remote Operation)
-                const idToken = await auth.currentUser.getIdToken();
-                const res = await fetch(ADMIN_CREATE_ORDER_FUNCTION, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${idToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(orderData)
-                });
-                
-                if (!res.ok) {
-                    const errorDetails = await res.json();
-                    throw new Error(errorDetails.details || 'Order creation failed on server.');
-                }
-                
-                // 4. Finalize UI State
-                state.adminCart = {}; // Clear cart
-                form.reset();
-                deliveryAddress.dataset.validated = 'false'; // Reset validation state
-                
-                showMessage('success', `Order for ${buyerName} successfully created and inventory adjusted!`, 8000, 'orders');
-
-            } catch (error) {
-                console.error('Error creating order or updating inventory:', error);
-                showMessage('error', `Failed to create order: ${error.message}`, 10000, 'orders');
-            } finally {
-                submitButton.textContent = 'SUBMIT ORDER & SEND EMAIL';
-                updateAdminCartDisplay(); // Re-enable button via display update
-            }
-        }
-
-
-        // --- ADMIN CONFIG FUNCTIONS (DEFINITIONS ADDED TO FIX REFERENCE ERRORS) ---
-        
-        async function fetchAdminConfig() {
-            try {
-                const res = await fetch(CONFIG_FUNCTION);
-                if (!res.ok) throw new Error('Config fetch failed.');
-                const config = await res.json();
-                
-                // CRITICAL FIX 1: Update global config state
-                globalConfig = config;
-                
-                // Update UI elements
-                const maintenanceToggle = document.getElementById('maintenanceToggle');
-                const chatWidgetToggle = document.getElementById('chatWidgetToggle');
-                const dynamicIpList = document.getElementById('dynamicIpList');
-
-                if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
-                if (chatWidgetToggle) chatWidgetToggle.checked = config.chatWidgetEnabled;
-                
-                if (dynamicIpList) {
-                    dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
-                }
-                document.getElementById('configLastUpdated').textContent = config.lastUpdated ? 
-                    `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
-
-                // --- START: Attach listeners that update globalConfig state immediately ---
-                
-                if (chatWidgetToggle && chatWidgetToggle.type === 'checkbox') {
-                    // Remove existing listener to prevent stacking if the function is called multiple times
-                    chatWidgetToggle.removeEventListener('change', chatToggleHandler);
-                    
-                    // Define handler function for clean removal/re-attachment
-                    function chatToggleHandler(e) {
-                        globalConfig.chatWidgetEnabled = e.target.checked;
-                        resetTimer();
-                    }
-
-                    chatWidgetToggle.addEventListener('change', chatToggleHandler);
-                }
-                
-                if (maintenanceToggle && maintenanceToggle.type === 'checkbox') {
-                    // Remove existing listener to prevent stacking if the function is called multiple times
-                    maintenanceToggle.removeEventListener('change', maintenanceToggleHandler);
-                    
-                    // Define handler function for clean removal/re-attachment
-                    function maintenanceToggleHandler(e) {
-                        globalConfig.maintenanceMode = e.target.checked;
-                        resetTimer();
-                    }
-
-                    maintenanceToggle.addEventListener('change', maintenanceToggleHandler);
-                }
-                
-                // --- END ---
-
-            } catch (error) {
-                console.error("Error fetching admin config:", error);
-                showMessage('error', `Failed to load configuration: ${error.message}`, 8000, 'config');
-            }
-        }
-
-        function displayStaticIps() {
-            const el = document.getElementById('staticIpListDisplay');
-            if (el) {
-                // Ensure the staticIpWhitelist is imported and available
-                if (staticIpWhitelist && Array.isArray(staticIpWhitelist)) {
-                    el.textContent = staticIpWhitelist.join('\n');
-                } else {
-                    el.textContent = 'Error: Static IP list not available.';
-                }
-            }
-        }
-
-        async function handleUpdateConfig(e) {
-            e.preventDefault();
-            
-            // Get the latest values from the DOM elements
-            const maintenanceToggle = document.getElementById('maintenanceToggle');
-            const chatWidgetToggle = document.getElementById('chatWidgetToggle');
-            const dynamicIpList = document.getElementById('dynamicIpList');
-            
-            // Use values directly from the toggles and the textarea
-            const updates = {
-                maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
-                chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
-                ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist
-            };
-            
-            try {
-                const idToken = await auth.currentUser.getIdToken();
-                const res = await fetch(UPDATE_CONFIG_FUNCTION, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${idToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(updates)
-                });
-                
-                if (!res.ok) {
-                    const errorDetails = await res.json();
-                    throw new Error(errorDetails.details || 'Update failed on server.');
-                }
-                
-                showMessage('success', 'Configuration updated successfully!', 8000, 'config');
-                await logAdminAction('CONFIG_UPDATE', updates);
-                fetchAdminConfig(); // Reload config after update
-            } catch (error) {
-                console.error('Error updating config:', error);
-                showMessage('error', `Failed to save configuration: ${error.message}`, 8000, 'config');
-            }
-        }
-
         // --- FETCH USERS (MODIFIED) ---
         async function fetchUsers(pageToken = null) {
             resetTimer();
@@ -1115,217 +818,6 @@
             }
         }
 
-        /**
-         * Renders a list of user records into the users grid, applying search filter and selection state.
-         */
-        function renderUserList() {
-            const grid = document.getElementById('usersGrid');
-            if (!grid) return;
-
-            const users = getFilteredAuthUsers();
-            
-            // Clear existing rows but keep headers (which are the first 8 elements in the grid, including the checkbox header)
-            Array.from(grid.children).slice(8).forEach(el => el.remove());
-
-            // Uncheck the master checkbox and update counts
-            const selectAll = document.getElementById('selectAllUsers');
-            if (selectAll) selectAll.checked = false;
-            
-            document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
-            document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
-
-            const userRows = users.map(user => {
-                const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
-                const emailVerifiedIcon = user.emailVerified ? '✅' : '❌';
-                const disabledButtonText = user.disabled ? 'Enable' : 'Disable';
-                const disabledButtonColor = user.disabled ? 'text-green-600 hover:text-green-800' : 'text-yellow-600 hover:text-yellow-800';
-                const isSelected = state.selectedUsers.includes(user.uid);
-
-                // Handle cases where email is null for anonymous users
-                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
-
-                return `
-                    <div class="grid-item ${disabledClass}">
-                        <input type="checkbox" onchange="window.module.toggleUserSelection('${user.uid}')" 
-                                data-uid="${user.uid}" ${isSelected ? 'checked' : ''}>
-                    </div>
-                    <div class="grid-item text-xs font-mono truncate ${disabledClass}">${user.uid.slice(0, 8)}...</div>
-                    <div class="grid-item text-sm font-semibold truncate ${disabledClass}">${userEmail} ${emailVerifiedIcon}</div>
-                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.displayName || 'N/A'}</div>
-                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
-                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleDateString() : 'N/A'}</div>
-                    <div class="grid-item text-xs font-bold ${disabledClass}">${user.disabled ? 'DISABLED' : 'Active'}</div>
-                    <div class="grid-item space-x-2 ${disabledClass}">
-                        <button onclick="window.module.promptForPasswordReset('${user.uid}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
-                        <button onclick="window.module.disableUser('${user.uid}', '${userEmail}', ${user.disabled})" class="${disabledButtonColor} text-sm font-semibold">${disabledButtonText}</button>
-                        <button onclick="window.module.deleteUser('${user.uid}', '${userEmail}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                    </div>
-                `;
-            }).join('');
-
-            grid.insertAdjacentHTML('beforeend', userRows);
-            renderUserControls();
-        }
-
-        /**
-         * Updates the state of the Load More Users button and displays user count.
-         */
-        function renderUserControls() {
-            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
-            const userCountEl = document.getElementById('userCount');
-            const filteredCount = getFilteredAuthUsers().length;
-            const totalCount = state.allUsers.length;
-            
-            if (loadMoreBtn) {
-                // Only show "Load More" if there's no search term and a next page token exists
-                if (globalNextPageToken && !state.userSearchTerm) {
-                    loadMoreBtn.classList.remove('hidden');
-                    loadMoreBtn.textContent = 'Load More Users (100)';
-                    loadMoreBtn.disabled = false;
-                } else {
-                    loadMoreBtn.classList.add('hidden');
-                }
-            }
-
-            if (userCountEl) {
-                if (state.userSearchTerm) {
-                    userCountEl.textContent = `Found ${filteredCount} matching users (from ${totalCount} loaded).`;
-                } else {
-                    userCountEl.textContent = `Showing ${filteredCount} users total.`;
-                }
-            }
-        }
-
-
-        // ----------------------------------------------------------------------
-        // --- RENDERING FUNCTIONS (MODIFIED HTML STRUCTURE) ---
-        // ----------------------------------------------------------------------
-
-        function renderEditProductForm() {
-            if (!state.editingItem) return '';
-            const item = state.editingItem;
-            const options = state.catalogs.map(c => `<option value="${c.id}" ${c.id === item.catalogId ? 'selected' : ''}>${c.name}</option>`).join('');
-            const priceDollars = (item.price / 100).toFixed(2);
-            const img = item.imageUrl.includes('placehold.co') ? '' : item.imageUrl;
-
-            return `
-                <div class="mb-10 p-6 border rounded-xl shadow-2xl bg-yellow-100 border-t-4 border-yellow-500">
-                    <h3 class="text-xl font-bold mb-4 text-yellow-700">Edit: ${item.name}</h3>
-                    <div class="mb-4 p-3 bg-yellow-200 border border-yellow-300 rounded-lg">
-                        <label class="block text-sm font-bold text-yellow-800">SKU:</label>
-                        <input type="text" value="${item.sku || 'N/A'}" readonly class="w-full p-2 bg-yellow-50 font-mono text-sm border-yellow-400 rounded-md cursor-not-allowed">
-                    </div>
-                    <form onsubmit="window.module.handleEditProduct(event)" class="space-y-4">
-                        <input type="hidden" name="itemId" value="${item.id}">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input name="itemName" value="${item.name}" required class="p-2 border rounded-lg">
-                            <select name="catalogId" required class="p-2 border rounded-lg"><option value="">-- Category --</option>${options}</select>
-                        </div>
-                        <textarea name="itemDescription" rows="2" required class="w-full p-2 border rounded-lg">${item.description}</textarea>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input type="number" step="0.01" name="itemPrice" value="${priceDollars}" required class="p-2 border rounded-lg">
-                            <input type="url" name="itemImageUrl" value="${img}" class="p-2 border rounded-lg">
-                        </div>
-                        <div class="flex space-x-4">
-                            <button type="submit" class="flex-grow bg-yellow-600 text-white py-2 rounded-lg hover:bg-yellow-700">Save Changes</button>
-                            <button type="button" onclick="window.module.cancelEdit()" class="flex-grow bg-gray-300 py-2 rounded-lg hover:bg-gray-400">Cancel</button>
-                        </div>
-                    </form>
-                </div>`;
-        }
-
-        function renderProductListSection() {
-            const el = document.getElementById('productListContainer');
-            if (!el) return;
-            const items = getFilteredItems();
-
-            el.innerHTML = `
-                <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${items.length} / ${state.items.length} total)</h3>
-                <div class="overflow-x-auto">
-                    <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1.5fr 1.5fr 1fr;">
-                        <div class="grid-header">SKU</div>
-                        <div class="grid-header">Name & Description</div>
-                        <div class="grid-header">Price</div>
-                        <div class="grid-header">Category</div>
-                        <div class="grid-header">Image URL</div>
-                        <div class="grid-header">Added At</div>
-                        <div class="grid-header">Actions</div>
-                        ${items.map(item => {
-                            const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                            const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
-                            return `
-                                <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
-                                <div class="grid-item"><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length>50?'...':''}</p></div>
-                                <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
-                                <div class="grid-item">${cat}</div>
-                                <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
-                                <div class="grid-item text-xs text-gray-500">${created}</div>
-                                <div class="grid-item">
-                                    <button onclick="window.module.showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
-                                    <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                                </div>`;
-                        }).join('')}
-                    </div>
-                    ${items.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found.</p>' : ''}
-                </div>`;
-        }
-
-        function renderPreviewSite() {
-            return `
-                <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
-                    <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview</h2>
-                    <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
-                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups allow-scripts allow-same-origin"></iframe>
-                    </div>
-                    <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
-                </section>`;
-        }
-        
-        function renderInventorySection() {
-            const el = document.getElementById('inventoryContent');
-            if (!el) return '';
-            
-            const lowStockThreshold = 10;
-            const items = state.items;
-
-            const inventoryListHtml = items.map(item => {
-                const isLowStock = item.stock <= lowStockThreshold;
-                const stockColor = isLowStock ? 'text-red-600 font-bold' : 'text-green-700 font-semibold';
-                const rowClass = isLowStock ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200';
-
-                return `
-                    <div class="grid grid-cols-12 gap-4 items-center p-3 border-b ${rowClass}">
-                        <div class="col-span-4 truncate text-sm font-medium">${item.name} <span class="text-xs text-gray-500 ml-2">(${item.sku})</span></div>
-                        <div class="col-span-2 text-center ${stockColor}">${item.stock}</div>
-                        <div class="col-span-6">
-                            <form onsubmit="window.module.handleUpdateStock(event, '${item.id}')" class="flex space-x-2 items-center">
-                                <input type="number" name="stockAdjustment" placeholder="Amount" min="1" required class="w-20 p-1 border rounded text-sm">
-                                <select name="stockAction" class="p-1 border rounded text-sm">
-                                    <option value="add">Add Stock</option>
-                                    <option value="remove">Remove Stock</option>
-                                </select>
-                                <button type="submit" class="px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition duration-150">Update</button>
-                                <button type="button" onclick="window.module.showPurchaseOrderForm('${item.id}', '${item.name}')" class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition duration-150">Order More</button>
-                            </form>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            el.innerHTML = `
-                <div class="space-y-4">
-                    <div class="grid grid-cols-12 gap-4 font-bold bg-gray-100 p-3 rounded-lg border-b border-gray-300">
-                        <div class="col-span-4">Product Name (SKU)</div>
-                        <div class="col-span-2 text-center">Current Stock</div>
-                        <div class="col-span-6">Adjust Stock / Order</div>
-                    </div>
-                    <div id="inventoryList" class="space-y-1 custom-scrollbar max-h-[60vh] overflow-y-auto">
-                        ${inventoryListHtml.length > 0 ? inventoryListHtml : '<p class="text-center p-4 text-gray-500">No products found in inventory.</p>'}
-                    </div>
-                </div>
-            `;
-            return '';
-        }
 
         function renderAdminTabs() {
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
@@ -1658,7 +1150,10 @@
             // NEW Inventory Functions
             renderInventorySection,
             handleUpdateStock,
-            showPurchaseOrderForm 
+            showPurchaseOrderForm,
+            
+            // EXPOSED MODULE FUNCTION FOR GLOBAL CALL (FIX)
+            initPlacesModule // Export the function containing Maps init logic
         };
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
