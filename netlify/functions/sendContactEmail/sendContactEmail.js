@@ -1,13 +1,13 @@
 /**
  * Netlify Function: sendContactEmail.js
  * Receives contact form submissions and routes the email using Brevo SMTP,
- * adapting the order confirmation template for professional formatting.
+ * adapting the base HTML template for professional formatting.
  */
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
 const path = require("path");
 
-// 1. Configure Nodemailer Transporter using Brevo SMTP details
+// --- Configuration ---
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
     port: process.env.BREVO_SMTP_PORT,
@@ -29,84 +29,73 @@ async function getEmailHtml() {
     }
 }
 
-// Load + adapt template
-async function getContactTemplate(data) {
+/**
+ * Loads the contact template and populates all dynamic placeholders.
+ * @param {object} data - Submission data (name, email, subjectType, message)
+ * @param {object} runtimeData - Server-side data (recipientEmail, timestamp, ip)
+ */
+async function getContactTemplate(data, runtimeData) {
     let template = await getEmailHtml();
 
-    // Header Change
+    // 1. --- Dynamic Header/Title Updates ---
     const headerReplacement =
         data.subjectType === "order"
-            ? "New Order Inquiry Received"
-            : "New General Support Message";
+            ? "Consulta de Pedido Recibida" // Order Inquiry Received
+            : "Mensaje de Soporte General"; // General Support Message
 
-    template = template.replace(/Your autoInx Order is Confirmed/g, headerReplacement);
+    // Replace main header title (e.g., in the <title> or main h1)
+    template = template.replace(/Nuevo Mensaje Recibido/g, headerReplacement);
+    
+    // Update the main page title in the hero section (H1)
+    template = template.replace(/<h1>Nuevo Mensaje Recibido<\/h1>/, `<h1>${headerReplacement}</h1>`);
 
-    // Intro paragraph
-    const introText =
-        data.subjectType === "order"
-            ? "We have received a question regarding an order. Details below:"
-            : "A new message has been submitted via the contact form. Details below:";
 
-    // Contact table
-    const contactDetailsTable = `
-        <p style="margin-bottom: 20px; font-size: 16px;">
-            ${introText}
-        </p>
-        <table width="100%" cellspacing="0" cellpadding="0" border="0" role="presentation"
-            style="border-collapse: collapse; margin-top: 20px; table-layout: fixed; font-size: 16px;">
-            <tr style="background-color: #f3f4f6;">
-                <td colspan="2" style="padding: 12px; font-weight: bold; font-size: 18px; color: #6366f1;">
-                    Submission Details
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: bold; width: 30%;">Name:</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee;">${data.name}</td>
-            </tr>
-            <tr>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: bold;">Email:</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee;">${data.email}</td>
-            </tr>
-            <tr>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: bold;">Query Type:</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee;">${
-                    data.subjectType === "order" ? "ORDER QUESTION" : "GENERAL SUPPORT"
-                }</td>
-            </tr>
-            <tr>
-                <td colspan="2" style="padding: 15px 12px; font-weight: bold;">Message:</td>
-            </tr>
-            <tr>
-                <td colspan="2" style="padding: 0 12px 15px 12px; background-color: #f9f9f9; color:#555;">
-                    ${data.message.replace(/\n/g, "<br>")}
-                </td>
-            </tr>
-        </table>
-    `;
+    // 2. --- Content Section Injection (If applicable, though unnecessary with full template) ---
+    // NOTE: Since the template below uses placeholders ({{name}}, etc.), 
+    // the previous manual table injection block is no longer needed. 
+    // We only need to replace the placeholders directly.
+    
+    
+    // 3. --- Global Placeholder Replacement (CRITICAL FIX) ---
+    
+    // Basic fields
+    template = template.replace(/{{name}}/g, data.name);
+    template = template.replace(/{{email}}/g, data.email);
+    template = template.replace(/{{subjectType}}/g, data.subjectType.toUpperCase()); // Keep uppercase for highlight
 
-    // Replace order summary section if it exists
-    const orderSectionPattern =
-        /<p style="margin-bottom: 20px; font-size: 16px;">[\s\S]*?<table[\s\S]*?<\/table>/;
+    // Message field (replace newlines with <br> for HTML)
+    const formattedMessage = data.message.replace(/\n/g, "<br>");
+    template = template.replace(/{{message}}/g, formattedMessage);
 
-    if (orderSectionPattern.test(template)) {
-        template = template.replace(orderSectionPattern, contactDetailsTable);
-    } else {
-        // fallback: just inject table at top
-        template = contactDetailsTable + template;
-    }
+    // Server/Runtime Data fields
+    template = template.replace(/{{recipientEmail}}/g, runtimeData.recipientEmail);
+    template = template.replace(/{{timestamp}}/g, runtimeData.timestamp);
+    template = template.replace(/{{ip}}/g, runtimeData.ip || 'N/A');
+    
+    // 4. --- Dynamic Button Link Update (CRITICAL FIX) ---
+    
+    // Update the mailto link's subject line and body with dynamic data
+    const mailToSubject = `Re: ${data.subjectType.toUpperCase()} - AutoInx`;
+    const mailToBody = `Hola ${data.name},%0A%0AGracias%20por%20contactarnos.%20En%20un%20momento%20te%20responderemos...`;
+    
+    const dynamicMailTo = `mailto:${data.email}?subject=${encodeURIComponent(mailToSubject)}&body=${mailToBody}`;
+    
+    // Find the mailto link placeholder and replace it fully
+    template = template.replace(/href="mailto:{{email}}[^"]*"/, `href="${dynamicMailTo}"`);
+    
+    
+    // 5. --- Cleanup Order Placeholders (Existing good practice) ---
+    template = template
+        .replace(/{{params\.orderId}}/g, "")
+        .replace(/{{params\.orderDate}}/g, "")
+        .replace(/{{params\.orderTableRows}}/g, "")
+        .replace(/{{params\.totalPrice}}/g, "");
 
-    // Cleanup placeholders
-    template = template
-        .replace(/{{params\.orderId}}/g, "")
-        .replace(/{{params\.orderDate}}/g, "")
-        .replace(/{{params\.orderTableRows}}/g, "")
-        .replace(/{{params\.totalPrice}}/g, "");
-
-    // Replace final generic confirmation line
-    template = template.replace(
-        /We will send you a separate email notification when your order is ready\./g,
-        "Please allow up to 24 hours for a response to your inquiry."
-    );
+    // Replace final generic confirmation line (If it exists in the template)
+    template = template.replace(
+        /We will send you a separate email notification when your order is ready\./g,
+        "Please permite hasta 24 horas para recibir una respuesta a tu consulta."
+    );
 
     return template;
 }
@@ -129,25 +118,28 @@ exports.handler = async function (event) {
 
         const recipient =
             subjectType === "order" ? "orders@autoinx.com" : "support@autoinx.com";
+            
+        const currentTime = new Date();
+        const runtimeData = {
+            recipientEmail: recipient,
+            timestamp: currentTime.toLocaleDateString('es-CO') + ' ' + currentTime.toLocaleTimeString('es-CO'),
+            ip: event.headers['client-ip'] || event.headers['x-nf-client-connection-ip'] || 'Desconocida',
+        };
 
         const subject =
             subjectType === "order"
                 ? `[Order Inquiry] New Question from ${name}`
                 : `[General Support] New Message from ${name}`;
 
-        const htmlBody = await getContactTemplate({
-            name,
-            email,
-            subjectType,
-            message,
-        });
+        const htmlBody = await getContactTemplate({ name, email, subjectType, message }, runtimeData);
 
         await transporter.sendMail({
+            // Using a hardcoded, verified sender is safer than BREVO_SMTP_USER
             from: "noreply@autoinx.com", 
             to: recipient,
             subject,
             html: htmlBody,
-            replyTo: email, // Keep this for user replies
+            replyTo: email,
         });
 
         return {
