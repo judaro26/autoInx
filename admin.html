@@ -6,7 +6,7 @@
     <title>autoInx Admin Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
+    <style type="text/tailwindcss">
         body { font-family: 'Inter', sans-serif; }
         .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
         .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
@@ -18,7 +18,8 @@
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
-        /* NEW: Address Validation Styles */
+        
+        /* NEW: Address Validation Styles - NOW PROCESSED CORRECTLY */
         .address-input { @apply w-full p-2 border rounded-lg transition-all duration-200; }
         .address-valid { @apply border-green-500 bg-green-50; }
         .address-invalid { @apply border-red-500 bg-red-50; }
@@ -29,19 +30,58 @@
             top: 0;
             left: 0;
             margin: 0;
-            transition: transform 0.15s ease-in-out; /* Added transition for smooth movement */
+            opacity: 0; /* ADDED: Hide the actual checkbox */
+            width: 100%; /* ADDED: Make it cover the label for easier click */
+            height: 100%; /* ADDED: Make it cover the label for easier click */
+            z-index: 10;
+            cursor: pointer;
         }
+        .toggle-label {
+            /* This is the track */
+            display: block; 
+            overflow: hidden; 
+            height: 1.5rem; /* 6 for h-6 */
+            border-radius: 9999px; /* rounded-full */
+            background-color: #d1d5db; /* gray-300 */
+            transition: background-color 0.15s ease-in-out;
+        }
+    
+        /* Toggled State - Uses sibling selector on the hidden checkbox input */
+        #chatWidgetToggle:checked + .toggle-label { 
+            background-color: #3b82f6; /* Blue-500 */
+        }
+        /* CRITICAL FIX: This needs to target the handle's actual visual element, not the hidden checkbox.
+           Since the HTML structure is often hard to change, let's keep the original toggle logic 
+           but ensure the `:checked` state *only* sets the transform on the checkbox itself.
+           The error-causing logic was: #chatWidgetToggle:checked { transform: translateX(20px); }
+           
+           We need to style the handle. Assuming the HTML structure is: 
+           <div class="relative w-10 h-6">
+               <input type="checkbox" id="toggle" class="toggle-checkbox" />
+               <label for="toggle" class="toggle-label"></label>
+               <div class="toggle-handle absolute ..."></div> <- The missing element
+           </div>
+           
+           Since we don't have the handle element, let's apply the transform directly to the checkbox 
+           as you did, but ensure the checkbox is invisible (opacity: 0) and cover its parent. 
+           The visual movement logic is flawed without a separate handle element. 
+           
+           For a clean fix *within your existing CSS philosophy*, use Tailwind's `peer` utility or 
+           a modified CSS for the toggle handle (which is currently missing in the style).
+           
+           **Given your current structure, the transform needs to be applied to a *visible* element.** Let's use a background image or box-shadow trick to simulate the handle on the label, which 
+           is generally too complex for a quick fix.
+           
+           **Simplest fix for YOUR CODE:** Remove the problematic toggle transform from the checkbox itself, as it's meant to be invisible. The original author was likely missing the handle element.
+           Let's remove the incorrect transform and rely on the label's background color change.
+        */
+    
+        /* Removed incorrect transform on the checkbox itself: */
+        /* #chatWidgetToggle:checked { transform: translateX(20px); } */
+        /* #maintenanceToggle:checked { transform: translateX(20px); } */
         
-        /* Chat Widget Toggle Styles */
-        #chatWidgetToggle:checked { border-color: #3b82f6; }
-        #chatWidgetToggle:checked + .toggle-label { background-color: #3b82f6; }
-        #chatWidgetToggle:checked { transform: translateX(20px); } /* FIX: Moved transform to the checkbox itself */
-
         /* Maintenance Toggle Styles */
-        #maintenanceToggle:checked { border-color: #10b981; } 
         #maintenanceToggle:checked + .toggle-label { background-color: #10b981; }
-        #maintenanceToggle:checked { transform: translateX(20px); } /* FIX: Added the missing transform for handle movement */
-        /* END FIX */
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
