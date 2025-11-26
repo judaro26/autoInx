@@ -19,7 +19,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const SITE_URL = process.env.URL || 'https://autoinx-placeholder.netlify.app'; 
 const SEND_EMAIL_FUNCTION_URL = `${SITE_URL}/.netlify/functions/send-email`;
-const ADMIN_ORDERS_COLLECTION = 'adminOrders/manual/orders'; // Dedicated collection for admin-created orders
+const ORDERS_COLLECTION = process.env.ORDERS_COLLECTION_PATH || 'artifacts/default-app-id/public/data/orders';
 
 exports.handler = async function (event) {
     if (event.httpMethod !== 'POST') {
