@@ -7,18 +7,20 @@ const fetch = require('node-fetch');
 
 // Ensure Firebase Admin is initialized once
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
-    }),
-  });
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+    }),
+  });
 }
 
 const db = admin.firestore();
 const SITE_URL = process.env.URL || 'https://autoinx-placeholder.netlify.app'; 
 const SEND_EMAIL_FUNCTION_URL = `${SITE_URL}/.netlify/functions/send-email`;
+
+// FIX: This new variable name is used to save the order, ensuring collection path consistency.
 const ORDERS_COLLECTION = process.env.ORDERS_COLLECTION_PATH || 'artifacts/default-app-id/public/data/orders';
 
 exports.handler = async function (event) {
@@ -52,14 +54,14 @@ exports.handler = async function (event) {
         return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { 
-        buyerEmail, 
-        items, 
-        totalCents, // This MUST be present and non-zero
-        buyerName, // This MUST be present
-        buyerPhone, 
-        deliveryAddress, // This MUST be present
-        notes 
+    const { 
+        buyerEmail, 
+        items, 
+        totalCents,
+        buyerName,
+        buyerPhone, 
+        deliveryAddress,
+        notes 
     } = orderDetails;
     
     if (!buyerEmail || !items || items.length === 0 || !totalCents || !buyerName || !deliveryAddress) {
@@ -85,7 +87,8 @@ exports.handler = async function (event) {
         };
 
         // 3. Save the order to Firestore
-        orderRef = await db.collection(ADMIN_ORDERS_COLLECTION).add(orderData);
+        // FIX: Using the newly defined ORDERS_COLLECTION variable
+        orderRef = await db.collection(ORDERS_COLLECTION).add(orderData); 
         const orderId = orderRef.id;
 
         // 4. Call Netlify Function to send email
@@ -104,10 +107,9 @@ exports.handler = async function (event) {
         if (!emailResponse.ok) {
             const emailErrorText = await emailResponse.text();
             console.error(`Email function failed for order ${orderId}: ${emailErrorText}`);
-            // Update Firestore with email status failure (but don't fail the whole function)
-             await orderRef.update({ emailStatus: 'Failed' });
+            await orderRef.update({ emailStatus: 'Failed' });
         } else {
-             await orderRef.update({ emailStatus: 'Sent' });
+            await orderRef.update({ emailStatus: 'Sent' });
         }
 
         return {
@@ -122,7 +124,6 @@ exports.handler = async function (event) {
     } catch (error) {
         console.error('Error creating order:', error);
         
-        // If an order was partially created, mark it as failed
         if (orderRef) {
             await orderRef.update({ status: 'Creation Failed', failureDetails: error.message });
         }
