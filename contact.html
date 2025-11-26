@@ -82,19 +82,23 @@
         .float-animation {
             animation: float 8s ease-in-out infinite;
         }
+        /* Honeypot Security Style */
+        .honeypot-field {
+            position: absolute;
+            left: -9999px;
+            opacity: 0;
+            visibility: hidden;
+        }
     </style>
 </head>
 <body class="antialiased">
 
     <div class="flex flex-col min-h-screen">
-        <!-- Header -->
         <div id="header-container"></div>
 
-        <!-- Main Content -->
         <main class="flex-grow max-w-7xl mx-auto px-6 py-12">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-12 items-start">
                 
-                <!-- Contact Form -->
                 <div class="lg:col-span-2">
                     <div class="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border-t-8 border-indigo-600 p-10 lg:p-12 card-hover float-animation">
                         <div class="text-center mb-12">
@@ -108,27 +112,32 @@
 
                         <form id="contactForm" onsubmit="window.module.submitContactForm(event)" class="space-y-8">
                             <div class="floating-label-group">
-                                <input type="text" id="contact-name" class="floating-label-input" placeholder=" " required>
-                                <label class="floating-label">Nombre Completo</label>
+                                <input type="text" id="contact-name" name="name" class="floating-label-input" placeholder=" " required>
+                                <label for="contact-name" class="floating-label">Nombre Completo</label>
                             </div>
 
                             <div class="floating-label-group">
-                                <input type="email" id="contact-email" class="floating-label-input" placeholder=" " required>
-                                <label class="floating-label">Correo Electrónico</label>
+                                <input type="email" id="contact-email" name="email" class="floating-label-input" placeholder=" " required>
+                                <label for="contact-email" class="floating-label">Correo Electrónico</label>
                             </div>
 
                             <div class="floating-label-group">
-                                <select id="query-type" class="floating-label-input" required>
+                                <select id="query-type" name="subjectType" class="floating-label-input" required>
                                     <option value="" disabled selected></option>
                                     <option value="general">Consulta General / Soporte</option>
                                     <option value="order">Pregunta sobre mi Pedido</option>
                                 </select>
-                                <label class="floating-label">Tipo de Consulta</label>
+                                <label for="query-type" class="floating-label">Tipo de Consulta</label>
                             </div>
 
                             <div class="floating-label-group">
-                                <textarea id="contact-message" rows="7" class="floating-label-input resize-none" placeholder=" " required></textarea>
-                                <label class="floating-label">Tu Mensaje (detalla lo más posible)</label>
+                                <textarea id="contact-message" name="message" rows="7" class="floating-label-input resize-none" placeholder=" " required></textarea>
+                                <label for="contact-message" class="floating-label">Tu Mensaje (detalla lo más posible)</label>
+                            </div>
+
+                            <div class="honeypot-field" aria-hidden="true">
+                                <label for="url-check" style="display:none;">Leave this blank</label>
+                                <input type="text" id="url-check" name="urlCheck" tabindex="-1" autocomplete="off" placeholder="Do not enter text here">
                             </div>
 
                             <button type="submit" id="submitButton" class="w-full bg-gradient-to-r from-indigo-600 to-purple-700 text-white font-bold text-2xl py-6 rounded-2xl shadow-2xl hover:shadow-3xl transform hover:scale-105 transition-all duration-300 pulse-button flex items-center justify-center">
@@ -142,9 +151,7 @@
                     </div>
                 </div>
 
-                <!-- Contact Info Sidebar -->
                 <div class="space-y-8">
-                    <!-- WhatsApp & Email Cards -->
                     <div class="bg-gradient-to-br from-pink-500 via-purple-600 to-indigo-700 text-white p-10 rounded-3xl shadow-2xl card-hover">
                         <h3 class="text-4xl font-black mb-8 flex items-center">
                             <i class="fas fa-bolt mr-4 text-5xl"></i>
@@ -178,7 +185,6 @@
                         </div>
                     </div>
 
-                    <!-- Horario -->
                     <div class="bg-white rounded-3xl shadow-2xl p-10 text-center card-hover border-t-8 border-green-500">
                         <i class="fas fa-clock text-7xl text-green-600 mb-6"></i>
                         <h4 class="text-3xl font-black text-gray-800 mb-4">Horario de Atención</h4>
@@ -190,7 +196,6 @@
             </div>
         </main>
 
-        <!-- Footer -->
         <footer class="bg-gray-900 text-white py-20 mt-20">
             <div class="max-w-7xl mx-auto px-6 text-center">
                 <h2 class="text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 mb-4">
@@ -202,7 +207,6 @@
         </footer>
     </div>
 
-    <!-- Floating WhatsApp Button -->
     <div id="chatWidget" class="hidden"></div>
 
     <script>
@@ -272,7 +276,10 @@
             btn.disabled = on;
             spinner.classList.toggle('hidden', !on);
             text.classList.toggle('hidden', on);
-            text.textContent = on ? t('sendingMsg') : t('sendBtn');
+            // Re-apply original text on completion (the text content is set by the render function)
+            if (!on) {
+                text.textContent = t('sendBtn');
+            }
         }
 
         function showMessage(type, msg, duration = 6000) {
@@ -288,11 +295,15 @@
         async function submitContactForm(e) {
             e.preventDefault();
             toggleLoading(true);
+
+            // Collect form data, including the honeypot field
             const formData = {
                 name: $('contact-name').value.trim(),
                 email: $('contact-email').value.trim(),
                 subjectType: $('query-type').value,
                 message: $('contact-message').value.trim(),
+                // SECURITY: Include honeypot field value
+                urlCheck: $('url-check').value.trim(), 
             };
 
             if (!formData.name || !formData.email || !formData.message || !formData.subjectType) {
@@ -306,10 +317,19 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
+                
+                // Note: The server returns 200 OK even for detected bots (to fool the bot)
                 const result = await response.json();
+                
                 if (response.ok) {
-                    showMessage('success', t('successMsg'));
-                    e.target.reset();
+                    // Check server message in case it was a successful bot submission (honeypot triggered)
+                    if (result.message && result.message.includes('bot detected')) {
+                        console.log("Honeypot successful: Bot submission blocked.");
+                        showMessage('success', t('successMsg')); // Show success to the client without sending email
+                    } else {
+                        showMessage('success', t('successMsg'));
+                        e.target.reset();
+                    }
                 } else {
                     showMessage('error', result.error || t('errorMsg'));
                 }
@@ -326,6 +346,7 @@
                 const res = await fetch(GET_CONFIG_FUNCTION);
                 if (!res.ok) throw new Error("Config fetch failed");
                 const config = await res.json();
+                // Chat widget is only enabled if admin set it true AND maintenance mode is off
                 chatWidgetEnabled = !!config.chatWidgetEnabled && !config.maintenanceMode;
             } catch (err) {
                 console.warn("Config error:", err);
@@ -375,6 +396,15 @@
                     </div>
                 </header>`;
             $('header-container').innerHTML = headerHtml;
+            
+            // Update select options for language change
+            $('query-type').innerHTML = `
+                <option value="" disabled selected></option>
+                <option value="general">${t('subjectGeneral')}</option>
+                <option value="order">${t('subjectOrder')}</option>
+            `;
+            // Update button text for language change
+            $('buttonText').textContent = t('sendBtn');
         }
 
         function render() {
