@@ -124,7 +124,6 @@
             auth = getAuth(app);
             db = getFirestore(app);
             
-            loadGoogleMapsScript(); // Load Maps Script after Firebase setup
             checkAuthAndRender();
         }
 
@@ -188,6 +187,15 @@
         };
 
         async function loadGoogleMapsScript() {
+            // CRITICAL FIX: Check if the script is ALREADY loaded or is being loaded
+            if (document.querySelector('script[data-maps-loaded]')) {
+                // If loaded, and the callback function is ready, call it directly
+                if (typeof window.initGooglePlaces === 'function') {
+                    window.initGooglePlaces();
+                }
+                return;
+            }
+            
             try {
                 // 1. Fetch API Key securely from the Netlify Function
                 const response = await fetch(MAPS_KEY_FUNCTION_URL);
@@ -196,14 +204,15 @@
                 
                 // 2. Build the script URL
                 const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGooglePlaces`;
-
+        
                 // 3. Dynamically create and append the script tag
                 const script = document.createElement('script');
                 script.src = scriptUrl;
                 script.async = true;
                 script.defer = true;
+                script.setAttribute('data-maps-loaded', 'true'); // Add marker for check
                 document.head.appendChild(script);
-
+        
             } catch (error) {
                 console.warn('Delivery Address Validation service disabled for Admin:', error);
             }
@@ -416,20 +425,27 @@
             state.previewMode = false;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
-
+        
             if (tab === 'config') {
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
             } else if (tab === 'users') {
-                // Clear old data but keep headers before fetching new page. 
+                // Clear old data but keep headers before fetching new page. 
                 const grid = document.getElementById('usersGrid');
                 // The grid header now contains 8 elements (including the master checkbox)
-                if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove()); 
+                if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove()); 
                 window.module.fetchUsers(null);
                 state.selectedUsers = []; // Clear selection when switching tab
             } else if (tab === 'orders') {
                 window.module.updateAdminCartDisplay();
                 window.module.updateItemSelector();
+                // CRITICAL FIX: Load Maps script only when the orders tab is rendered
+                if (typeof google === 'undefined' || !autocomplete) {
+                    window.module.loadGoogleMapsScript();
+                } else {
+                    // Re-initialize the autocomplete object and set up listeners for the new input field
+                    window.initGooglePlaces();
+                }
             } else if (tab === 'inventory') { // NEW: Inventory tab initialization
                  window.module.renderInventorySection();
             }
@@ -1648,6 +1664,7 @@
             deleteUser,
             disableUser,
             handleClearAnonymousUsers,
+            loadGoogleMapsScript,
 
             handleAdminOrderSubmit, // UPDATED: Inventory deduction added here
             addAdminCartItem,
