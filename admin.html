@@ -886,19 +886,22 @@
             }
             
             // 1. Prepare data for the cloud function (Order creation)
-            const orderData = {
-                buyerName,
-                buyerEmail,
-                deliveryAddress: deliveryAddress.value, // Send the validated address
-                items: itemsToOrder.map(entry => ({
-                    id: entry.item.id,
-                    name: entry.item.name,
-                    price: entry.item.price,
-                    quantity: entry.quantity,
-                    sku: entry.item.sku,
+            const order = {
+                buyerEmail: email,
+                buyerName: name,
+                buyerPhone: phone,
+                deliveryAddress: address,
+                prefersWhatsapp,
+                items: Object.values(cartData).map(e => ({
+                    name: e.item.name,
+                    sku: e.item.sku || null,
+                    price: e.item.price,
+                    quantity: e.quantity
                 })),
-                notes: orderNotes,
-                adminEmail: auth.currentUser?.email || 'Admin',
+                totalCents: cartTotalCents,
+                userId,
+                timestamp: new Date().toISOString(),
+                geolocation: marker?.getPosition ? { lat: marker.getPosition().lat(), lng: marker.getPosition().lng() } : null
             };
             
             // Disable button during processing
