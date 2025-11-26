@@ -80,147 +80,484 @@
     </div>
 
     <div id="chatWidget" class="hidden"></div>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    let db, auth, userId, cartData = {}, cartTotalCents = 0;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const ORDERS_COLLECTION = uid => `artifacts/${appId}/users/${uid}/orders`;
+    const NETLIFY_FUNCTION_URL = '/.netlify/functions/send-email'; // ← Cambia si tu función tiene otro nombre
+    const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
+    const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey';
+    const GET_ADMIN_CONFIG_URL = '/.netlify/functions/getAdminConfig';
 
-        let db, auth, userId, cartData = {}, cartTotalCents = 0;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const ORDERS_COLLECTION = uid => `artifacts/${appId}/users/${uid}/orders`;
-        const NETLIFY_FUNCTION_URL = '/.netlify/functions/sendOrderConfirmation/sendOrderConfirmation'; // ← Asegúrate de que coincida con el nombre del archivo
-        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
-        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey';
-        const GET_ADMIN_CONFIG_URL = '/.netlify/functions/getAdminConfig';
+    let chatWidgetEnabled = false;
+    let autocomplete, map, marker, geocoder;
+    let currentLang = 'es';
+    let isMaintenanceMode = false;
 
-        let chatWidgetEnabled = false;
-        let autocomplete, map, marker, geocoder;
-        let currentLang = 'es';
-        let isMaintenanceMode = false;
+    const TEXT = {
+        es: {
+            title: 'Finalizar Compra', return: 'Volver a la Tienda', formHeader: 'Información de Entrega',
+            emailLabel: 'Correo Electrónico', nameLabel: 'Nombre Completo', phoneLabel: 'Teléfono (WhatsApp)',
+            phoneHelp: 'Te enviaremos actualizaciones por WhatsApp', whatsappOptIn: 'Sí, deseo recibir notificaciones por WhatsApp.',
+            addressLabel: 'Dirección de Entrega', addressHelp: 'Escribe y selecciona tu dirección, luego ajusta el pin en el mapa.',
+            addressPlaceholder: 'Escribe tu dirección completa...', addressStatusDefault: 'Escribe para ver sugerencias',
+            addressStatusValid: '¡Dirección confirmada!', addressStatusSelect: 'Selecciona una dirección de la lista',
+            addressError: 'Por favor selecciona una dirección válida de la lista', buttonText: 'COMPLETAR PEDIDO',
+            summaryHeader: 'Resumen del Pedido', total: 'Total:', orderConfirmed: '¡Pedido Confirmado!',
+            orderId: 'ID del pedido:', confirmationSent: 'Confirmación enviada a', continueShopping: 'Seguir Comprando',
+            sendWhatsapp: 'Chatear por WhatsApp', cartEmpty: 'Tu carrito está vacío. <a href="/" class="text-indigo-600 underline">Volver a la tienda</a>',
+            mapPinInstructions: 'Arrastra el pin para ajustar tu ubicación exacta', countrySelect: 'Colombia +57',
+            maintenanceTitle: 'Sitio en Mantenimiento', maintenanceMsg: 'El checkout no está disponible temporalmente. Vuelve pronto.',
+        },
+        en: {
+            title: 'Checkout', return: 'Back to Store', formHeader: 'Delivery Information',
+            emailLabel: 'Email Address', nameLabel: 'Full Name', phoneLabel: 'Phone (WhatsApp)',
+            phoneHelp: 'We’ll send updates via WhatsApp', whatsappOptIn: 'Yes, send me updates via WhatsApp.',
+            addressLabel: 'Delivery Address', addressHelp: 'Type and select your address, then fine-tune the pin on the map.',
+            addressPlaceholder: 'Enter your full address...', addressStatusDefault: 'Type to see suggestions',
+            addressStatusValid: 'Address confirmed!', addressStatusSelect: 'Select from the list',
+            addressError: 'Please select a valid address from the list', buttonText: 'COMPLETE ORDER',
+            summaryHeader: 'Order Summary', total: 'Total:', orderConfirmed: 'Order Confirmed!',
+            orderId: 'Order ID:', confirmationSent: 'Confirmation sent to', continueShopping: 'Continue Shopping',
+            sendWhatsapp: 'Chat on WhatsApp', cartEmpty: 'Your cart is empty. <a href="/" class="text-indigo-600 underline">Back to store</a>',
+            mapPinInstructions: 'Drag the pin to pinpoint your exact location', countrySelect: 'USA +1',
+            maintenanceTitle: 'Site Under Maintenance', maintenanceMsg: 'Checkout is temporarily unavailable. Please try again later.',
+        }
+    };
 
-        const TEXT = { /* ... tu objeto TEXT completo (sin cambios) ... */ };
-        // (Mantengo el TEXT completo igual que antes para no alargar el mensaje, pero está 100% igual)
+    const $ = id => document.getElementById(id);
+    function t(key) { return TEXT[currentLang][key] || TEXT.es[key]; }
 
-        const $ = id => document.getElementById(id);
-        function t(key) { return TEXT[currentLang][key] || TEXT.es[key]; }
+    function setLanguage(lang) {
+        localStorage.setItem('checkoutLang', lang);
+        currentLang = lang;
+        loadCheckout();
+    }
 
-        function setLanguage(lang) {
-            localStorage.setItem('checkoutLang', lang);
-            currentLang = lang;
-            loadCheckout();
+    async function fetchAdminConfig() {
+        try {
+            const res = await fetch(GET_ADMIN_CONFIG_URL);
+            if (!res.ok) throw new Error("Config failed");
+            const config = await res.json();
+            isMaintenanceMode = !!config.maintenanceMode;
+            chatWidgetEnabled = !!config.chatWidgetEnabled && !isMaintenanceMode;
+        } catch (err) {
+            console.warn("Config error → defaulting to maintenance", err);
+            isMaintenanceMode = true;
+            chatWidgetEnabled = false;
+        }
+    }
+
+    function renderChatWidget() {
+        const widget = $('chatWidget');
+        if (!chatWidgetEnabled || !widget) return widget.classList.add('hidden');
+        widget.className = "fixed bottom-8 right-8 z-50";
+        widget.innerHTML = `
+            <a href="https://wa.me/573217040789" target="_blank" rel="noopener"
+               class="block w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-2xl hover:shadow-3xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center animate-float">
+                <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.297-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.265c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488z"/></svg>
+            </a>`;
+        widget.classList.remove('hidden');
+    }
+
+    async function loadGoogleMaps() {
+        try {
+            const res = await fetch(MAPS_KEY_FUNCTION_URL);
+            if (!res.ok) throw new Error("Key failed");
+            const { apiKey } = await res.json();
+            const script = document.createElement('script');
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initPlaces`;
+            script.async = true;
+            document.head.appendChild(script);
+        } catch (err) {
+            $('addressStatus').textContent = "Mapa no disponible temporalmente";
+            $('addressStatus').className = "text-red-600 font-bold";
+        }
+    }
+
+    function markAddressAsValid(address) {
+        const input = $('delivery-address');
+        input.value = address || input.value;
+        input.classList.remove('address-invalid');
+        input.classList.add('address-valid');
+        input.dataset.validated = 'true';
+        $('addressStatus').textContent = t('addressStatusValid');
+        $('addressStatus').className = "text-green-600 font-bold";
+        $('addressError').classList.add('hidden');
+    }
+
+    function validateCurrentAddress() {
+        const input = $('delivery-address');
+        const address = input.value.trim();
+        if (!address) return;
+        if (!geocoder) geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ address: address, region: currentLang === 'es' ? 'co' : 'us' }, (results, status) => {
+            if (status === 'OK' && results[0]) {
+                const location = results[0].geometry.location;
+                map.setCenter(location);
+                map.setZoom(17);
+                marker.setPosition(location);
+                markAddressAsValid(results[0].formatted_address);
+            } else {
+                input.classList.remove('address-valid');
+                input.classList.add('address-invalid');
+                input.dataset.validated = 'false';
+                $('addressStatus').textContent = t('addressStatusSelect');
+                $('addressStatus').className = "text-orange-600 font-bold";
+                $('addressError').classList.remove('hidden');
+            }
+        });
+    }
+
+    window.initPlaces = function() {
+        const input = $('delivery-address');
+        const mapEl = $('map-container');
+        if (!input || !mapEl) return;
+
+        autocomplete = new google.maps.places.Autocomplete(input, {
+            types: ['address'],
+            componentRestrictions: { country: ['co', 'us'] }
+        });
+
+        const initialPos = currentLang === 'es' 
+            ? { lat: 4.7110, lng: -74.0721 } 
+            : { lat: 39.8283, lng: -98.5795 };
+
+        map = new google.maps.Map(mapEl, {
+            center: initialPos, zoom: 12,
+            fullscreenControl: false, streetViewControl: false, mapTypeControl: false
+        });
+
+        marker = new google.maps.Marker({
+            position: initialPos, map, draggable: true,
+            title: t('mapPinInstructions')
+        });
+
+        autocomplete.addListener('place_changed', () => {
+            const place = autocomplete.getPlace();
+            if (place.geometry) {
+                map.setCenter(place.geometry.location);
+                map.setZoom(17);
+                marker.setPosition(place.geometry.location);
+                markAddressAsValid(place.formatted_address);
+            }
+        });
+
+        marker.addListener('dragend', () => {
+            const latLng = marker.getPosition();
+            if (!geocoder) geocoder = new google.maps.Geocoder();
+            geocoder.geocode({ location: latLng }, (results, status) => {
+                if (status === 'OK' && results[0]) {
+                    markAddressAsValid(results[0].formatted_address);
+                }
+            });
+        });
+
+        input.addEventListener('change', validateCurrentAddress);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                validateCurrentAddress();
+            }
+        });
+
+        input.addEventListener('input', () => {
+            input.classList.remove('address-valid', 'address-invalid');
+            input.dataset.validated = 'false';
+            $('addressStatus').textContent = t('addressStatusSelect');
+            $('addressStatus').className = "text-orange-600 font-bold";
+            $('addressError').classList.remove('hidden');
+        });
+    };
+
+    const formatPrice = c => `$${(c/100).toFixed(2)}`;
+
+    function showMessage(type, msg) {
+        const el = $('checkoutMessage');
+        if (!el) return;
+        el.innerHTML = `<div class="p-6 rounded-2xl border-4 font-bold text-xl ${type==='success'?'bg-green-100 border-green-500 text-green-800':'bg-red-100 border-red-500 text-red-800'}">${msg}</div>`;
+        el.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function toggleLoading(on) {
+        const btn = $('submitButton'), txt = $('buttonText'), spin = $('spinner');
+        if (btn) btn.disabled = on;
+        if (spin) spin.classList.toggle('hidden', !on);
+        if (txt) txt.classList.toggle('hidden', on);
+    }
+
+    function renderCartLink() {
+        const count = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
+        if (count === 0) return '';
+        return `<a href="/" class="relative group"><div class="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-6 py-4 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition transform hover:scale-105">
+            <span class="hidden sm:inline">${t('summaryHeader')}</span><span class="sm:hidden">Carrito</span>
+            <span class="absolute -top-3 -right-3 bg-red-600 text-white text-sm font-bold rounded-full h-10 w-10 flex items-center justify-center ring-4 ring-white shadow-lg animate-pulse">${count}</span>
+        </div></a>`;
+    }
+
+    function renderCartSummary() {
+        return Object.values(cartData).map(e => `
+            <div class="p-6 bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl shadow-lg border border-gray-200">
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <p class="font-extrabold text-xl text-gray-800">${e.item.name}</p>
+                        <p class="text-gray-600 mt-1">${e.quantity} × ${formatPrice(e.item.price)}</p>
+                    </div>
+                    <span class="text-2xl font-bold text-pink-600 ml-4">${formatPrice(e.item.price * e.quantity)}</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderHeader() {
+        return `
+            <header class="bg-white rounded-3xl shadow-2xl p-8 mb-12 border-t-8 border-indigo-600 sticky top-0 z-50">
+                <div class="flex flex-col lg:flex-row justify-between items-center gap-6">
+                    <div class="flex items-center space-x-6">
+                        <img src="images/AutoInx logo.png" alt="AutoInx" class="h-14">
+                        <h1 class="text-4xl lg:text-5xl font-extrabold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">${t('title')}</h1>
+                    </div>
+                    <div class="flex items-center space-x-6">
+                        <div id="checkoutCartLink">${renderCartLink()}</div>
+                        <a href="/" class="text-indigo-600 hover:text-indigo-800 font-bold text-lg flex items-center gap-2 transition hover:scale-105">${t('return')}</a>
+                        <button onclick="window.module.setLanguage('${currentLang === 'es' ? 'en' : 'es'}')" class="px-5 py-2 rounded-full bg-gray-100 hover:bg-gray-200 font-medium transition">
+                            ${currentLang === 'es' ? 'English' : 'Español'}
+                        </button>
+                    </div>
+                </div>
+            </header>`;
+    }
+
+    function renderCheckoutContent() {
+        const columbiaSelected = currentLang === 'es' ? 'selected' : '';
+        const usaSelected = currentLang === 'en' ? 'selected' : '';
+
+        return `
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                <div class="lg:col-span-2">
+                    <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-indigo-600">
+                        <h2 class="text-4xl font-extrabold text-indigo-700 mb-10">${t('formHeader')}</h2>
+                        <div id="checkoutMessage" class="mb-8"></div>
+                        <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-10">
+                            <div><label class="block text-lg font-bold mb-3">${t('emailLabel')} <span class="text-red-500">*</span></label>
+                                <input type="email" id="buyer-email" required placeholder="tucorreo@ejemplo.com" class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
+                            </div>
+                            <div><label class="block text-lg font-bold mb-3">${t('nameLabel')} <span class="text-red-500">*</span></label>
+                                <input type="text" id="buyer-name" required placeholder="Juan Camilo Pérez" class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
+                            </div>
+                            <div><label class="block text-lg font-bold mb-3">${t('phoneLabel')} <span class="text-red-500">*</span></label>
+                                <div class="phone-input-group">
+                                    <select id="country-code" class="country-select">
+                                        <option value="+57" ${columbiaSelected}>Colombia +57</option>
+                                        <option value="+1" ${usaSelected}>USA +1</option>
+                                    </select>
+                                    <input type="tel" id="buyer-phone" required pattern="[0-9]{7,15}" placeholder="3001234567" class="phone-input">
+                                </div>
+                                <p class="text-sm text-gray-600 mt-3">${t('phoneHelp')}</p>
+                                <div class="mt-5 flex items-center">
+                                    <input type="checkbox" id="whatsapp-opt-in" checked class="h-6 w-6 text-indigo-600 rounded focus:ring-indigo-500">
+                                    <label for="whatsapp-opt-in" class="ml-3 text-lg font-medium text-gray-700">${t('whatsappOptIn')}</label>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-lg font-bold mb-3">${t('addressLabel')} <span class="text-red-500">*</span></label>
+                                <input type="text" id="delivery-address" required placeholder="${t('addressPlaceholder')}" class="address-input border-gray-300 address-invalid" autocomplete="off" data-validated="false">
+                                <div class="mt-4 space-y-3">
+                                    <p class="text-sm text-gray-600">${t('addressHelp')}</p>
+                                    <span id="addressStatus" class="text-orange-600 font-bold">${t('addressStatusSelect')}</span>
+                                </div>
+                                <p id="addressError" class="text-red-600 font-bold mt-3 hidden">${t('addressError')}</p>
+                                <div id="map-container" class="mt-6"></div>
+                                <p class="text-xs text-gray-500 mt-3">${t('mapPinInstructions')}</p>
+                            </div>
+                            <div class="pt-8">
+                                <button type="submit" id="submitButton" class="w-full bg-gradient-to-r from-green-600 to-teal-600 text-white py-8 rounded-3xl font-extrabold text-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transform transition duration-300 flex items-center justify-center">
+                                    <span id="buttonText">${t('buttonText')} <span class="ml-3">${formatPrice(cartTotalCents)}</span></span>
+                                    <svg id="spinner" class="animate-spin ml-6 h-10 w-10 text-white hidden" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <div class="lg:col-span-1">
+                    <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-pink-600 sticky top-32">
+                        <h3 class="text-4xl font-extrabold text-pink-700 mb-8">${t('summaryHeader')}</h3>
+                        <div id="cartSummary" class="space-y-6 max-h-96 custom-scrollbar overflow-y-auto pr-4">
+                            ${renderCartSummary()}
+                        </div>
+                        <div class="mt-12 pt-8 border-t-4 border-gray-300">
+                            <div class="flex justify-between text-4xl font-extrabold">
+                                <span class="text-gray-800">${t('total')}</span>
+                                <span class="text-pink-600">${formatPrice(cartTotalCents)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function loadCheckout() {
+        const json = sessionStorage.getItem('autoInxCart');
+        if (!json || json === '{}') {
+            document.getElementById('app').innerHTML = `
+                <div class="text-center py-32 bg-white rounded-3xl shadow-2xl">
+                    <p class="text-4xl font-bold text-red-600 mb-6">${t('cartEmpty').split('<a')[0]}</p>
+                    <a href="/" class="text-indigo-600 underline text-2xl">${t('cartEmpty').split('</a>')[0].split('>')[1]}</a>
+                </div>`;
+            return;
         }
 
-        // === TODAS LAS FUNCIONES (renderChatWidget, loadGoogleMaps, etc.) IGUALES QUE ANTES ===
+        cartData = JSON.parse(json);
+        cartTotalCents = Object.values(cartData).reduce((s,e) => s + e.item.price * e.quantity, 0);
 
-        window.module = {
-            async submitOrder(e) {
-                e.preventDefault();
-                if (isMaintenanceMode) return showMessage('error', t('maintenanceMsg'));
+        document.getElementById('app').innerHTML = renderHeader() + renderCheckoutContent();
+        renderChatWidget();
+        loadGoogleMaps();
+    }
 
-                const email = $('buyer-email').value.trim();
-                const name = $('buyer-name').value.trim();
-                const phone = $('country-code').value + $('buyer-phone').value.trim();
-                const address = $('delivery-address').value.trim();
-                const valid = $('delivery-address').dataset.validated === 'true';
-                const prefersWhatsapp = $('whatsapp-opt-in').checked;
+    // ¡¡AQUÍ ESTABA EL PROBLEMA!! → Faltaba initApp
+    async function initApp() {
+        const storedLang = localStorage.getItem('checkoutLang');
+        currentLang = storedLang && TEXT[storedLang] ? storedLang : (navigator.language.startsWith('en') ? 'en' : 'es');
 
-                if (!valid) {
-                    $('delivery-address').classList.add('address-invalid');
-                    $('addressError').classList.remove('hidden');
-                    return showMessage('error', t('addressError'));
-                }
+        await fetchAdminConfig();
+        if (isMaintenanceMode) {
+            document.getElementById('app').innerHTML = `
+                <div class="text-center py-32 bg-white rounded-3xl shadow-2xl">
+                    <svg class="w-20 h-20 mx-auto text-yellow-500 mb-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
+                    <p class="text-4xl font-bold text-red-600 mb-4">${t('maintenanceTitle')}</p>
+                    <p class="text-xl text-gray-700">${t('maintenanceMsg')}</p>
+                </div>`;
+            return;
+        }
 
-                if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address) {
-                    return showMessage('error', 'Completa todos los campos obligatorios.');
-                }
+        try {
+            const res = await fetch(CONFIG_CLIENT_FUNCTION);
+            if (!res.ok) throw new Error("Config failed");
+            const cfg = await res.json();
+            const appInstance = initializeApp(cfg);
+            auth = getAuth(appInstance); db = getFirestore(appInstance);
+            renderChatWidget();
+            onAuthStateChanged(auth, user => { userId = user?.uid; loadCheckout(); });
+        } catch (e) {
+            console.error(e);
+            document.getElementById('app').innerHTML = `<p class="text-red-600 text-3xl font-bold text-center">Error crítico. Recarga la página.</p>`;
+        }
+    }
 
-                toggleLoading(true);
+    window.module = {
+        async submitOrder(e) {
+            e.preventDefault();
+            if (isMaintenanceMode) return showMessage('error', t('maintenanceMsg'));
 
-                const order = {
+            const email = $('buyer-email').value.trim();
+            const name = $('buyer-name').value.trim();
+            const phone = $('country-code').value + $('buyer-phone').value.trim();
+            const address = $('delivery-address').value.trim();
+            const valid = $('delivery-address').dataset.validated === 'true';
+            const prefersWhatsapp = $('whatsapp-opt-in').checked;
+
+            if (!valid) {
+                $('delivery-address').classList.add('address-invalid');
+                $('addressError').classList.remove('hidden');
+                return showMessage('error', t('addressError'));
+            }
+
+            if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address) {
+                return showMessage('error', 'Completa todos los campos obligatorios.');
+            }
+
+            toggleLoading(true);
+
+            const order = {
+                buyerEmail: email,
+                buyerName: name,
+                buyerPhone: phone,
+                deliveryAddress: address,
+                prefersWhatsapp,
+                items: Object.values(cartData).map(e => ({
+                    name: e.item.name,
+                    sku: e.item.sku || null,
+                    price: e.item.price,
+                    quantity: e.quantity
+                })),
+                totalCents: cartTotalCents,
+                userId,
+                timestamp: new Date().toISOString(),
+                geolocation: marker?.getPosition ? { lat: marker.getPosition().lat(), lng: marker.getPosition().lng() } : null
+            };
+
+            try {
+                const ref = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
+                    ...order,
+                    status: 'Pending',
+                    createdAt: serverTimestamp()
+                });
+
+                const emailPayload = {
+                    orderId: ref.id,
                     buyerEmail: email,
                     buyerName: name,
                     buyerPhone: phone,
                     deliveryAddress: address,
                     prefersWhatsapp,
-                    items: Object.values(cartData).map(e => ({
-                        name: e.item.name,
-                        sku: e.item.sku || null,
-                        price: e.item.price,
-                        quantity: e.quantity
-                    })),
+                    items: order.items,
                     totalCents: cartTotalCents,
-                    userId,
-                    timestamp: new Date().toISOString(),
-                    geolocation: marker?.getPosition ? { lat: marker.getPosition().lat(), lng: marker.getPosition().lng() } : null
+                    timestamp: order.timestamp,
+                    geolocation: order.geolocation
                 };
 
-                try {
-                    // 1. Guardar en Firestore
-                    const ref = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
-                        ...order,
-                        status: 'Pending',
-                        createdAt: serverTimestamp()
-                    });
+                const emailResponse = await fetch(NETLIFY_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(emailPayload)
+                });
 
-                    // 2. ENVIAR EMAILS CON TU FUNCIÓN PERFECTA
-                    const emailPayload = {
-                        orderId: ref.id,
-                        buyerEmail: email,
-                        buyerName: name,
-                        buyerPhone: phone,
-                        deliveryAddress: address,
-                        prefersWhatsapp,
-                        items: order.items,
-                        totalCents: cartTotalCents,
-                        timestamp: order.timestamp,
-                        geolocation: order.geolocation
-                        // Si en el futuro quieres enviar copia a un agente, agrega: requesterEmail: "agent@autoinx.com"
-                    };
-
-                    const emailResponse = await fetch(NETLIFY_FUNCTION_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(emailPayload)
-                    });
-
-                    if (!emailResponse.ok) {
-                        const err = await emailResponse.json();
-                        console.error("Email function error:", err);
-                        throw new Error("No se pudieron enviar los correos de confirmación");
-                    }
-
-                    sessionStorage.removeItem('autoInxCart');
-
-                    const waMsg = encodeURIComponent(`¡Hola! Acabo de hacer el pedido #${ref.id.slice(0,8)} en autoInx. Dirección: ${address}`);
-                    const waLink = `https://wa.me/573217040789?text=${waMsg}`;
-
-                    document.getElementById('app').innerHTML = `
-                        ${renderHeader()}
-                        <div class="max-w-4xl mx-auto text-center py-24 bg-gradient-to-br from-emerald-50 to-teal-100 rounded-3xl shadow-3xl mt-12">
-                            <h2 class="text-7xl font-extrabold text-green-600 mb-8">${t('orderConfirmed')}</h2>
-                            <p class="text-3xl text-gray-800 mb-6">${t('orderId')} <span class="font-mono bg-white px-10 py-5 rounded-2xl text-indigo-700 text-4xl">${ref.id}</span></p>
-                            <p class="text-2xl text-gray-700 mb-12"><strong>¡Confirmación enviada a ${email}!</strong></p>
-                            <div class="space-x-8">
-                                <a href="/" class="inline-block px-12 py-6 bg-indigo-600 text-white font-bold text-2xl rounded-3xl hover:bg-indigo-700 transition transform hover:scale-110">
-                                    ${t('continueShopping')}
-                                </a>
-                                ${prefersWhatsapp ? `<a href="${waLink}" target="_blank" class="inline-block px-12 py-6 bg-green-600 text-white font-bold text-2xl rounded-3xl hover:bg-green-700 transition transform hover:scale-110">
-                                    ${t('sendWhatsapp')}
-                                </a>` : ''}
-                            </div>
-                        </div>`;
-                } catch (err) {
-                    console.error(err);
-                    showMessage('error', 'Error al procesar el pedido. Intenta nuevamente.');
-                } finally {
-                    toggleLoading(false);
+                if (!emailResponse.ok) {
+                    const err = await emailResponse.json();
+                    console.error("Email function error:", err);
+                    throw new Error("No se pudieron enviar los correos");
                 }
-            },
-            setLanguage
-        };
 
-        document.addEventListener('DOMContentLoaded', initApp);
-    </script>
+                sessionStorage.removeItem('autoInxCart');
+
+                const waMsg = encodeURIComponent(`¡Hola! Acabo de hacer el pedido #${ref.id.slice(0,8)} en autoInx. Dirección: ${address}`);
+                const waLink = `https://wa.me/573217040789?text=${waMsg}`;
+
+                document.getElementById('app').innerHTML = `
+                    ${renderHeader()}
+                    <div class="max-w-4xl mx-auto text-center py-24 bg-gradient-to-br from-emerald-50 to-teal-100 rounded-3xl shadow-3xl mt-12">
+                        <h2 class="text-7xl font-extrabold text-green-600 mb-8">${t('orderConfirmed')}</h2>
+                        <p class="text-3xl text-gray-800 mb-6">${t('orderId')} <span class="font-mono bg-white px-10 py-5 rounded-2xl text-indigo-700 text-4xl">${ref.id}</span></p>
+                        <p class="text-2xl text-gray-700 mb-12"><strong>¡Confirmación enviada a ${email}!</strong></p>
+                        <div class="space-x-8">
+                            <a href="/" class="inline-block px-12 py-6 bg-indigo-600 text-white font-bold text-2xl rounded-3xl hover:bg-indigo-700 transition transform hover:scale-110">
+                                ${t('continueShopping')}
+                            </a>
+                            ${prefersWhatsapp ? `<a href="${waLink}" target="_blank" class="inline-block px-12 py-6 bg-green-600 text-white font-bold text-2xl rounded-3xl hover:bg-green-700 transition transform hover:scale-110">
+                                ${t('sendWhatsapp')}
+                            </a>` : ''}
+                        </div>
+                    </div>`;
+            } catch (err) {
+                console.error(err);
+                showMessage('error', 'Error al procesar el pedido. Intenta nuevamente.');
+            } finally {
+                toggleLoading(false);
+            }
+        },
+        setLanguage
+    };
+
+    document.addEventListener('DOMContentLoaded', initApp);
+</script>
+
 </body>
 </html>
