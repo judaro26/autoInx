@@ -1,740 +1,750 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Checkout - autoInx</title>
-    <meta name="description" content="Finaliza tu compra de forma rápida y segura">
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    
-    <style>
-        body { font-family: 'Inter', sans-serif; background: linear-gradient(to bottom, #f8fafc, #e2e8f0); min-height: 100vh; }
-        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(to bottom, #a78bfa, #6366f1); border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #e5e7eb; border-radius: 4px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout - autoInx</title>
+    <meta name="description" content="Finaliza tu compra de forma rápida y segura">
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background: linear-gradient(to bottom, #f8fafc, #e2e8f0); min-height: 100vh; }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(to bottom, #a78bfa, #6366f1); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #e5e7eb; border-radius: 4px; }
 
-        .phone-input-group {
-            @apply flex rounded-2xl shadow-lg border-2 border-gray-300 focus-within:ring-4 focus-within:ring-indigo-200 focus-within:border-indigo-600 overflow-hidden transition-all duration-300;
-        }
-        .country-select {
-            @apply bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-800 font-bold text-lg px-6 py-5 border-0;
-        }
-        .phone-input {
-            @apply flex-1 px-6 py-5 text-lg font-medium text-gray-900 placeholder-gray-400 focus:ring-0;
-        }
-        .address-input {
-            @apply w-full p-6 border-2 rounded-2xl text-lg font-medium transition-all duration-300 shadow-inner;
-        }
-        .address-valid { @apply border-green-500 bg-green-50 ring-4 ring-green-100; }
-        .address-invalid { @apply border-red-500 bg-red-50 ring-4 ring-red-100; }
+        .phone-input-group {
+            @apply flex rounded-2xl shadow-lg border-2 border-gray-300 focus-within:ring-4 focus-within:ring-indigo-200 focus-within:border-indigo-600 overflow-hidden transition-all duration-300;
+        }
+        .country-select {
+            @apply bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-800 font-bold text-lg px-6 py-5 border-0;
+        }
+        .phone-input {
+            @apply flex-1 px-6 py-5 text-lg font-medium text-gray-900 placeholder-gray-400 focus:ring-0;
+        }
+        .address-input {
+            @apply w-full p-6 border-2 rounded-2xl text-lg font-medium transition-all duration-300 shadow-inner;
+        }
+        .address-valid { @apply border-green-500 bg-green-50 ring-4 ring-green-100; }
+        .address-invalid { @apply border-red-500 bg-red-50 ring-4 ring-red-100; }
 
-        /* Floating Chat Widget */
-        #chatWidget {
-            animation: float 6s ease-in-out infinite;
-        }
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-        #chatWidget:hover {
-            animation-play-state: paused;
-        }
+        /* Floating Chat Widget */
+        #chatWidget {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        #chatWidget:hover {
+            animation-play-state: paused;
+        }
 
-        /* Map Styles */
-        #map-container {
-            height: 300px;
-            width: 100%;
-            border-radius: 0.5rem;
-            margin-top: 1rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-        }
-    </style>
+        /* Map Styles */
+        #map-container {
+            height: 300px;
+            width: 100%;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        }
+    </style>
 </head>
 <body class="antialiased">
-    <div class="flex flex-col min-h-screen"> 
-        <div id="app" class="max-w-7xl mx-auto p-6 sm:p-8 lg:p-8 flex-grow">
-            <header class="flex justify-between items-center mb-12 bg-white rounded-3xl shadow-2xl p-8 border-t-8 border-indigo-600">
-                </header>
-            
-            <div id="loadingState" class="text-center py-32 bg-white rounded-3xl shadow-2xl">
-                </div>
-        </div>
+    <div class="flex flex-col min-h-screen"> 
+        <div id="app" class="max-w-7xl mx-auto p-6 sm:p-8 lg:p-8 flex-grow">
+            <header class="flex justify-between items-center mb-12 bg-white rounded-3xl shadow-2xl p-8 border-t-8 border-indigo-600">
+                </header>
+            
+            <div id="loadingState" class="text-center py-32 bg-white rounded-3xl shadow-2xl">
+                </div>
+        </div>
 
-        <footer class="bg-gray-900 text-white p-10 mt-10">
-            <div class="max-w-5xl mx-auto">
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-8 border-b border-gray-700 pb-8 mb-8">
-                    
-                    <div>
-                        <h4 class="text-2xl font-extrabold text-indigo-400 mb-4">AutoInx</h4>
-                        <p class="text-gray-400 text-sm">Your reliable source for high-quality auto parts in the Colombian and US markets. Family-owned and committed to service.</p>
-                    </div>
+        <footer class="bg-gray-900 text-white p-10 mt-10">
+            <div class="max-w-5xl mx-auto">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-8 border-b border-gray-700 pb-8 mb-8">
+                    
+                    <div>
+                        <h4 class="text-2xl font-extrabold text-indigo-400 mb-4">AutoInx</h4>
+                        <p class="text-gray-400 text-sm">Your reliable source for high-quality auto parts in the Colombian and US markets. Family-owned and committed to service.</p>
+                    </div>
 
-                    <div>
-                        <h4 class="text-xl font-bold mb-4">General Support</h4>
-                        <p class="text-gray-400 mb-2">Non-Order Questions:</p>
-                        <a href="mailto:support@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">support@autoinx.com</a>
-                        
-                        <h4 class="text-xl font-bold mt-6 mb-4">Order Inquiries</h4>
-                        <p class="text-gray-400 mb-2">Order-Related Questions:</p>
-                        <a href="mailto:orders@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">orders@autoinx.com</a>
-                    </div>
-                    
-                    <div>
-                        <h4 class="text-xl font-bold mb-4">Phone Contact</h4>
-                        <p class="text-gray-400 mb-2">US Number (WhatsApp):</p>
-                        <a href="tel:+19377016185" class="text-lg font-extrabold text-white block hover:text-indigo-400">
-                            (937) 701-6185
-                        </a>
-                        
-                        <p class="text-gray-400 mt-4 mb-2">Colombian Number (WhatsApp):</p>
-                        <a href="tel:+573217040789" class="text-lg font-extrabold text-white block hover:text-indigo-400">
-                            +57 321 704 0789
-                        </a>
-                    </div>
+                    <div>
+                        <h4 class="text-xl font-bold mb-4">General Support</h4>
+                        <p class="text-gray-400 mb-2">Non-Order Questions:</p>
+                        <a href="mailto:support@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">support@autoinx.com</a>
+                        
+                        <h4 class="text-xl font-bold mt-6 mb-4">Order Inquiries</h4>
+                        <p class="text-gray-400 mb-2">Order-Related Questions:</p>
+                        <a href="mailto:orders@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">orders@autoinx.com</a>
+                    </div>
+                    
+                    <div>
+                        <h4 class="text-xl font-bold mb-4">Phone Contact</h4>
+                        <p class="text-gray-400 mb-2">US Number (WhatsApp):</p>
+                        <a href="tel:+19377016185" class="text-lg font-extrabold text-white block hover:text-indigo-400">
+                            (937) 701-6185
+                        </a>
+                        
+                        <p class="text-gray-400 mt-4 mb-2">Colombian Number (WhatsApp):</p>
+                        <a href="tel:+573217040789" class="text-lg font-extrabold text-white block hover:text-indigo-400">
+                            +57 321 704 0789
+                        </a>
+                    </div>
 
-                    <div>
-                        <h4 class="text-xl font-bold mb-4">Locations</h4>
-                        
-                        <p class="font-medium text-white">Colombia</p>
-                        <p class="text-gray-400 text-sm">Calle 68A 92-24, Bogota DC</p>
-                        <p class="text-gray-400 text-sm mb-4">Calle 68A 92-58, Bogota</p>
-                        
-                        <p class="font-medium text-white">United States</p>
-                        <p class="text-gray-400 text-sm">587 Paradise Blvd, Hayward, CA 94541</p>
-                    </div>
-                </div>
+                    <div>
+                        <h4 class="text-xl font-bold mb-4">Locations</h4>
+                        
+                        <p class="font-medium text-white">Colombia</p>
+                        <p class="text-gray-400 text-sm">Calle 68A 92-24, Bogota DC</p>
+                        <p class="text-gray-400 text-sm mb-4">Calle 68A 92-58, Bogota</p>
+                        
+                        <p class="font-medium text-white">United States</p>
+                        <p class="text-gray-400 text-sm">587 Paradise Blvd, Hayward, CA 94541</p>
+                    </div>
+                </div>
 
-                <div class="text-center text-sm">
-                    <p class="text-gray-500">&copy; ${new Date().getFullYear()} autoInx. All rights reserved. | Powered by family passion.</p>
-                </div>
-            </div>
-        </footer>
-        </div>
-    
-    <div id="chatWidget" class="hidden"></div>
+                <div class="text-center text-sm">
+                    <p class="text-gray-500">&copy; ${new Date().getFullYear()} autoInx. All rights reserved. | Powered by family passion.</p>
+                </div>
+            </div>
+        </footer>
+        </div>
+    
+    <div id="chatWidget" class="hidden"></div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        let db, auth, userId, cartData = {}, cartTotalCents = 0;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const ORDERS_COLLECTION = uid => `artifacts/${appId}/users/${uid}/orders`;
-        const NETLIFY_FUNCTION_URL = '/.netlify/functions/sendConfirmationEmail';
-        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
-        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey';
-        const GET_ADMIN_CONFIG_URL = '/.netlify/functions/getAdminConfig';
+        let db, auth, userId, cartData = {}, cartTotalCents = 0;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const ORDERS_COLLECTION = uid => `artifacts/${appId}/users/${uid}/orders`;
+        const NETLIFY_FUNCTION_URL = '/.netlify/functions/sendConfirmationEmail';
+        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
+        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey';
+        const GET_ADMIN_CONFIG_URL = '/.netlify/functions/getAdminConfig';
 
-        let chatWidgetEnabled = false;
-        let autocomplete;
-        let map, marker, geocoder; // NEW: Map objects
-        let currentLang = 'es'; // Default language, overridden by localStorage/browser lang
-        let isMaintenanceMode = false; // NEW: Maintenance Mode State
+        let chatWidgetEnabled = false;
+        let autocomplete;
+        let map, marker, geocoder; // NEW: Map objects
+        let currentLang = 'es'; // Default language, overridden by localStorage/browser lang
+        let isMaintenanceMode = false; // NEW: Maintenance Mode State
 
-        // --- LANGUAGE TEXT MAPPING ---
-        const TEXT = {
-            es: {
-                title: 'Finalizar Compra',
-                return: '← Volver a la Tienda',
-                formHeader: 'Información de Entrega',
-                emailLabel: 'Correo Electrónico',
-                nameLabel: 'Nombre Completo',
-                phoneLabel: 'Teléfono (WhatsApp)',
-                phoneHelp: 'Te enviaremos actualizaciones por WhatsApp',
-                whatsappOptIn: 'Sí, deseo recibir notificaciones y seguimiento por WhatsApp.', // NEW
-                addressLabel: 'Dirección de Entrega',
-                addressHelp: 'Escribe y selecciona la dirección, luego afina tu ubicación en el mapa.',
-                addressPlaceholder: 'Escribe tu dirección completa...',
-                addressStatusDefault: 'Escribe para ver sugerencias',
-                addressStatusValid: 'Dirección válida',
-                addressStatusSelect: 'Selecciona de la lista',
-                addressError: 'Por favor selecciona una dirección válida de la lista',
-                buttonText: 'COMPLETAR PEDIDO',
-                summaryHeader: 'Resumen del Pedido',
-                total: 'Total:',
-                orderConfirmed: '¡Pedido Confirmado!',
-                orderId: 'ID:',
-                confirmationSent: 'Confirmación enviada a',
-                continueShopping: 'Seguir Comprando',
-                sendWhatsapp: 'Enviar WhatsApp',
-                cartEmpty: 'Tu carrito está vacío. <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Volver a la tienda</a>',
-                mapPinInstructions: 'Arrastra el pin para precisar tu ubicación exacta',
-                countrySelect: 'Colombia +57',
-                maintenanceTitle: 'Sitio en Mantenimiento',
-                maintenanceMsg: 'El checkout no está disponible actualmente. Por favor, inténtalo de nuevo más tarde.',
-            },
-            en: {
-                title: 'Checkout',
-                return: '← Back to Store',
-                formHeader: 'Delivery Information',
-                emailLabel: 'Email Address',
-                nameLabel: 'Full Name',
-                phoneLabel: 'Phone (WhatsApp)',
-                phoneHelp: 'We will send you updates via WhatsApp',
-                whatsappOptIn: 'Yes, I want to receive notifications and tracking via WhatsApp.', // NEW
-                addressLabel: 'Delivery Address',
-                addressHelp: 'Type and select the address, then refine your location on the map.',
-                addressPlaceholder: 'Enter your full address...',
-                addressStatusDefault: 'Type to see suggestions',
-                addressStatusValid: 'Valid address',
-                addressStatusSelect: 'Select from list',
-                addressError: 'Please select a valid address from the list',
-                buttonText: 'COMPLETE ORDER',
-                summaryHeader: 'Order Summary',
-                total: 'Total:',
-                orderConfirmed: 'Order Confirmed!',
-                orderId: 'ID:',
-                confirmationSent: 'Confirmation sent to',
-                continueShopping: 'Continue Shopping',
-                sendWhatsapp: 'Send WhatsApp',
-                cartEmpty: 'Your cart is empty. <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Go back to store</a>',
-                mapPinInstructions: 'Drag the pin to pinpoint your exact location',
-                countrySelect: 'USA +1',
-                maintenanceTitle: 'Site Under Maintenance',
-                maintenanceMsg: 'Checkout is currently unavailable. Please try again later.',
-            }
-        };
+        // --- LANGUAGE TEXT MAPPING ---
+        const TEXT = {
+            es: {
+                title: 'Finalizar Compra',
+                return: '← Volver a la Tienda',
+                formHeader: 'Información de Entrega',
+                emailLabel: 'Correo Electrónico',
+                nameLabel: 'Nombre Completo',
+                phoneLabel: 'Teléfono (WhatsApp)',
+                phoneHelp: 'Te enviaremos actualizaciones por WhatsApp',
+                whatsappOptIn: 'Sí, deseo recibir notificaciones y seguimiento por WhatsApp.', // NEW
+                addressLabel: 'Dirección de Entrega',
+                addressHelp: 'Escribe y selecciona la dirección, luego afina tu ubicación en el mapa.',
+                addressPlaceholder: 'Escribe tu dirección completa...',
+                addressStatusDefault: 'Escribe para ver sugerencias',
+                addressStatusValid: 'Dirección válida',
+                addressStatusSelect: 'Selecciona de la lista',
+                addressError: 'Por favor selecciona una dirección válida de la lista',
+                buttonText: 'COMPLETAR PEDIDO',
+                summaryHeader: 'Resumen del Pedido',
+                total: 'Total:',
+                orderConfirmed: '¡Pedido Confirmado!',
+                orderId: 'ID:',
+                confirmationSent: 'Confirmación enviada a',
+                continueShopping: 'Seguir Comprando',
+                sendWhatsapp: 'Enviar WhatsApp',
+                cartEmpty: 'Tu carrito está vacío. <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Volver a la tienda</a>',
+                mapPinInstructions: 'Arrastra el pin para precisar tu ubicación exacta',
+                countrySelect: 'Colombia +57',
+                maintenanceTitle: 'Sitio en Mantenimiento',
+                maintenanceMsg: 'El checkout no está disponible actualmente. Por favor, inténtalo de nuevo más tarde.',
+            },
+            en: {
+                title: 'Checkout',
+                return: '← Back to Store',
+                formHeader: 'Delivery Information',
+                emailLabel: 'Email Address',
+                nameLabel: 'Full Name',
+                phoneLabel: 'Phone (WhatsApp)',
+                phoneHelp: 'We will send you updates via WhatsApp',
+                whatsappOptIn: 'Yes, I want to receive notifications and tracking via WhatsApp.', // NEW
+                addressLabel: 'Delivery Address',
+                addressHelp: 'Type and select the address, then refine your location on the map.',
+                addressPlaceholder: 'Enter your full address...',
+                addressStatusDefault: 'Type to see suggestions',
+                addressStatusValid: 'Valid address',
+                addressStatusSelect: 'Select from list',
+                addressError: 'Please select a valid address from the list',
+                buttonText: 'COMPLETE ORDER',
+                summaryHeader: 'Order Summary',
+                total: 'Total:',
+                orderConfirmed: 'Order Confirmed!',
+                orderId: 'ID:',
+                confirmationSent: 'Confirmation sent to',
+                continueShopping: 'Continue Shopping',
+                sendWhatsapp: 'Send WhatsApp',
+                cartEmpty: 'Your cart is empty. <a href="/" class="text-indigo-600 hover:text-indigo-800 underline">Go back to store</a>',
+                mapPinInstructions: 'Drag the pin to pinpoint your exact location',
+                countrySelect: 'USA +1',
+                maintenanceTitle: 'Site Under Maintenance',
+                maintenanceMsg: 'Checkout is currently unavailable. Please try again later.',
+            }
+        };
 
-        const $ = id => document.getElementById(id);
+        const $ = id => document.getElementById(id);
 
-        // --- CORE FUNCTIONS ---
+        // --- CORE FUNCTIONS ---
 
-        function setLanguage(lang) {
-            // FIX: Persist language setting
-            localStorage.setItem('checkoutLang', lang);
-            currentLang = lang;
-            loadCheckout(); // Rerender content in the new language
-        }
+        function setLanguage(lang) {
+            // FIX: Persist language setting
+            localStorage.setItem('checkoutLang', lang);
+            currentLang = lang;
+            loadCheckout(); // Rerender content in the new language
+        }
 
-        function t(key) {
-            return TEXT[currentLang][key] || TEXT['es'][key];
-        }
+        function t(key) {
+            return TEXT[currentLang][key] || TEXT['es'][key];
+        }
 
-        // Fetch admin config (chat widget toggle)
-        async function fetchAdminConfig() {
-            try {
-                const res = await fetch(GET_ADMIN_CONFIG_URL);
-                if (!res.ok) throw new Error("Config fetch failed");
-                const config = await res.json();
-                isMaintenanceMode = !!config.maintenanceMode; // Set maintenance state
-                // Chat widget is enabled only if globally enabled AND maintenance is off
-                chatWidgetEnabled = !!config.chatWidgetEnabled && !isMaintenanceMode; 
-            } catch (err) {
-                console.warn("Configuration load error: Defaulting to maintenance mode.", err);
-                isMaintenanceMode = true; // Default to safe state if config fetch fails
-                chatWidgetEnabled = false;
-            }
-        }
+        // Fetch admin config (chat widget toggle)
+        async function fetchAdminConfig() {
+            try {
+                const res = await fetch(GET_ADMIN_CONFIG_URL);
+                if (!res.ok) throw new Error("Config fetch failed");
+                const config = await res.json();
+                isMaintenanceMode = !!config.maintenanceMode; // Set maintenance state
+                // Chat widget is enabled only if globally enabled AND maintenance is off
+                chatWidgetEnabled = !!config.chatWidgetEnabled && !isMaintenanceMode; 
+            } catch (err) {
+                console.warn("Configuration load error: Defaulting to maintenance mode.", err);
+                isMaintenanceMode = true; // Default to safe state if config fetch fails
+                chatWidgetEnabled = false;
+            }
+        }
 
-        // Render floating chat widget
-        function renderChatWidget() {
-            const widget = $('chatWidget');
-            if (!widget) return;
+        // Render floating chat widget
+        function renderChatWidget() {
+            const widget = $('chatWidget');
+            if (!widget) return;
 
-            if (!chatWidgetEnabled) {
-                widget.classList.add('hidden');
-                return;
-            }
-            
-            widget.className = "fixed bottom-8 right-8 z-50";
-            widget.innerHTML = `
-                <a href="https://wa.me/573001234567" target="_blank" rel="noopener"
-                    id="whatsapp-link"
-                    class="block w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-2xl hover:shadow-3xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center animate-pulse">
-                    <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.297-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.265c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488z"/>
-                    </svg>
-                </a>
-            `;
-            widget.classList.remove('hidden');
-        }
+            if (!chatWidgetEnabled) {
+                widget.classList.add('hidden');
+                return;
+            }
+            
+            widget.className = "fixed bottom-8 right-8 z-50";
+            widget.innerHTML = `
+                <a href="https://wa.me/573001234567" target="_blank" rel="noopener"
+                    id="whatsapp-link"
+                    class="block w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-2xl hover:shadow-3xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center animate-pulse">
+                    <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.297-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.265c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488z"/>
+                    </svg>
+                </a>
+            `;
+            widget.classList.remove('hidden');
+        }
 
-        // Cart badge
-        function renderCartLink() {
-            const count = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
-            if (count === 0) return '';
-            return ` 
-                <a href="/" class="relative group">
-                    <div class="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-6 py-4 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition transform hover:scale-110">
-                        <span class="hidden sm:inline">${t('summaryHeader')}</span>
-                        <span class="sm:hidden">Items</span>
-                        <span class="absolute -top-3 -right-3 bg-red-600 text-white text-sm font-bold rounded-full h-10 w-10 flex items-center justify-center ring-4 ring-white shadow-lg">
-                            ${count}
-                        </span>
-                    </div>
-                </a>
-            `;
-        }
+        // Cart badge
+        function renderCartLink() {
+            const count = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
+            if (count === 0) return '';
+            return ` 
+                <a href="/" class="relative group">
+                    <div class="bg-gradient-to-r from-pink-600 to-purple-600 text-white px-6 py-4 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition transform hover:scale-110">
+                        <span class="hidden sm:inline">${t('summaryHeader')}</span>
+                        <span class="sm:hidden">Items</span>
+                        <span class="absolute -top-3 -right-3 bg-red-600 text-white text-sm font-bold rounded-full h-10 w-10 flex items-center justify-center ring-4 ring-white shadow-lg">
+                            ${count}
+                        </span>
+                    </div>
+                </a>
+            `;
+        }
 
-        // Google Maps (MODIFIED FOR MAP PINNING)
-        async function loadGoogleMaps() {
-            try {
-                const res = await fetch(MAPS_KEY_FUNCTION_URL);
-                if (!res.ok) throw new Error("Key failed");
-                const { apiKey } = await res.json();
-                const script = document.createElement('script');
-                // Ensure the map library is included
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry&callback=initPlaces`;
-                script.async = true;
-                document.head.appendChild(script);
-            } catch (err) {
-                const statusEl = $('addressStatus');
-                if (statusEl) {
-                    statusEl.textContent = t('addressStatusDefault');
-                    statusEl.className = "text-red-600 font-bold";
-                }
-            }
-        }
+        // Google Maps (MODIFIED FOR MAP PINNING)
+        async function loadGoogleMaps() {
+            try {
+                const res = await fetch(MAPS_KEY_FUNCTION_URL);
+                if (!res.ok) throw new Error("Key failed");
+                const { apiKey } = await res.json();
+                const script = document.createElement('script');
+                // Ensure the map library is included
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry&callback=initPlaces`;
+                script.async = true;
+                document.head.appendChild(script);
+            } catch (err) {
+                // If key fetching fails, ensure the status message is set correctly
+                const statusEl = $('addressStatus');
+                if (statusEl) {
+                    statusEl.textContent = t('addressStatusDefault');
+                    statusEl.className = "text-red-600 font-bold";
+                }
+            }
+        }
 
-        // Geocoder helper to reverse geocode a location
-        function reverseGeocode(latLng) {
-            if (!geocoder) {
-                geocoder = new google.maps.Geocoder();
-            }
-            geocoder.geocode({ 'location': latLng }, (results, status) => {
-                const addressInput = $('delivery-address');
-                if (status === 'OK' && results[0]) {
-                    addressInput.value = results[0].formatted_address;
-                    addressInput.classList.remove('address-invalid');
-                    addressInput.classList.add('address-valid');
-                    addressInput.dataset.validated = 'true';
-                    $('addressStatus').textContent = t('addressStatusValid');
-                    $('addressStatus').className = "text-green-600 font-bold";
-                    $('addressError').classList.add('hidden');
-                } else {
-                    console.error('Geocoder failed due to: ' + status);
-                    addressInput.classList.remove('address-valid');
-                    addressInput.classList.add('address-invalid');
-                    addressInput.dataset.validated = 'false';
-                    $('addressStatus').textContent = t('addressStatusSelect');
-                    $('addressStatus').className = "text-orange-600 font-bold";
-                    showMessage('error', t('addressError'));
-                }
-            });
-        }
+        // Geocoder helper to reverse geocode a location
+        function reverseGeocode(latLng) {
+            if (!geocoder) {
+                geocoder = new google.maps.Geocoder();
+            }
+            geocoder.geocode({ 'location': latLng }, (results, status) => {
+                const addressInput = $('delivery-address');
+                if (status === 'OK' && results[0]) {
+                    addressInput.value = results[0].formatted_address;
+                    addressInput.classList.remove('address-invalid');
+                    addressInput.classList.add('address-valid');
+                    addressInput.dataset.validated = 'true';
+                    $('addressStatus').textContent = t('addressStatusValid');
+                    $('addressStatus').className = "text-green-600 font-bold";
+                    $('addressError').classList.add('hidden');
+                } else {
+                    console.error('Geocoder failed due to: ' + status);
+                    addressInput.classList.remove('address-valid');
+                    addressInput.classList.add('address-invalid');
+                    addressInput.dataset.validated = 'false';
+                    $('addressStatus').textContent = t('addressStatusSelect');
+                    $('addressStatus').className = "text-orange-600 font-bold";
+                    // Show the error message if the address is not valid
+                    $('addressError').classList.remove('hidden');
+                }
+            });
+        }
 
-        window.initPlaces = function() {
-            const input = $('delivery-address');
-            const mapEl = $('map-container');
-            if (!input || !mapEl) return; 
+        window.initPlaces = function() {
+            const input = $('delivery-address');
+            const mapEl = $('map-container');
+            if (!input || !mapEl) return; 
 
-            // 1. Initialize Autocomplete
-            autocomplete = new google.maps.places.Autocomplete(input, {
-                types: ['address'],
-                // Uses default country restrictions based on server-side config/location preference
-                componentRestrictions: { country: ['co', 'us'] }
-            });
+            // 1. Initialize Autocomplete
+            autocomplete = new google.maps.places.Autocomplete(input, {
+                types: ['address'],
+                // Uses default country restrictions based on server-side config/location preference
+                componentRestrictions: { country: ['co', 'us'] }
+            });
 
-            // 2. Initialize Map (Default: Bogota, Colombia, or US equivalent)
-            const initialPos = currentLang === 'es' ? { lat: 4.7110, lng: -74.0721 } : { lat: 39.8283, lng: -98.5795 }; 
-            map = new google.maps.Map(mapEl, {
-                center: initialPos,
-                zoom: 12,
-                fullscreenControl: false,
-                streetViewControl: false,
-                mapTypeControl: false,
-            });
+            // 2. Initialize Map (Default: Bogota, Colombia, or US equivalent)
+            const initialPos = currentLang === 'es' ? { lat: 4.7110, lng: -74.0721 } : { lat: 39.8283, lng: -98.5795 }; 
+            map = new google.maps.Map(mapEl, {
+                center: initialPos,
+                zoom: 12,
+                fullscreenControl: false,
+                streetViewControl: false,
+                mapTypeControl: false,
+            });
 
-            // 3. Initialize Marker (Draggable)
-            marker = new google.maps.Marker({
-                position: initialPos,
-                map: map,
-                draggable: true,
-                title: t('mapPinInstructions')
-            });
+            // 3. Initialize Marker (Draggable)
+            marker = new google.maps.Marker({
+                position: initialPos,
+                map: map,
+                draggable: true,
+                title: t('mapPinInstructions')
+            });
 
-            // 4. Listen for Autocomplete Place Selection
-            autocomplete.addListener('place_changed', () => {
-                const place = autocomplete.getPlace();
-                if (place.geometry) {
-                    map.setCenter(place.geometry.location);
-                    map.setZoom(16);
-                    marker.setPosition(place.geometry.location);
-                    
-                    // Trigger reverse geocode to confirm the address/pinning
-                    reverseGeocode(place.geometry.location); 
-                }
-            });
+            // 4. Listen for Autocomplete Place Selection
+            autocomplete.addListener('place_changed', () => {
+                const place = autocomplete.getPlace();
+                if (place.geometry) {
+                    map.setCenter(place.geometry.location);
+                    map.setZoom(16);
+                    marker.setPosition(place.geometry.location);
+                    
+                    // Trigger reverse geocode to confirm the address/pinning
+                    reverseGeocode(place.geometry.location); 
+                }
+            });
 
-            // 5. Listen for Manual Marker Drag End (Pinning)
-            marker.addListener('dragend', () => {
-                const latLng = marker.getPosition();
-                // Update address input based on the new marker location
-                reverseGeocode(latLng);
-            });
-            
-            // 6. Address Input Listener (Cleanup and validation indicator)
-            input.addEventListener('input', () => {
-                input.classList.remove('address-valid');
-                input.classList.add('address-invalid');
-                input.dataset.validated = 'false';
-                $('addressStatus').textContent = t('addressStatusSelect');
-                $('addressStatus').className = "text-orange-600";
-            });
-        };
-
-
-        const formatPrice = c => `$${(c/100).toFixed(2)}`;
-
-        function showMessage(type, msg) {
-            const el = $('checkoutMessage');
-            if (!el) return;
-            el.innerHTML = `<div class="p-6 rounded-2xl border-4 font-bold text-xl ${type==='success'?'bg-green-100 border-green-500 text-green-800':'bg-red-100 border-red-500 text-red-800'}">${msg}</div>`;
-            el.scrollIntoView({ behavior: 'smooth' });
-        }
-
-        function toggleLoading(on) {
-            const btn = $('submitButton'), txt = $('buttonText'), spin = $('spinner');
-            if (btn) btn.disabled = on;
-            if (spin) spin.classList.toggle('hidden', !on);
-            if (txt) txt.classList.toggle('hidden', on);
-            const totalDisplay = $('totalPriceDisplay');
-            if (!on && totalDisplay) totalDisplay.textContent = formatPrice(cartTotalCents);
-        }
-
-        async function initApp() {
-            // FIX: Load persisted language
-            const storedLang = localStorage.getItem('checkoutLang');
-            if (storedLang && TEXT[storedLang]) {
-                currentLang = storedLang;
-            } else {
-                // Fallback to browser preference if no storage exists
-                currentLang = (navigator.language || navigator.userLanguage).startsWith('en') ? 'en' : 'es';
-            }
-            
-            // CRITICAL FIX: Fetch config first to check maintenance mode
-            await fetchAdminConfig();
-
-            if (isMaintenanceMode) {
-                // RENDER MAINTENANCE VIEW AND EXIT
-                const appEl = document.getElementById('app');
-                if (appEl) appEl.innerHTML = `
-                    ${renderHeader()}
-                    <div class="text-center py-32 bg-white rounded-3xl shadow-2xl mt-12">
-                        <svg class="w-16 h-16 mx-auto text-yellow-500 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
-                        <p class="text-red-600 text-3xl font-bold">${t('maintenanceTitle')}</p>
-                        <p class="text-red-600 text-xl mt-4">${t('maintenanceMsg')}</p>
-                        <p class="text-gray-600 text-lg mt-6">${t('cartEmpty')}</p>
-                    </div>
-                `;
-                return; // STOP EXECUTION
-            }
-
-            try {
-                const res = await fetch(CONFIG_CLIENT_FUNCTION);
-                if (!res.ok) throw new Error("Config fetch failed");
-                const cfg = await res.json();
-                
-                const appInstance = initializeApp(cfg);
-                auth = getAuth(appInstance); db = getFirestore(appInstance);
-                
-                // Moved chat status fetch before app init to apply the maintenance filter
-                renderChatWidget();
-
-                onAuthStateChanged(auth, user => {
-                    userId = user?.uid;
-                    loadCheckout();
-                });
-            } catch (e) {
-                console.error("Initialization Error:", e);
-                const appEl = document.getElementById('app');
-                if (appEl) appEl.innerHTML = `<p class="text-red-600 text-3xl font-bold">Error crítico al cargar la página de pago. Recarga la página.</p>`;
-            }
-        }
-        
-        function renderCartSummary() {
-            return Object.values(cartData).map(e => `
-                <div class="p-6 bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl shadow-lg">
-                    <div class="flex justify-between items-start space-x-4"> 
-                        
-                        <div class="flex-grow max-w-[70%]"> 
-                            <p class="font-extrabold text-xl text-gray-800 break-words">${e.item.name}</p>
-                            <p class="text-gray-600 mt-1 text-sm">${e.quantity} × ${formatPrice(e.item.price)}</p>
-                        </div>
-                        
-                        <span class="text-2xl font-bold text-pink-600 flex-shrink-0 text-right">
-                            ${formatPrice(e.item.price * e.quantity)}
-                        </span>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function loadCheckout() {
-            const json = sessionStorage.getItem('autoInxCart');
-            if (!json || json === '{}') {
-                document.getElementById('app').innerHTML = `
-                    <div id="loadingState" class="text-center py-32 bg-white rounded-3xl shadow-2xl">
-                        <p class="text-red-600 text-3xl font-bold">${t('cartEmpty')}</p>
-                    </div>
-                `;
-                return;
-            }
-            cartData = JSON.parse(json);
-            cartTotalCents = Object.values(cartData).reduce((s,e) => s + e.item.price * e.quantity, 0);
-
-            // Hide initial loading state and render main content structure
-            document.getElementById('app').innerHTML = renderHeader() + renderCheckoutContent();
-            renderChatWidget();
-            toggleLoading(false); 
-            
-            // FIX 2: Call Google Maps initialization AFTER the form elements are added to the DOM.
-            loadGoogleMaps(); 
-        }
-        
-        function renderHeader() {
-            const itemCount = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
-        
-            return `
-                <header class="bg-white shadow-lg sticky top-0 z-40 rounded-b-3xl mb-12">
-                    <div class="container mx-auto px-8 py-4">
-                        <div class="flex justify-between items-center mb-2">
-                            <div class="flex items-center space-x-4">
-                                <img src="images/AutoInx logo.png" alt="AutoInx Logo" class="h-10 w-auto">
-                                <h1 class="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
-                                    ${t('title')}
-                                </h1>
-                            </div>
-                            <div class="flex items-center space-x-6">
-                                <div id="checkoutCartLink">
-                                    ${renderCartLink()}
-                                </div>
-                                <a href="/" class="text-indigo-600 hover:text-indigo-800 font-bold text-lg flex items-center transition hover:scale-105">
-                                    ${t('return')}
-                                </a>
-                                <button onclick="window.module.setLanguage('${currentLang === 'es' ? 'en' : 'es'}')"
-                                        class="px-3 py-1 text-sm rounded-full bg-gray-100 hover:bg-gray-200">
-                                    ${currentLang === 'es' ? 'English' : 'Español'}
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <nav class="flex space-x-6 text-lg font-semibold border-t pt-2 mt-2">
-                            <a href="index.html" class="text-gray-600 hover:text-indigo-600 transition">Catálogo</a>
-                            <a href="checkout.html" class="text-indigo-600 border-b-2 border-indigo-600">Pagar</a>
-                            <a href="contact.html" class="text-gray-600 hover:text-indigo-600 transition">Contacto</a>
-                            <a href="about.html" class="text-gray-600 hover:text-indigo-600 transition">Sobre Nosotros</a>
-                        </nav>
-                    </div>
-                </header>
-            `;
-        }
+            // 5. Listen for Manual Marker Drag End (Pinning)
+            marker.addListener('dragend', () => {
+                const latLng = marker.getPosition();
+                // Update address input based on the new marker location
+                reverseGeocode(latLng);
+            });
+            
+            // 6. Address Input Listener (Cleanup and validation indicator)
+            // This listener ensures that if the user manually changes the text after a successful selection,
+            // the address becomes invalid again, forcing a re-selection/re-pin.
+            input.addEventListener('input', () => {
+                input.classList.remove('address-valid');
+                input.classList.add('address-invalid');
+                input.dataset.validated = 'false';
+                $('addressStatus').textContent = t('addressStatusSelect');
+                $('addressStatus').className = "text-orange-600 font-bold";
+                $('addressError').classList.remove('hidden'); // Show the error immediately
+            });
+        };
 
 
-        function renderCheckoutContent() {
-            // FIX: Use the correct option text based on currentLang
-            const columbiaSelected = currentLang === 'es' ? 'selected' : '';
-            const usaSelected = currentLang === 'en' ? 'selected' : '';
+        const formatPrice = c => `$${(c/100).toFixed(2)}`;
 
-            return `
-                <div id="checkoutContent" class="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                    <div class="lg:col-span-2">
-                        <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-indigo-600">
-                            <h2 class="text-3xl font-extrabold text-indigo-700 mb-10">${t('formHeader')}</h2>
-                            <div id="checkoutMessage" class="mb-8"></div>
+        function showMessage(type, msg) {
+            const el = $('checkoutMessage');
+            if (!el) return;
+            el.innerHTML = `<div class="p-6 rounded-2xl border-4 font-bold text-xl ${type==='success'?'bg-green-100 border-green-500 text-green-800':'bg-red-100 border-red-500 text-red-800'}">${msg}</div>`;
+            el.scrollIntoView({ behavior: 'smooth' });
+        }
 
-                            <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-10">
-                                <div>
-                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('emailLabel')} <span class="text-red-500">*</span></label>
-                                    <input type="email" id="buyer-email" placeholder="tucorreo@ejemplo.com" required
-                                        class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
-                                </div>
+        function toggleLoading(on) {
+            const btn = $('submitButton'), txt = $('buttonText'), spin = $('spinner');
+            if (btn) btn.disabled = on;
+            if (spin) spin.classList.toggle('hidden', !on);
+            if (txt) txt.classList.toggle('hidden', on);
+            const totalDisplay = $('totalPriceDisplay');
+            if (!on && totalDisplay) totalDisplay.textContent = formatPrice(cartTotalCents);
+        }
 
-                                <div>
-                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('nameLabel')} <span class="text-red-500">*</span></label>
-                                    <input type="text" id="buyer-name" placeholder="Juan Camilo Pérez" required
-                                        class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
-                                </div>
+        async function initApp() {
+            // FIX: Load persisted language
+            const storedLang = localStorage.getItem('checkoutLang');
+            if (storedLang && TEXT[storedLang]) {
+                currentLang = storedLang;
+            } else {
+                // Fallback to browser preference if no storage exists
+                currentLang = (navigator.language || navigator.userLanguage).startsWith('en') ? 'en' : 'es';
+            }
+            
+            // CRITICAL FIX: Fetch config first to check maintenance mode
+            await fetchAdminConfig();
 
-                                <div>
-                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('phoneLabel')} <span class="text-red-500">*</span></label>
-                                    <div class="phone-input-group">
-                                        <select id="country-code" class="country-select">
-                                            <option value="+57" ${columbiaSelected}>Colombia +57</option>
-                                            <option value="+1" ${usaSelected}>${t('countrySelect')}</option>
-                                        </select>
-                                        <input type="tel" id="buyer-phone" placeholder="3001234567" required pattern="[0-9]{7,15}"
-                                            class="phone-input" title="Solo números">
-                                    </div>
-                                    <p class="text-sm text-gray-600 mt-3">${t('phoneHelp')}</p>
-                                    
-                                    <div class="mt-4 flex items-center">
-                                        <input type="checkbox" id="whatsapp-opt-in" checked
-                                            class="h-5 w-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
-                                        <label for="whatsapp-opt-in" class="ml-3 text-lg font-medium text-gray-700">
-                                            ${t('whatsappOptIn')}
-                                        </label>
-                                    </div>
-                                    
-                                </div>
+            if (isMaintenanceMode) {
+                // RENDER MAINTENANCE VIEW AND EXIT
+                const appEl = document.getElementById('app');
+                if (appEl) appEl.innerHTML = `
+                    ${renderHeader()}
+                    <div class="text-center py-32 bg-white rounded-3xl shadow-2xl mt-12">
+                        <svg class="w-16 h-16 mx-auto text-yellow-500 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
+                        <p class="text-red-600 text-3xl font-bold">${t('maintenanceTitle')}</p>
+                        <p class="text-red-600 text-xl mt-4">${t('maintenanceMsg')}</p>
+                        <p class="text-gray-600 text-lg mt-6">${t('cartEmpty')}</p>
+                    </div>
+                `;
+                return; // STOP EXECUTION
+            }
 
-                                <div>
-                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('addressLabel')} <span class="text-red-500">*</span></label>
-                                    
-                                    <input type="text" id="delivery-address" placeholder="${t('addressPlaceholder')}" required
-                                        class="address-input border-gray-300" autocomplete="off" data-validated="false">
-                                        
-                                    <div class="mt-4 flex flex-col space-y-3">
-                                        <p class="text-sm text-gray-600">${t('addressHelp')}</p>
-                                        <span id="addressStatus" class="text-gray-600 font-medium">${t('addressStatusDefault')}</span>
-                                    </div>
-                                    <p id="addressError" class="text-red-600 font-bold mt-3 hidden">
-                                        ${t('addressError')}
-                                    </p>
+            try {
+                const res = await fetch(CONFIG_CLIENT_FUNCTION);
+                if (!res.ok) throw new Error("Config fetch failed");
+                const cfg = await res.json();
+                
+                const appInstance = initializeApp(cfg);
+                auth = getAuth(appInstance); db = getFirestore(appInstance);
+                
+                // Moved chat status fetch before app init to apply the maintenance filter
+                renderChatWidget();
 
-                                    <div id="map-container" class="mt-4"></div>
-                                    <p class="text-xs text-gray-500 mt-2">${t('mapPinInstructions')}</p>
-                                </div>
+                onAuthStateChanged(auth, user => {
+                    userId = user?.uid;
+                    loadCheckout();
+                });
+            } catch (e) {
+                console.error("Initialization Error:", e);
+                const appEl = document.getElementById('app');
+                if (appEl) appEl.innerHTML = `<p class="text-red-600 text-3xl font-bold">Error crítico al cargar la página de pago. Recarga la página.</p>`;
+            }
+        }
+        
+        function renderCartSummary() {
+            return Object.values(cartData).map(e => `
+                <div class="p-6 bg-gradient-to-r from-gray-50 to-gray-100 rounded-2xl shadow-lg">
+                    <div class="flex justify-between items-start space-x-4"> 
+                        
+                        <div class="flex-grow max-w-[70%]"> 
+                            <p class="font-extrabold text-xl text-gray-800 break-words">${e.item.name}</p>
+                            <p class="text-gray-600 mt-1 text-sm">${e.quantity} × ${formatPrice(e.item.price)}</p>
+                        </div>
+                        
+                        <span class="text-2xl font-bold text-pink-600 flex-shrink-0 text-right">
+                            ${formatPrice(e.item.price * e.quantity)}
+                        </span>
+                    </div>
+                </div>
+            `).join('');
+        }
 
-                                <div class="pt-10">
-                                    <button type="submit" id="submitButton"
-                                        class="w-full bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 text-white py-7 rounded-3xl font-extrabold text-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transform transition duration-300 disabled:opacity-60 disabled:cursor-not-allowed flex justify-center items-center">
-                                        <span id="buttonText">${t('buttonText')} <span id="totalPriceDisplay">${formatPrice(cartTotalCents)}</span></span>
-                                        <svg id="spinner" class="animate-spin ml-5 h-10 w-10 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
+        function loadCheckout() {
+            const json = sessionStorage.getItem('autoInxCart');
+            if (!json || json === '{}') {
+                document.getElementById('app').innerHTML = `
+                    <div id="loadingState" class="text-center py-32 bg-white rounded-3xl shadow-2xl">
+                        <p class="text-red-600 text-3xl font-bold">${t('cartEmpty')}</p>
+                    </div>
+                `;
+                return;
+            }
+            cartData = JSON.parse(json);
+            cartTotalCents = Object.values(cartData).reduce((s,e) => s + e.item.price * e.quantity, 0);
 
-                    <div class="lg:col-span-1">
-                        <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-pink-600 sticky top-8">
-                            <h3 class="text-3xl font-extrabold text-pink-700 mb-8">${t('summaryHeader')}</h3>
-                            <div id="cartSummary" class="space-y-6 max-h-[30rem] custom-scrollbar overflow-y-auto pr-3">
-                                ${renderCartSummary()}
-                            </div>
-                            <div class="pt-10 mt-10 border-t-4 border-gray-300">
-                                <div class="flex justify-between text-3xl font-extrabold">
-                                    <span class="text-gray-800">${t('total')}</span>
-                                    <span id="orderTotal" class="text-pink-600">${formatPrice(cartTotalCents)}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
+            // Hide initial loading state and render main content structure
+            document.getElementById('app').innerHTML = renderHeader() + renderCheckoutContent();
+            renderChatWidget();
+            toggleLoading(false); 
+            
+            // FIX 2: Call Google Maps initialization AFTER the form elements are added to the DOM.
+            loadGoogleMaps(); 
+        }
+        
+        function renderHeader() {
+            const itemCount = Object.values(cartData).reduce((s,e) => s + e.quantity, 0);
+        
+            return `
+                <header class="bg-white shadow-lg sticky top-0 z-40 rounded-b-3xl mb-12">
+                    <div class="container mx-auto px-8 py-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="flex items-center space-x-4">
+                                <img src="images/AutoInx logo.png" alt="AutoInx Logo" class="h-10 w-auto">
+                                <h1 class="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
+                                    ${t('title')}
+                                </h1>
+                            </div>
+                            <div class="flex items-center space-x-6">
+                                <div id="checkoutCartLink">
+                                    ${renderCartLink()}
+                                </div>
+                                <a href="/" class="text-indigo-600 hover:text-indigo-800 font-bold text-lg flex items-center transition hover:scale-105">
+                                    ${t('return')}
+                                </a>
+                                <button onclick="window.module.setLanguage('${currentLang === 'es' ? 'en' : 'es'}')"
+                                        class="px-3 py-1 text-sm rounded-full bg-gray-100 hover:bg-gray-200">
+                                    ${currentLang === 'es' ? 'English' : 'Español'}
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <nav class="flex space-x-6 text-lg font-semibold border-t pt-2 mt-2">
+                            <a href="index.html" class="text-gray-600 hover:text-indigo-600 transition">Catálogo</a>
+                            <a href="checkout.html" class="text-indigo-600 border-b-2 border-indigo-600">Pagar</a>
+                            <a href="contact.html" class="text-gray-600 hover:text-indigo-600 transition">Contacto</a>
+                            <a href="about.html" class="text-gray-600 hover:text-indigo-600 transition">Sobre Nosotros</a>
+                        </nav>
+                    </div>
+                </header>
+            `;
+        }
 
 
-        window.module = {
-            async submitOrder(e) {
-                // Prevent submission if in maintenance mode (although initApp should have blocked the rendering)
-                if (isMaintenanceMode) {
-                    return showMessage('error', t('maintenanceMsg'));
-                }
+        function renderCheckoutContent() {
+            // FIX: Use the correct option text based on currentLang
+            const columbiaSelected = currentLang === 'es' ? 'selected' : '';
+            const usaSelected = currentLang === 'en' ? 'selected' : '';
 
-                e.preventDefault();
-                if (Object.keys(cartData).length === 0) return;
+            return `
+                <div id="checkoutContent" class="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                    <div class="lg:col-span-2">
+                        <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-indigo-600">
+                            <h2 class="text-3xl font-extrabold text-indigo-700 mb-10">${t('formHeader')}</h2>
+                            <div id="checkoutMessage" class="mb-8"></div>
 
-                const email = $('buyer-email').value.trim();
-                const name = $('buyer-name').value.trim();
-                // Ensure phone number starts with + and country code
-                const phone = $('country-code').value + $('buyer-phone').value.trim(); 
-                const addrIn = $('delivery-address');
-                const address = addrIn.value.trim();
-                const valid = addrIn.dataset.validated === 'true';
-                
-                // NEW: Get WhatsApp Preference
-                const prefersWhatsapp = $('whatsapp-opt-in').checked;
+                            <form id="checkoutForm" onsubmit="window.module.submitOrder(event)" class="space-y-10">
+                                <div>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('emailLabel')} <span class="text-red-500">*</span></label>
+                                    <input type="email" id="buyer-email" placeholder="tucorreo@ejemplo.com" required
+                                        class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
+                                </div>
 
-                if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address || !valid) {
-                    if (!valid) {
-                        addrIn.classList.add('address-invalid');
-                        $('addressError').classList.remove('hidden');
-                    }
-                    return showMessage('error', t('addressError'));
-                }
+                                <div>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('nameLabel')} <span class="text-red-500">*</span></label>
+                                    <input type="text" id="buyer-name" placeholder="Juan Camilo Pérez" required
+                                        class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition">
+                                </div>
 
-                toggleLoading(true);
+                                <div>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('phoneLabel')} <span class="text-red-500">*</span></label>
+                                    <div class="phone-input-group">
+                                        <select id="country-code" class="country-select">
+                                            <option value="+57" ${columbiaSelected}>Colombia +57</option>
+                                            <option value="+1" ${usaSelected}>${t('countrySelect')}</option>
+                                        </select>
+                                        <input type="tel" id="buyer-phone" placeholder="3001234567" required pattern="[0-9]{7,15}"
+                                            class="phone-input" title="Solo números">
+                                    </div>
+                                    <p class="text-sm text-gray-600 mt-3">${t('phoneHelp')}</p>
+                                    
+                                    <div class="mt-4 flex items-center">
+                                        <input type="checkbox" id="whatsapp-opt-in" checked
+                                            class="h-5 w-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                                        <label for="whatsapp-opt-in" class="ml-3 text-lg font-medium text-gray-700">
+                                            ${t('whatsappOptIn')}
+                                        </label>
+                                    </div>
+                                    
+                                </div>
 
-                const order = {
-                    buyerEmail: email, 
-                    buyerName: name, 
-                    buyerPhone: phone, 
-                    deliveryAddress: address,
-                    // NEW: Add preference flag
-                    prefersWhatsapp: prefersWhatsapp, 
-                    
-                    items: Object.values(cartData).map(e => ({ 
-                        id: e.item.id, 
-                        name: e.item.name, 
-                        price: e.item.price, 
-                        quantity: e.quantity 
-                    })),
-                    totalCents: cartTotalCents, // Standardized to totalCents
-                    userId, 
-                    timestamp: new Date().toISOString()
-                };
-                
-                // Add Geo-Coordinates (optional but highly recommended for delivery apps)
-                if (marker && marker.getPosition) {
-                    const position = marker.getPosition();
-                    order.geolocation = {
-                        lat: position.lat(),
-                        lng: position.lng()
-                    };
-                }
+                                <div>
+                                    <label class="block text-lg font-bold text-gray-800 mb-3">${t('addressLabel')} <span class="text-red-500">*</span></label>
+                                    
+                                    <input type="text" id="delivery-address" placeholder="${t('addressPlaceholder')}" required
+                                        class="address-input border-gray-300 address-invalid" autocomplete="off" data-validated="false">
+                                        
+                                    <div class="mt-4 flex flex-col space-y-3">
+                                        <p class="text-sm text-gray-600">${t('addressHelp')}</p>
+                                        <span id="addressStatus" class="text-orange-600 font-bold">${t('addressStatusSelect')}</span>
+                                    </div>
+                                    <p id="addressError" class="text-red-600 font-bold mt-3 hidden">
+                                        ${t('addressError')}
+                                    </p>
 
-                try {
-                    const ref = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
-                        ...order, 
-                        status: 'Pending', 
-                        createdAt: serverTimestamp()
-                    });
+                                    <div id="map-container" class="mt-4"></div>
+                                    <p class="text-xs text-gray-500 mt-2">${t('mapPinInstructions')}</p>
+                                </div>
 
-                    // Call Netlify Function to send email
-                    await fetch(NETLIFY_FUNCTION_URL, {
-                        method: 'POST', 
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...order, orderId: ref.id })
-                    });
+                                <div class="pt-10">
+                                    <button type="submit" id="submitButton"
+                                        class="w-full bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 text-white py-7 rounded-3xl font-extrabold text-3xl shadow-2xl hover:shadow-3xl hover:scale-105 transform transition duration-300 disabled:opacity-60 disabled:cursor-not-allowed flex justify-center items-center">
+                                        <span id="buttonText">${t('buttonText')} <span id="totalPriceDisplay">${formatPrice(cartTotalCents)}</span></span>
+                                        <svg id="spinner" class="animate-spin ml-5 h-10 w-10 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
 
-                    sessionStorage.removeItem('autoInxCart');
+                    <div class="lg:col-span-1">
+                        <div class="bg-white p-10 rounded-3xl shadow-2xl border-t-8 border-pink-600 sticky top-8">
+                            <h3 class="text-3xl font-extrabold text-pink-700 mb-8">${t('summaryHeader')}</h3>
+                            <div id="cartSummary" class="space-y-6 max-h-[30rem] custom-scrollbar overflow-y-auto pr-3">
+                                ${renderCartSummary()}
+                            </div>
+                            <div class="pt-10 mt-10 border-t-4 border-gray-300">
+                                <div class="flex justify-between text-3xl font-extrabold">
+                                    <span class="text-gray-800">${t('total')}</span>
+                                    <span id="orderTotal" class="text-pink-600">${formatPrice(cartTotalCents)}</span>
+                                </div>
+                            </div>
+                    </div>
+                </div>
+            `;
+        }
 
-                    // OPTIONAL: Customize confirmation view based on preference
-                    const confirmationMessage = prefersWhatsapp 
-                        ? `¡Te enviaremos una confirmación de entrega por WhatsApp al número ${phone}!`
-                        : `Tu confirmación ha sido enviada a ${email}.`;
-                        
-                    const waMsg = encodeURIComponent(`¡Hola! Acabo de hacer el pedido #${ref.id.slice(0,8)} en autoInx. Mi dirección: ${address}`);
-                    const waLink = `https://wa.me/573001234567?text=${waMsg}`;
 
-                    document.getElementById('app').innerHTML = `
-                        ${renderHeader()}
-                        <div class="max-w-5xl mx-auto p-6 sm:p-8 lg:p-12">
-                            <div class="text-center py-20 bg-gradient-to-br from-emerald-50 to-teal-100 rounded-3xl shadow-3xl">
-                                <h2 class="text-6xl font-extrabold text-green-600 mb-10">${t('orderConfirmed')}</h2>
-                                <p class="text-3xl text-gray-800 mb-6">${t('orderId')} <span class="font-mono bg-white px-8 py-4 rounded-2xl text-indigo-700">${ref.id}</span></p>
-                                <p class="text-xl text-gray-700 mb-12"><strong>${confirmationMessage}</strong></p>
-                                <div class="space-x-8">
-                                    <a href="/" class="inline-block px-12 py-6 bg-indigo-600 text-white font-bold text-2xl rounded-3xl hover:bg-indigo-700 transition transform hover:scale-110">
-                                        ${t('continueShopping')}
-                                    </a>
-                                    ${prefersWhatsapp ? `
-                                    <a href="${waLink}" target="_blank" class="inline-block px-12 py-6 bg-green-600 text-white font-bold text-2xl rounded-3xl hover:bg-green-700 transition transform hover:scale-110">
-                                        ${t('sendWhatsapp')}
-                                    </a>` : ''}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                } catch (err) {
-                    console.error(err);
-                    showMessage('error', 'Error al procesar el pedido. Intenta de nuevo.');
-                } finally {
-                    toggleLoading(false);
-                }
-            },
-            setLanguage, // Export language switcher for debugging/manual use
-        };
+        window.module = {
+            async submitOrder(e) {
+                // Prevent submission if in maintenance mode (although initApp should have blocked the rendering)
+                if (isMaintenanceMode) {
+                    return showMessage('error', t('maintenanceMsg'));
+                }
 
-        document.addEventListener('DOMContentLoaded', initApp);
-    </script>
+                e.preventDefault();
+                if (Object.keys(cartData).length === 0) return;
+
+                const email = $('buyer-email').value.trim();
+                const name = $('buyer-name').value.trim();
+                // Ensure phone number starts with + and country code
+                const phone = $('country-code').value + $('buyer-phone').value.trim(); 
+                const addrIn = $('delivery-address');
+                const address = addrIn.value.trim();
+                const valid = addrIn.dataset.validated === 'true';
+                
+                // NEW: Get WhatsApp Preference
+                const prefersWhatsapp = $('whatsapp-opt-in').checked;
+
+                // --- FIX: Highlight address field and show error if not validated ---
+                if (!valid) {
+                    addrIn.classList.remove('address-valid');
+                    addrIn.classList.add('address-invalid');
+                    $('addressError').classList.remove('hidden');
+                    return showMessage('error', t('addressError'));
+                }
+                // --------------------------------------------------------------------
+
+                if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address) {
+                    // Basic required field check for other fields
+                    return showMessage('error', 'Por favor, rellena todos los campos obligatorios.'); 
+                }
+
+                toggleLoading(true);
+
+                const order = {
+                    buyerEmail: email, 
+                    buyerName: name, 
+                    buyerPhone: phone, 
+                    deliveryAddress: address,
+                    // NEW: Add preference flag
+                    prefersWhatsapp: prefersWhatsapp, 
+                    
+                    items: Object.values(cartData).map(e => ({ 
+                        id: e.item.id, 
+                        name: e.item.name, 
+                        price: e.item.price, 
+                        quantity: e.quantity 
+                    })),
+                    totalCents: cartTotalCents, // Standardized to totalCents
+                    userId, 
+                    timestamp: new Date().toISOString()
+                };
+                
+                // Add Geo-Coordinates (optional but highly recommended for delivery apps)
+                if (marker && marker.getPosition) {
+                    const position = marker.getPosition();
+                    order.geolocation = {
+                        lat: position.lat(),
+                        lng: position.lng()
+                    };
+                }
+
+                try {
+                    const ref = await addDoc(collection(db, ORDERS_COLLECTION(userId)), {
+                        ...order, 
+                        status: 'Pending', 
+                        createdAt: serverTimestamp()
+                    });
+
+                    // Call Netlify Function to send email
+                    await fetch(NETLIFY_FUNCTION_URL, {
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...order, orderId: ref.id })
+                    });
+
+                    sessionStorage.removeItem('autoInxCart');
+
+                    // OPTIONAL: Customize confirmation view based on preference
+                    const confirmationMessage = prefersWhatsapp 
+                        ? `¡Te enviaremos una confirmación de entrega por WhatsApp al número ${phone}!`
+                        : `Tu confirmación ha sido enviada a ${email}.`;
+                        
+                    const waMsg = encodeURIComponent(`¡Hola! Acabo de hacer el pedido #${ref.id.slice(0,8)} en autoInx. Mi dirección: ${address}`);
+                    const waLink = `https://wa.me/573001234567?text=${waMsg}`;
+
+                    document.getElementById('app').innerHTML = `
+                        ${renderHeader()}
+                        <div class="max-w-5xl mx-auto p-6 sm:p-8 lg:p-12">
+                            <div class="text-center py-20 bg-gradient-to-br from-emerald-50 to-teal-100 rounded-3xl shadow-3xl">
+                                <h2 class="text-6xl font-extrabold text-green-600 mb-10">${t('orderConfirmed')}</h2>
+                                <p class="text-3xl text-gray-800 mb-6">${t('orderId')} <span class="font-mono bg-white px-8 py-4 rounded-2xl text-indigo-700">${ref.id}</span></p>
+                                <p class="text-xl text-gray-700 mb-12"><strong>${confirmationMessage}</strong></p>
+                                <div class="space-x-8">
+                                    <a href="/" class="inline-block px-12 py-6 bg-indigo-600 text-white font-bold text-2xl rounded-3xl hover:bg-indigo-700 transition transform hover:scale-110">
+                                        ${t('continueShopping')}
+                                    </a>
+                                    ${prefersWhatsapp ? `
+                                    <a href="${waLink}" target="_blank" class="inline-block px-12 py-6 bg-green-600 text-white font-bold text-2xl rounded-3xl hover:bg-green-700 transition transform hover:scale-110">
+                                        ${t('sendWhatsapp')}
+                                    </a>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } catch (err) {
+                    console.error(err);
+                    showMessage('error', 'Error al procesar el pedido. Intenta de nuevo.');
+                } finally {
+                    toggleLoading(false);
+                }
+            },
+            setLanguage, // Export language switcher for debugging/manual use
+        };
+
+        document.addEventListener('DOMContentLoaded', initApp);
+    </script>
 </body>
 </html>
