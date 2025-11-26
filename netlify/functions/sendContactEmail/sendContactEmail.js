@@ -4,7 +4,8 @@
  * and routes the email using Brevo SMTP with dynamic templating.
  */
 const nodemailer = require("nodemailer");
-const fs = require = require("fs").promises;
+// --- FIX APPLIED: Corrected assignment to import fs.promises ---
+const fs = require("fs").promises;
 const path = require("path");
 
 // --- CRITICAL FIX: Global Rate Limiting Variables ---
