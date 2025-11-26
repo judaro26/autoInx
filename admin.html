@@ -318,54 +318,59 @@
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
             if (!db) return;
-    
+        
+            // Listener for Catalogs (Categories)
             onSnapshot(collection(db, CATALOGS_COLLECTION), snap => {
                 state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
                 if (state.activeTab === 'orders' && !state.previewMode) {
-                    updateItemSelector(); // FIX: Update selector on catalog change
-                    if (state.orderPage === 'list') renderOrdersStats(); // Update stats if orders tab is active
+                    updateItemSelector(); 
+                    if (state.orderPage === 'list') renderOrdersStats();
                 }
             }, err => {
                 console.error("Error listening to categories:", err);
                 showMessage('error', 'Failed to fetch categories.', 5000, 'catalog');
             });
-            
-            onSnapshot(collection(db, ORDERS_COLLECTION), snap => {
-                    // Map the documents to the state array, including the Firestore ID
-                    state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            
-                    // Check if the Orders list tab is currently active
-                    if (state.activeTab === 'orders' && state.orderPage === 'list') {
-                        renderOrdersList(); // Renders the list with new data
-                    }
-                    
-                }, err => {
-                    console.log("Error listening to orders:", err);
-                    showMessage('error', 'Failed to fetch orders in real-time.', 5000, 'orders');
-                });
-    
+        
+            // Listener for Items (Products)
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
-                // IMPORTANT: Ensure 'stock' exists on items, defaulting to 0 if missing.
                 state.items = snap.docs.map(d => {
                     const data = d.data();
                     return { 
                         id: d.id, 
                         ...data,
-                        stock: data.stock !== undefined ? data.stock : 0 // Add stock property
+                        stock: data.stock !== undefined ? data.stock : 0
                     };
                 });
                 
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
                 if (state.activeTab === 'orders' && !state.previewMode) {
-                    updateItemSelector(); // FIX: Update selector on item change
-                    updateAdminCartDisplay(); // FIX: Update cart display if prices/items change
+                    updateItemSelector();
+                    updateAdminCartDisplay();
                 }
-                // Rerender inventory list on item update
                 if (state.activeTab === 'inventory' && !state.previewMode) renderInventorySection();
             }, err => {
                 console.error("Error listening to items:", err);
                 showMessage('error', 'Failed to fetch items.', 5000, 'catalog');
+            });
+        
+            // NEW LISTENER: Realtime Listener for Orders (Replaces mock data source)
+            onSnapshot(collection(db, ORDERS_COLLECTION), snap => {
+                // 1. Update the state.orders array with live data
+                state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+                // 2. If the Orders tab is open, trigger a re-render
+                if (state.activeTab === 'orders' && state.orderPage === 'list') {
+                    window.module.renderOrdersList(); 
+                }
+                
+                // Clear any loading message
+                const ordersMsgElClear = document.getElementById('ordersMessage');
+                if (ordersMsgElClear) ordersMsgElClear.textContent = ''; 
+        
+            }, err => {
+                console.error("Error listening to orders:", err);
+                showMessage('error', 'Failed to fetch orders in real-time.', 5000, 'orders');
             });
         }
     
@@ -1245,24 +1250,16 @@
     
         // --- ORDERS DATA & ACTIONS (NEW) ---
     
-        // Placeholder function to fetch orders.
         async function fetchOrders() {
-            // Show a quick loading message
+            // Show a loading message (the listener will clear it when data arrives)
             const ordersMsgEl = document.getElementById('ordersMessage');
             if (ordersMsgEl) {
                 ordersMsgEl.textContent = 'Fetching and listening for orders...';
             }
             
-            // The data (state.orders) is now updated by the realtime listener.
-            // We just ensure the UI is rendered with the latest data.
+            // The data (state.orders) is automatically updated by the realtime listener 
+            // now running in the background. We just ensure the initial render is requested.
             window.module.renderOrdersList();
-        
-            // Clear loading message after rendering is triggered
-            const ordersMsgElClear = document.getElementById('ordersMessage');
-            if (ordersMsgElClear) {
-                // Use a slight delay or remove the message immediately depending on UX preference
-                ordersMsgElClear.textContent = ''; 
-            }
         }
     
         function getFilteredOrders() {
