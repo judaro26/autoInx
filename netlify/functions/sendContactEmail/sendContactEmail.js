@@ -143,11 +143,11 @@ exports.handler = async function (event) {
         });
 
         await transporter.sendMail({
-            from: process.env.BREVO_SMTP_USER || "noreply@autoinx.com",
+            from: "noreply@autoinx.com", 
             to: recipient,
             subject,
             html: htmlBody,
-            replyTo: email,
+            replyTo: email, // Keep this for user replies
         });
 
         return {
