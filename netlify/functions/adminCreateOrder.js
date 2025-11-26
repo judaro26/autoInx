@@ -52,16 +52,16 @@ exports.handler = async function (event) {
         return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
     }
 
-    const { 
-        buyerEmail, 
-        items, 
-        totalCents, 
-        buyerName, 
-        buyerPhone, 
-        deliveryAddress, 
-        notes 
+    const { 
+        buyerEmail, 
+        items, 
+        totalCents, // This MUST be present and non-zero
+        buyerName, // This MUST be present
+        buyerPhone, 
+        deliveryAddress, // This MUST be present
+        notes 
     } = orderDetails;
-
+    
     if (!buyerEmail || !items || items.length === 0 || !totalCents || !buyerName || !deliveryAddress) {
         return { statusCode: 400, body: JSON.stringify({ error: 'Missing required order fields: email, items, total, name, or address.' }) };
     }
