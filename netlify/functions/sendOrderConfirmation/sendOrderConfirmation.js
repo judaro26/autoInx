@@ -1,12 +1,12 @@
 /**
  * Netlify Function: send-email.js
- * Handles order confirmation emails to the customer and notification emails to the admin.
+ * Handles order confirmation emails to the customer and notification emails to the admin/requester.
  */
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
 const path = require("path");
 
-// --- Configuration and Helpers ---
+// --- Configuration and Helpers (Unchanged) ---
 
 // 1. Configure Nodemailer Transporter using Brevo SMTP details
 const transporter = nodemailer.createTransport({
@@ -78,10 +78,10 @@ async function populateTemplate(orderData, recipientType) {
         subjectLine = "Your autoInx Order is Confirmed";
         introText = `Hello ${orderData.buyerName}, thank you for your purchase! We've received your order and are preparing your items for delivery.`;
         recipientEmailPlaceholder = orderData.buyerEmail;
-    } else { // admin notification
+    } else { // admin notification or requester copy
         subjectLine = `NEW ORDER #${orderData.orderId.substring(0, 8).toUpperCase()} - ${orderData.buyerName}`;
         introText = `A new order has been placed on the site. Please review the details below.`;
-        recipientEmailPlaceholder = 'orders@autoinx.com';
+        recipientEmailPlaceholder = 'orders@autoinx.com'; // Default for template footer
     }
 
     // 2. Perform replacements
@@ -96,8 +96,8 @@ async function populateTemplate(orderData, recipientType) {
     // Brevo email placeholder in footer (use the actual recipient email)
     template = template.replace(/{{contact\.EMAIL}}/g, recipientEmailPlaceholder);
 
-    // Optional: Add Delivery/Shipping Info (for Admin)
-    if (recipientType === 'admin') {
+    // Optional: Add Delivery/Shipping Info (for Admin/Requester)
+    if (recipientType !== 'customer') {
         const adminDetails = `
             <p style="margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px; font-size: 14px; color: #3b3f44;">
                 <strong>Customer Name:</strong> ${orderData.buyerName}<br>
@@ -111,7 +111,7 @@ async function populateTemplate(orderData, recipientType) {
             <div style="border-top: 1px solid #ddd;"></div>
         `;
         // Inject admin details right above the order items table, after Order Date
-        template = template.replace(/<\/p>\s*<!-- Order Items Table \(Dynamic Content injected by the function\) -->/, `</p>${adminDetails}<!-- Order Items Table (Dynamic Content injected by the function) -->`);
+        template = template.replace(/<\/p>\s*/, `</p>${adminDetails}`);
     }
 
 
@@ -126,7 +126,8 @@ exports.handler = async function (event) {
     }
 
     const orderData = JSON.parse(event.body);
-    const { orderId, buyerEmail, items, totalCents } = orderData;
+    // Destructure all necessary fields, including the new optional requesterEmail
+    const { orderId, buyerEmail, items, totalCents, requesterEmail } = orderData;
     
     // Basic Validation Check
     if (!orderId || !buyerEmail || !items || items.length === 0 || totalCents === undefined) {
@@ -138,7 +139,6 @@ exports.handler = async function (event) {
         const customerEmailData = await populateTemplate(orderData, 'customer');
 
         const customerMailOptions = {
-            // Must be a verified Brevo Sender
             from: "noreply@autoinx.com", 
             to: buyerEmail,
             subject: customerEmailData.subject,
@@ -147,23 +147,36 @@ exports.handler = async function (event) {
         await transporter.sendMail(customerMailOptions);
 
 
-        // --- 2. Admin Notification Email ---
+        // --- 2. Admin Notification Email (to main orders mailbox) ---
         const adminEmailData = await populateTemplate(orderData, 'admin');
 
         const adminMailOptions = {
-            // Must be a verified Brevo Sender
             from: "noreply@autoinx.com", 
             to: "orders@autoinx.com", // Dedicated orders email
             subject: adminEmailData.subject,
             html: adminEmailData.html,
         };
         await transporter.sendMail(adminMailOptions);
+        
+        // --- 3. Requester/Sales Agent Notification Email (NEW) ---
+        if (requesterEmail && requesterEmail !== buyerEmail && requesterEmail !== "orders@autoinx.com") {
+             // Re-use the admin email data since it contains the order details
+            const requesterMailOptions = {
+                from: "noreply@autoinx.com", 
+                to: requesterEmail,
+                // Optionally modify the subject to clarify this is a copy
+                subject: `[COPY] ${adminEmailData.subject}`,
+                html: adminEmailData.html,
+            };
+            await transporter.sendMail(requesterMailOptions);
+            console.log(`Sent order copy to requester: ${requesterEmail}`);
+        }
 
 
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: "Emails sent successfully to customer and admin.", orderId }),
+            body: JSON.stringify({ message: "Emails sent successfully to customer, admin, and optional requester.", orderId }),
         };
 
     } catch (error) {
