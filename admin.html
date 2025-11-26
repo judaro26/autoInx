@@ -146,6 +146,7 @@
         const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey'; 
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
         const EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendConfirmationEmail'; // Added Email Function
+        const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection
     
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -329,6 +330,20 @@
                 console.error("Error listening to categories:", err);
                 showMessage('error', 'Failed to fetch categories.', 5000, 'catalog');
             });
+            
+            onSnapshot(collection(db, ORDERS_COLLECTION), snap => {
+                    // Map the documents to the state array, including the Firestore ID
+                    state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+                    // Check if the Orders list tab is currently active
+                    if (state.activeTab === 'orders' && state.orderPage === 'list') {
+                        renderOrdersList(); // Renders the list with new data
+                    }
+                    
+                }, err => {
+                    console.log("Error listening to orders:", err);
+                    showMessage('error', 'Failed to fetch orders in real-time.', 5000, 'orders');
+                });
     
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
                 // IMPORTANT: Ensure 'stock' exists on items, defaulting to 0 if missing.
@@ -1232,29 +1247,22 @@
     
         // Placeholder function to fetch orders.
         async function fetchOrders() {
-            // FIX 1: Replaced optional chaining assignment with standard check
+            // Show a quick loading message
             const ordersMsgEl = document.getElementById('ordersMessage');
             if (ordersMsgEl) {
-                ordersMsgEl.textContent = 'Fetching orders... (Mockup data used)';
+                ordersMsgEl.textContent = 'Fetching and listening for orders...';
             }
-        
-            // Mockup Orders Data
-            const mockOrders = [
-                { id: 'O-1001', orderNumber: 1001, buyerName: 'Elena García', buyerEmail: 'elena@example.com', deliveryAddress: 'Calle 100 # 5-20, Bogotá', totalCents: 159900, status: 'Delivered', trackingId: 'CO345678', createdAt: new Date(Date.now() - 86400000 * 5), items: [{name: 'Brake Pad Set', quantity: 1, sku: 'BP-1234'}, {name: 'Oil Filter', quantity: 2, sku: 'OF-5678'}]},
-                { id: 'O-1002', orderNumber: 1002, buyerName: 'Juan Pérez', buyerEmail: 'juan@example.com', deliveryAddress: '123 Main St, Miami, FL', totalCents: 8500, status: 'Pending', trackingId: null, createdAt: new Date(Date.now() - 86400000 * 2), items: [{name: 'Spark Plugs', quantity: 4, sku: 'SP-9012'}]},
-                { id: 'O-1003', orderNumber: 1003, buyerName: 'Sofía Martínez', buyerEmail: 'sofia@example.com', deliveryAddress: 'Av. Caracas 45-80, Bogotá', totalCents: 450000, status: 'Processing', trackingId: 'CO123987', createdAt: new Date(Date.now() - 86400000 * 1), items: [{name: 'Engine Belt', quantity: 1, sku: 'EB-3456'}, {name: 'Headlamp', quantity: 1, sku: 'HL-7890'}]},
-                { id: 'O-1004', orderNumber: 1004, buyerName: 'Carlos López', buyerEmail: 'carlos@example.com', deliveryAddress: '900 Broadway, NYC, NY', totalCents: 22000, status: 'Cancelled', trackingId: null, createdAt: new Date(Date.now() - 86400000 * 10), items: [{name: 'Wiper Blades', quantity: 2, sku: 'WB-1357'}]}
-            ];
-            await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API latency
-            state.orders = mockOrders;
             
-            // FIX 2: Apply the same fix to the clearing assignment
+            // The data (state.orders) is now updated by the realtime listener.
+            // We just ensure the UI is rendered with the latest data.
+            window.module.renderOrdersList();
+        
+            // Clear loading message after rendering is triggered
             const ordersMsgElClear = document.getElementById('ordersMessage');
             if (ordersMsgElClear) {
-                ordersMsgElClear.textContent = '';
+                // Use a slight delay or remove the message immediately depending on UX preference
+                ordersMsgElClear.textContent = ''; 
             }
-        
-            renderOrdersList();
         }
     
         function getFilteredOrders() {
