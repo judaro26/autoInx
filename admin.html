@@ -1264,56 +1264,51 @@
     /**
      * Renders a list of user records into the users grid, applying search filter and selection state.
      */
-    function renderUserList() {
-        const grid = document.getElementById('usersGrid');
-        if (!grid) return;
-
-        const users = getFilteredAuthUsers();
-        
-        // Clear existing rows but keep headers (which are the first 8 elements in the grid, including the checkbox header)
-        Array.from(grid.children).slice(8).forEach(el => el.remove());
-
-        // Uncheck the master checkbox and update counts
-        const selectAll = document.getElementById('selectAllUsers');
-        if (selectAll) selectAll.checked = false;
-        
-        document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
-        document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
-
-        const userRows = users.map(user => {
-            const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
-            const emailVerifiedIcon = user.emailVerified ? '✅' : '❌';
-            const disabledButtonText = user.disabled ? 'Enable' : 'Disable';
-            const disabledButtonColor = user.disabled ? 'text-green-600 hover:text-green-800' : 'text-yellow-600 hover:text-yellow-800';
-            const isSelected = state.selectedUsers.includes(user.uid);
-
-            // Handle cases where email is null for anonymous users
-            const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
-
-            return `
-                <div class="grid-item ${disabledClass}">
-                    <input type="checkbox" onchange="window.module.toggleUserSelection('${user.uid}')" 
-                                data-uid="${user.uid}" ${isSelected ? 'checked' : ''}>
-                </div>
-                <div class="grid-item text-xs font-mono truncate ${disabledClass}">${user.uid.slice(0, 8)}...</div>
-                <div class="grid-item text-sm font-semibold truncate ${disabledClass}">${userEmail} ${emailVerifiedIcon}</div>
-                <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.displayName || 'N/A'}</div>
-                <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
-                <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleDateString() : 'N/A'}</div>
-                <div class="grid-item text-xs font-bold ${disabledClass}">${user.disabled ? 'DISABLED' : 'Active'}</div>
-                <div class="grid-item space-x-2 ${disabledClass}">
-                    <button onclick="window.module.promptForPasswordReset('${user.uid}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
-                    <button onclick="window.module.disableUser('${user.uid}', '${userEmail}', ${user.disabled})" class="${disabledButtonColor} text-sm font-semibold">${disabledButtonText}</button>
-                    <button onclick="window.module.deleteUser('${user.uid}', '${userEmail}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                </div>
-            `;
-        }).join('');
-
-        grid.insertAdjacentHTML('beforeend', userRows);
-        renderUserControls();
-    }
-
-    /**
+     function renderUserList() {
+        const grid = document.getElementById('usersGrid');
+        if (!grid) return;
+        const users = getFilteredAuthUsers();
+        
+        // Clear existing rows but keep headers (which are the first 8 elements in the grid, including the checkbox header)
+        Array.from(grid.children).slice(8).forEach(el => el.remove());
+        // Uncheck the master checkbox and update counts
+        const selectAll = document.getElementById('selectAllUsers');
+        if (selectAll) selectAll.checked = false;
+        
+        document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
+        document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
+        
+        const userRows = users.map(user => {
+            const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
+            const emailVerifiedIcon = user.emailVerified ? '✅' : '❌';
+            const disabledButtonText = user.disabled ? 'Enable' : 'Disable';
+            const disabledButtonColor = user.disabled ? 'text-green-600 hover:text-green-800' : 'text-yellow-600 hover:text-yellow-800';
+            const isSelected = state.selectedUsers.includes(user.uid);
+            // Handle cases where email is null for anonymous users
+            const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
+            
+            return `
+                <div class="grid-item ${disabledClass}">
+                    <input type="checkbox" onchange="window.module.toggleUserSelection('${user.uid}')" 
+                                data-uid="${user.uid}" ${isSelected ? 'checked' : ''}>
+                </div>
+                <div class="grid-item text-xs font-mono truncate ${disabledClass}">${user.uid.slice(0, 8)}...</div>
+                <div class="grid-item text-sm font-semibold truncate ${disabledClass}">${userEmail} ${emailVerifiedIcon}</div>
+                <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.displayName || 'N/A'}</div>
+                <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
+                <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleDateString() : 'N/A'}</div>
+                <div class="grid-item text-xs font-bold ${disabledClass}">${user.disabled ? 'DISABLED' : 'Active'}</div>
+                <div class="grid-item space-x-2 ${disabledClass}">
+                    <button onclick="window.module.promptForPasswordReset('${user.uid}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
+                    <button onclick="window.module.disableUser('${user.uid}', '${userEmail}', ${user.disabled})" class="${disabledButtonColor} text-sm font-semibold">${disabledButtonText}</button>
+                    <button onclick="window.module.deleteUser('${user.uid}', '${userEmail}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                </div>
+            `;
+        }).join('');
+        
+        grid.insertAdjacentHTML('beforeend', userRows);
+        renderUserControls();
+    }
      * Updates the state of the Load More Users button and displays user count.
      */
     function renderUserControls() {
@@ -1401,10 +1396,10 @@
                         const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
                         return `
                             <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
-                            <div class="grid-item"><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length>50?'...':''}</p></div>
+                            `<div class="grid-item"><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length>50?'...':''}</p></div>`
                             <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
                             <div class="grid-item">${cat}</div>
-                            <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
+                            <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
                             <div class="grid-item text-xs text-gray-500">${created}</div>
                             <div class="grid-item">
                                 <button onclick="window.module.showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
