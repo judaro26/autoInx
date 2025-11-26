@@ -1,13 +1,15 @@
 /**
  * Netlify Function: sendContactEmail.js
- * Receives contact form submissions and routes the email using Brevo SMTP,
- * adapting the base HTML template for professional formatting.
+ * Receives contact form submissions, includes rate limiting and honeypot for security, 
+ * and routes the email using Brevo SMTP with dynamic templating.
  */
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
 const path = require("path");
 
-// --- Configuration ---
+// --- Global Configuration and Rate Limiting Setup ---
+
+// 1. Configure Nodemailer Transporter using Brevo SMTP details
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
     port: process.env.BREVO_SMTP_PORT,
@@ -18,9 +20,15 @@ const transporter = nodemailer.createTransport({
     },
 });
 
+// Rate Limiting Globals (Simple in-memory cache)
+const rateLimitStore = {};
+const MAX_REQUESTS_PER_HOUR = 5;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 // Load base HTML template
 async function getEmailHtml() {
     try {
+        // Ensure this path is correct relative to your function's root directory
         const templatePath = path.join(__dirname, "emailTemplates", "contactSubmissionTemplate.html");
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
@@ -40,8 +48,8 @@ async function getContactTemplate(data, runtimeData) {
     // 1. --- Dynamic Header/Title Updates ---
     const headerReplacement =
         data.subjectType === "order"
-            ? "Consulta de Pedido Recibida" // Order Inquiry Received
-            : "Mensaje de Soporte General"; // General Support Message
+            ? "Consulta de Pedido Recibida"
+            : "Mensaje de Soporte General";
 
     // Replace main header title (e.g., in the <title> or main h1)
     template = template.replace(/Nuevo Mensaje Recibido/g, headerReplacement);
@@ -50,18 +58,12 @@ async function getContactTemplate(data, runtimeData) {
     template = template.replace(/<h1>Nuevo Mensaje Recibido<\/h1>/, `<h1>${headerReplacement}</h1>`);
 
 
-    // 2. --- Content Section Injection (If applicable, though unnecessary with full template) ---
-    // NOTE: Since the template below uses placeholders ({{name}}, etc.), 
-    // the previous manual table injection block is no longer needed. 
-    // We only need to replace the placeholders directly.
-    
-    
-    // 3. --- Global Placeholder Replacement (CRITICAL FIX) ---
+    // 2. --- Global Placeholder Replacement (Populate all {{variables}}) ---
     
     // Basic fields
     template = template.replace(/{{name}}/g, data.name);
     template = template.replace(/{{email}}/g, data.email);
-    template = template.replace(/{{subjectType}}/g, data.subjectType.toUpperCase()); // Keep uppercase for highlight
+    template = template.replace(/{{subjectType}}/g, data.subjectType.toUpperCase());
 
     // Message field (replace newlines with <br> for HTML)
     const formattedMessage = data.message.replace(/\n/g, "<br>");
@@ -72,26 +74,28 @@ async function getContactTemplate(data, runtimeData) {
     template = template.replace(/{{timestamp}}/g, runtimeData.timestamp);
     template = template.replace(/{{ip}}/g, runtimeData.ip || 'N/A');
     
-    // 4. --- Dynamic Button Link Update (CRITICAL FIX) ---
+    // 3. --- Dynamic Button Link Update (Responder por Email) ---
     
-    // Update the mailto link's subject line and body with dynamic data
-    const mailToSubject = `Re: ${data.subjectType.toUpperCase()} - AutoInx`;
+    const mailToSubject = data.subjectType === "order" 
+        ? `Re: Consulta de Pedido de ${data.name}` 
+        : `Re: Consulta de Soporte de ${data.name}`;
+        
     const mailToBody = `Hola ${data.name},%0A%0AGracias%20por%20contactarnos.%20En%20un%20momento%20te%20responderemos...`;
     
     const dynamicMailTo = `mailto:${data.email}?subject=${encodeURIComponent(mailToSubject)}&body=${mailToBody}`;
     
-    // Find the mailto link placeholder and replace it fully
+    // Find the original mailto link placeholder and replace it fully
     template = template.replace(/href="mailto:{{email}}[^"]*"/, `href="${dynamicMailTo}"`);
     
     
-    // 5. --- Cleanup Order Placeholders (Existing good practice) ---
+    // 4. --- Cleanup Order Placeholders ---
     template = template
         .replace(/{{params\.orderId}}/g, "")
         .replace(/{{params\.orderDate}}/g, "")
         .replace(/{{params\.orderTableRows}}/g, "")
         .replace(/{{params\.totalPrice}}/g, "");
 
-    // Replace final generic confirmation line (If it exists in the template)
+    // Update generic confirmation line (if it exists)
     template = template.replace(
         /We will send you a separate email notification when your order is ready\./g,
         "Please permite hasta 24 horas para recibir una respuesta a tu consulta."
@@ -100,7 +104,7 @@ async function getContactTemplate(data, runtimeData) {
     return template;
 }
 
-// Netlify Handler
+// --- Netlify Handler ---
 exports.handler = async function (event) {
     if (event.httpMethod !== "POST") {
         return {
@@ -109,13 +113,45 @@ exports.handler = async function (event) {
         };
     }
 
-    try {
-        const { name, email, subjectType, message } = JSON.parse(event.body);
+    // 1. Get client IP
+    const clientIp = event.headers['client-ip'] || event.headers['x-nf-client-connection-ip'] || 'unknown';
+    const now = Date.now();
+    
+    // 2. --- Rate Limit Check (Abuse Prevention) ---
+    if (!rateLimitStore[clientIp]) {
+        rateLimitStore[clientIp] = [];
+    }
+    
+    // Remove requests older than the window
+    rateLimitStore[clientIp] = rateLimitStore[clientIp].filter(timestamp => timestamp > now - RATE_LIMIT_WINDOW_MS);
+    
+    if (rateLimitStore[clientIp].length >= MAX_REQUESTS_PER_HOUR) {
+        console.warn(`Rate limit exceeded for IP: ${clientIp}`);
+        return {
+            statusCode: 429, // Too Many Requests
+            body: JSON.stringify({ error: `Rate limit exceeded. Please try again later. (Max ${MAX_REQUESTS_PER_HOUR} per hour)` }),
+        };
+    }
+    
+    // 3. Record the current request timestamp
+    rateLimitStore[clientIp].push(now);
 
+    try {
+        const { name, email, subjectType, message, urlCheck } = JSON.parse(event.body); // Ensure urlCheck is destructured
+
+        // 4. --- Honeypot Check (Bot Mitigation) ---
+        if (urlCheck) {
+            console.warn(`Honeypot triggered by IP: ${clientIp}`);
+            // Return 200 OK to the bot to make it think the submission was successful
+            return { statusCode: 200, body: JSON.stringify({ message: "Thank you for your submission (bot detected)" }) };
+        }
+        
+        // 5. --- Input Validation ---
         if (!name || !email || !subjectType || !message) {
             return { statusCode: 400, body: JSON.stringify({ error: "Missing required fields" }) };
         }
 
+        // 6. --- Prepare Email Data ---
         const recipient =
             subjectType === "order" ? "orders@autoinx.com" : "support@autoinx.com";
             
@@ -123,7 +159,7 @@ exports.handler = async function (event) {
         const runtimeData = {
             recipientEmail: recipient,
             timestamp: currentTime.toLocaleDateString('es-CO') + ' ' + currentTime.toLocaleTimeString('es-CO'),
-            ip: event.headers['client-ip'] || event.headers['x-nf-client-connection-ip'] || 'Desconocida',
+            ip: clientIp,
         };
 
         const subject =
@@ -133,8 +169,9 @@ exports.handler = async function (event) {
 
         const htmlBody = await getContactTemplate({ name, email, subjectType, message }, runtimeData);
 
+        // 7. --- Send Email ---
         await transporter.sendMail({
-            // Using a hardcoded, verified sender is safer than BREVO_SMTP_USER
+            // Ensure "noreply@autoinx.com" is a VERIFIED SENDER in Brevo!
             from: "noreply@autoinx.com", 
             to: recipient,
             subject,
@@ -148,6 +185,7 @@ exports.handler = async function (event) {
         };
     } catch (error) {
         console.error("Email Processing Error:", error);
+        // Note: For errors inside try, the request still counts against the rate limit
         return {
             statusCode: 500,
             body: JSON.stringify({ error: "Failed to process contact submission", details: error.message }),
