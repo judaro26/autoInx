@@ -717,9 +717,79 @@
         // --- USER MANAGEMENT (MODIFIED for Bulk) ---
         
         async function handleBulkUserAction() {
-            // Placeholder: Bulk User Action Logic
-            showMessage('info', 'Bulk user actions are not implemented in this version.', 5000, 'users');
             resetTimer();
+            
+            const bulkActionSelect = document.getElementById('bulkActionSelect');
+            const action = bulkActionSelect.value;
+            const selectedUsers = state.selectedUsers;
+            
+            if (selectedUsers.length === 0 || !action) {
+                return showMessage('error', 'Please select users and an action.', 5000, 'users');
+            }
+        
+            const usersToProcess = state.allUsers.filter(u => selectedUsers.includes(u.uid));
+            
+            let confirmationMessage = '';
+            let actionData = {};
+        
+            // 1. Determine action and confirmation message
+            if (action === 'delete') {
+                confirmationMessage = `WARNING: Are you sure you want to PERMANENTLY delete ${selectedUsers.length} selected users? This is irreversible!`;
+            } else if (action === 'update') {
+                const selectedOption = bulkActionSelect.options[bulkActionSelect.selectedIndex];
+                try {
+                    actionData = JSON.parse(selectedOption.dataset.update || '{}');
+                } catch (e) {
+                    return showMessage('error', 'Invalid update data selected.', 5000, 'users');
+                }
+                const stateWord = actionData.disabled ? 'disable' : 'enable';
+                confirmationMessage = `Are you sure you want to ${stateWord} ${selectedUsers.length} selected user accounts?`;
+            } else {
+                // We exclude 'resetPassword' from bulk actions as it requires sending an email per user, 
+                // which should generally be done individually or requires separate batching logic.
+                return showMessage('error', 'Unsupported bulk action selected.', 5000, 'users');
+            }
+        
+            if (!confirm(confirmationMessage)) {
+                return;
+            }
+        
+            // 2. Execute actions sequentially to ensure stability and proper logging
+            const results = { success: 0, failed: 0 };
+            const total = usersToProcess.length;
+        
+            // Use a modal/message to show progress during a long bulk operation
+            showMessage('info', `Processing ${total} users... Please wait.`, 0, 'users');
+            
+            for (const user of usersToProcess) {
+                let successMsg = '';
+                const data = (action === 'update') ? actionData : {};
+                
+                if (action === 'delete') {
+                    successMsg = `User ${user.email || user.uid} deleted.`;
+                } else if (action === 'update') {
+                    successMsg = `User ${user.email || user.uid} ${data.disabled ? 'disabled' : 'enabled'}.`;
+                }
+        
+                try {
+                    // suppressRefresh: true is critical here to prevent re-fetching the entire list after every single user update
+                    await window.module.handleUserAction(action, user.uid, data, successMsg, true);
+                    results.success++;
+                } catch (e) {
+                    results.failed++;
+                }
+            }
+        
+            // 3. Final cleanup and feedback
+            if (results.failed === 0) {
+                showMessage('success', `Bulk action complete! ${results.success} user(s) processed successfully.`, 8000, 'users');
+            } else {
+                showMessage('error', `Bulk action finished with ${results.failed} failure(s) out of ${total} users. Check console for details.`, 10000, 'users');
+            }
+        
+            // Clear selection state and reload the entire list to reflect all changes
+            state.selectedUsers = [];
+            window.module.fetchUsers(null); 
         }
 
         // MODIFIED: Central function to execute actions against a user via Netlify function
