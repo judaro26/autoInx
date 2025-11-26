@@ -1512,55 +1512,44 @@
         }
     
         // --- ORDERS TRACKING FUNCTIONS (Render) ---
-        function renderOrdersList() {
-            const orders = getFilteredOrders();
-            
-            const tableRows = orders.map(order => {
-                const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
-                                     order.status === 'Pending' ? 'text-red-600 font-bold' :
-                                     order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
-                                     
-                let deliveryButton;
-                if (order.status === 'Pending') {
-                    deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
-                } else if (order.status === 'Processing') {
-                    deliveryButton = `<span class="text-xs text-blue-500">Tracking: ${order.trackingId || 'N/A'}</span>`;
-                } else {
-                    deliveryButton = `<span class="text-xs text-gray-500">Delivered/Cancelled</span>`;
-                }
-                
-                // Ensure item names are HTML safe within the nested template literal
-                const itemListHtml = order.items.map(item => 
-                    `<p>${item.quantity}x ${item.name.substring(0,20)}${item.name.length > 20 ? '...' : ''}</p>`
-                ).join('');
+        function renderOrderTracker() {
+            const statusOptions = ['All', 'Pending', 'Processing', 'Delivered', 'Cancelled'];
         
-                return `
-                    <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
-                        <div class="col-span-1 text-sm font-mono text-gray-700">#${order.orderNumber}</div>
-                        <div class="col-span-2 text-sm">                          <p class="font-semibold">${order.buyerName}</p>
-                            <p class="text-xs text-gray-500 truncate">${order.buyerEmail}</p>
-                            <p class="text-xs text-gray-500 truncate">${order.deliveryAddress}</p>
+            return `
+                <section class="space-y-8">
+                    <h2 class="text-3xl font-extrabold text-indigo-700">Sales and Delivery Tracking</h2>
+                    <div id="ordersMessage" class="text-center font-semibold">Loading orders...</div>
+        
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold text-indigo-700">Recent Orders List</h3>
+                            <div class="flex space-x-4">
+                                <select onchange="window.module.handleStatusFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
+                                    ${statusOptions.map(s => `<option value="${s}" ${state.orderStatusFilter === s ? 'selected' : ''}>Filter: ${s}</option>`).join('')}
+                                </select>
+                                <button onclick="window.module.switchOrderPage('create')" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition">Create Manual Order</button>
+                            </div>
                         </div>
-                        <div class="col-span-1 text-sm text-center font-bold text-pink-700">${formatPriceDisplay(order.totalCents)}</div>
-                        <div class="col-span-1 text-sm text-center ${statusClass}">${order.status}</div>
-                        <div class="col-span-1"></div>                             <div class="col-span-3 text-xs text-gray-700"> 
-                            ${itemListHtml} 
+        
+                        <div class="bg-gray-100 p-3 rounded-t-lg font-bold text-sm grid grid-cols-12 gap-4">
+                            <div class="col-span-1">Order #</div>
+                            <div class="col-span-2">Buyer/Address</div>        <div class="col-span-1 text-center">Total</div>
+                            <div class="col-span-1 text-center">Status</div>
+                            <div class="col-span-1"></div>                       <div class="col-span-3">Items</div>
+                            <div class="col-span-2">Actions</div>
+                            <div class="col-span-1">Time</div>
                         </div>
-                        <div class="col-span-2 space-y-1"> 
-                            ${deliveryButton}
-                            <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="w-full p-1 border rounded text-xs bg-white">
-                                <option value="" disabled selected>Update Status</option>
-                                <option value="Pending">Pending</option>
-                                <option value="Processing">Processing</option>
-                                <option value="Delivered">Delivered</option>
-                                <option value="Cancelled">Cancelled</option>
-                            </select>
-                        </div>
-                        <div class="col-span-1 text-xs text-gray-500">${formatTime(order.createdAt)}</div> 
+        
+                        <div id="ordersListContent" class="max-h-[70vh] custom-scrollbar overflow-y-auto">
+                            </div>
                     </div>
-                `;
-            }).join('');
-            
+                    <div id="ordersStatsContainer" class="space-y-6">
+                        <div id="ordersStats" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
+                            </div>
+                    </div>
+                    </section>
+            `;
+        }
             const contentEl = document.getElementById('ordersListContent');
             if (contentEl) {
                 contentEl.innerHTML = tableRows || '<p class="text-center p-6 text-gray-500">No orders found matching this filter.</p>';
