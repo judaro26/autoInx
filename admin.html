@@ -97,6 +97,7 @@
         const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser';
         const CLEAR_ANON_FUNCTION = '/.netlify/functions/clearAnonymousUsers';
         const ADMIN_CREATE_ORDER_FUNCTION = '/.netlify/functions/adminCreateOrder';
+        const EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendConfirmationEmail'; 
         const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey'; 
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
 
@@ -861,49 +862,56 @@
             selectorEl.innerHTML = optionsHtml;
         }
 
-        // IMPLEMENTED: Order submission function with inventory adjustment
+        // IMPLEMENTED: Order submission function with inventory adjustment        
         async function handleAdminOrderSubmit(e) {
             e.preventDefault();
             resetTimer();
         
             const form = document.getElementById('createOrderForm');
+            const deliveryAddress = document.getElementById('deliveryAddress');
+            const submitButton = document.getElementById('submitOrderButton');
+        
+            // 1. Get and Validate Form Data
             const buyerName = form.buyerName.value.trim();
             const buyerEmail = form.buyerEmail.value.trim();
-            const buyerPhone = form.buyerPhone.value.trim(); // Get phone
-            const deliveryAddress = document.getElementById('deliveryAddress');
+            const buyerPhone = form.buyerPhone.value.trim();
             const orderNotes = form.orderNotes.value.trim();
-        
-            // --- FIX START: Correctly define the variables from the form fields ---
+            
+            // Derived variables for payload construction
             const email = buyerEmail;
             const name = buyerName;
-            const phone = buyerPhone; // Assuming this is the full phone number or will be validated later
+            const phone = buyerPhone;
             const address = deliveryAddress.value.trim();
-            const prefersWhatsapp = false; // Assuming no explicit WhatsApp opt-in needed for admin order
+            const prefersWhatsapp = false; // Assuming no explicit WA opt-in on admin form
             const cartTotalCents = Object.values(state.adminCart).reduce((s, e) => s + e.item.price * e.quantity, 0);
-            const userId = auth.currentUser.uid; // Use the admin's UID for the creation context
-            // --- FIX END ---
-        
+            const userId = auth.currentUser.uid;
             const itemsToOrder = Object.values(state.adminCart);
         
             if (itemsToOrder.length === 0) {
-                showMessage('error', 'The order cart is empty.', 3000, 'orders');
-                return;
+                return showMessage('error', 'The order cart is empty.', 3000, 'orders');
             }
         
-            // Check if address is validated
             if (deliveryAddress.dataset.validated !== 'true') {
-                showMessage('error', 'Please select a valid delivery address from the dropdown.', 5000, 'orders');
-                return;
+                return showMessage('error', 'Please select a valid delivery address from the dropdown.', 5000, 'orders');
             }
             
-            // 1. Prepare data for the cloud function (Order creation)
-            const orderData = { // Renamed to orderData to avoid conflict with the function's old 'order' variable
+            // Get GeoLocation data from Google Maps Autocomplete/Pin (if available)
+            let geolocation = null;
+            if (autocomplete && autocomplete.getPlace && autocomplete.getPlace().geometry) {
+                const location = autocomplete.getPlace().geometry.location;
+                geolocation = { lat: location.lat(), lng: location.lng() };
+            }
+        
+        
+            // 2. Prepare Order Data for Submission
+            const orderData = {
                 buyerEmail: email,
                 buyerName: name,
                 buyerPhone: phone,
                 deliveryAddress: address,
-                prefersWhatsapp,
+                prefersWhatsapp: prefersWhatsapp,
                 items: itemsToOrder.map(e => ({
+                    id: e.item.id, // Include ID for clarity/tracking
                     name: e.item.name,
                     sku: e.item.sku || null,
                     price: e.item.price,
@@ -912,21 +920,15 @@
                 totalCents: cartTotalCents,
                 userId: userId,
                 timestamp: new Date().toISOString(),
-                geolocation: autocomplete?.getPlace()?.geometry?.location ? { 
-                    lat: autocomplete.getPlace().geometry.location.lat(), 
-                    lng: autocomplete.getPlace().geometry.location.lng() 
-                } : null,
-                adminNotes: orderNotes // Include internal notes
+                geolocation: geolocation,
+                adminNotes: orderNotes
             };
             
-            // Disable button during processing
-            const submitButton = document.getElementById('submitOrderButton');
             submitButton.disabled = true;
             submitButton.textContent = 'Processing...';
         
             try {
-                // 2. Process Inventory Updates (Local Firestore Operation)
-                // ... (Inventory logic remains the same)
+                // 3. Process Inventory Updates (Local Firestore Operation)
                 const inventoryUpdates = itemsToOrder.map(async entry => {
                     const itemId = entry.item.id;
                     const orderQty = entry.quantity;
@@ -939,7 +941,6 @@
                     const itemRef = doc(db, ITEMS_COLLECTION, itemId);
                     await updateDoc(itemRef, { stock: newStock });
         
-                    // Log the inventory change internally
                     await logAdminAction('INVENTORY_DECREASED', { 
                         itemId, 
                         item: currentItem.name, 
@@ -950,11 +951,10 @@
                     }, itemId);
                 });
         
-                // Wait for all inventory updates to complete
                 await Promise.all(inventoryUpdates);
         
         
-                // 3. Submit Order to Cloud Function (Remote Operation)
+                // 4. Submit Order to Remote Cloud Function (Returns final order ID)
                 const idToken = await auth.currentUser.getIdToken();
                 const res = await fetch(ADMIN_CREATE_ORDER_FUNCTION, {
                     method: 'POST',
@@ -970,22 +970,38 @@
                     throw new Error(errorDetails.details || 'Order creation failed on server.');
                 }
                 
-                // 4. Finalize UI State
+                const orderCreationResponse = await res.json();
+                const finalOrderId = orderCreationResponse.orderId || 'ADMIN_ORDER_ID'; 
+        
+                // 5. Send Confirmation Email to Customer and Admin/Requester
+                const emailPayload = {
+                    ...orderData,
+                    orderId: finalOrderId,
+                    adminEmail: auth.currentUser?.email, // Used by the email template for the 'Order created via' message
+                    requesterEmail: auth.currentUser?.email // Sends a copy to the logged-in admin
+                };
+                
+                await fetch(EMAIL_CONFIRMATION_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(emailPayload)
+                });
+                
+                // 6. Finalize UI State
                 state.adminCart = {}; // Clear cart
                 form.reset();
                 deliveryAddress.dataset.validated = 'false'; // Reset validation state
                 
-                showMessage('success', `Order for ${buyerName} successfully created and inventory adjusted!`, 8000, 'orders');
+                showMessage('success', `Order ${finalOrderId} for ${buyerName} successfully created and confirmation emails sent!`, 8000, 'orders');
         
             } catch (error) {
-                console.error('Error creating order or updating inventory:', error);
+                console.error('Error creating order, updating inventory, or sending emails:', error);
                 showMessage('error', `Failed to create order: ${error.message}`, 10000, 'orders');
             } finally {
                 submitButton.textContent = 'SUBMIT ORDER & SEND EMAIL';
                 updateAdminCartDisplay(); // Re-enable button via display update
             }
         }
-
         // --- ADMIN CONFIG FUNCTIONS (DEFINITIONS ADDED TO FIX REFERENCE ERRORS) ---
         
         async function fetchAdminConfig() {
