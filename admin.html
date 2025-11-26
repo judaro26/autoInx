@@ -265,7 +265,7 @@
                 if (state.activeTab === 'orders' && !state.previewMode) updateItemSelector(); // FIX: Update selector on catalog change
             }, err => {
                 console.error("Error listening to categories:", err);
-                showMessage('error', 'Failed to fetch categories.');
+                showMessage('error', 'Failed to fetch categories.', 5000, 'catalog');
             });
 
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
@@ -288,7 +288,7 @@
                 if (state.activeTab === 'inventory' && !state.previewMode) renderInventorySection();
             }, err => {
                 console.error("Error listening to items:", err);
-                showMessage('error', 'Failed to fetch items.');
+                showMessage('error', 'Failed to fetch items.', 5000, 'catalog');
             });
         }
 
@@ -303,8 +303,8 @@
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
         }
 
-        function showMessage(type, text, duration = 5000) {
-            const id = state.activeTab === 'config' ? 'configMessage' : state.activeTab === 'orders' ? 'ordersMessage' : state.activeTab === 'inventory' ? 'inventoryMessage' : 'catalogMessage';
+        function showMessage(type, text, duration = 5000, targetTab) {
+            const id = targetTab === 'config' ? 'configMessage' : targetTab === 'orders' ? 'ordersMessage' : targetTab === 'inventory' ? 'inventoryMessage' : 'catalogMessage';
             const el = document.getElementById(id);
             if (!el) return;
             el.className = `mt-4 text-center text-sm font-medium ${type === 'success' ? 'text-green-600' : 'text-red-600'} ${type === 'info' ? 'text-blue-600' : ''}`;
@@ -568,8 +568,8 @@
             const newStockValue = parseInt(form.stockAdjustment.value, 10);
             const actionType = form.stockAction.value;
             
-            if (isNaN(newStockValue) || newStockValue === 0) {
-                showMessage('error', 'Please enter a valid, non-zero adjustment amount.', 5000, 'inventory');
+            if (isNaN(newStockValue) || newStockValue <= 0) {
+                showMessage('error', 'Please enter a valid, positive adjustment amount.', 5000, 'inventory');
                 return;
             }
 
@@ -610,6 +610,11 @@
                 console.error('Error updating stock:', error);
                 showMessage('error', `Failed to update stock: ${error.message}`, 5000, 'inventory');
             }
+        }
+        
+        function showPurchaseOrderForm(itemId, itemName) {
+            // Placeholder function for the 'Order More' button
+            showMessage('info', `Simulating creation of Purchase Order for ${itemName} (${itemId}). (Not Implemented)`, 5000, 'inventory');
         }
         
         // --- USER MANAGEMENT (MODIFIED for Bulk) ---
@@ -840,10 +845,110 @@
             selectorEl.innerHTML = optionsHtml;
         }
 
-        // Placeholder submission function
-        function handleAdminOrderSubmit(e) {
+        // IMPLEMENTED: Order submission function with inventory adjustment
+        async function handleAdminOrderSubmit(e) {
             e.preventDefault();
-            showMessage('info', 'Manual order submission is not implemented in this version.', 5000, 'orders');
+            resetTimer();
+
+            const form = document.getElementById('createOrderForm');
+            const buyerName = form.buyerName.value.trim();
+            const buyerEmail = form.buyerEmail.value.trim();
+            const deliveryAddress = document.getElementById('deliveryAddress');
+            const orderNotes = form.orderNotes.value.trim();
+
+            const itemsToOrder = Object.values(state.adminCart);
+
+            if (itemsToOrder.length === 0) {
+                showMessage('error', 'The order cart is empty.', 3000, 'orders');
+                return;
+            }
+
+            // Check if address is validated
+            if (deliveryAddress.dataset.validated !== 'true') {
+                 showMessage('error', 'Please select a valid delivery address from the dropdown.', 5000, 'orders');
+                 return;
+            }
+            
+            // 1. Prepare data for the cloud function (Order creation)
+            const orderData = {
+                buyerName,
+                buyerEmail,
+                deliveryAddress: deliveryAddress.value, // Send the validated address
+                items: itemsToOrder.map(entry => ({
+                    id: entry.item.id,
+                    name: entry.item.name,
+                    price: entry.item.price,
+                    quantity: entry.quantity,
+                    sku: entry.item.sku,
+                })),
+                total: itemsToOrder.reduce((acc, entry) => acc + (entry.item.price * entry.quantity), 0),
+                notes: orderNotes,
+                adminEmail: auth.currentUser?.email || 'Admin',
+            };
+            
+            // Disable button during processing
+            const submitButton = document.getElementById('submitOrderButton');
+            submitButton.disabled = true;
+            submitButton.textContent = 'Processing...';
+
+            try {
+                // 2. Process Inventory Updates (Local Firestore Operation)
+                const inventoryUpdates = itemsToOrder.map(async entry => {
+                    const itemId = entry.item.id;
+                    const orderQty = entry.quantity;
+                    const currentItem = state.items.find(i => i.id === itemId);
+                    
+                    if (!currentItem) return;
+
+                    const newStock = Math.max(0, (currentItem.stock || 0) - orderQty);
+                    
+                    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+                    await updateDoc(itemRef, { stock: newStock });
+
+                    // Log the inventory change internally
+                    await logAdminAction('INVENTORY_DECREASED', { 
+                        itemId, 
+                        item: currentItem.name, 
+                        amount: orderQty, 
+                        oldStock: currentItem.stock, 
+                        newStock 
+                    }, itemId);
+                });
+
+                // Wait for all inventory updates to complete
+                await Promise.all(inventoryUpdates);
+
+
+                // 3. Submit Order to Cloud Function (Remote Operation)
+                const idToken = await auth.currentUser.getIdToken();
+                const res = await fetch(ADMIN_CREATE_ORDER_FUNCTION, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orderData)
+                });
+                
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(errorDetails.details || 'Order creation failed on server.');
+                }
+                
+                // 4. Finalize UI State
+                state.adminCart = {}; // Clear cart
+                form.reset();
+                deliveryAddress.dataset.validated = 'false'; // Reset validation state
+                
+                showMessage('success', `Order for ${buyerName} successfully created and inventory adjusted!`, 8000, 'orders');
+
+            } catch (error) {
+                console.error('Error creating order or updating inventory:', error);
+                showMessage('error', `Failed to create order: ${error.message}`, 10000, 'orders');
+            } finally {
+                submitButton.textContent = 'SUBMIT ORDER & SEND EMAIL';
+                updateAdminCartDisplay(); // Re-enable button via display update
+            }
         }
 
 
@@ -1221,12 +1326,6 @@
             `;
             return '';
         }
-        
-        function showPurchaseOrderForm(itemId, itemName) {
-            // Placeholder function for the 'Order More' button
-            showMessage('info', `Simulating creation of Purchase Order for ${itemName} (${itemId}). (Not Implemented)`, 5000, 'inventory');
-        }
-
 
         function renderAdminTabs() {
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
@@ -1550,7 +1649,7 @@
             disableUser,
             handleClearAnonymousUsers,
 
-            handleAdminOrderSubmit,
+            handleAdminOrderSubmit, // UPDATED: Inventory deduction added here
             addAdminCartItem,
             removeAdminCartItem,
             updateAdminCartDisplay, // Exports the core cart update function
