@@ -1,1423 +1,1424 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>autoInx Admin Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
-        .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
-        /* CRITICAL FIX 1: Removed .admin-grid rule to prevent overriding specific inline grid-template-columns */
-        .tab-button { transition: background-color 0.15s, color 0.15s; }
-        .preview-iframe-container {
-            height: 80vh;
-        }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
-        /* NEW: Address Validation Styles */
-        .address-input { @apply w-full p-2 border rounded-lg transition-all duration-200; }
-        .address-valid { @apply border-green-500 bg-green-50; }
-        .address-invalid { @apply border-red-500 bg-red-50; }
-        
-        /* START FIX 2 & 3: Corrected Toggle Switch CSS */
-        .toggle-checkbox {
-            position: absolute; /* FIX: Added absolute positioning */
-            top: 0;
-            left: 0;
-            margin: 0;
-            transition: transform 0.15s ease-in-out; /* Added transition for smooth movement */
-        }
-        
-        /* Chat Widget Toggle Styles */
-        #chatWidgetToggle:checked { border-color: #3b82f6; }
-        #chatWidgetToggle:checked + .toggle-label { background-color: #3b82f6; }
-        #chatWidgetToggle:checked { transform: translateX(20px); } /* FIX: Moved transform to the checkbox itself */
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>autoInx Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .grid-header { font-weight: bold; background-color: #f3f4f6; padding: 10px; text-align: left; }
+        .grid-item { padding: 10px; border-bottom: 1px solid #e5e7eb; word-break: break-all; }
+        /* CRITICAL FIX 1: Removed .admin-grid rule to prevent overriding specific inline grid-template-columns */
+        .tab-button { transition: background-color 0.15s, color 0.15s; }
+        .preview-iframe-container {
+            height: 80vh;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
+        /* NEW: Address Validation Styles */
+        .address-input { @apply w-full p-2 border rounded-lg transition-all duration-200; }
+        .address-valid { @apply border-green-500 bg-green-50; }
+        .address-invalid { @apply border-red-500 bg-red-50; }
+        
+        /* START FIX 2 & 3: Corrected Toggle Switch CSS */
+        .toggle-checkbox {
+            position: absolute; /* FIX: Added absolute positioning */
+            top: 0;
+            left: 0;
+            margin: 0;
+            transition: transform 0.15s ease-in-out; /* Added transition for smooth movement */
+        }
+        
+        /* Chat Widget Toggle Styles */
+        #chatWidgetToggle:checked { border-color: #3b82f6; }
+        #chatWidgetToggle:checked + .toggle-label { background-color: #3b82f6; }
+        #chatWidgetToggle:checked { transform: translateX(20px); } /* FIX: Moved transform to the checkbox itself */
 
-        /* Maintenance Toggle Styles */
-        #maintenanceToggle:checked { border-color: #10b981; } 
-        #maintenanceToggle:checked + .toggle-label { background-color: #10b981; }
-        #maintenanceToggle:checked { transform: translateX(20px); } /* FIX: Added the missing transform for handle movement */
-        /* END FIX */
-    </style>
+        /* Maintenance Toggle Styles */
+        #maintenanceToggle:checked { border-color: #10b981; } 
+        #maintenanceToggle:checked + .toggle-label { background-color: #10b981; }
+        #maintenanceToggle:checked { transform: translateX(20px); } /* FIX: Added the missing transform for handle movement */
+        /* END FIX */
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
-    <div id="app" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-        <div id="loadingState" class="text-center p-20">
-            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p class="text-gray-600">Checking authentication and loading configuration...</p>
-        </div>
-    </div>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        // CORRECTED: Import static IP list directly from the new client-accessible path
-        import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js'; 
-
-        // --- GLOBAL VARIABLES & STATE ---
-        let auth;
-        let db;
-        let autocomplete; // Global variable for Google Autocomplete instance
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        let globalNextPageToken = null;
-        let globalConfig = { maintenanceMode: false, chatWidgetEnabled: true, ipWhitelist: [] }; // Initialized ipWhitelist 
-        const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-        let idleTimer;
-
-        const state = {
-            activeTab: 'catalog',
-            catalogs: [],
-            items: [],
-            searchTerm: '', // for products (catalog tab)
-            orderSearchTerm: '', // <<< NEW: For searching items in the Orders tab
-            userSearchTerm: '', // NEW: for users
-            allUsers: [], // NEW: Store all fetched users for client-side search
-            selectedUsers: [], // NEW: Array of selected user UIDs
-            editingItem: null,
-            previewMode: false,
-            adminCart: {}, // Tracks items in the manual order creation cart
-        };
-
-        // --- FIRESTORE COLLECTION PATHS & FUNCTION URLS ---
-        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
-        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
-        const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
-        const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
-        const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
-        const LOG_ACTION_FUNCTION = '/.netlify/functions/logAdminAction';
-        const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser';
-        const CLEAR_ANON_FUNCTION = '/.netlify/functions/clearAnonymousUsers';
-        const ADMIN_CREATE_ORDER_FUNCTION = '/.netlify/functions/adminCreateOrder';
-        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey'; 
-        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
-
-        // --- CORE FIREBASE SETUP ---
-        async function loadFirebaseConfig() {
-            try {
-                // CORRECTION: Must use /.netlify/functions/ to correctly target the deployed function
-                const response = await fetch(CONFIG_CLIENT_FUNCTION);
-                if (!response.ok) throw new Error(`Failed to fetch config (Status: ${response.status})`);
-                return await response.json();
-            } catch (error) {
-                console.error("Failed to load Firebase configuration:", error);
-                return {};
-            }
-        }
-
-        async function setupFirebase() {
-            const firebaseConfig = await loadFirebaseConfig();
-            if (Object.keys(firebaseConfig).length === 0) {
-                console.error("Firebase config is missing.");
-                return;
-            }
-            setLogLevel('debug');
-            const app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-            
-            loadGoogleMapsScript(); // Load Maps Script after Firebase setup
-            checkAuthAndRender();
-        }
-
-        // --- NEW: Google Maps Autocomplete Logic (Duplicated from checkout.html) ---
-
-        // CRITICAL FIX 4: Function to update the Order Submit button state
-        function updateSubmitButtonState() {
-            const submitButton = document.getElementById('submitOrderButton');
-            const addressInput = document.getElementById('deliveryAddress');
-            
-            // Check if address is validated (data-validated="true") 
-            const isAddressValid = addressInput?.dataset.validated === 'true';
-            
-            // Check if cart has items
-            const isCartNotEmpty = Object.keys(state.adminCart).length > 0; 
-            
-            if (submitButton) {
-                // Button is enabled only if address is valid AND the cart is not empty
-                submitButton.disabled = !(isAddressValid && isCartNotEmpty);
-            }
-        }
-
-
-        // Function called by the dynamically loaded Google Maps script
-        window.initGooglePlaces = function() {
-            const input = document.getElementById('deliveryAddress');
-            if (!input) return;
-
-            // Initialize Autocomplete, restricting to addresses and selected countries
-            autocomplete = new google.maps.places.Autocomplete(input, {
-                types: ['address'],
-                componentRestrictions: { country: ['co', 'us'] },
-                fields: ['formatted_address', 'geometry']
-            });
-
-            // Set initial state
-            input.dataset.validated = 'false';
-            input.classList.add('border-gray-300');
-            updateSubmitButtonState(); // Initialize button state
-
-            // Listener: When the user selects an address from the dropdown
-            autocomplete.addListener('place_changed', () => {
-                const place = autocomplete.getPlace();
-                if (place.geometry) {
-                    input.classList.remove('address-invalid', 'border-gray-300');
-                    input.classList.add('address-valid');
-                    document.getElementById('addressErrorAdmin').classList.add('hidden');
-                    input.dataset.validated = 'true';
-                }
-                updateSubmitButtonState(); // Update button state on selection
-            });
-
-            // Listener: Mark as invalid if user manually types after initialization/selection
-            input.addEventListener('input', () => {
-                input.classList.remove('address-valid');
-                input.classList.add('address-invalid');
-                document.getElementById('addressErrorAdmin').classList.remove('hidden'); // Show error on manual input
-                input.dataset.validated = 'false';
-                updateSubmitButtonState(); // Update button state on manual input
-            });
-        };
-
-        async function loadGoogleMapsScript() {
-            try {
-                // 1. Fetch API Key securely from the Netlify Function
-                const response = await fetch(MAPS_KEY_FUNCTION_URL);
-                if (!response.ok) throw new Error('Failed to fetch Maps API key.');
-                const { apiKey } = await response.json();
-                
-                // 2. Build the script URL
-                const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGooglePlaces`;
-
-                // 3. Dynamically create and append the script tag
-                const script = document.createElement('script');
-                script.src = scriptUrl;
-                script.async = true;
-                script.defer = true;
-                document.head.appendChild(script);
-
-            } catch (error) {
-                console.warn('Delivery Address Validation service disabled for Admin:', error);
-            }
-        }
-        // --- END: Google Maps Autocomplete Logic ---
-
-
-        // --- IDLE TIMEOUT LOGIC ---
-        function autoLogout() {
-            if (auth?.currentUser && !auth.currentUser.isAnonymous) {
-                console.log("Admin idle timeout — logging out.");
-                signOut(auth).then(() => {
-                    logAdminAction('ADMIN_AUTO_LOGOUT', { reason: 'Idle Timeout (15m)' });
-                    window.location.href = '/?error=idle_timeout';
-                });
-            }
-        }
-
-        function resetTimer() {
-            clearTimeout(idleTimer);
-            if (auth?.currentUser && !auth.currentUser.isAnonymous) {
-                idleTimer = setTimeout(autoLogout, IDLE_TIMEOUT_MS);
-            }
-        }
-
-        // --- AUTHENTICATION CHECK & REDIRECT ---
-        function checkAuthAndRender() {
-            onAuthStateChanged(auth, user => {
-                if (user && !user.isAnonymous) {
-                    user.getIdTokenResult(true).then(idTokenResult => {
-                        if (idTokenResult.claims.admin === true) {
-                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer); // Added touch listener
-                            resetTimer();
-                            setupRealtimeListeners();
-                            renderAdminPage(user.email || 'Admin');
-                        } else {
-                            signOut(auth);
-                            window.location.href = '/?error=unauthorized';
-                        }
-                    }).catch(err => {
-                        console.error("Token error:", err);
-                        signOut(auth);
-                        window.location.href = '/?error=auth_failed';
-                    });
-                } else {
-                    window.location.href = '/';
-                }
-            });
-        }
-
-        // --- FIRESTORE REALTIME LISTENERS ---
-        function setupRealtimeListeners() {
-            if (!db) return;
-
-            onSnapshot(collection(db, CATALOGS_COLLECTION), snap => {
-                state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-                if (state.activeTab === 'orders' && !state.previewMode) updateItemSelector(); // FIX: Update selector on catalog change
-            }, err => {
-                console.error("Error listening to categories:", err);
-                showMessage('error', 'Failed to fetch categories.');
-            });
-
-            onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
-                state.items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-                if (state.activeTab === 'orders' && !state.previewMode) {
-                    updateItemSelector(); // FIX: Update selector on item change
-                    updateAdminCartDisplay(); // FIX: Update cart display if prices/items change
-                }
-            }, err => {
-                console.error("Error listening to items:", err);
-                showMessage('error', 'Failed to fetch items.');
-            });
-        }
-
-        // --- HELPER FUNCTIONS ---
-        function formatPriceDisplay(cents) {
-            return `$${(cents / 100).toFixed(2)}`;
-        }
-
-        function formatTime(ts) {
-            if (!ts) return 'N/A';
-            const date = ts.toDate ? ts.toDate() : new Date(ts);
-            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-        }
-
-        function showMessage(type, text, duration = 5000) {
-            const id = state.activeTab === 'config' ? 'configMessage' : state.activeTab === 'orders' ? 'ordersMessage' : 'catalogMessage';
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.className = `mt-4 text-center text-sm font-medium ${type === 'success' ? 'text-green-600' : 'text-red-600'}`;
-            el.textContent = text;
-            setTimeout(() => el.textContent = '', duration);
-        }
-
-        async function logAdminAction(actionType, details, objectId = null) {
-            try {
-                await fetch(LOG_ACTION_FUNCTION, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        actionType,
-                        details,
-                        performedByEmail: auth.currentUser?.email || 'Unknown',
-                        objectId
-                    })
-                });
-            } catch (e) { console.error("Log failed:", e); }
-        }
-
-        function generateUniqueSku() {
-            const t = Date.now().toString(36).toUpperCase();
-            const r = Math.random().toString(36).substring(2, 4).toUpperCase();
-            return `AX-${t}${r}`;
-        }
-
-        function getFilteredItems() {
-            if (!state.searchTerm) return state.items;
-            const term = state.searchTerm.toLowerCase();
-            return state.items.filter(item => {
-                const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                return item.name.toLowerCase().includes(term) ||
-                               item.description.toLowerCase().includes(term) ||
-                               catName.toLowerCase().includes(term) ||
-                               (item.sku && item.sku.toLowerCase().includes(term));
-            });
-        }
-
-        // --- USER LIST UTILITIES ---
-        function getFilteredAuthUsers() {
-            if (!state.userSearchTerm) return state.allUsers;
-            const term = state.userSearchTerm.toLowerCase();
-            return state.allUsers.filter(user => {
-                // Handles anonymous users where email might be null
-                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)'); 
-                
-                const uidMatch = user.uid.toLowerCase().includes(term);
-                const emailMatch = userEmail.toLowerCase().includes(term);
-                const nameMatch = user.displayName && user.displayName.toLowerCase().includes(term);
-                return uidMatch || emailMatch || nameMatch;
-            });
-        }
-
-        function handleUserSearchInput(e) {
-            state.userSearchTerm = e.target.value;
-            renderUserList(); // Call the rendering function immediately
-            resetTimer();
-        }
-
-        // --- BULK SELECTION LOGIC (NEW) ---
-
-        function toggleUserSelection(uid) {
-            const index = state.selectedUsers.indexOf(uid);
-            if (index > -1) {
-                state.selectedUsers.splice(index, 1);
-            } else {
-                state.selectedUsers.push(uid);
-            }
-            document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
-            document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
-        }
-
-        function toggleAllUsers(checked) {
-            const grid = document.getElementById('usersGrid');
-            // Select only visible users based on current search filter
-            const visibleUsers = getFilteredAuthUsers();
-            
-            state.selectedUsers = [];
-            if (checked) {
-                // Collect UIDs from currently filtered users
-                visibleUsers.forEach(user => {
-                    state.selectedUsers.push(user.uid);
-                });
-            }
-            
-            // Update all rendered checkboxes to reflect the new state.
-            const checkboxes = grid.querySelectorAll('input[type="checkbox"][data-uid]');
-            checkboxes.forEach(cb => {
-                const uid = cb.dataset.uid;
-                cb.checked = state.selectedUsers.includes(uid);
-            });
-            
-            document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
-            document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
-        }
-
-        // --- UI ACTIONS ---
-        function togglePreviewMode(enable) {
-            state.previewMode = enable;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer();
-        }
-
-        function switchAdminTab(tab) {
-            state.activeTab = tab;
-            state.editingItem = null;
-            state.previewMode = false;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer();
-
-            if (tab === 'config') {
-                window.module.fetchAdminConfig();
-                window.module.displayStaticIps();
-            } else if (tab === 'users') {
-                // Clear old data but keep headers before fetching new page. 
-                const grid = document.getElementById('usersGrid');
-                // The grid header now contains 8 elements (including the master checkbox)
-                if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove()); 
-                window.module.fetchUsers(null);
-                state.selectedUsers = []; // Clear selection when switching tab
-            } else if (tab === 'orders') {
-                window.module.updateAdminCartDisplay();
-                window.module.updateItemSelector();
-            }
-        }
-
-        function handleSearchInput(e) {
-            state.searchTerm = e.target.value;
-            renderProductListSection();
-            resetTimer();
-        }
-
-        function showEditForm(item) {
-            state.editingItem = item;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer();
-        }
-
-        function cancelEdit() {
-            state.editingItem = null;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer();
-        }
-
-        // --- CATEGORY & PRODUCT CRUD ---
-
-        // Implemented Add Product
-        async function handleAddProduct(e) {
-            e.preventDefault();
-            resetTimer();
-
-            const form = e.target;
-            const itemName = form.itemName.value.trim();
-            const itemDescription = form.itemDescription.value.trim();
-            const price = form.itemPrice.value;
-            const catalogId = form.catalogId.value;
-            let itemImageUrl = form.itemImageUrl.value.trim();
-
-            if (!itemName || !itemDescription || !price || !catalogId) {
-                showMessage('error', 'Please fill in all required product fields.');
-                return;
-            }
-
-            try {
-                // Use default placeholder if no URL is provided
-                if (!itemImageUrl) {
-                    itemImageUrl = `https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`;
-                }
-
-                // Convert price to cents (integer storage is preferred for currency)
-                const priceCents = Math.round(parseFloat(price) * 100);
-
-                const newProduct = {
-                    name: itemName,
-                    description: itemDescription,
-                    price: priceCents,
-                    catalogId: catalogId,
-                    imageUrl: itemImageUrl,
-                    sku: generateUniqueSku(),
-                    createdAt: serverTimestamp(),
-                };
-
-                const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
-
-                await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
-                showMessage('success', `Product "${itemName}" added successfully!`);
-                form.reset();
-
-            } catch (error) {
-                console.error('Error adding product:', error);
-                showMessage('error', `Failed to add product: ${error.message}`);
-            }
-        }
-
-        // Implemented Add Category
-        async function handleAddCatalog(e) {
-             e.preventDefault();
-             resetTimer();
-
-             const form = e.target;
-             const categoryName = form.catalogName.value.trim();
-
-             if (!categoryName) {
-                 showMessage('error', 'Category name cannot be empty.');
-                 return;
-             }
-
-             try {
-                 const newCategory = {
-                     name: categoryName,
-                     createdAt: serverTimestamp(),
-                 };
-                 
-                 const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), newCategory);
-
-                 await logAdminAction('CATEGORY_CREATED', newCategory, docRef.id);
-                 showMessage('success', `Category "${categoryName}" added successfully!`);
-                 form.reset();
-
-             } catch (error) {
-                 console.error('Error adding category:', error);
-                 showMessage('error', `Failed to add category: ${error.message}`);
-             }
-        }
-
-        // Placeholder for Delete Category
-        function handleDeleteCatalog(id, name) {
-            if (!confirm(`Are you sure you want to delete category: ${name}?`)) return;
-            showMessage('error', `Deleting category ${name} is not implemented in this version.`);
-            resetTimer();
-        }
-
-        // Placeholder for Delete Product
-        function handleDeleteProduct(id, name) {
-            if (!confirm(`Are you sure you want to delete product: ${name}?`)) return;
-            showMessage('error', `Deleting product ${name} is not implemented in this version.`);
-            resetTimer();
-        }
-        
-        // Placeholder for Edit Product
-        function handleEditProduct(e) {
-            e.preventDefault();
-            showMessage('info', 'Product editing not implemented in this version.');
-            resetTimer();
-        }
-
-        // --- USER MANAGEMENT (MODIFIED for Bulk) ---
-        
-        async function handleBulkUserAction() {
-            // Placeholder: Bulk User Action Logic
-            showMessage('info', 'Bulk user actions are not implemented in this version.');
-            resetTimer();
-        }
-        
-        async function handleUserAction(action, uid, data = {}, successMsg, suppressRefresh = false) {
-            // Placeholder: Individual User Action Logic
-            showMessage('info', `Action ${action} for user ${uid} is not fully implemented.`);
-            // Important: Re-throw the error for bulk handler to catch if needed
-            if (!suppressRefresh) {
-                window.module.fetchUsers(null); 
-            }
-        }
-
-
-        function promptForPasswordReset(uid) {
-             // Placeholder: Password Reset Logic
-             showMessage('info', 'Password reset is not implemented in this version.');
-        }
-
-        function deleteUser(uid, email) {
-             // Placeholder: Delete User Logic
-             showMessage('info', 'User deletion is not implemented in this version.');
-        }
-
-        function disableUser(uid, email, currentlyDisabled) {
-             // Placeholder: Disable User Logic
-             showMessage('info', 'User enable/disable is not implemented in this version.');
-        }
-        
-        async function handleClearAnonymousUsers() {
-            if (!confirm("Are you sure you want to delete ALL anonymous users? This process is irreversible and may take time for large databases.")) {
-                return;
-            }
-
-            const msgEl = document.getElementById('clearAnonButtonConfig') || document.getElementById('clearAnonButton');
-            if (!msgEl) return;
-            
-            const originalText = msgEl.textContent;
-            msgEl.textContent = 'Processing...';
-            msgEl.disabled = true;
-
-            let pageToken = null;
-            let totalDeleted = 0;
-
-            try {
-                const idToken = await auth.currentUser.getIdToken();
-
-                do {
-                    const payload = { nextPageToken: pageToken };
-                    const res = await fetch(CLEAR_ANON_FUNCTION, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${idToken}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (!res.ok) {
-                        const errorDetails = await res.json();
-                        throw new Error(errorDetails.details || errorDetails.error || res.statusText);
-                    }
-
-                    const data = await res.json();
-                    
-                    totalDeleted += data.deletedCount || 0;
-                    pageToken = data.nextPageToken;
-
-                    if (pageToken) {
-                        msgEl.textContent = `Processing batch... (${totalDeleted} deleted)`;
-                    } else {
-                        showMessage('success', `Cleanup complete! Total anonymous users deleted: ${totalDeleted}.`, 8000);
-                        break; // Exit loop if no token is returned
-                    }
-
-                } while (pageToken);
-
-                await logAdminAction('CLEANUP_ANON_USERS', { totalDeleted });
-                if (state.activeTab === 'users') window.module.fetchUsers(null); // Refresh user list
-
-            } catch (error) {
-                console.error('Anonymous user cleanup failed:', error);
-                showMessage('error', `Cleanup failed: ${error.message}. Check Netlify logs.`, 8000);
-            } finally {
-                msgEl.textContent = originalText;
-                msgEl.disabled = false;
-            }
-        }
-        
-        // --- ADMIN ORDER CREATION IMPLEMENTATION (FIXED) ---
-        
-        // NEW: Filtering logic specifically for the Orders tab's selector
-        function getItemsForOrderSelector() {
-            if (!state.orderSearchTerm) return state.items;
-            
-            const term = state.orderSearchTerm.toLowerCase();
-            
-            return state.items.filter(item => {
-                const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                return item.name.toLowerCase().includes(term) ||
-                       (item.sku && item.sku.toLowerCase().includes(term)) ||
-                       catName.toLowerCase().includes(term);
-            });
-        }
-
-        // NEW: Handler for the search input in the Orders tab
-        function handleOrderSearchInput(e) {
-            state.orderSearchTerm = e.target.value;
-            updateItemSelector(); // Rerender the item selector based on search
-            resetTimer();
-        }
-
-        // IMPLEMENTED: Adds the selected item/quantity to the adminCart state
-        function addAdminCartItem() {
-            const selector = document.getElementById('itemSelector');
-            const quantityEl = document.getElementById('itemQuantity');
-            
-            if (!selector || !quantityEl) return;
-            
-            const itemId = selector.value;
-            const quantity = parseInt(quantityEl.value, 10);
-            
-            if (!itemId || quantity <= 0) {
-                showMessage('error', 'Please select a product and quantity.', 3000);
-                return;
-            }
-
-            const item = state.items.find(i => i.id === itemId);
-            if (!item) return;
-
-            state.adminCart = {
-                ...state.adminCart,
-                [itemId]: { 
-                    item, 
-                    quantity: (state.adminCart[itemId]?.quantity || 0) + quantity 
-                }
-            };
-            
-            showMessage('success', `Added ${quantity}x ${item.name} to the order cart.`, 2000);
-            quantityEl.value = 1; // Reset quantity input
-            updateAdminCartDisplay();
-        }
-
-        // IMPLEMENTED: Removes item completely or updates quantity by -1
-        function removeAdminCartItem(itemId) {
-            const currentEntry = state.adminCart[itemId];
-            if (!currentEntry) return;
-
-            const newCart = { ...state.adminCart };
-            delete newCart[itemId];
-            state.adminCart = newCart;
-
-            showMessage('info', `${currentEntry.item.name} removed from order cart.`, 2000);
-            updateAdminCartDisplay();
-        }
-
-        // IMPLEMENTED: Renders the order cart display
-        function updateAdminCartDisplay() {
-            const cartEl = document.getElementById('adminCartDisplay');
-            const totalEl = document.getElementById('adminCartTotal');
-            let totalCents = 0;
-
-            if (!cartEl || !totalEl) return;
-
-            const itemsInCart = Object.values(state.adminCart);
-            
-            if (itemsInCart.length === 0) {
-                cartEl.innerHTML = '<p class="text-gray-500 italic">No items added to the order yet. Start searching above!</p>';
-                totalEl.textContent = formatPriceDisplay(0);
-                updateSubmitButtonState();
-                return;
-            }
-
-            const cartHtml = itemsInCart.map(entry => {
-                const subtotal = entry.item.price * entry.quantity;
-                totalCents += subtotal;
-                
-                return `
-                    <div class="flex justify-between items-center border-b pb-2">
-                        <div class="flex-1 min-w-0 pr-2">
-                            <p class="text-sm font-semibold text-gray-900 truncate">${entry.item.name}</p>
-                            <p class="text-xs text-gray-500">${entry.quantity} x ${formatPriceDisplay(entry.item.price)}</p>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <span class="text-sm font-bold text-pink-700 flex-shrink-0">${formatPriceDisplay(subtotal)}</span>
-                            <button onclick="window.module.removeAdminCartItem('${entry.item.id}')" class="text-red-500 hover:text-red-700 text-sm font-semibold">❌</button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            cartEl.innerHTML = cartHtml;
-            totalEl.textContent = formatPriceDisplay(totalCents);
-            updateSubmitButtonState();
-        }
-
-        // NEW: Renders the item selector dropdown with search results
-        function updateItemSelector() {
-            const selectorEl = document.getElementById('itemSelector');
-            if (!selectorEl) return;
-            
-            const items = getItemsForOrderSelector();
-            
-            // Default option
-            let optionsHtml = '<option value="" disabled selected>-- Select Product or Search --</option>';
-            
-            if (items.length > 0) {
-                optionsHtml += items.map(item => {
-                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                    return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
-                }).join('');
-            } else if (state.orderSearchTerm) {
-                optionsHtml += `<option value="" disabled>No results found for "${state.orderSearchTerm}"</option>`;
-            } else {
-                 // Initial state when items are loaded and no search is performed
-                 optionsHtml += state.items.map(item => {
-                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                    return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
-                }).join('');
-            }
-            
-            selectorEl.innerHTML = optionsHtml;
-        }
-
-        // Placeholder submission function
-        function handleAdminOrderSubmit(e) {
-            e.preventDefault();
-            showMessage('info', 'Manual order submission is not implemented in this version.');
-        }
-
-
-        // --- ADMIN CONFIG FUNCTIONS (DEFINITIONS ADDED TO FIX REFERENCE ERRORS) ---
-        
-        async function fetchAdminConfig() {
-            try {
-                const res = await fetch(CONFIG_FUNCTION);
-                if (!res.ok) throw new Error('Config fetch failed.');
-                const config = await res.json();
-                
-                // CRITICAL FIX 1: Update global config state
-                globalConfig = config;
-                
-                // Update UI elements
-                const maintenanceToggle = document.getElementById('maintenanceToggle');
-                const chatWidgetToggle = document.getElementById('chatWidgetToggle');
-                const dynamicIpList = document.getElementById('dynamicIpList');
-
-                if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
-                if (chatWidgetToggle) chatWidgetToggle.checked = config.chatWidgetEnabled;
-                
-                if (dynamicIpList) {
-                    dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
-                }
-                document.getElementById('configLastUpdated').textContent = config.lastUpdated ? 
-                    `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
-
-                // --- START: Attach listeners that update globalConfig state immediately ---
-                
-                if (chatWidgetToggle && chatWidgetToggle.type === 'checkbox') {
-                    // Remove existing listener to prevent stacking if the function is called multiple times
-                    chatWidgetToggle.removeEventListener('change', chatToggleHandler);
-                    
-                    // Define handler function for clean removal/re-attachment
-                    function chatToggleHandler(e) {
-                        globalConfig.chatWidgetEnabled = e.target.checked;
-                        resetTimer();
-                    }
-
-                    chatWidgetToggle.addEventListener('change', chatToggleHandler);
-                }
-                
-                if (maintenanceToggle && maintenanceToggle.type === 'checkbox') {
-                    // Remove existing listener to prevent stacking if the function is called multiple times
-                    maintenanceToggle.removeEventListener('change', maintenanceToggleHandler);
-                    
-                    // Define handler function for clean removal/re-attachment
-                    function maintenanceToggleHandler(e) {
-                        globalConfig.maintenanceMode = e.target.checked;
-                        resetTimer();
-                    }
-
-                    maintenanceToggle.addEventListener('change', maintenanceToggleHandler);
-                }
-                
-                // --- END ---
-
-            } catch (error) {
-                console.error("Error fetching admin config:", error);
-                showMessage('error', `Failed to load configuration: ${error.message}`, 8000);
-            }
-        }
-
-        function displayStaticIps() {
-            const el = document.getElementById('staticIpListDisplay');
-            if (el) {
-                // Ensure the staticIpWhitelist is imported and available
-                if (staticIpWhitelist && Array.isArray(staticIpWhitelist)) {
-                    el.textContent = staticIpWhitelist.join('\n');
-                } else {
-                    el.textContent = 'Error: Static IP list not available.';
-                }
-            }
-        }
-
-        async function handleUpdateConfig(e) {
-            e.preventDefault();
-            
-            // Get the latest values from the DOM elements
-            const maintenanceToggle = document.getElementById('maintenanceToggle');
-            const chatWidgetToggle = document.getElementById('chatWidgetToggle');
-            const dynamicIpList = document.getElementById('dynamicIpList');
-            
-            // Use values directly from the toggles and the textarea
-            const updates = {
-                maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
-                chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
-                ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist
-            };
-            
-            try {
-                const idToken = await auth.currentUser.getIdToken();
-                const res = await fetch(UPDATE_CONFIG_FUNCTION, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${idToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(updates)
-                });
-                
-                if (!res.ok) {
-                    const errorDetails = await res.json();
-                    throw new Error(errorDetails.details || 'Update failed on server.');
-                }
-                
-                showMessage('success', 'Configuration updated successfully!');
-                await logAdminAction('CONFIG_UPDATE', updates);
-                fetchAdminConfig(); // Reload config after update
-            } catch (error) {
-                console.error('Error updating config:', error);
-                showMessage('error', `Failed to save configuration: ${error.message}`, 8000);
-            }
-        }
-
-        // --- FETCH USERS (MODIFIED) ---
-        async function fetchUsers(pageToken = null) {
-            resetTimer();
-            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
-            const msgEl = document.getElementById('usersMessage');
-            
-            if (msgEl) msgEl.textContent = pageToken ? 'Loading next batch...' : 'Loading users...';
-            if (loadMoreBtn) loadMoreBtn.disabled = true;
-
-            // Clear current list on initial load or reset (e.g., after an action)
-            if (!pageToken) {
-                state.allUsers = []; 
-                globalNextPageToken = null;
-                state.selectedUsers = []; // Clear selections on full reload
-            }
-
-            try {
-                const idToken = await auth.currentUser.getIdToken();
-                const params = new URLSearchParams();
-                if (pageToken) params.append('nextPageToken', pageToken);
-                
-                const res = await fetch(`${LIST_USERS_FUNCTION}?${params.toString()}`, {
-                    headers: {
-                        'Authorization': `Bearer ${idToken}`
-                    }
-                });
-
-                if (!res.ok) {
-                    const errorDetails = await res.json();
-                    throw new Error(errorDetails.details || errorDetails.error || res.statusText);
-                }
-
-                const data = await res.json();
-                globalNextPageToken = data.nextPageToken;
-                
-                // Store fetched users to the state array
-                state.allUsers = state.allUsers.concat(data.users); 
-
-                renderUserList(); // Render the full, filtered list
-
-            } catch (error) {
-                console.error('Error fetching users:', error);
-                showMessage('error', `Failed to fetch users: ${error.message}`);
-            } finally {
-                if (msgEl) msgEl.textContent = '';
-                if (loadMoreBtn) loadMoreBtn.disabled = false;
-                renderUserControls(); 
-            }
-        }
-
-        /**
-         * Renders a list of user records into the users grid, applying search filter and selection state.
-         */
-        function renderUserList() {
-            const grid = document.getElementById('usersGrid');
-            if (!grid) return;
-
-            const users = getFilteredAuthUsers();
-            
-            // Clear existing rows but keep headers (which are the first 8 elements in the grid, including the checkbox header)
-            Array.from(grid.children).slice(8).forEach(el => el.remove());
-
-            // Uncheck the master checkbox and update counts
-            const selectAll = document.getElementById('selectAllUsers');
-            if (selectAll) selectAll.checked = false;
-            
-            document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
-            document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
-
-            const userRows = users.map(user => {
-                const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
-                const emailVerifiedIcon = user.emailVerified ? '✅' : '❌';
-                const disabledButtonText = user.disabled ? 'Enable' : 'Disable';
-                const disabledButtonColor = user.disabled ? 'text-green-600 hover:text-green-800' : 'text-yellow-600 hover:text-yellow-800';
-                const isSelected = state.selectedUsers.includes(user.uid);
-
-                // Handle cases where email is null for anonymous users
-                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
-
-                return `
-                    <div class="grid-item ${disabledClass}">
-                        <input type="checkbox" onchange="window.module.toggleUserSelection('${user.uid}')" 
-                                 data-uid="${user.uid}" ${isSelected ? 'checked' : ''}>
-                    </div>
-                    <div class="grid-item text-xs font-mono truncate ${disabledClass}">${user.uid.slice(0, 8)}...</div>
-                    <div class="grid-item text-sm font-semibold truncate ${disabledClass}">${userEmail} ${emailVerifiedIcon}</div>
-                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.displayName || 'N/A'}</div>
-                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
-                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleDateString() : 'N/A'}</div>
-                    <div class="grid-item text-xs font-bold ${disabledClass}">${user.disabled ? 'DISABLED' : 'Active'}</div>
-                    <div class="grid-item space-x-2 ${disabledClass}">
-                        <button onclick="window.module.promptForPasswordReset('${user.uid}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
-                        <button onclick="window.module.disableUser('${user.uid}', '${userEmail}', ${user.disabled})" class="${disabledButtonColor} text-sm font-semibold">${disabledButtonText}</button>
-                        <button onclick="window.module.deleteUser('${user.uid}', '${userEmail}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                    </div>
-                `;
-            }).join('');
-
-            grid.insertAdjacentHTML('beforeend', userRows);
-            renderUserControls();
-        }
-
-        /**
-         * Updates the state of the Load More Users button and displays user count.
-         */
-        function renderUserControls() {
-            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
-            const userCountEl = document.getElementById('userCount');
-            const filteredCount = getFilteredAuthUsers().length;
-            const totalCount = state.allUsers.length;
-            
-            if (loadMoreBtn) {
-                // Only show "Load More" if there's no search term and a next page token exists
-                if (globalNextPageToken && !state.userSearchTerm) {
-                    loadMoreBtn.classList.remove('hidden');
-                    loadMoreBtn.textContent = 'Load More Users (100)';
-                    loadMoreBtn.disabled = false;
-                } else {
-                    loadMoreBtn.classList.add('hidden');
-                }
-            }
-
-            if (userCountEl) {
-                if (state.userSearchTerm) {
-                    userCountEl.textContent = `Found ${filteredCount} matching users (from ${totalCount} loaded).`;
-                } else {
-                    userCountEl.textContent = `Showing ${filteredCount} users total.`;
-                }
-            }
-        }
-
-
-        // ----------------------------------------------------------------------
-        // --- RENDERING FUNCTIONS (MODIFIED HTML STRUCTURE) ---
-        // ----------------------------------------------------------------------
-
-        function renderEditProductForm() {
-            if (!state.editingItem) return '';
-            const item = state.editingItem;
-            const options = state.catalogs.map(c => `<option value="${c.id}" ${c.id === item.catalogId ? 'selected' : ''}>${c.name}</option>`).join('');
-            const priceDollars = (item.price / 100).toFixed(2);
-            const img = item.imageUrl.includes('placehold.co') ? '' : item.imageUrl;
-
-            return `
-                <div class="mb-10 p-6 border rounded-xl shadow-2xl bg-yellow-100 border-t-4 border-yellow-500">
-                    <h3 class="text-xl font-bold mb-4 text-yellow-700">Edit: ${item.name}</h3>
-                    <div class="mb-4 p-3 bg-yellow-200 border border-yellow-300 rounded-lg">
-                        <label class="block text-sm font-bold text-yellow-800">SKU:</label>
-                        <input type="text" value="${item.sku || 'N/A'}" readonly class="w-full p-2 bg-yellow-50 font-mono text-sm border-yellow-400 rounded-md cursor-not-allowed">
-                    </div>
-                    <form onsubmit="window.module.handleEditProduct(event)" class="space-y-4">
-                        <input type="hidden" name="itemId" value="${item.id}">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input name="itemName" value="${item.name}" required class="p-2 border rounded-lg">
-                            <select name="catalogId" required class="p-2 border rounded-lg"><option value="">-- Category --</option>${options}</select>
-                        </div>
-                        <textarea name="itemDescription" rows="2" required class="w-full p-2 border rounded-lg">${item.description}</textarea>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input type="number" step="0.01" name="itemPrice" value="${priceDollars}" required class="p-2 border rounded-lg">
-                            <input type="url" name="itemImageUrl" value="${img}" class="p-2 border rounded-lg">
-                        </div>
-                        <div class="flex space-x-4">
-                            <button type="submit" class="flex-grow bg-yellow-600 text-white py-2 rounded-lg hover:bg-yellow-700">Save Changes</button>
-                            <button type="button" onclick="window.module.cancelEdit()" class="flex-grow bg-gray-300 py-2 rounded-lg hover:bg-gray-400">Cancel</button>
-                        </div>
-                    </form>
-                </div>`;
-        }
-
-        function renderProductListSection() {
-            const el = document.getElementById('productListContainer');
-            if (!el) return;
-            const items = getFilteredItems();
-
-            el.innerHTML = `
-                <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${items.length} / ${state.items.length} total)</h3>
-                <div class="overflow-x-auto">
-                    <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1.5fr 1.5fr 1fr;">
-                        <div class="grid-header">SKU</div>
-                        <div class="grid-header">Name & Description</div>
-                        <div class="grid-header">Price</div>
-                        <div class="grid-header">Category</div>
-                        <div class="grid-header">Image URL</div>
-                        <div class="grid-header">Added At</div>
-                        <div class="grid-header">Actions</div>
-                        ${items.map(item => {
-                            const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                            const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
-                            return `
-                                <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
-                                <div class="grid-item"><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length>50?'...':''}</p></div>
-                                <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
-                                <div class="grid-item">${cat}</div>
-                                <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
-                                <div class="grid-item text-xs text-gray-500">${created}</div>
-                                <div class="grid-item">
-                                    <button onclick="window.module.showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
-                                    <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                                </div>`;
-                        }).join('')}
-                    </div>
-                    ${items.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found.</p>' : ''}
-                </div>`;
-        }
-
-        function renderPreviewSite() {
-            return `
-                <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
-                    <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview</h2>
-                    <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
-                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups allow-scripts allow-same-origin"></iframe>
-                    </div>
-                    <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
-                </section>`;
-        }
-
-        function renderAdminTabs() {
-            const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-            
-            if (state.activeTab === 'catalog') {
-                return `
-                    <section class="space-y-10">
-                        <div id="catalogMessage"></div>
-                        
-                        ${renderEditProductForm()}
-
-                        <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <div class="flex justify-between items-center mb-4">
-                                <input type="text" oninput="window.module.handleSearchInput(event)" placeholder="Search products, SKUs, or category..." class="p-2 border rounded-lg w-full max-w-md">
-                            </div>
-                            <div id="productListContainer">
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
-                                <h3 class="text-xl font-bold mb-4 text-indigo-700">Manage Categories</h3>
-                                <form onsubmit="window.module.handleAddCatalog(event)" class="space-y-4">
-                                    <input type="text" name="catalogName" placeholder="New Category Name (e.g., 'Electronics')" required class="w-full p-2 border rounded-lg">
-                                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">Add New Category</button>
-                                </form>
-                                <div class="mt-4 space-y-2 max-h-40 custom-scrollbar overflow-y-auto">
-                                    ${state.catalogs.map(c => `
-                                        <div class="flex justify-between items-center text-sm p-2 bg-gray-50 rounded-lg">
-                                            <span class="font-medium">${c.name}</span>
-                                            <button onclick="window.module.handleDeleteCatalog('${c.id}', '${c.name}')" class="text-red-500 hover:text-red-700 text-xs font-semibold">Delete</button>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            </div>
-                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
-                                <h3 class="text-xl font-bold mb-4 text-green-700">Add New Product</h3>
-                                <form onsubmit="window.module.handleAddProduct(event)" class="space-y-4">
-                                    <input type="text" name="itemName" placeholder="Product Name" required class="w-full p-2 border rounded-lg">
-                                    <textarea name="itemDescription" rows="2" placeholder="Product Description" required class="w-full p-2 border rounded-lg"></textarea>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <input type="number" step="0.01" name="itemPrice" placeholder="Price (e.g., 19.99)" required min="0.01" class="w-full p-2 border rounded-lg">
-                                        <select name="catalogId" required class="w-full p-2 border rounded-lg">
-                                            <option value="">-- Select Category --</option>
-                                            ${catOpts}
-                                        </select>
-                                    </div>
-                                    <input type="url" name="itemImageUrl" placeholder="Image URL (Optional)" class="w-full p-2 border rounded-lg">
-                                    <button type="submit" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Add Product</button>
-                                </form>
-                            </div>
-                        </div>
-
-                        
-                    </section>
-                `;
-            } else if (state.activeTab === 'config') {
-                return `
-                    <section class="space-y-8">
-                        <div id="configMessage"></div>
-                        <h2 class="text-2xl font-bold text-indigo-700">Global System Configuration</h2>
-
-                        <div class="p-4 bg-blue-50 rounded-xl shadow-inner border border-blue-300">
-                            <div class="flex items-center justify-between">
-                                <label for="chatWidgetToggle" class="text-lg font-medium text-gray-700">Enable Site Chat Widget</label>
-                                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                    <input type="checkbox" name="chatWidgetToggle" id="chatWidgetToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
-                                    <label for="chatWidgetToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                                </div>
-                            </div>
-                            <p class="text-sm text-blue-600 mt-2">Controls visibility of the customer support chat widget on the public site.</p>
-                        </div>
-                        <div class="p-4 bg-red-100 rounded-xl shadow-inner border border-red-300">
-                            <p class="text-sm font-semibold text-red-700 mb-3">User Management Utility (Global Action):</p>
-                            <button id="clearAnonButtonConfig" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md">
-                                Clear All Anonymous Users
-                            </button>
-                            <p class="text-xs text-red-500 mt-2">Warning: This action is irreversible and should only be performed after careful consideration.</p>
-                        </div>
-                        
-                        <form id="configForm" onsubmit="window.module.handleUpdateConfig(event)" class="bg-white p-6 rounded-xl shadow-lg space-y-6">
-                            
-                            <div class="flex items-center justify-between p-4 border rounded-lg bg-red-50 border-red-200">
-                                <label for="maintenanceToggle" class="text-lg font-medium text-gray-700">Maintenance Mode</label>
-                                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                    <input type="checkbox" name="maintenanceToggle" id="maintenanceToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
-                                    <label for="maintenanceToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-red-300 cursor-pointer"></label>
-                                </div>
-                                <p class="text-sm text-red-600">Disables store functionality for public users.</p>
-                                        </div>
-
-                            <div>
-                                <h3 class="text-xl font-bold mb-2 text-gray-700">Dynamic Admin IP Whitelist (Stored in Firestore)</h3>
-                                <p class="text-sm text-gray-500 mb-4">Users from these IPs can access the Admin Login page even if Maintenance Mode is active. One IP address per line.</p>
-                                <textarea id="dynamicIpList" rows="4" placeholder="123.45.67.89&#10;98.76.54.32" class="w-full p-3 border rounded-lg font-mono text-sm"></textarea>
-                                <p id="configLastUpdated" class="text-xs text-gray-500 mt-2"></p>
-                            </div>
-
-                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <h3 class="text-xl font-bold mb-2 text-gray-700">Static Client IP Whitelist (Codebase)</h3>
-                                <p class="text-sm text-gray-500 mb-2">This is the hardcoded IP list used by the client-side code (index.html) to check for access before loading Firebase config. Requires redeployment to change.</p>
-                                <pre id="staticIpListDisplay" class="bg-white p-3 rounded-lg border font-mono text-sm text-gray-800"></pre>
-                            </div>
-                            
-                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">Save Configuration</button>
-                        </form>
-                    </section>
-                `;
-            } else if (state.activeTab === 'users') {
-                return `
-                    <section class="space-y-8">
-                        <h2 class="text-2xl font-bold text-indigo-700">Registered Users Management</h2>
-                        <div id="usersMessage"></div>
-
-                        <div class="flex justify-between items-center mb-4">
-                            <input type="text" oninput="window.module.handleUserSearchInput(event)" 
-                                placeholder="Search users by email, ID, or name..." 
-                                class="p-2 border rounded-lg w-full max-w-md">
-                            
-                            <button id="clearAnonButton" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md ml-4">
-                                Clear All Anonymous Users
-                            </button>
-                        </div>
-                        
-                        <div class="p-4 bg-gray-200 rounded-lg shadow-inner flex justify-between items-center mb-4">
-                            <span class="text-sm font-semibold text-gray-700">
-                                <span id="selectedUserCount">0</span> users selected.
-                            </span>
-                            <div class="flex space-x-2">
-                                <select id="bulkActionSelect" class="p-2 border rounded-lg text-sm bg-white">
-                                    <option value="">-- Select Bulk Action --</option>
-                                    <option value="delete">Delete Permanently</option>
-                                    <option value="update" data-update='{"disabled": false}'>Enable</option>
-                                    <option value="update" data-update='{"disabled": true}'>Disable</option>
-                                    <option value="resetPassword">Set New Password</option>
-                                </select>
-                                <button onclick="window.module.handleBulkUserAction()" id="bulkActionButton" disabled class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300">
-                                    Apply to Selected
-                                </button>
-                            </div>
-                        </div>
-                        <div class="bg-white p-6 rounded-xl shadow-lg overflow-x-auto">
-                            <div id="usersGrid" class="grid gap-x-4 min-w-[1300px]" style="grid-template-columns: 30px 0.5fr 1.5fr 1fr 1fr 1fr 0.5fr 2fr;">
-                                <div class="grid-header">
-                                    <input type="checkbox" onchange="window.module.toggleAllUsers(this.checked)" id="selectAllUsers">
-                                </div>
-                                <div class="grid-header">UID</div>
-                                <div class="grid-header">Email</div>
-                                <div class="grid-header">Display Name</div>
-                                <div class="grid-header">Created</div>
-                                <div class="grid-header">Last Sign-In</div>
-                                <div class="grid-header">Status</div>
-                                <div class="grid-header">Actions</div>
-                                </div>
-                            <div class="text-center mt-6">
-                                <button id="loadMoreUsersButton" onclick="window.module.fetchUsers(globalNextPageToken)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 shadow-md hidden">
-                                    Load More Users (100)
-                                </button>
-                                <p id="userCount" class="text-sm text-gray-500 mt-2">Showing 0 users.</p>
-                            </div>
-                        </div>
-                    </section>
-                `;
-              } else if (state.activeTab === 'orders') {
-                                        return `
-                                            <section class="space-y-8">
-                                                <h2 class="text-2xl font-bold text-indigo-700">Manual Order Creation</h2>
-                                                <div id="ordersMessage"></div>
-                                                
-                                                <div class="grid grid-cols-1 md:grid-cols-1 gap-8">
-                                                    
-                                                                                <div class="md:col-span-1 bg-white p-6 rounded-xl shadow-lg border-t-4 border-purple-500">
-                                                        <h3 class="text-xl font-bold mb-4 text-purple-700">Enter Customer Details</h3>
-                                                        <form id="createOrderForm" onsubmit="window.module.handleAdminOrderSubmit(event)" class="space-y-4">
-                                                            <input type="text" id="buyerName" placeholder="Customer Name" required class="w-full p-2 border rounded-lg">
-                                                            <input type="email" id="buyerEmail" placeholder="Customer Email (for confirmation)" required class="w-full p-2 border rounded-lg">
-                                                            <input type="tel" id="buyerPhone" placeholder="Customer Phone (Optional)" class="w-full p-2 border rounded-lg">
-                                                            
-                                                            <input type="text" id="deliveryAddress" placeholder="Start typing address for validation..." required 
-                                                                class="w-full p-2 border rounded-lg address-input" 
-                                                                autocomplete="off" data-validated="false">
-                                                            <p id="addressErrorAdmin" class="text-sm text-red-600 mt-1 hidden">
-                                                                Please select a valid address from the dropdown.
-                                                            </p>
-                                                            <textarea id="orderNotes" rows="2" placeholder="Internal Admin Notes (Optional)" class="w-full p-2 border rounded-lg"></textarea>
-                                                            
-                                                            <div class="pt-4 border-t">
-                                                                <button type="submit" id="submitOrderButton" disabled
-                                                                            class="w-full bg-purple-600 text-white py-3 rounded-lg font-extrabold hover:bg-purple-700 transition duration-150 shadow-lg disabled:bg-purple-300 disabled:cursor-not-allowed">
-                                                                        SUBMIT ORDER & SEND EMAIL
-                                                                </button>
-                                                            </div>
-                                                        </form>
-                                                    </div>
-                                                    
-                                                                                <div class="md:col-span-1 bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
-                                                        <h3 class="text-xl font-bold mb-4 text-pink-700">Build Order Cart</h3>
-                                                        
-                                                        <div class="mb-4">
-                                                            <input type="text" id="orderItemSearch" oninput="window.module.handleOrderSearchInput(event)" 
-                                                                placeholder="Search products by name or SKU..." class="w-full p-2 border rounded-lg">
-                                                        </div>
-                        
-                                                        <div class="space-y-4 mb-4 p-3 bg-pink-50 rounded-lg">
-                                                            <div class="flex space-x-2 items-center">
-                                                                <select id="itemSelector" class="flex-grow p-2 border rounded-lg">
-                                                                    </select>
-                                                                                                        <input type="number" id="itemQuantity" value="1" min="1" class="w-14 p-2 border rounded-lg text-center flex-shrink-0">
-                                                            </div>
-                                                            <button type="button" onclick="window.module.addAdminCartItem()" class="w-full bg-pink-600 text-white py-2 rounded-lg hover:bg-pink-700">Add to Order</button>
-                                                        </div>
-                        
-                                                        <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2" id="adminCartDisplay">
-                                                            </div>
-                                                        
-                                                        <div class="pt-4 mt-4 border-t border-gray-200">
-                                                            <div class="flex justify-between font-bold text-xl text-gray-800">
-                                                                <span>Total:</span>
-                                                                <span id="adminCartTotal">$0.00</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </section>
-                                        `;
-                                    }
-        function renderAdminPage(userName) {
-            document.getElementById('app').innerHTML = `
-                <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600">
-                    <h1 class="text-4xl font-extrabold text-indigo-700">Admin Dashboard</h1>
-                    <div class="flex items-center space-x-4">
-                        <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${userName}</span>
-                        ${state.previewMode
-                            ? `<button onclick="window.module.togglePreviewMode(false)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600">Exit Preview</button>`
-                            : `<button onclick="window.module.togglePreviewMode(true)" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-500 hover:bg-green-600">Preview Site</button>`
-                        }
-                        <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600">Sign Out</button>
-                    </div>
-                </header>
-                <div class="md:flex md:space-x-8">
-                    <nav class="w-full md:w-1/4 mb-6 md:mb-0">
-                        <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4 ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
-                            <button onclick="window.module.switchAdminTab('catalog')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Category & Products</button>
-                            <button onclick="window.module.switchAdminTab('config')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Configuration</button>
-                            <button onclick="window.module.switchAdminTab('users')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Registered Users</button>
-                            <button onclick="window.module.switchAdminTab('orders')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Orders</button>
-                        </div>
-                    </nav>
-                    <main class="w-full md:w-3/4 space-y-12">
-                        ${state.previewMode ? renderPreviewSite() : renderAdminTabs()}
-                    </main>
-                </div>
-            `;
-
-            document.getElementById('signOutButton')?.addEventListener('click', () => {
-                clearTimeout(idleTimer);
-                signOut(auth).then(() => location.href = '/');
-            });
-
-            // Initial render based on active tab
-            if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-            if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
-            if (state.activeTab === 'users' && !state.previewMode) { 
-                const grid = document.getElementById('usersGrid');
-                // Only fetch users if the list is empty
-                if (grid && state.allUsers.length === 0) window.module.fetchUsers();
-            }
-            if (state.activeTab === 'orders' && !state.previewMode) window.module.updateAdminCartDisplay();
-        }
-
-        // --- EXPOSE TO WINDOW (ONLY ONCE!) ---
-        window.module = {
-            globalNextPageToken,
-            globalConfig,
-            fetchUsers,
-            renderUserList, 
-
-            fetchAdminConfig,
-            displayStaticIps,
-            handleUpdateConfig, 
-
-            switchAdminTab,
-            handleAddCatalog,
-            handleDeleteCatalog,
-            handleAddProduct,
-            handleDeleteProduct,
-            handleSearchInput, // Product search (Catalog tab)
-            handleUserSearchInput, // User search 
-            handleOrderSearchInput, // Product search (Orders tab)
-            showEditForm,
-            cancelEdit,
-            handleEditProduct,
-            renderProductListSection,
-            togglePreviewMode,
-            logAdminAction,
-
-            handleBulkUserAction, // NEW
-            handleUserAction, // MODIFIED/Exported for bulk action utility
-            toggleUserSelection, // NEW
-            toggleAllUsers, // NEW
-            
-            promptForPasswordReset,
-            deleteUser,
-            disableUser,
-            handleClearAnonymousUsers,
-
-            handleAdminOrderSubmit,
-            addAdminCartItem,
-            removeAdminCartItem,
-            updateAdminCartDisplay, // Exports the core cart update function
-            updateItemSelector // Exports the item selector update function
-        };
-
-        document.addEventListener('DOMContentLoaded', setupFirebase);
-    </script>
+    <div id="app" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        <div id="loadingState" class="text-center p-20">
+            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-600">Checking authentication and loading configuration...</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // CORRECTED: Import static IP list directly from the new client-accessible path
+        import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js'; 
+
+        // --- GLOBAL VARIABLES & STATE ---
+        let auth;
+        let db;
+        let autocomplete; // Global variable for Google Autocomplete instance
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let globalNextPageToken = null;
+        let globalConfig = { maintenanceMode: false, chatWidgetEnabled: true, ipWhitelist: [] }; // Initialized ipWhitelist 
+        const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+        let idleTimer;
+
+        const state = {
+            activeTab: 'catalog',
+            catalogs: [],
+            items: [],
+            searchTerm: '', // for products (catalog tab)
+            orderSearchTerm: '', // <<< NEW: For searching items in the Orders tab
+            userSearchTerm: '', // NEW: for users
+            allUsers: [], // NEW: Store all fetched users for client-side search
+            selectedUsers: [], // NEW: Array of selected user UIDs
+            editingItem: null,
+            previewMode: false,
+            adminCart: {}, // Tracks items in the manual order creation cart
+        };
+
+        // --- FIRESTORE COLLECTION PATHS & FUNCTION URLS ---
+        const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
+        const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+        const CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
+        const UPDATE_CONFIG_FUNCTION = '/.netlify/functions/updateAdminConfig';
+        const LIST_USERS_FUNCTION = '/.netlify/functions/listUsers';
+        const LOG_ACTION_FUNCTION = '/.netlify/functions/logAdminAction';
+        const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser';
+        const CLEAR_ANON_FUNCTION = '/.netlify/functions/clearAnonymousUsers';
+        const ADMIN_CREATE_ORDER_FUNCTION = '/.netlify/functions/adminCreateOrder';
+        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey'; 
+        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
+
+        // --- CORE FIREBASE SETUP ---
+        async function loadFirebaseConfig() {
+            try {
+                // CORRECTION: Must use /.netlify/functions/ to correctly target the deployed function
+                const response = await fetch(CONFIG_CLIENT_FUNCTION);
+                if (!response.ok) throw new Error(`Failed to fetch config (Status: ${response.status})`);
+                return await response.json();
+            } catch (error) {
+                console.error("Failed to load Firebase configuration:", error);
+                return {};
+            }
+        }
+
+        async function setupFirebase() {
+            const firebaseConfig = await loadFirebaseConfig();
+            if (Object.keys(firebaseConfig).length === 0) {
+                console.error("Firebase config is missing.");
+                return;
+            }
+            setLogLevel('debug');
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            
+            loadGoogleMapsScript(); // Load Maps Script after Firebase setup
+            checkAuthAndRender();
+        }
+
+        // --- NEW: Google Maps Autocomplete Logic (Duplicated from checkout.html) ---
+
+        // CRITICAL FIX 4: Function to update the Order Submit button state
+        function updateSubmitButtonState() {
+            const submitButton = document.getElementById('submitOrderButton');
+            const addressInput = document.getElementById('deliveryAddress');
+            
+            // Check if address is validated (data-validated="true") 
+            const isAddressValid = addressInput?.dataset.validated === 'true';
+            
+            // Check if cart has items
+            const isCartNotEmpty = Object.keys(state.adminCart).length > 0; 
+            
+            if (submitButton) {
+                // Button is enabled only if address is valid AND the cart is not empty
+                submitButton.disabled = !(isAddressValid && isCartNotEmpty);
+            }
+        }
+
+
+        // Function called by the dynamically loaded Google Maps script
+        window.initGooglePlaces = function() {
+            const input = document.getElementById('deliveryAddress');
+            if (!input) return;
+
+            // Initialize Autocomplete, restricting to addresses and selected countries
+            autocomplete = new google.maps.places.Autocomplete(input, {
+                types: ['address'],
+                componentRestrictions: { country: ['co', 'us'] },
+                fields: ['formatted_address', 'geometry']
+            });
+
+            // Set initial state
+            input.dataset.validated = 'false';
+            input.classList.add('border-gray-300');
+            updateSubmitButtonState(); // Initialize button state
+
+            // Listener: When the user selects an address from the dropdown
+            autocomplete.addListener('place_changed', () => {
+                const place = autocomplete.getPlace();
+                if (place.geometry) {
+                    input.classList.remove('address-invalid', 'border-gray-300');
+                    input.classList.add('address-valid');
+                    document.getElementById('addressErrorAdmin').classList.add('hidden');
+                    input.dataset.validated = 'true';
+                }
+                updateSubmitButtonState(); // Update button state on selection
+            });
+
+            // Listener: Mark as invalid if user manually types after initialization/selection
+            input.addEventListener('input', () => {
+                input.classList.remove('address-valid');
+                input.classList.add('address-invalid');
+                document.getElementById('addressErrorAdmin').classList.remove('hidden'); // Show error on manual input
+                input.dataset.validated = 'false';
+                updateSubmitButtonState(); // Update button state on manual input
+            });
+        };
+
+        async function loadGoogleMapsScript() {
+            try {
+                // 1. Fetch API Key securely from the Netlify Function
+                const response = await fetch(MAPS_KEY_FUNCTION_URL);
+                if (!response.ok) throw new Error('Failed to fetch Maps API key.');
+                const { apiKey } = await response.json();
+                
+                // 2. Build the script URL
+                const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGooglePlaces`;
+
+                // 3. Dynamically create and append the script tag
+                const script = document.createElement('script');
+                script.src = scriptUrl;
+                script.async = true;
+                script.defer = true;
+                document.head.appendChild(script);
+
+            } catch (error) {
+                console.warn('Delivery Address Validation service disabled for Admin:', error);
+            }
+        }
+        // --- END: Google Maps Autocomplete Logic ---
+
+
+        // --- IDLE TIMEOUT LOGIC ---
+        function autoLogout() {
+            if (auth?.currentUser && !auth.currentUser.isAnonymous) {
+                console.log("Admin idle timeout — logging out.");
+                signOut(auth).then(() => {
+                    logAdminAction('ADMIN_AUTO_LOGOUT', { reason: 'Idle Timeout (15m)' });
+                    window.location.href = '/?error=idle_timeout';
+                });
+            }
+        }
+
+        function resetTimer() {
+            clearTimeout(idleTimer);
+            if (auth?.currentUser && !auth.currentUser.isAnonymous) {
+                idleTimer = setTimeout(autoLogout, IDLE_TIMEOUT_MS);
+            }
+        }
+
+        // --- AUTHENTICATION CHECK & REDIRECT ---
+        function checkAuthAndRender() {
+            onAuthStateChanged(auth, user => {
+                if (user && !user.isAnonymous) {
+                    user.getIdTokenResult(true).then(idTokenResult => {
+                        if (idTokenResult.claims.admin === true) {
+                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                            document.addEventListener('touchstart', resetTimer); // Added touch listener
+                            resetTimer();
+                            setupRealtimeListeners();
+                            renderAdminPage(user.email || 'Admin');
+                        } else {
+                            signOut(auth);
+                            window.location.href = '/?error=unauthorized';
+                        }
+                    }).catch(err => {
+                        console.error("Token error:", err);
+                        signOut(auth);
+                        window.location.href = '/?error=auth_failed';
+                    });
+                } else {
+                    window.location.href = '/';
+                }
+            });
+        }
+
+        // --- FIRESTORE REALTIME LISTENERS ---
+        function setupRealtimeListeners() {
+            if (!db) return;
+
+            onSnapshot(collection(db, CATALOGS_COLLECTION), snap => {
+                state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+                if (state.activeTab === 'orders' && !state.previewMode) updateItemSelector(); // FIX: Update selector on catalog change
+            }, err => {
+                console.error("Error listening to categories:", err);
+                showMessage('error', 'Failed to fetch categories.');
+            });
+
+            onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
+                state.items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+                if (state.activeTab === 'orders' && !state.previewMode) {
+                    updateItemSelector(); // FIX: Update selector on item change
+                    updateAdminCartDisplay(); // FIX: Update cart display if prices/items change
+                }
+            }, err => {
+                console.error("Error listening to items:", err);
+                showMessage('error', 'Failed to fetch items.');
+            });
+        }
+
+        // --- HELPER FUNCTIONS ---
+        function formatPriceDisplay(cents) {
+            return `$${(cents / 100).toFixed(2)}`;
+        }
+
+        function formatTime(ts) {
+            if (!ts) return 'N/A';
+            const date = ts.toDate ? ts.toDate() : new Date(ts);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        function showMessage(type, text, duration = 5000) {
+            const id = state.activeTab === 'config' ? 'configMessage' : state.activeTab === 'orders' ? 'ordersMessage' : 'catalogMessage';
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.className = `mt-4 text-center text-sm font-medium ${type === 'success' ? 'text-green-600' : 'text-red-600'}`;
+            el.textContent = text;
+            setTimeout(() => el.textContent = '', duration);
+        }
+
+        async function logAdminAction(actionType, details, objectId = null) {
+            try {
+                await fetch(LOG_ACTION_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        actionType,
+                        details,
+                        performedByEmail: auth.currentUser?.email || 'Unknown',
+                        objectId
+                    })
+                });
+            } catch (e) { console.error("Log failed:", e); }
+        }
+
+        function generateUniqueSku() {
+            const t = Date.now().toString(36).toUpperCase();
+            const r = Math.random().toString(36).substring(2, 4).toUpperCase();
+            return `AX-${t}${r}`;
+        }
+
+        function getFilteredItems() {
+            if (!state.searchTerm) return state.items;
+            const term = state.searchTerm.toLowerCase();
+            return state.items.filter(item => {
+                const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                return item.name.toLowerCase().includes(term) ||
+                               item.description.toLowerCase().includes(term) ||
+                               catName.toLowerCase().includes(term) ||
+                               (item.sku && item.sku.toLowerCase().includes(term));
+            });
+        }
+
+        // --- USER LIST UTILITIES ---
+        function getFilteredAuthUsers() {
+            if (!state.userSearchTerm) return state.allUsers;
+            const term = state.userSearchTerm.toLowerCase();
+            return state.allUsers.filter(user => {
+                // Handles anonymous users where email might be null
+                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)'); 
+                
+                const uidMatch = user.uid.toLowerCase().includes(term);
+                const emailMatch = userEmail.toLowerCase().includes(term);
+                const nameMatch = user.displayName && user.displayName.toLowerCase().includes(term);
+                return uidMatch || emailMatch || nameMatch;
+            });
+        }
+
+        function handleUserSearchInput(e) {
+            state.userSearchTerm = e.target.value;
+            renderUserList(); // Call the rendering function immediately
+            resetTimer();
+        }
+
+        // --- BULK SELECTION LOGIC (NEW) ---
+
+        function toggleUserSelection(uid) {
+            const index = state.selectedUsers.indexOf(uid);
+            if (index > -1) {
+                state.selectedUsers.splice(index, 1);
+            } else {
+                state.selectedUsers.push(uid);
+            }
+            document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
+            document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
+        }
+
+        function toggleAllUsers(checked) {
+            const grid = document.getElementById('usersGrid');
+            // Select only visible users based on current search filter
+            const visibleUsers = getFilteredAuthUsers();
+            
+            state.selectedUsers = [];
+            if (checked) {
+                // Collect UIDs from currently filtered users
+                visibleUsers.forEach(user => {
+                    state.selectedUsers.push(user.uid);
+                });
+            }
+            
+            // Update all rendered checkboxes to reflect the new state.
+            const checkboxes = grid.querySelectorAll('input[type="checkbox"][data-uid]');
+            checkboxes.forEach(cb => {
+                const uid = cb.dataset.uid;
+                cb.checked = state.selectedUsers.includes(uid);
+            });
+            
+            document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
+            document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
+        }
+
+        // --- UI ACTIONS ---
+        function togglePreviewMode(enable) {
+            state.previewMode = enable;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer();
+        }
+
+        function switchAdminTab(tab) {
+            state.activeTab = tab;
+            state.editingItem = null;
+            state.previewMode = false;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer();
+
+            if (tab === 'config') {
+                window.module.fetchAdminConfig();
+                window.module.displayStaticIps();
+            } else if (tab === 'users') {
+                // Clear old data but keep headers before fetching new page. 
+                const grid = document.getElementById('usersGrid');
+                // The grid header now contains 8 elements (including the master checkbox)
+                if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove()); 
+                window.module.fetchUsers(null);
+                state.selectedUsers = []; // Clear selection when switching tab
+            } else if (tab === 'orders') {
+                window.module.updateAdminCartDisplay();
+                window.module.updateItemSelector();
+            }
+        }
+
+        function handleSearchInput(e) {
+            state.searchTerm = e.target.value;
+            renderProductListSection();
+            resetTimer();
+        }
+
+        function showEditForm(item) {
+            state.editingItem = item;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer();
+        }
+
+        function cancelEdit() {
+            state.editingItem = null;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer();
+        }
+
+        // --- CATEGORY & PRODUCT CRUD ---
+
+        // Implemented Add Product
+        async function handleAddProduct(e) {
+            e.preventDefault();
+            resetTimer();
+
+            const form = e.target;
+            const itemName = form.itemName.value.trim();
+            const itemDescription = form.itemDescription.value.trim();
+            const price = form.itemPrice.value;
+            const catalogId = form.catalogId.value;
+            let itemImageUrl = form.itemImageUrl.value.trim();
+
+            if (!itemName || !itemDescription || !price || !catalogId) {
+                showMessage('error', 'Please fill in all required product fields.');
+                return;
+            }
+
+            try {
+                // Use default placeholder if no URL is provided
+                if (!itemImageUrl) {
+                    itemImageUrl = `https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`;
+                }
+
+                // Convert price to cents (integer storage is preferred for currency)
+                const priceCents = Math.round(parseFloat(price) * 100);
+
+                const newProduct = {
+                    name: itemName,
+                    description: itemDescription,
+                    price: priceCents,
+                    catalogId: catalogId,
+                    imageUrl: itemImageUrl,
+                    sku: generateUniqueSku(),
+                    createdAt: serverTimestamp(),
+                };
+
+                const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
+
+                await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
+                showMessage('success', `Product "${itemName}" added successfully!`);
+                form.reset();
+
+            } catch (error) {
+                console.error('Error adding product:', error);
+                showMessage('error', `Failed to add product: ${error.message}`);
+            }
+        }
+
+        // Implemented Add Category
+        async function handleAddCatalog(e) {
+             e.preventDefault();
+             resetTimer();
+
+             const form = e.target;
+             const categoryName = form.catalogName.value.trim();
+
+             if (!categoryName) {
+                 showMessage('error', 'Category name cannot be empty.');
+                 return;
+             }
+
+             try {
+                 const newCategory = {
+                     name: categoryName,
+                     createdAt: serverTimestamp(),
+                 };
+                 
+                 const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), newCategory);
+
+                 await logAdminAction('CATEGORY_CREATED', newCategory, docRef.id);
+                 showMessage('success', `Category "${categoryName}" added successfully!`);
+                 form.reset();
+
+             } catch (error) {
+                 console.error('Error adding category:', error);
+                 showMessage('error', `Failed to add category: ${error.message}`);
+             }
+        }
+
+        // Placeholder for Delete Category
+        function handleDeleteCatalog(id, name) {
+            if (!confirm(`Are you sure you want to delete category: ${name}?`)) return;
+            showMessage('error', `Deleting category ${name} is not implemented in this version.`);
+            resetTimer();
+        }
+
+        // Placeholder for Delete Product
+        function handleDeleteProduct(id, name) {
+            if (!confirm(`Are you sure you want to delete product: ${name}?`)) return;
+            showMessage('error', `Deleting product ${name} is not implemented in this version.`);
+            resetTimer();
+        }
+        
+        // Placeholder for Edit Product
+        function handleEditProduct(e) {
+            e.preventDefault();
+            showMessage('info', 'Product editing not implemented in this version.');
+            resetTimer();
+        }
+
+        // --- USER MANAGEMENT (MODIFIED for Bulk) ---
+        
+        async function handleBulkUserAction() {
+            // Placeholder: Bulk User Action Logic
+            showMessage('info', 'Bulk user actions are not implemented in this version.');
+            resetTimer();
+        }
+        
+        async function handleUserAction(action, uid, data = {}, successMsg, suppressRefresh = false) {
+            // Placeholder: Individual User Action Logic
+            showMessage('info', `Action ${action} for user ${uid} is not fully implemented.`);
+            // Important: Re-throw the error for bulk handler to catch if needed
+            if (!suppressRefresh) {
+                window.module.fetchUsers(null); 
+            }
+        }
+
+
+        function promptForPasswordReset(uid) {
+             // Placeholder: Password Reset Logic
+             showMessage('info', 'Password reset is not implemented in this version.');
+        }
+
+        function deleteUser(uid, email) {
+             // Placeholder: Delete User Logic
+             showMessage('info', 'User deletion is not implemented in this version.');
+        }
+
+        function disableUser(uid, email, currentlyDisabled) {
+             // Placeholder: Disable User Logic
+             showMessage('info', 'User enable/disable is not implemented in this version.');
+        }
+        
+        async function handleClearAnonymousUsers() {
+            if (!confirm("Are you sure you want to delete ALL anonymous users? This process is irreversible and may take time for large databases.")) {
+                return;
+            }
+
+            const msgEl = document.getElementById('clearAnonButtonConfig') || document.getElementById('clearAnonButton');
+            if (!msgEl) return;
+            
+            const originalText = msgEl.textContent;
+            msgEl.textContent = 'Processing...';
+            msgEl.disabled = true;
+
+            let pageToken = null;
+            let totalDeleted = 0;
+
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+
+                do {
+                    const payload = { nextPageToken: pageToken };
+                    const res = await fetch(CLEAR_ANON_FUNCTION, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${idToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!res.ok) {
+                        const errorDetails = await res.json();
+                        throw new Error(errorDetails.details || errorDetails.error || res.statusText);
+                    }
+
+                    const data = await res.json();
+                    
+                    totalDeleted += data.deletedCount || 0;
+                    pageToken = data.nextPageToken;
+
+                    if (pageToken) {
+                        msgEl.textContent = `Processing batch... (${totalDeleted} deleted)`;
+                    } else {
+                        showMessage('success', `Cleanup complete! Total anonymous users deleted: ${totalDeleted}.`, 8000);
+                        break; // Exit loop if no token is returned
+                    }
+
+                } while (pageToken);
+
+                await logAdminAction('CLEANUP_ANON_USERS', { totalDeleted });
+                if (state.activeTab === 'users') window.module.fetchUsers(null); // Refresh user list
+
+            } catch (error) {
+                console.error('Anonymous user cleanup failed:', error);
+                showMessage('error', `Cleanup failed: ${error.message}. Check Netlify logs.`, 8000);
+            } finally {
+                msgEl.textContent = originalText;
+                msgEl.disabled = false;
+            }
+        }
+        
+        // --- ADMIN ORDER CREATION IMPLEMENTATION (FIXED) ---
+        
+        // NEW: Filtering logic specifically for the Orders tab's selector
+        function getItemsForOrderSelector() {
+            if (!state.orderSearchTerm) return state.items;
+            
+            const term = state.orderSearchTerm.toLowerCase();
+            
+            return state.items.filter(item => {
+                const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                return item.name.toLowerCase().includes(term) ||
+                       (item.sku && item.sku.toLowerCase().includes(term)) ||
+                       catName.toLowerCase().includes(term);
+            });
+        }
+
+        // NEW: Handler for the search input in the Orders tab
+        function handleOrderSearchInput(e) {
+            state.orderSearchTerm = e.target.value;
+            updateItemSelector(); // Rerender the item selector based on search
+            resetTimer();
+        }
+
+        // IMPLEMENTED: Adds the selected item/quantity to the adminCart state
+        function addAdminCartItem() {
+            const selector = document.getElementById('itemSelector');
+            const quantityEl = document.getElementById('itemQuantity');
+            
+            if (!selector || !quantityEl) return;
+            
+            const itemId = selector.value;
+            const quantity = parseInt(quantityEl.value, 10);
+            
+            if (!itemId || quantity <= 0) {
+                showMessage('error', 'Please select a product and quantity.', 3000);
+                return;
+            }
+
+            const item = state.items.find(i => i.id === itemId);
+            if (!item) return;
+
+            state.adminCart = {
+                ...state.adminCart,
+                [itemId]: { 
+                    item, 
+                    quantity: (state.adminCart[itemId]?.quantity || 0) + quantity 
+                }
+            };
+            
+            showMessage('success', `Added ${quantity}x ${item.name} to the order cart.`, 2000);
+            quantityEl.value = 1; // Reset quantity input
+            updateAdminCartDisplay();
+        }
+
+        // IMPLEMENTED: Removes item completely or updates quantity by -1
+        function removeAdminCartItem(itemId) {
+            const currentEntry = state.adminCart[itemId];
+            if (!currentEntry) return;
+
+            const newCart = { ...state.adminCart };
+            delete newCart[itemId];
+            state.adminCart = newCart;
+
+            showMessage('info', `${currentEntry.item.name} removed from order cart.`, 2000);
+            updateAdminCartDisplay();
+        }
+
+        // IMPLEMENTED: Renders the order cart display
+        function updateAdminCartDisplay() {
+            const cartEl = document.getElementById('adminCartDisplay');
+            const totalEl = document.getElementById('adminCartTotal');
+            let totalCents = 0;
+
+            if (!cartEl || !totalEl) return;
+
+            const itemsInCart = Object.values(state.adminCart);
+            
+            if (itemsInCart.length === 0) {
+                cartEl.innerHTML = '<p class="text-gray-500 italic">No items added to the order yet. Start searching above!</p>';
+                totalEl.textContent = formatPriceDisplay(0);
+                updateSubmitButtonState();
+                return;
+            }
+
+            const cartHtml = itemsInCart.map(entry => {
+                const subtotal = entry.item.price * entry.quantity;
+                totalCents += subtotal;
+                
+                return `
+                    <div class="flex justify-between items-center border-b pb-2">
+                        <div class="flex-1 min-w-0 pr-2">
+                            <p class="text-sm font-semibold text-gray-900 truncate">${entry.item.name}</p>
+                            <p class="text-xs text-gray-500">${entry.quantity} x ${formatPriceDisplay(entry.item.price)}</p>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-sm font-bold text-pink-700 flex-shrink-0">${formatPriceDisplay(subtotal)}</span>
+                            <button onclick="window.module.removeAdminCartItem('${entry.item.id}')" class="text-red-500 hover:text-red-700 text-sm font-semibold">❌</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            cartEl.innerHTML = cartHtml;
+            totalEl.textContent = formatPriceDisplay(totalCents);
+            updateSubmitButtonState();
+        }
+
+        // NEW: Renders the item selector dropdown with search results
+        function updateItemSelector() {
+            const selectorEl = document.getElementById('itemSelector');
+            if (!selectorEl) return;
+            
+            const items = getItemsForOrderSelector();
+            
+            // Default option
+            let optionsHtml = '<option value="" disabled selected>-- Select Product or Search --</option>';
+            
+            if (items.length > 0) {
+                optionsHtml += items.map(item => {
+                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                    return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
+                }).join('');
+            } else if (state.orderSearchTerm) {
+                optionsHtml += `<option value="" disabled>No results found for "${state.orderSearchTerm}"</option>`;
+            } else {
+                 // Initial state when items are loaded and no search is performed
+                 optionsHtml += state.items.map(item => {
+                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                    return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
+                }).join('');
+            }
+            
+            selectorEl.innerHTML = optionsHtml;
+        }
+
+        // Placeholder submission function
+        function handleAdminOrderSubmit(e) {
+            e.preventDefault();
+            showMessage('info', 'Manual order submission is not implemented in this version.');
+        }
+
+
+        // --- ADMIN CONFIG FUNCTIONS (DEFINITIONS ADDED TO FIX REFERENCE ERRORS) ---
+        
+        async function fetchAdminConfig() {
+            try {
+                const res = await fetch(CONFIG_FUNCTION);
+                if (!res.ok) throw new Error('Config fetch failed.');
+                const config = await res.json();
+                
+                // CRITICAL FIX 1: Update global config state
+                globalConfig = config;
+                
+                // Update UI elements
+                const maintenanceToggle = document.getElementById('maintenanceToggle');
+                const chatWidgetToggle = document.getElementById('chatWidgetToggle');
+                const dynamicIpList = document.getElementById('dynamicIpList');
+
+                if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
+                if (chatWidgetToggle) chatWidgetToggle.checked = config.chatWidgetEnabled;
+                
+                if (dynamicIpList) {
+                    dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
+                }
+                document.getElementById('configLastUpdated').textContent = config.lastUpdated ? 
+                    `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
+
+                // --- START: Attach listeners that update globalConfig state immediately ---
+                
+                if (chatWidgetToggle && chatWidgetToggle.type === 'checkbox') {
+                    // Remove existing listener to prevent stacking if the function is called multiple times
+                    chatWidgetToggle.removeEventListener('change', chatToggleHandler);
+                    
+                    // Define handler function for clean removal/re-attachment
+                    function chatToggleHandler(e) {
+                        globalConfig.chatWidgetEnabled = e.target.checked;
+                        resetTimer();
+                    }
+
+                    chatWidgetToggle.addEventListener('change', chatToggleHandler);
+                }
+                
+                if (maintenanceToggle && maintenanceToggle.type === 'checkbox') {
+                    // Remove existing listener to prevent stacking if the function is called multiple times
+                    maintenanceToggle.removeEventListener('change', maintenanceToggleHandler);
+                    
+                    // Define handler function for clean removal/re-attachment
+                    function maintenanceToggleHandler(e) {
+                        globalConfig.maintenanceMode = e.target.checked;
+                        resetTimer();
+                    }
+
+                    maintenanceToggle.addEventListener('change', maintenanceToggleHandler);
+                }
+                
+                // --- END ---
+
+            } catch (error) {
+                console.error("Error fetching admin config:", error);
+                showMessage('error', `Failed to load configuration: ${error.message}`, 8000);
+            }
+        }
+
+        function displayStaticIps() {
+            const el = document.getElementById('staticIpListDisplay');
+            if (el) {
+                // Ensure the staticIpWhitelist is imported and available
+                if (staticIpWhitelist && Array.isArray(staticIpWhitelist)) {
+                    el.textContent = staticIpWhitelist.join('\n');
+                } else {
+                    el.textContent = 'Error: Static IP list not available.';
+                }
+            }
+        }
+
+        async function handleUpdateConfig(e) {
+            e.preventDefault();
+            
+            // Get the latest values from the DOM elements
+            const maintenanceToggle = document.getElementById('maintenanceToggle');
+            const chatWidgetToggle = document.getElementById('chatWidgetToggle');
+            const dynamicIpList = document.getElementById('dynamicIpList');
+            
+            // Use values directly from the toggles and the textarea
+            const updates = {
+                maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
+                chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
+                ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist
+            };
+            
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const res = await fetch(UPDATE_CONFIG_FUNCTION, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updates)
+                });
+                
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(errorDetails.details || 'Update failed on server.');
+                }
+                
+                showMessage('success', 'Configuration updated successfully!');
+                await logAdminAction('CONFIG_UPDATE', updates);
+                fetchAdminConfig(); // Reload config after update
+            } catch (error) {
+                console.error('Error updating config:', error);
+                showMessage('error', `Failed to save configuration: ${error.message}`, 8000);
+            }
+        }
+
+        // --- FETCH USERS (MODIFIED) ---
+        async function fetchUsers(pageToken = null) {
+            resetTimer();
+            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
+            const msgEl = document.getElementById('usersMessage');
+            
+            if (msgEl) msgEl.textContent = pageToken ? 'Loading next batch...' : 'Loading users...';
+            if (loadMoreBtn) loadMoreBtn.disabled = true;
+
+            // Clear current list on initial load or reset (e.g., after an action)
+            if (!pageToken) {
+                state.allUsers = []; 
+                globalNextPageToken = null;
+                state.selectedUsers = []; // Clear selections on full reload
+            }
+
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const params = new URLSearchParams();
+                if (pageToken) params.append('nextPageToken', pageToken);
+                
+                const res = await fetch(`${LIST_USERS_FUNCTION}?${params.toString()}`, {
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`
+                    }
+                });
+
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(errorDetails.details || errorDetails.error || res.statusText);
+                }
+
+                const data = await res.json();
+                globalNextPageToken = data.nextPageToken;
+                
+                // Store fetched users to the state array
+                state.allUsers = state.allUsers.concat(data.users); 
+
+                renderUserList(); // Render the full, filtered list
+
+            } catch (error) {
+                console.error('Error fetching users:', error);
+                showMessage('error', `Failed to fetch users: ${error.message}`);
+            } finally {
+                if (msgEl) msgEl.textContent = '';
+                if (loadMoreBtn) loadMoreBtn.disabled = false;
+                renderUserControls(); 
+            }
+        }
+
+        /**
+         * Renders a list of user records into the users grid, applying search filter and selection state.
+         */
+        function renderUserList() {
+            const grid = document.getElementById('usersGrid');
+            if (!grid) return;
+
+            const users = getFilteredAuthUsers();
+            
+            // Clear existing rows but keep headers (which are the first 8 elements in the grid, including the checkbox header)
+            Array.from(grid.children).slice(8).forEach(el => el.remove());
+
+            // Uncheck the master checkbox and update counts
+            const selectAll = document.getElementById('selectAllUsers');
+            if (selectAll) selectAll.checked = false;
+            
+            document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
+            document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
+
+            const userRows = users.map(user => {
+                const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
+                const emailVerifiedIcon = user.emailVerified ? '✅' : '❌';
+                const disabledButtonText = user.disabled ? 'Enable' : 'Disable';
+                const disabledButtonColor = user.disabled ? 'text-green-600 hover:text-green-800' : 'text-yellow-600 hover:text-yellow-800';
+                const isSelected = state.selectedUsers.includes(user.uid);
+
+                // Handle cases where email is null for anonymous users
+                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
+
+                return `
+                    <div class="grid-item ${disabledClass}">
+                        <input type="checkbox" onchange="window.module.toggleUserSelection('${user.uid}')" 
+                                 data-uid="${user.uid}" ${isSelected ? 'checked' : ''}>
+                    </div>
+                    <div class="grid-item text-xs font-mono truncate ${disabledClass}">${user.uid.slice(0, 8)}...</div>
+                    <div class="grid-item text-sm font-semibold truncate ${disabledClass}">${userEmail} ${emailVerifiedIcon}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.displayName || 'N/A'}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleDateString() : 'N/A'}</div>
+                    <div class="grid-item text-xs font-bold ${disabledClass}">${user.disabled ? 'DISABLED' : 'Active'}</div>
+                    <div class="grid-item space-x-2 ${disabledClass}">
+                        <button onclick="window.module.promptForPasswordReset('${user.uid}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
+                        <button onclick="window.module.disableUser('${user.uid}', '${userEmail}', ${user.disabled})" class="${disabledButtonColor} text-sm font-semibold">${disabledButtonText}</button>
+                        <button onclick="window.module.deleteUser('${user.uid}', '${userEmail}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                    </div>
+                `;
+            }).join('');
+
+            grid.insertAdjacentHTML('beforeend', userRows);
+            renderUserControls();
+        }
+
+        /**
+         * Updates the state of the Load More Users button and displays user count.
+         */
+        function renderUserControls() {
+            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
+            const userCountEl = document.getElementById('userCount');
+            const filteredCount = getFilteredAuthUsers().length;
+            const totalCount = state.allUsers.length;
+            
+            if (loadMoreBtn) {
+                // Only show "Load More" if there's no search term and a next page token exists
+                if (globalNextPageToken && !state.userSearchTerm) {
+                    loadMoreBtn.classList.remove('hidden');
+                    loadMoreBtn.textContent = 'Load More Users (100)';
+                    loadMoreBtn.disabled = false;
+                } else {
+                    loadMoreBtn.classList.add('hidden');
+                }
+            }
+
+            if (userCountEl) {
+                if (state.userSearchTerm) {
+                    userCountEl.textContent = `Found ${filteredCount} matching users (from ${totalCount} loaded).`;
+                } else {
+                    userCountEl.textContent = `Showing ${filteredCount} users total.`;
+                }
+            }
+        }
+
+
+        // ----------------------------------------------------------------------
+        // --- RENDERING FUNCTIONS (MODIFIED HTML STRUCTURE) ---
+        // ----------------------------------------------------------------------
+
+        function renderEditProductForm() {
+            if (!state.editingItem) return '';
+            const item = state.editingItem;
+            const options = state.catalogs.map(c => `<option value="${c.id}" ${c.id === item.catalogId ? 'selected' : ''}>${c.name}</option>`).join('');
+            const priceDollars = (item.price / 100).toFixed(2);
+            const img = item.imageUrl.includes('placehold.co') ? '' : item.imageUrl;
+
+            return `
+                <div class="mb-10 p-6 border rounded-xl shadow-2xl bg-yellow-100 border-t-4 border-yellow-500">
+                    <h3 class="text-xl font-bold mb-4 text-yellow-700">Edit: ${item.name}</h3>
+                    <div class="mb-4 p-3 bg-yellow-200 border border-yellow-300 rounded-lg">
+                        <label class="block text-sm font-bold text-yellow-800">SKU:</label>
+                        <input type="text" value="${item.sku || 'N/A'}" readonly class="w-full p-2 bg-yellow-50 font-mono text-sm border-yellow-400 rounded-md cursor-not-allowed">
+                    </div>
+                    <form onsubmit="window.module.handleEditProduct(event)" class="space-y-4">
+                        <input type="hidden" name="itemId" value="${item.id}">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input name="itemName" value="${item.name}" required class="p-2 border rounded-lg">
+                            <select name="catalogId" required class="p-2 border rounded-lg"><option value="">-- Category --</option>${options}</select>
+                        </div>
+                        <textarea name="itemDescription" rows="2" required class="w-full p-2 border rounded-lg">${item.description}</textarea>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input type="number" step="0.01" name="itemPrice" value="${priceDollars}" required class="p-2 border rounded-lg">
+                            <input type="url" name="itemImageUrl" value="${img}" class="p-2 border rounded-lg">
+                        </div>
+                        <div class="flex space-x-4">
+                            <button type="submit" class="flex-grow bg-yellow-600 text-white py-2 rounded-lg hover:bg-yellow-700">Save Changes</button>
+                            <button type="button" onclick="window.module.cancelEdit()" class="flex-grow bg-gray-300 py-2 rounded-lg hover:bg-gray-400">Cancel</button>
+                        </div>
+                    </form>
+                </div>`;
+        }
+
+        function renderProductListSection() {
+            const el = document.getElementById('productListContainer');
+            if (!el) return;
+            const items = getFilteredItems();
+
+            el.innerHTML = `
+                <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${items.length} / ${state.items.length} total)</h3>
+                <div class="overflow-x-auto">
+                    <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1.5fr 1.5fr 1fr;">
+                        <div class="grid-header">SKU</div>
+                        <div class="grid-header">Name & Description</div>
+                        <div class="grid-header">Price</div>
+                        <div class="grid-header">Category</div>
+                        <div class="grid-header">Image URL</div>
+                        <div class="grid-header">Added At</div>
+                        <div class="grid-header">Actions</div>
+                        ${items.map(item => {
+                            const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                            const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
+                            return `
+                                <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
+                                <div class="grid-item"><p class="font-semibold">${item.name}</p><p class="text-xs text-gray-500">${item.description.substring(0,50)}${item.description.length>50?'...':''}</p></div>
+                                <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
+                                <div class="grid-item">${cat}</div>
+                                <div class="grid-item text-xs text-blue-500 truncate"><a href="${item.imageUrl}" target="_blank" class="hover:underline">${item.imageUrl.substring(0,30)}...</a></div>
+                                <div class="grid-item text-xs text-gray-500">${created}</div>
+                                <div class="grid-item">
+                                    <button onclick="window.module.showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
+                                    <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                                </div>`;
+                        }).join('')}
+                    </div>
+                    ${items.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found.</p>' : ''}
+                </div>`;
+        }
+
+        function renderPreviewSite() {
+            return `
+                <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                    <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview</h2>
+                    <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
+                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups allow-scripts allow-same-origin"></iframe>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
+                </section>`;
+        }
+
+        function renderAdminTabs() {
+            const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            
+            if (state.activeTab === 'catalog') {
+                return `
+                    <section class="space-y-10">
+                        <div id="catalogMessage"></div>
+                        
+                        ${renderEditProductForm()}
+
+                        <div class="bg-white p-6 rounded-xl shadow-lg">
+                            <div class="flex justify-between items-center mb-4">
+                                <input type="text" oninput="window.module.handleSearchInput(event)" placeholder="Search products, SKUs, or category..." class="p-2 border rounded-lg w-full max-w-md">
+                            </div>
+                            <div id="productListContainer">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                                <h3 class="text-xl font-bold mb-4 text-indigo-700">Manage Categories</h3>
+                                <form onsubmit="window.module.handleAddCatalog(event)" class="space-y-4">
+                                    <input type="text" name="catalogName" placeholder="New Category Name (e.g., 'Electronics')" required class="w-full p-2 border rounded-lg">
+                                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">Add New Category</button>
+                                </form>
+                                <div class="mt-4 space-y-2 max-h-40 custom-scrollbar overflow-y-auto">
+                                    ${state.catalogs.map(c => `
+                                        <div class="flex justify-between items-center text-sm p-2 bg-gray-50 rounded-lg">
+                                            <span class="font-medium">${c.name}</span>
+                                            <button onclick="window.module.handleDeleteCatalog('${c.id}', '${c.name}')" class="text-red-500 hover:text-red-700 text-xs font-semibold">Delete</button>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                                <h3 class="text-xl font-bold mb-4 text-green-700">Add New Product</h3>
+                                <form onsubmit="window.module.handleAddProduct(event)" class="space-y-4">
+                                    <input type="text" name="itemName" placeholder="Product Name" required class="w-full p-2 border rounded-lg">
+                                    <textarea name="itemDescription" rows="2" placeholder="Product Description" required class="w-full p-2 border rounded-lg"></textarea>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <input type="number" step="0.01" name="itemPrice" placeholder="Price (e.g., 19.99)" required min="0.01" class="w-full p-2 border rounded-lg">
+                                        <select name="catalogId" required class="w-full p-2 border rounded-lg">
+                                            <option value="">-- Select Category --</option>
+                                            ${catOpts}
+                                        </select>
+                                    </div>
+                                    <input type="url" name="itemImageUrl" placeholder="Image URL (Optional)" class="w-full p-2 border rounded-lg">
+                                    <button type="submit" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Add Product</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        
+                    </section>
+                `;
+            } else if (state.activeTab === 'config') {
+                return `
+                    <section class="space-y-8">
+                        <div id="configMessage"></div>
+                        <h2 class="text-2xl font-bold text-indigo-700">Global System Configuration</h2>
+
+                        <div class="p-4 bg-blue-50 rounded-xl shadow-inner border border-blue-300">
+                            <div class="flex items-center justify-between">
+                                <label for="chatWidgetToggle" class="text-lg font-medium text-gray-700">Enable Site Chat Widget</label>
+                                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                    <input type="checkbox" name="chatWidgetToggle" id="chatWidgetToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                    <label for="chatWidgetToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                                </div>
+                            </div>
+                            <p class="text-sm text-blue-600 mt-2">Controls visibility of the customer support chat widget on the public site.</p>
+                        </div>
+                        <div class="p-4 bg-red-100 rounded-xl shadow-inner border border-red-300">
+                            <p class="text-sm font-semibold text-red-700 mb-3">User Management Utility (Global Action):</p>
+                            <button id="clearAnonButtonConfig" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md">
+                                Clear All Anonymous Users
+                            </button>
+                            <p class="text-xs text-red-500 mt-2">Warning: This action is irreversible and should only be performed after careful consideration.</p>
+                        </div>
+                        
+                        <form id="configForm" onsubmit="window.module.handleUpdateConfig(event)" class="bg-white p-6 rounded-xl shadow-lg space-y-6">
+                            
+                            <div class="flex items-center justify-between p-4 border rounded-lg bg-red-50 border-red-200">
+                                <label for="maintenanceToggle" class="text-lg font-medium text-gray-700">Maintenance Mode</label>
+                                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                    <input type="checkbox" name="maintenanceToggle" id="maintenanceToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                    <label for="maintenanceToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-red-300 cursor-pointer"></label>
+                                </div>
+                                <p class="text-sm text-red-600">Disables store functionality for public users.</p>
+                                        </div>
+
+                            <div>
+                                <h3 class="text-xl font-bold mb-2 text-gray-700">Dynamic Admin IP Whitelist (Stored in Firestore)</h3>
+                                <p class="text-sm text-gray-500 mb-4">Users from these IPs can access the Admin Login page even if Maintenance Mode is active. One IP address per line.</p>
+                                <textarea id="dynamicIpList" rows="4" placeholder="123.45.67.89&#10;98.76.54.32" class="w-full p-3 border rounded-lg font-mono text-sm"></textarea>
+                                <p id="configLastUpdated" class="text-xs text-gray-500 mt-2"></p>
+                            </div>
+
+                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <h3 class="text-xl font-bold mb-2 text-gray-700">Static Client IP Whitelist (Codebase)</h3>
+                                <p class="text-sm text-gray-500 mb-2">This is the hardcoded IP list used by the client-side code (index.html) to check for access before loading Firebase config. Requires redeployment to change.</p>
+                                <pre id="staticIpListDisplay" class="bg-white p-3 rounded-lg border font-mono text-sm text-gray-800"></pre>
+                            </div>
+                            
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">Save Configuration</button>
+                        </form>
+                    </section>
+                `;
+            } else if (state.activeTab === 'users') {
+                return `
+                    <section class="space-y-8">
+                        <h2 class="text-2xl font-bold text-indigo-700">Registered Users Management</h2>
+                        <div id="usersMessage"></div>
+
+                        <div class="flex justify-between items-center mb-4">
+                            <input type="text" oninput="window.module.handleUserSearchInput(event)" 
+                                placeholder="Search users by email, ID, or name..." 
+                                class="p-2 border rounded-lg w-full max-w-md">
+                            
+                            <button id="clearAnonButton" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md ml-4">
+                                Clear All Anonymous Users
+                            </button>
+                        </div>
+                        
+                        <div class="p-4 bg-gray-200 rounded-lg shadow-inner flex justify-between items-center mb-4">
+                            <span class="text-sm font-semibold text-gray-700">
+                                <span id="selectedUserCount">0</span> users selected.
+                            </span>
+                            <div class="flex space-x-2">
+                                <select id="bulkActionSelect" class="p-2 border rounded-lg text-sm bg-white">
+                                    <option value="">-- Select Bulk Action --</option>
+                                    <option value="delete">Delete Permanently</option>
+                                    <option value="update" data-update='{"disabled": false}'>Enable</option>
+                                    <option value="update" data-update='{"disabled": true}'>Disable</option>
+                                    <option value="resetPassword">Set New Password</option>
+                                </select>
+                                <button onclick="window.module.handleBulkUserAction()" id="bulkActionButton" disabled class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300">
+                                    Apply to Selected
+                                </button>
+                            </div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-lg overflow-x-auto">
+                            <div id="usersGrid" class="grid gap-x-4 min-w-[1300px]" style="grid-template-columns: 30px 0.5fr 1.5fr 1fr 1fr 1fr 0.5fr 2fr;">
+                                <div class="grid-header">
+                                    <input type="checkbox" onchange="window.module.toggleAllUsers(this.checked)" id="selectAllUsers">
+                                </div>
+                                <div class="grid-header">UID</div>
+                                <div class="grid-header">Email</div>
+                                <div class="grid-header">Display Name</div>
+                                <div class="grid-header">Created</div>
+                                <div class="grid-header">Last Sign-In</div>
+                                <div class="grid-header">Status</div>
+                                <div class="grid-header">Actions</div>
+                                </div>
+                            <div class="text-center mt-6">
+                                <button id="loadMoreUsersButton" onclick="window.module.fetchUsers(globalNextPageToken)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 shadow-md hidden">
+                                    Load More Users (100)
+                                </button>
+                                <p id="userCount" class="text-sm text-gray-500 mt-2">Showing 0 users.</p>
+                            </div>
+                        </div>
+                    </section>
+                `;
+              } else if (state.activeTab === 'orders') {
+// CORRECTED: Removed extra backtick. Updated grid to stack sections (md:grid-cols-1).
+                return `
+                                <section class="space-y-8">
+                                    <h2 class="text-2xl font-bold text-indigo-700">Manual Order Creation</h2>
+                                    <div id="ordersMessage"></div>
+                                    
+                                    <div class="grid grid-cols-1 md:grid-cols-1 gap-8">
+                                        
+                                        <div class="md:col-span-1 bg-white p-6 rounded-xl shadow-lg border-t-4 border-purple-500">
+                                            <h3 class="text-xl font-bold mb-4 text-purple-700">Enter Customer Details</h3>
+                                            <form id="createOrderForm" onsubmit="window.module.handleAdminOrderSubmit(event)" class="space-y-4">
+                                                <input type="text" id="buyerName" placeholder="Customer Name" required class="w-full p-2 border rounded-lg">
+                                                <input type="email" id="buyerEmail" placeholder="Customer Email (for confirmation)" required class="w-full p-2 border rounded-lg">
+                                                <input type="tel" id="buyerPhone" placeholder="Customer Phone (Optional)" class="w-full p-2 border rounded-lg">
+                                                
+                                                <input type="text" id="deliveryAddress" placeholder="Start typing address for validation..." required 
+                                                    class="w-full p-2 border rounded-lg address-input" 
+                                                    autocomplete="off" data-validated="false">
+                                                <p id="addressErrorAdmin" class="text-sm text-red-600 mt-1 hidden">
+                                                    Please select a valid address from the dropdown.
+                                                </p>
+                                                <textarea id="orderNotes" rows="2" placeholder="Internal Admin Notes (Optional)" class="w-full p-2 border rounded-lg"></textarea>
+                                                
+                                                <div class="pt-4 border-t">
+                                                    <button type="submit" id="submitOrderButton" disabled
+                                                                class="w-full bg-purple-600 text-white py-3 rounded-lg font-extrabold hover:bg-purple-700 transition duration-150 shadow-lg disabled:bg-purple-300 disabled:cursor-not-allowed">
+                                                            SUBMIT ORDER & SEND EMAIL
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                        
+                                        <div class="md:col-span-1 bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
+                                            <h3 class="text-xl font-bold mb-4 text-pink-700">Build Order Cart</h3>
+                                            
+                                            <div class="mb-4">
+                                                <input type="text" id="orderItemSearch" oninput="window.module.handleOrderSearchInput(event)" 
+                                                    placeholder="Search products by name or SKU..." class="w-full p-2 border rounded-lg">
+                                            </div>
+            
+                                            <div class="space-y-4 mb-4 p-3 bg-pink-50 rounded-lg">
+                                                <div class="flex space-x-2 items-center">
+                                                    <select id="itemSelector" class="flex-grow p-2 border rounded-lg">
+                                                        </select>
+                                                                                            <input type="number" id="itemQuantity" value="1" min="1" class="w-14 p-2 border rounded-lg text-center flex-shrink-0">
+                                                </div>
+                                                <button type="button" onclick="window.module.addAdminCartItem()" class="w-full bg-pink-600 text-white py-2 rounded-lg hover:bg-pink-700">Add to Order</button>
+                                            </div>
+            
+                                            <div class="space-y-3 max-h-60 custom-scrollbar overflow-y-auto pr-2" id="adminCartDisplay">
+                                                </div>
+                                            
+                                            <div class="pt-4 mt-4 border-t border-gray-200">
+                                                <div class="flex justify-between font-bold text-xl text-gray-800">
+                                                    <span>Total:</span>
+                                                    <span id="adminCartTotal">$0.00</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        </div>
+                                    </section>
+                `;
+                                }
+        function renderAdminPage(userName) {
+            document.getElementById('app').innerHTML = `
+                <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600">
+                    <h1 class="text-4xl font-extrabold text-indigo-700">Admin Dashboard</h1>
+                    <div class="flex items-center space-x-4">
+                        <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${userName}</span>
+                        ${state.previewMode
+                            ? `<button onclick="window.module.togglePreviewMode(false)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600">Exit Preview</button>`
+                            : `<button onclick="window.module.togglePreviewMode(true)" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-500 hover:bg-green-600">Preview Site</button>`
+                        }
+                        <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600">Sign Out</button>
+                    </div>
+                </header>
+                <div class="md:flex md:space-x-8">
+                    <nav class="w-full md:w-1/4 mb-6 md:mb-0">
+                        <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4 ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
+                            <button onclick="window.module.switchAdminTab('catalog')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Category & Products</button>
+                            <button onclick="window.module.switchAdminTab('config')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Configuration</button>
+                            <button onclick="window.module.switchAdminTab('users')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Registered Users</button>
+                            <button onclick="window.module.switchAdminTab('orders')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Orders</button>
+                        </div>
+                    </nav>
+                    <main class="w-full md:w-3/4 space-y-12">
+                        ${state.previewMode ? renderPreviewSite() : renderAdminTabs()}
+                    </main>
+                </div>
+            `;
+
+            document.getElementById('signOutButton')?.addEventListener('click', () => {
+                clearTimeout(idleTimer);
+                signOut(auth).then(() => location.href = '/');
+            });
+
+            // Initial render based on active tab
+            if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+            if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
+            if (state.activeTab === 'users' && !state.previewMode) { 
+                const grid = document.getElementById('usersGrid');
+                // Only fetch users if the list is empty
+                if (grid && state.allUsers.length === 0) window.module.fetchUsers();
+            }
+            if (state.activeTab === 'orders' && !state.previewMode) window.module.updateAdminCartDisplay();
+        }
+
+        // --- EXPOSE TO WINDOW (ONLY ONCE!) ---
+        window.module = {
+            globalNextPageToken,
+            globalConfig,
+            fetchUsers,
+            renderUserList, 
+
+            fetchAdminConfig,
+            displayStaticIps,
+            handleUpdateConfig, 
+
+            switchAdminTab,
+            handleAddCatalog,
+            handleDeleteCatalog,
+            handleAddProduct,
+            handleDeleteProduct,
+            handleSearchInput, // Product search (Catalog tab)
+            handleUserSearchInput, // User search 
+            handleOrderSearchInput, // Product search (Orders tab)
+            showEditForm,
+            cancelEdit,
+            handleEditProduct,
+            renderProductListSection,
+            togglePreviewMode,
+            logAdminAction,
+
+            handleBulkUserAction, // NEW
+            handleUserAction, // MODIFIED/Exported for bulk action utility
+            toggleUserSelection, // NEW
+            toggleAllUsers, // NEW
+            
+            promptForPasswordReset,
+            deleteUser,
+            disableUser,
+            handleClearAnonymousUsers,
+
+            handleAdminOrderSubmit,
+            addAdminCartItem,
+            removeAdminCartItem,
+            updateAdminCartDisplay, // Exports the core cart update function
+            updateItemSelector // Exports the item selector update function
+        };
+
+        document.addEventListener('DOMContentLoaded', setupFirebase);
+    </script>
 </body>
 </html>
