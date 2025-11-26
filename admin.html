@@ -1299,16 +1299,25 @@
             resetTimer();
         }
     
-        function handleOrderStatusUpdate(orderId, newStatus) {
-            // Placeholder for Firestore update logic
+        // UPDATED: Makes a direct Firestore update
+        async function handleOrderStatusUpdate(orderId, newStatus) {
             if (!confirm(`Are you sure you want to change order ${orderId} status to ${newStatus}?`)) return;
             
-            showMessage('info', `Simulating update of order ${orderId} to ${newStatus}. (Update logic not implemented)`, 5000, 'orders');
-            
-            // Mock update in state for immediate feedback
-            state.orders = state.orders.map(order => order.id === orderId ? { ...order, status: newStatus } : order);
-            renderOrdersList();
             resetTimer();
+        
+            try {
+                const orderRef = doc(db, ORDERS_COLLECTION, orderId);
+                await updateDoc(orderRef, { status: newStatus });
+                
+                await logAdminAction('ORDER_STATUS_UPDATE', { orderId, newStatus }, orderId);
+        
+                showMessage('success', `Order ${orderId} status updated to ${newStatus}.`, 5000, 'orders');
+                // The realtime listener will handle the UI render here!
+        
+            } catch (error) {
+                console.error('Error updating order status:', error);
+                showMessage('error', `Failed to update status: ${error.message}`, 5000, 'orders');
+            }
         }
     
         function handleRequestDelivery(orderId) {
@@ -1719,11 +1728,14 @@
                                      
                 let deliveryButton;
                 if (order.status === 'Pending') {
-                    deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
+                    deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
                 } else if (order.status === 'Processing') {
                     deliveryButton = `<span class="text-xs text-blue-500">Tracking: ${order.trackingId || 'N/A'}</span>`;
+                } else if (order.status === 'Delivered' || order.status === 'Cancelled' || order.status === 'Manually Created') {
+                    // Show a small status label instead of 'Delivered/Cancelled' placeholder
+                    deliveryButton = `<span class="text-xs text-gray-500 font-semibold">${order.status}</span>`;
                 } else {
-                    deliveryButton = `<span class="text-xs text-gray-500">Delivered/Cancelled</span>`;
+                    deliveryButton = '';
                 }
                 
                 // Generates the HTML for the list of items in the order
