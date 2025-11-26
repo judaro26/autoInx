@@ -127,6 +127,7 @@
             adminCart: {}, // Tracks items in the manual order creation cart
             // --- ORDERS STATE ---
             orders: [],
+            orderListSearchTerm: '',
             orderStatusFilter: 'All', // 'All', 'Pending', 'Processing', 'Delivered', 'Cancelled'
             orderPage: 'list', // 'list' or 'create'
             // -------------------------
@@ -357,7 +358,13 @@
         function formatPriceDisplay(cents) {
             return `$${(cents / 100).toFixed(2)}`;
         }
-    
+        
+        function handleOrderListSearchInput(e) {
+            state.orderListSearchTerm = e.target.value;
+            renderOrdersList(); // Re-render the list to show filtered results
+            resetTimer();
+        }
+        
         function formatTime(ts) {
             if (!ts) return 'N/A';
             const date = ts.toDate ? ts.toDate() : new Date(ts);
@@ -1110,9 +1117,34 @@
         }
     
         function getFilteredOrders() {
-            const filter = state.orderStatusFilter;
-            if (filter === 'All') return state.orders;
-            return state.orders.filter(order => order.status === filter);
+            // 1. Filter by status first (uses existing state property)
+            let filteredByStatus = state.orders;
+            const statusFilter = state.orderStatusFilter;
+        
+            if (statusFilter !== 'All') {
+                filteredByStatus = state.orders.filter(order => order.status === statusFilter);
+            }
+            
+            // 2. Filter by search term
+            const term = state.orderListSearchTerm.toLowerCase().trim(); // <<< Uses the NEW state variable
+        
+            if (!term) return filteredByStatus;
+        
+            return filteredByStatus.filter(order => {
+                // Search by core properties
+                const matchesName = order.buyerName.toLowerCase().includes(term);
+                const matchesEmail = order.buyerEmail.toLowerCase().includes(term);
+                const matchesAddress = order.deliveryAddress.toLowerCase().includes(term);
+                const matchesOrderNumber = String(order.orderNumber).includes(term);
+                
+                // Search by item SKUs/Names
+                const matchesItem = order.items.some(item => 
+                    (item.sku && item.sku.toLowerCase().includes(term)) ||
+                    (item.name && item.name.toLowerCase().includes(term))
+                );
+        
+                return matchesName || matchesEmail || matchesAddress || matchesOrderNumber || matchesItem;
+            });
         }
     
         function handleStatusFilterChange(e) {
@@ -1691,23 +1723,36 @@
                 <section class="space-y-8">
                     <h2 class="text-3xl font-extrabold text-indigo-700">Sales and Delivery Tracking</h2>
                     <div id="ordersMessage" class="text-center font-semibold">Loading orders...</div>
-        
                     <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-xl font-bold text-indigo-700">Recent Orders List</h3>
-                            <div class="flex space-x-4">
-                                <select onchange="window.module.handleStatusFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
-                                    ${statusOptions.map(s => `<option value="${s}" ${state.orderStatusFilter === s ? 'selected' : ''}>Filter: ${s}</option>`).join('')}
-                                </select>
-                                <button onclick="window.module.switchOrderPage('create')" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition">Create Manual Order</button>
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                                <h3 class="text-xl font-bold text-indigo-700">Recent Orders List</h3>
+                                
+                                <input 
+                                    type="text" 
+                                    oninput="window.module.handleOrderListSearchInput(event)" 
+                                    placeholder="Search name, email, order #, or SKU..." 
+                                    class="w-full sm:w-80 p-2 border rounded-lg text-sm mb-4 sm:mb-0 sm:mr-4"
+                                    value="${state.orderListSearchTerm}"
+                                >
+                                
+                                <div class="flex space-x-4">
+                                    <select onchange="window.module.handleStatusFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
+                                        ${statusOptions.map(s => `<option value="${s}" ${state.orderStatusFilter === s ? 'selected' : ''}>Filter: ${s}</option>`).join('')}
+                                    </select>
+                                    <button onclick="window.module.switchOrderPage('create')" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition">Create Manual Order</button>
+                                </div>
                             </div>
-                        </div>
-        
-                        <div class="bg-gray-100 p-3 rounded-t-lg font-bold text-sm grid grid-cols-12 gap-4">
-                            <div class="col-span-1">Order #</div>
-                            <div class="col-span-2">Buyer/Address</div>
-                            <div class="col-span-1 text-center">Total</div>       <div class="col-span-1 text-center">Status</div>      <div class="col-span-1"></div>                       <div class="col-span-3 text-center">Items</div>       <div class="col-span-2 text-center">Actions</div>     <div class="col-span-1 text-center">Time</div>        </div>
-        
+                    
+                            <div class="bg-gray-100 p-3 rounded-t-lg font-bold text-sm grid grid-cols-12 gap-4">
+                                <div class="col-span-1">Order #</div>
+                                <div class="col-span-2">Buyer/Address</div>
+                                <div class="col-span-1 text-center">Total</div>
+                                <div class="col-span-1 text-center">Status</div>
+                                <div class="col-span-1"></div>
+                                <div class="col-span-3 text-center">Items</div>
+                                <div class="col-span-2 text-center">Actions</div>
+                                <div class="col-span-1 text-center">Time</div>
+                            </div>
                         <div id="ordersListContent" class="max-h-[70vh] custom-scrollbar overflow-y-auto">
                         </div>
                     </div>
@@ -1974,6 +2019,7 @@
             handleSearchInput, // Product search (Catalog tab)
             handleUserSearchInput, // User search 
             handleOrderSearchInput, // Product search (Orders tab)
+            handleOrderListSearchInput, // <<< NEW EXPORT (Order List Search)
             showEditForm,
             cancelEdit,
             handleEditProduct,
