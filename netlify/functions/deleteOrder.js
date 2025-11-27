@@ -1,6 +1,8 @@
 /**
  * Netlify Function (Admin Only) to delete a single order document.
- * SECURITY: Reads the IP whitelist directly from ip-data.json for portability.
+ * * FIXES INCLUDED:
+ * 1. Robust Firebase Admin initialization using explicit environment variables (to fix ENOTFOUND).
+ * 2. Whitelist read from bundled ip-data.json (assuming netlify.toml bundles the file).
  */
 const admin = require('firebase-admin');
 const fs = require('fs');
@@ -12,6 +14,7 @@ let WHITELIST_CHECK_ENABLED = false;
 
 try {
     // Determine the path to the JSON file relative to the function bundle
+    // NOTE: '__dirname' points to the directory containing the bundled function.
     const dataPath = path.join(__dirname, 'ip-data.json');
     const ipData = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
 
@@ -20,21 +23,27 @@ try {
     console.log(`Whitelist loaded successfully. Check Enabled: ${WHITELIST_CHECK_ENABLED}`);
 
 } catch (e) {
-    console.error("FATAL: Could not load IP Whitelist file.", e.message);
-    // On file read failure, default to a safe (disabled) state
+    console.error("FATAL: Could not load IP Whitelist file. Ensure 'ip-data.json' is bundled via netlify.toml.", e.message);
+    // Default to a safe (disabled) state if the config file is missing
     WHITELISTED_IPS = [];
     WHITELIST_CHECK_ENABLED = false;
 }
 
-// --- FIREBASE INITIALIZATION (Uses env vars for credentials) ---
+// --- FIREBASE INITIALIZATION FIX (CRITICAL) ---
 if (!admin.apps.length) {
-  try {
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault()
-    });
-  } catch (e) {
-    console.error("Firebase Admin initialization status: Failed.", e.message);
-  }
+    try {
+        // FIX: Explicitly use credentials from environment variables to bypass the metadata server check
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                // Replace escaped newlines in the private key
+                privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+            }),
+        });
+    } catch (e) {
+        console.error("Firebase Admin initialization status: FAILED (Check environment variables).", e.message);
+    }
 }
 
 const db = admin.firestore();
@@ -57,7 +66,7 @@ exports.handler = async function (event, context) {
         }
     }
     
-    // --- 2. Security Check: Validate Admin Token (Remains the same) ---
+    // --- 2. Security Check: Validate Admin Token ---
     const authHeader = event.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return { statusCode: 401, body: JSON.stringify({ error: 'Authorization token required.' }) };
