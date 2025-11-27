@@ -1952,6 +1952,12 @@
             const orders = getFilteredOrders();
             
             const tableRows = orders.map(order => {
+                // Assume 'order.uid' contains the client's UID, which is necessary for the path.
+                if (!order.uid) {
+                     console.error(`Order ${order.id} is missing a client UID and cannot be edited.`);
+                     // Skip this order or render a disabled button if client UID is essential.
+                }
+        
                 const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
                                      order.status === 'Pending' ? 'text-red-600 font-bold' :
                                      order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
@@ -1985,7 +1991,7 @@
                         <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
                             <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
                             <p class="text-xs text-gray-500 font-mono">${order.id}</p>
-                        </div> 
+                        </div>
                         
                         <div class="col-span-2 text-sm">
                             <p class="font-semibold">${order.buyerName}</p>
@@ -2010,7 +2016,9 @@
                             <div class="text-xs text-gray-500 font-semibold mb-2">
                                 ${formatTime(order.createdAt)} 
                             </div>
-                            <button onclick="window.module.showOrderEditForm('${order.id}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>
+                            
+                            <button onclick="window.module.showOrderEditForm('${order.id}', '${order.uid}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>
+                            
                             ${deliveryButton}
                             <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="w-full p-1 border rounded text-xs bg-white">
                                 <option value="" disabled selected>Update Status</option>
