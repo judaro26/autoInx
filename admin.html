@@ -117,6 +117,7 @@
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
         let db;
+        let userId;
         let autocomplete; // Global variable for Google Autocomplete instance
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         let globalNextPageToken = null;
@@ -1587,12 +1588,19 @@
         async function showOrderEditForm(orderId) {
             if (!orderId) return console.error("No Order ID provided for editing.");
         
-            // Optional: Add a quick loading state to the button clicked or the screen
-            console.log(`Fetching details for Order: ${orderId}`);
-        
             try {
+                // --- 🎯 FIX IS HERE ---
+                const currentUserId = window.module.userId;
+                const collectionPathFn = window.module.ORDERS_COLLECTION;
+        
+                // Check for necessary variables
+                if (!currentUserId || !collectionPathFn) {
+                     throw new Error("Admin user context (userId/collection path) is missing.");
+                }
+        
                 // 1. Get a reference to the specific order document
-                const orderRef = doc(db, ORDERS_COLLECTION(userId), orderId);
+                const orderRef = doc(db, collectionPathFn(currentUserId), orderId);
+                // -----------------------
                 
                 // 2. Fetch the document data directly from Firebase
                 const orderSnap = await getDoc(orderRef);
@@ -2369,6 +2377,8 @@
                     fetchUsers,
                     renderUserList, 
                     orders,
+                    userId,
+                    ORDERS_COLLECTION,
             
                     fetchAdminConfig,
                     displayStaticIps,
