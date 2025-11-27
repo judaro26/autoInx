@@ -1,6 +1,7 @@
 /**
  * Netlify Function: send-email.js
- * Handles order confirmation emails to the customer and notification emails to the admin/requester.
+ * Handles order confirmation emails to the customer and notification emails to the admin/requester,
+ * with added logic for order status update notifications.
  */
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
@@ -56,6 +57,7 @@ function generateTableRows(items) {
 
 /**
  * Populates the order template with dynamic content.
+ * MODIFIED to handle 'newStatus' for notifications.
  * @param {object} orderData - The complete order object.
  * @param {string} recipientType - 'customer' or 'admin'
  */
@@ -66,6 +68,9 @@ async function populateTemplate(orderData, recipientType) {
         year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
     
+    // NEW: Extract status. Default to 'Confirmed' if not a status update
+    const orderStatus = orderData.newStatus || 'Confirmed'; 
+
     // 1. Generate dynamic content
     const tableRows = generateTableRows(orderData.items);
     const totalPrice = formatPrice(orderData.totalCents);
@@ -74,17 +79,33 @@ async function populateTemplate(orderData, recipientType) {
     let introText;
     let recipientEmailPlaceholder;
 
+    // 2. Determine content based on recipient and status
     if (recipientType === 'customer') {
-        subjectLine = "Your autoInx Order is Confirmed";
-        introText = `Hello ${orderData.buyerName}, thank you for your purchase! We've received your order and are preparing your items for delivery.`;
+        if (orderStatus === 'Confirmed') {
+            subjectLine = "Your autoInx Order is Confirmed";
+            introText = `Hello ${orderData.buyerName}, thank you for your purchase! We've received your order and are preparing your items for delivery.`;
+        } else if (orderStatus === 'Cancelled') {
+            subjectLine = "Action Required: Your autoInx Order Has Been Cancelled";
+            introText = `Hello ${orderData.buyerName}, your order #${orderData.orderId.substring(0, 5)} has been officially cancelled. Please contact support if you have any questions.`;
+        } else {
+            // Processing, Delivered, etc.
+            subjectLine = `Update: Your autoInx Order is Now ${orderStatus}`;
+            introText = `Hello ${orderData.buyerName}, your order is progressing! The status of order #${orderData.orderId.substring(0, 5)} is now **${orderStatus}**.`;
+        }
         recipientEmailPlaceholder = orderData.buyerEmail;
     } else { // admin notification or requester copy
-        subjectLine = `NEW ORDER #${orderData.orderId.substring(0, 8).toUpperCase()} - ${orderData.buyerName}`;
-        introText = `A new order has been placed on the site. Please review the details below.`;
-        recipientEmailPlaceholder = 'orders@autoinx.com'; // Default for template footer
+        subjectLine = orderStatus === 'Confirmed' 
+            ? `NEW ORDER #${orderData.orderId.substring(0, 8).toUpperCase()} - ${orderData.buyerName}`
+            : `STATUS UPDATE [${orderStatus}]: Order #${orderData.orderId.substring(0, 5)} - ${orderData.buyerName}`;
+            
+        introText = orderStatus === 'Confirmed' 
+            ? `A new order has been placed on the site. Please review the details below.`
+            : `Order status has been manually updated to **${orderStatus}**. Please review the updated details below.`; 
+            
+        recipientEmailPlaceholder = 'orders@autoinx.com';
     }
 
-    // 2. Perform replacements
+    // 3. Perform replacements
     template = template.replace(/Your autoInx Order is Confirmed/g, subjectLine);
     template = template.replace(/Hello, thank you for your purchase![\s\S]*?<\/p>/, `<p style="margin-bottom: 20px; font-size: 16px;">${introText}</p>`);
     
@@ -93,13 +114,17 @@ async function populateTemplate(orderData, recipientType) {
     template = template.replace(/{{params\.orderTableRows}}/g, tableRows);
     template = template.replace(/{{params\.totalPrice}}/g, totalPrice);
     
-    // Brevo email placeholder in footer (use the actual recipient email)
+    // Inject the current Status into the template 
+    template = template.replace(/{{params\.orderStatus}}/g, orderStatus); // Assuming placeholder in HTML template
+
+    // Brevo email placeholder in footer 
     template = template.replace(/{{contact\.EMAIL}}/g, recipientEmailPlaceholder);
 
     // Optional: Add Delivery/Shipping Info (for Admin/Requester)
     if (recipientType !== 'customer') {
         const adminDetails = `
             <p style="margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px; font-size: 14px; color: #3b3f44;">
+                <strong>Order Status:</strong> ${orderStatus}<br>
                 <strong>Customer Name:</strong> ${orderData.buyerName}<br>
                 <strong>Delivery Address:</strong> ${orderData.deliveryAddress}<br>
                 <strong>Phone (WhatsApp Opt-in: ${orderData.prefersWhatsapp ? 'YES' : 'NO'}):</strong> ${orderData.buyerPhone}<br>
@@ -114,7 +139,6 @@ async function populateTemplate(orderData, recipientType) {
         template = template.replace(/<\/p>\s*/, `</p>${adminDetails}`);
     }
 
-
     return { html: template, subject: subjectLine };
 }
 
@@ -126,8 +150,8 @@ exports.handler = async function (event) {
     }
 
     const orderData = JSON.parse(event.body);
-    // Destructure all necessary fields, including the new optional requesterEmail
-    const { orderId, buyerEmail, items, totalCents, requesterEmail } = orderData;
+    // MODIFIED: Destructure newStatus from the payload
+    const { orderId, buyerEmail, items, totalCents, requesterEmail, newStatus } = orderData; 
     
     // Basic Validation Check
     if (!orderId || !buyerEmail || !items || items.length === 0 || totalCents === undefined) {
@@ -135,8 +159,9 @@ exports.handler = async function (event) {
     }
 
     try {
-        // --- 1. Customer Confirmation Email ---
-        const customerEmailData = await populateTemplate(orderData, 'customer');
+        // --- 1. Customer Email ---
+        // Pass the newStatus along with orderData to populateTemplate
+        const customerEmailData = await populateTemplate({ ...orderData, newStatus }, 'customer'); 
 
         const customerMailOptions = {
             from: "noreply@autoinx.com", 
@@ -148,7 +173,7 @@ exports.handler = async function (event) {
 
 
         // --- 2. Admin Notification Email (to main orders mailbox) ---
-        const adminEmailData = await populateTemplate(orderData, 'admin');
+        const adminEmailData = await populateTemplate({ ...orderData, newStatus }, 'admin'); // Pass newStatus
 
         const adminMailOptions = {
             from: "noreply@autoinx.com", 
@@ -160,11 +185,11 @@ exports.handler = async function (event) {
         
         // --- 3. Requester/Sales Agent Notification Email (NEW) ---
         if (requesterEmail && requesterEmail !== buyerEmail && requesterEmail !== "orders@autoinx.com") {
-             // Re-use the admin email data since it contains the order details
+            const requesterEmailData = await populateTemplate({ ...orderData, newStatus }, 'admin'); // Pass newStatus
+            
             const requesterMailOptions = {
                 from: "noreply@autoinx.com", 
                 to: requesterEmail,
-                // Optionally modify the subject to clarify this is a copy
                 subject: `[COPY] ${adminEmailData.subject}`,
                 html: adminEmailData.html,
             };
