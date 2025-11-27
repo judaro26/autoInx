@@ -1587,16 +1587,33 @@
         async function showOrderEditForm(orderId) {
             if (!orderId) return console.error("No Order ID provided for editing.");
         
-            // Find the order data from the list currently displayed in the admin panel
-            const orderData = window.module.orders.find(o => o.id === orderId);
-            if (!orderData) return console.error(`Order ${orderId} not found in current list.`);
+            // Optional: Add a quick loading state to the button clicked or the screen
+            console.log(`Fetching details for Order: ${orderId}`);
         
-            // Render the modal HTML and display it
-            const modalHtml = renderOrderEditModal(orderData);
-            
-            // Assuming you have an empty <div> with id="editModalContainer" in your admin.html
-            document.getElementById('editModalContainer').innerHTML = modalHtml;
-            document.getElementById('editModal').classList.remove('hidden'); 
+            try {
+                // 1. Get a reference to the specific order document
+                const orderRef = doc(db, ORDERS_COLLECTION(userId), orderId);
+                
+                // 2. Fetch the document data directly from Firebase
+                const orderSnap = await getDoc(orderRef);
+        
+                if (!orderSnap.exists()) {
+                    return console.error(`Order ${orderId} not found in database.`);
+                }
+        
+                // 3. Construct the orderData object from the fetched snapshot
+                const orderData = { id: orderSnap.id, ...orderSnap.data() };
+                
+                // 4. Render the modal using the fetched data
+                const modalHtml = renderOrderEditModal(orderData);
+                
+                document.getElementById('editModalContainer').innerHTML = modalHtml;
+                document.getElementById('editModal').classList.remove('hidden');
+        
+            } catch (error) {
+                console.error("Error fetching order for edit:", error);
+                alert("Failed to fetch order details. See console.");
+            }
         }
         
         /**
