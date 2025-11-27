@@ -294,21 +294,17 @@
                 });
             }
         }
-        function getOrdersCollectionPath() {
-            // These variables are often defined globally or derived from a global setup:
-            const currentUserId = window.module.userId;
-            // Assuming 'appId' is defined globally or derived similarly to your existing code
+        function getOrdersCollectionPath(currentUserId) { 
+            // const currentUserId = window.module.userId; // <-- REMOVE THIS LINE
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             
             if (!currentUserId) {
-                // Fallback or error path if user is somehow null
                 console.error("Cannot build order collection path: userId is missing.");
-                return `artifacts/${appId}/users/unknown/orders`; 
+                throw new Error("Admin user context (userId/collection path) is missing."); // Use throw here for immediate exit
             }
             
             return `artifacts/${appId}/users/${currentUserId}/orders`;
         }
-        
     
         function resetTimer() {
             clearTimeout(idleTimer);
@@ -318,24 +314,25 @@
         }
 
 
-       function waitForUserId(timeout = 5000) {
-        return new Promise((resolve, reject) => {
-            const startTime = Date.now();
-            
-            const check = () => {
-                if (window.module.userId) {
-                    resolve(window.module.userId);
-                } else if (Date.now() - startTime >= timeout) {
-                    reject(new Error("Timeout waiting for Admin user ID."));
-                } else {
-                    // Check again in 100 milliseconds
-                    setTimeout(check, 100); 
-                }
-            };
-    
-            check();
-        });
-    }     
+
+        function waitForUserId(timeout = 5000) {
+            return new Promise((resolve, reject) => {
+                const startTime = Date.now();
+                
+                const check = () => {
+                    // Check the GLOBAL variable 'userId' directly
+                    if (userId) { // <--- CRITICAL: Check the global variable name
+                        resolve(userId);
+                    } else if (Date.now() - startTime >= timeout) {
+                        reject(new Error("Timeout waiting for Admin user ID."));
+                    } else {
+                        setTimeout(check, 100); 
+                    }
+                };
+        
+                check();
+            });
+        }   
         
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
@@ -1642,25 +1639,20 @@
             if (!orderId) return console.error("No Order ID provided for editing.");
         
             try {
-                // 🎯 FIX: AWAIT the userId to ensure the async auth process has finished.
-                const currentUserId = await waitForUserId(); 
+                // 1. AWAIT the resolved user ID value
+                const currentUserId = await waitForUserId(); // Gets the resolved UID string
                 
                 const collectionPathFn = window.module.getOrdersCollectionPath;
                 
-                // This check ensures the function is defined
                 if (typeof collectionPathFn !== 'function') {
                      throw new Error("Collection path helper is missing or not a function.");
                 }
                 
-                // 1. Get the path string by calling the function
-                // The path function will now use the resolved userId
-                const path = collectionPathFn(); 
-        
-                // 2. Get a reference to the specific order document
-                const orderRef = doc(db, path, orderId); 
+                // 2. Get the path string by PASSING the awaited userId
+                const path = collectionPathFn(currentUserId); 
                 
-                // 3. Fetch the document data directly from Firebase
-                const orderSnap = await getDoc(orderRef);
+                // 3. Get a reference to the specific order document
+                const orderRef = doc(db, path, orderId);
                 
                 if (!orderSnap.exists()) {
                     return console.error(`Order ${orderId} not found in database.`);
