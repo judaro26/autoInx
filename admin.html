@@ -1635,11 +1635,18 @@
         /**
          * Updates the state of the Load More Users button and displays user count.
          */
+        // Ensure you have 'getDoc' imported: import { getFirestore, doc, getDoc, ... }
+        
         async function showOrderEditForm(orderId) {
             if (!orderId) return console.error("No Order ID provided for editing.");
         
+            // 1. Define Firestore reference variables outside the try block
+            let orderRef;
+            let orderSnap; 
+            let path;
+        
             try {
-                // 1. AWAIT the resolved user ID value
+                // AWAIT the resolved user ID value
                 const currentUserId = await waitForUserId(); // Gets the resolved UID string
                 
                 const collectionPathFn = window.module.getOrdersCollectionPath;
@@ -1649,38 +1656,35 @@
                 }
                 
                 // 2. Get the path string by PASSING the awaited userId
-                const path = collectionPathFn(currentUserId); 
+                path = collectionPathFn(currentUserId); // Assignment is safe
                 
                 // 3. Get a reference to the specific order document
-                const orderRef = doc(db, path, orderId);
+                // Assign to the variable defined outside the try block
+                orderRef = doc(db, path, orderId); 
                 
+                // 4. Fetch the document data directly from Firebase
+                orderSnap = await getDoc(orderRef); // Assign to the variable defined outside the try block
+                
+                // Check if the document exists
                 if (!orderSnap.exists()) {
                     return console.error(`Order ${orderId} not found in database.`);
                 }
         
-                // 4. Construct the orderData object from the fetched snapshot
+                // 5. Construct the orderData object from the fetched snapshot
                 const orderData = { id: orderSnap.id, ...orderSnap.data() };
                 
-                // 5. Render the modal using the fetched data
-                const modalHtml = window.module.renderOrderEditModal(orderData); // Use window.module if exported
+                // 6. Render the modal using the fetched data
+                const modalHtml = window.module.renderOrderEditModal(orderData);
                 
                 document.getElementById('editModalContainer').innerHTML = modalHtml;
                 document.getElementById('editModal').classList.remove('hidden');
         
             } catch (error) {
                 console.error("Error fetching order for edit:", error);
-                // Display a more specific alert if it's the timeout error
-                if (error.message.includes("Timeout")) {
-                    alert("Authorization error: User ID was not detected. Please refresh the page.");
-                } else {
-                    alert("Failed to fetch order details. See console.");
-                }
+                // ... (rest of the error handling)
             }
         }
         
-        /**
-         * Renders the HTML structure for the order edit modal.
-         */
         function renderOrderEditModal(order) {
             // Basic status options (customize these to your business logic)
             const statuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
