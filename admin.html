@@ -1583,22 +1583,121 @@
         /**
          * Updates the state of the Load More Users button and displays user count.
          */
-        function showOrderEditForm(orderId) {
-            const orderToEdit = state.orders.find(o => o.id === orderId);
+        async function showOrderEditForm(orderId) {
+            if (!orderId) return console.error("No Order ID provided for editing.");
+        
+            // Find the order data from the list currently displayed in the admin panel
+            const orderData = window.module.orders.find(o => o.id === orderId);
+            if (!orderData) return console.error(`Order ${orderId} not found in current list.`);
+        
+            // Render the modal HTML and display it
+            const modalHtml = renderOrderEditModal(orderData);
             
-            if (!orderToEdit) {
-                return showMessage('error', 'Order not found.', 5000, 'orders');
+            // Assuming you have an empty <div> with id="editModalContainer" in your admin.html
+            document.getElementById('editModalContainer').innerHTML = modalHtml;
+            document.getElementById('editModal').classList.remove('hidden'); 
+        }
+        
+        /**
+         * Renders the HTML structure for the order edit modal.
+         */
+        function renderOrderEditModal(order) {
+            // Basic status options (customize these to your business logic)
+            const statuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
+            const statusOptions = statuses.map(s => 
+                `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`
+            ).join('');
+        
+            return `
+                <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+                    <div class="relative top-20 mx-auto p-8 border w-3/4 md:w-1/2 shadow-2xl rounded-xl bg-white transform transition-all duration-300 scale-100">
+                        <h3 class="text-3xl font-bold text-indigo-700 mb-6">Edit Order: ${order.id.slice(0, 8)}...</h3>
+                        <form id="orderEditForm" onsubmit="window.module.updateOrder(event, '${order.id}')">
+                            
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-status">Status</label>
+                                <select id="edit-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                    ${statusOptions}
+                                </select>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-address">Delivery Address</label>
+                                <input type="text" id="edit-address" value="${order.deliveryAddress || ''}" required 
+                                       class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-notes">Internal Notes (for Admin)</label>
+                                <textarea id="edit-notes" rows="3" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">${order.adminNotes || ''}</textarea>
+                            </div>
+        
+                            <div class="flex justify-end space-x-4 mt-8">
+                                <button type="button" onclick="window.module.closeEditModal()" 
+                                        class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition shadow-md">
+                                    Cancel
+                                </button>
+                                <button type="submit" id="saveOrderBtn"
+                                        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition shadow-lg">
+                                    Save Changes
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+        
+        /**
+         * Closes the edit modal and clears the container.
+         */
+        function closeEditModal() {
+            // Hide the modal by clearing its container
+            document.getElementById('editModalContainer').innerHTML = '';
+        }
+        
+        /**
+         * Handles the form submission to update the order in Firestore.
+         * @param {Event} e The submit event.
+         * @param {string} orderId The ID of the order being updated.
+         */
+        async function updateOrder(e, orderId) {
+            e.preventDefault();
+            
+            // Disable button and show loading state
+            const saveBtn = document.getElementById('saveOrderBtn');
+            const originalText = saveBtn.innerHTML;
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white inline" viewBox="0 0 24 24">...</svg> Saving...`; // Simplified SVG for brevity
+        
+            const newStatus = document.getElementById('edit-status').value;
+            const newAddress = document.getElementById('edit-address').value;
+            const newNotes = document.getElementById('edit-notes').value;
+            
+            // Ensure you have a global 'db' variable for Firestore and 'userId' for the path
+            const orderRef = doc(db, ORDERS_COLLECTION(userId), orderId);
+        
+            try {
+                await updateDoc(orderRef, {
+                    status: newStatus,
+                    deliveryAddress: newAddress,
+                    adminNotes: newNotes,
+                    updatedAt: serverTimestamp() 
+                });
+                
+                alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}`);
+                
+                closeEditModal();
+                // Reload or update the order list display to show the changes
+                window.module.fetchOrders(); 
+        
+            } catch (error) {
+                console.error("Error updating document: ", error);
+                alert('Error updating order. Check console for details.');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalText;
             }
-            
-            // Placeholder for a detailed Edit Modal/Form launch
-            console.log("Editing Order:", orderToEdit);
-            showMessage('info', `Simulating edit for Order #${orderToEdit.orderNumber || orderToEdit.id.substring(0, 5)}. Full edit form implementation pending.`, 8000, 'orders');
-            
-            // *** FUTURE ENHANCEMENT: ***
-            // 1. Set state.editingOrder = orderToEdit;
-            // 2. Render a modal or switch to a new 'edit' order page similar to 'create'.
-            // 3. Populate form fields with existing orderToEdit data.
-            // **************************
         }
     
         function renderUserControls() {
@@ -2247,62 +2346,68 @@
     
         // --- EXPOSE TO WINDOW (ONLY ONCE!) ---
         window.module = {
-            globalNextPageToken,
-            globalConfig,
-            fetchUsers,
-            renderUserList, 
-    
-            fetchAdminConfig,
-            displayStaticIps,
-            handleUpdateConfig, 
-    
-            switchAdminTab,
-            switchOrderPage, // NEW EXPORT
-            handleAddCatalog,
-            handleDeleteCatalog,
-            handleAddProduct,
-            handleDeleteProduct,
-            handleSearchInput, // Product search (Catalog tab)
-            handleUserSearchInput, // User search 
-            handleOrderSearchInput, // Product search (Orders tab)
-            handleOrderListSearchInput, // <<< NEW EXPORT (Order List Search)
-            showEditForm,
-            cancelEdit,
-            handleEditProduct,
-            renderProductListSection,
-            togglePreviewMode,
-            logAdminAction,
-    
-            handleBulkUserAction, // NEW
-            handleUserAction, // MODIFIED/Exported for bulk action utility
-            toggleUserSelection, // NEW
-            toggleAllUsers, // NEW
-            
-            promptForPasswordReset,
-            deleteUser,
-            disableUser,
-            handleClearAnonymousUsers,
-            loadGoogleMapsScript,
-    
-            handleAdminOrderSubmit, // UPDATED: Inventory deduction & Email added here
-            addAdminCartItem,
-            removeAdminCartItem,
-            updateAdminCartDisplay, // Exports the core cart update function
-            updateItemSelector, // Exports the item selector update function
-            
-            // NEW Orders Tracking Functions
-            fetchOrders,
-            handleStatusFilterChange,
-            handleOrderStatusUpdate,
-            handleRequestDelivery,
-            renderOrdersList,
-            renderOrderCreateForm,
-    
-            // NEW Inventory Functions
-            renderInventorySection,
-            handleUpdateStock,
-            showPurchaseOrderForm 
-        };
+                    globalNextPageToken,
+                    globalConfig,
+                    fetchUsers,
+                    renderUserList, 
+            
+                    fetchAdminConfig,
+                    displayStaticIps,
+                    handleUpdateConfig, 
+            
+                    switchAdminTab,
+                    switchOrderPage, 
+                    handleAddCatalog,
+                    handleDeleteCatalog,
+                    handleAddProduct,
+                    handleDeleteProduct,
+                    handleSearchInput, 
+                    handleUserSearchInput, 
+                    handleOrderSearchInput, 
+                    handleOrderListSearchInput, 
+                    showEditForm,
+                    cancelEdit,
+                    handleEditProduct,
+                    renderProductListSection,
+                    togglePreviewMode,
+                    logAdminAction,
+            
+                    handleBulkUserAction, 
+                    handleUserAction, 
+                    toggleUserSelection, 
+                    toggleAllUsers, 
+                    
+                    promptForPasswordReset,
+                    deleteUser,
+                    disableUser,
+                    handleClearAnonymousUsers,
+                    loadGoogleMapsScript,
+            
+                    handleAdminOrderSubmit, 
+                    addAdminCartItem,
+                    removeAdminCartItem,
+                    updateAdminCartDisplay, 
+                    updateItemSelector, 
+                    
+                    // NEW Orders Tracking Functions
+                    fetchOrders,
+                    handleStatusFilterChange,
+                    handleOrderStatusUpdate,
+                    handleRequestDelivery,
+                    renderOrdersList,
+                    renderOrderCreateForm,
+            
+                    // <<< NEW ORDER EDIT FUNCTIONS
+                    **showOrderEditForm,**
+                    **closeEditModal,**
+                    **updateOrder,**
+                    // NEW ORDER EDIT FUNCTIONS >>>
+            
+                    // NEW Inventory Functions
+                    renderInventorySection,
+                    handleUpdateStock,
+                    showPurchaseOrderForm 
+                };
     
         document.addEventListener('DOMContentLoaded', setupFirebase);
     </script>
