@@ -1118,44 +1118,43 @@
         async function handleAdminOrderSubmit(e) {
             e.preventDefault();
             resetTimer();
-    
+        
             const form = document.getElementById('createOrderForm');
             const deliveryAddress = document.getElementById('deliveryAddress');
             const submitButton = document.getElementById('submitOrderButton');
-    
+        
             // 1. Get and Validate Form Data
             const buyerName = form.buyerName.value.trim();
-            const buyerEmail = form.buyerEmail.value.trim();
+            const buyerEmail = form.buyerEmail.value.trim(); // Sanitized input
             const buyerPhone = form.buyerPhone.value.trim();
             const orderNotes = form.orderNotes.value.trim();
             
-            // Derived variables for payload construction
+            // Derived variables for payload construction (All good here)
             const email = buyerEmail;
             const name = buyerName;
             const phone = buyerPhone;
             const address = deliveryAddress.value.trim();
-            const prefersWhatsapp = false; // Assuming no explicit WA opt-in on admin form
+            const prefersWhatsapp = false;
             const cartTotalCents = Object.values(state.adminCart).reduce((s, e) => s + e.item.price * e.quantity, 0);
             const userId = auth.currentUser.uid;
             const itemsToOrder = Object.values(state.adminCart);
-    
+        
             if (itemsToOrder.length === 0) {
                 return showMessage('error', 'The order cart is empty.', 3000, 'orders');
             }
-    
+            
             if (deliveryAddress.dataset.validated !== 'true') {
                 return showMessage('error', 'Please select a valid delivery address from the dropdown.', 5000, 'orders');
             }
-            
-            // Get GeoLocation data from Google Maps Autocomplete/Pin (if available)
+        
             let geolocation = null;
             if (autocomplete && autocomplete.getPlace) {
-                 const place = autocomplete.getPlace();
-                 if (place.geometry && place.geometry.location) {
-                     geolocation = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() };
-                 }
+                const place = autocomplete.getPlace();
+                if (place.geometry && place.geometry.location) {
+                    geolocation = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() };
+                }
             }
-    
+        
             // 2. Prepare Order Data for Submission
             const orderData = {
                 buyerEmail: email,
@@ -1164,7 +1163,7 @@
                 deliveryAddress: address,
                 prefersWhatsapp: prefersWhatsapp,
                 items: itemsToOrder.map(e => ({
-                    id: e.item.id, // Include ID for clarity/tracking
+                    id: e.item.id,
                     name: e.item.name,
                     sku: e.item.sku || null,
                     price: e.item.price,
@@ -1179,35 +1178,9 @@
             
             submitButton.disabled = true;
             submitButton.textContent = 'Processing...';
-    
+        
             try {
-                // 3. Process Inventory Updates (Local Firestore Operation)
-                const inventoryUpdates = itemsToOrder.map(async entry => {
-                    const itemId = entry.item.id;
-                    const orderQty = entry.quantity;
-                    const currentItem = state.items.find(i => i.id === itemId);
-                    
-                    if (!currentItem) return;
-    
-                    const newStock = Math.max(0, (currentItem.stock || 0) - orderQty);
-                    
-                    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
-                    await updateDoc(itemRef, { stock: newStock });
-    
-                    await logAdminAction('INVENTORY_DECREASED', { 
-                        itemId, 
-                        item: currentItem.name, 
-                        action: 'remove', 
-                        amount: orderQty, 
-                        oldStock: currentItem.stock, 
-                        newStock 
-                    }, itemId);
-                });
-    
-                await Promise.all(inventoryUpdates);
-    
-    
-                // 4. Submit Order to Remote Cloud Function (Returns final order ID)
+                // 3. Submit Order to Remote Cloud Function (Remote Submission FIRST)
                 const idToken = await auth.currentUser.getIdToken();
                 const res = await fetch(ADMIN_CREATE_ORDER_FUNCTION, {
                     method: 'POST',
@@ -1224,14 +1197,40 @@
                 }
                 
                 const orderCreationResponse = await res.json();
-                const finalOrderId = orderCreationResponse.orderId || 'ADMIN_ORDER_ID'; 
-    
+                const finalOrderId = orderCreationResponse.orderId || 'ADMIN_ORDER_ID';
+                
+                // 4. Process Inventory Updates (Local Firestore Operation - NOW SECOND)
+                const inventoryUpdates = itemsToOrder.map(async entry => {
+                    const itemId = entry.item.id;
+                    const orderQty = entry.quantity;
+                    const currentItem = state.items.find(i => i.id === itemId);
+                    
+                    if (!currentItem) return;
+        
+                    const newStock = Math.max(0, (currentItem.stock || 0) - orderQty);
+                    
+                    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+                    await updateDoc(itemRef, { stock: newStock });
+        
+                    await logAdminAction('INVENTORY_DECREASED', { 
+                        itemId, 
+                        item: currentItem.name, 
+                        action: 'remove', 
+                        amount: orderQty, 
+                        oldStock: currentItem.stock, 
+                        newStock 
+                    }, itemId);
+                });
+                
+                await Promise.all(inventoryUpdates);
+                
                 // 5. Send Confirmation Email to Customer and Admin/Requester
                 const emailPayload = {
                     ...orderData,
                     orderId: finalOrderId,
-                    adminEmail: auth.currentUser?.email, 
-                    requesterEmail: auth.currentUser?.email 
+                    // Ensure buyerEmail is included in orderData, which it is.
+                    adminEmail: auth.currentUser?.email,
+                    requesterEmail: auth.currentUser?.email
                 };
                 
                 await fetch(EMAIL_CONFIRMATION_FUNCTION, {
@@ -1241,21 +1240,22 @@
                 });
                 
                 // 6. Finalize UI State
-                state.adminCart = {}; // Clear cart
+                state.adminCart = {};
                 form.reset();
-                deliveryAddress.dataset.validated = 'false'; // Reset validation state
+                deliveryAddress.dataset.validated = 'false';
                 
-                showMessage('success', `Order ${finalOrderId} for ${buyerName} successfully created and confirmation emails sent!`, 8000, 'orders');
+                showMessage('success', `Order ${finalOrderId} for ${name} successfully created and confirmation emails sent!`, 8000, 'orders');
                 
-                // Reload the orders list to show the new order immediately
-                window.module.fetchOrders(); 
-    
+                window.module.fetchOrders();
+        
             } catch (error) {
+                // If Brevo/Nodemailer failed, the error would likely be caught here if the Netlify function
+                // didn't handle it internally and threw an error status.
                 console.error('Error creating order, updating inventory, or sending emails:', error);
-                showMessage('error', `Failed to create order: ${error.message}`, 10000, 'orders');
+                showMessage('error', `Failed to create order: ${error.message}. Check console for details.`, 10000, 'orders');
             } finally {
                 submitButton.textContent = 'SUBMIT ORDER & SEND EMAIL';
-                updateAdminCartDisplay(); // Re-enable button via display update
+                updateAdminCartDisplay();
             }
         }
     
