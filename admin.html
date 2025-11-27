@@ -316,7 +316,27 @@
                 idleTimer = setTimeout(autoLogout, IDLE_TIMEOUT_MS);
             }
         }
+
+
+       function waitForUserId(timeout = 5000) {
+        return new Promise((resolve, reject) => {
+            const startTime = Date.now();
+            
+            const check = () => {
+                if (window.module.userId) {
+                    resolve(window.module.userId);
+                } else if (Date.now() - startTime >= timeout) {
+                    reject(new Error("Timeout waiting for Admin user ID."));
+                } else {
+                    // Check again in 100 milliseconds
+                    setTimeout(check, 100); 
+                }
+            };
     
+            check();
+        });
+    }     
+        
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
@@ -1622,9 +1642,10 @@
             if (!orderId) return console.error("No Order ID provided for editing.");
         
             try {
-                // --- 🎯 FIX IS HERE ---
-                // Get the collection path helper function
-                const collectionPathFn = window.module.getOrdersCollectionPath; 
+                // 🎯 FIX: AWAIT the userId to ensure the async auth process has finished.
+                const currentUserId = await waitForUserId(); 
+                
+                const collectionPathFn = window.module.getOrdersCollectionPath;
                 
                 // This check ensures the function is defined
                 if (typeof collectionPathFn !== 'function') {
@@ -1632,18 +1653,11 @@
                 }
                 
                 // 1. Get the path string by calling the function
+                // The path function will now use the resolved userId
                 const path = collectionPathFn(); 
         
-                // The path helper internally checks window.module.userId, but we'll add 
-                // a quick check here for robustness before creating the ref.
-                if (path.includes('/unknown/')) {
-                    // This error means the userId check inside getOrdersCollectionPath failed
-                    throw new Error("Admin user context (userId/collection path) is missing.");
-                }
-                
                 // 2. Get a reference to the specific order document
-                const orderRef = doc(db, path, orderId); // Use the final path string
-                // -----------------------
+                const orderRef = doc(db, path, orderId); 
                 
                 // 3. Fetch the document data directly from Firebase
                 const orderSnap = await getDoc(orderRef);
@@ -1656,14 +1670,19 @@
                 const orderData = { id: orderSnap.id, ...orderSnap.data() };
                 
                 // 5. Render the modal using the fetched data
-                const modalHtml = renderOrderEditModal(orderData);
+                const modalHtml = window.module.renderOrderEditModal(orderData); // Use window.module if exported
                 
                 document.getElementById('editModalContainer').innerHTML = modalHtml;
                 document.getElementById('editModal').classList.remove('hidden');
         
             } catch (error) {
                 console.error("Error fetching order for edit:", error);
-                alert("Failed to fetch order details. See console.");
+                // Display a more specific alert if it's the timeout error
+                if (error.message.includes("Timeout")) {
+                    alert("Authorization error: User ID was not detected. Please refresh the page.");
+                } else {
+                    alert("Failed to fetch order details. See console.");
+                }
             }
         }
         
