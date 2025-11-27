@@ -1,16 +1,16 @@
+I'd be happy to provide the complete, revised page code\!
+
+I've integrated the following changes:
+
+1.  **New Language Keys** added to the `TEXT` object (`communicationLangLabel` and `langPlaceholder`).
+2.  **New Dropdown Field** (`id="communication-lang"`) inserted into the form right before the address block.
+3.  **JavaScript Updates** in the `submitOrder` function to read and include the `communicationLang` in both the Firebase order object and the Netlify email payload.
+
+Here is the full, revised HTML and JavaScript code:
+
+```html
 <!DOCTYPE html>
 <html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoInx Market Portal</title>
-    
-    <link rel="icon" type="image/x-icon" href="/images/AutoInx logo.ico">
-    
-    <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
-
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -99,7 +99,7 @@
     let db, auth, userId, cartData = {}, cartTotalCents = 0;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     const ORDERS_COLLECTION = uid => `artifacts/${appId}/users/${uid}/orders`;
-    const NETLIFY_FUNCTION_URL = '/.netlify/functions/sendOrderConfirmation'; // ← Cambia si tu función tiene otro nombre
+    const NETLIFY_FUNCTION_URL = '/.netlify/functions/sendOrderConfirmation';
     const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
     const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey';
     const GET_ADMIN_CONFIG_URL = '/.netlify/functions/getAdminConfig';
@@ -114,6 +114,8 @@
             title: 'Finalizar Compra', return: 'Volver a la Tienda', formHeader: 'Información de Entrega',
             emailLabel: 'Correo Electrónico', nameLabel: 'Nombre Completo', phoneLabel: 'Teléfono (WhatsApp)',
             phoneHelp: 'Te enviaremos actualizaciones por WhatsApp', whatsappOptIn: 'Sí, deseo recibir notificaciones por WhatsApp.',
+            communicationLangLabel: 'Idioma Preferido para Comunicaciones', // NEW
+            langPlaceholder: 'Selecciona tu idioma', // NEW
             addressLabel: 'Dirección de Entrega', addressHelp: 'Escribe y selecciona tu dirección, luego ajusta el pin en el mapa.',
             addressPlaceholder: 'Escribe tu dirección completa...', addressStatusDefault: 'Escribe para ver sugerencias',
             addressStatusValid: '¡Dirección confirmada!', addressStatusSelect: 'Selecciona una dirección de la lista',
@@ -128,6 +130,8 @@
             title: 'Checkout', return: 'Back to Store', formHeader: 'Delivery Information',
             emailLabel: 'Email Address', nameLabel: 'Full Name', phoneLabel: 'Phone (WhatsApp)',
             phoneHelp: 'We’ll send updates via WhatsApp', whatsappOptIn: 'Yes, send me updates via WhatsApp.',
+            communicationLangLabel: 'Preferred Communication Language', // NEW
+            langPlaceholder: 'Select your language', // NEW
             addressLabel: 'Delivery Address', addressHelp: 'Type and select your address, then fine-tune the pin on the map.',
             addressPlaceholder: 'Enter your full address...', addressStatusDefault: 'Type to see suggestions',
             addressStatusValid: 'Address confirmed!', addressStatusSelect: 'Select from the list',
@@ -374,6 +378,16 @@
                                     <label for="whatsapp-opt-in" class="ml-3 text-lg font-medium text-gray-700">${t('whatsappOptIn')}</label>
                                 </div>
                             </div>
+                            
+                            <div>
+                                <label for="communication-lang" class="block text-lg font-bold mb-3">${t('communicationLangLabel')} <span class="text-red-500">*</span></label>
+                                <select id="communication-lang" required 
+                                    class="w-full p-6 border-2 border-gray-300 rounded-2xl focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 text-lg transition appearance-none">
+                                    <option value="" disabled selected>${t('langPlaceholder')}</option>
+                                    <option value="es">🇪🇸 Español</option>
+                                    <option value="en">🇺🇸 English</option>
+                                </select>
+                            </div>
                             <div>
                                 <label class="block text-lg font-bold mb-3">${t('addressLabel')} <span class="text-red-500">*</span></label>
                                 <input type="text" id="delivery-address" required placeholder="${t('addressPlaceholder')}" class="address-input border-gray-300 address-invalid" autocomplete="off" data-validated="false">
@@ -433,7 +447,6 @@
         loadGoogleMaps();
     }
 
-    // ¡¡AQUÍ ESTABA EL PROBLEMA!! → Faltaba initApp
     async function initApp() {
         const storedLang = localStorage.getItem('checkoutLang');
         currentLang = storedLang && TEXT[storedLang] ? storedLang : (navigator.language.startsWith('en') ? 'en' : 'es');
@@ -471,6 +484,7 @@
             const email = $('buyer-email').value.trim();
             const name = $('buyer-name').value.trim();
             const phone = $('country-code').value + $('buyer-phone').value.trim();
+            const communicationLang = $('communication-lang').value; // NEW
             const address = $('delivery-address').value.trim();
             const valid = $('delivery-address').dataset.validated === 'true';
             const prefersWhatsapp = $('whatsapp-opt-in').checked;
@@ -481,7 +495,7 @@
                 return showMessage('error', t('addressError'));
             }
 
-            if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address) {
+            if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address || !communicationLang) { // ADDED communicationLang validation
                 return showMessage('error', 'Completa todos los campos obligatorios.');
             }
 
@@ -491,6 +505,7 @@
                 buyerEmail: email,
                 buyerName: name,
                 buyerPhone: phone,
+                communicationLang, // NEW
                 deliveryAddress: address,
                 prefersWhatsapp,
                 items: Object.values(cartData).map(e => ({
@@ -517,6 +532,7 @@
                     buyerEmail: email,
                     buyerName: name,
                     buyerPhone: phone,
+                    communicationLang, // NEW
                     deliveryAddress: address,
                     prefersWhatsapp,
                     items: order.items,
@@ -572,3 +588,4 @@
 
 </body>
 </html>
+```
