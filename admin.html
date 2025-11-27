@@ -1606,29 +1606,39 @@
         
             try {
                 // --- 🎯 FIX IS HERE ---
-                const currentUserId = window.module.userId;
-                const collectionPathFn = window.module.ORDERS_COLLECTION;
-        
-                // Check for necessary variables
-                if (!currentUserId || !collectionPathFn) {
-                     throw new Error("Admin user context (userId/collection path) is missing.");
+                // Get the collection path helper function
+                const collectionPathFn = window.module.getOrdersCollectionPath; 
+                
+                // This check ensures the function is defined
+                if (typeof collectionPathFn !== 'function') {
+                     throw new Error("Collection path helper is missing or not a function.");
                 }
+                
+                // 1. Get the path string by calling the function
+                const path = collectionPathFn(); 
         
-                // 1. Get a reference to the specific order document
-                const orderRef = doc(db, collectionPathFn(currentUserId), orderId);
+                // The path helper internally checks window.module.userId, but we'll add 
+                // a quick check here for robustness before creating the ref.
+                if (path.includes('/unknown/')) {
+                    // This error means the userId check inside getOrdersCollectionPath failed
+                    throw new Error("Admin user context (userId/collection path) is missing.");
+                }
+                
+                // 2. Get a reference to the specific order document
+                const orderRef = doc(db, path, orderId); // Use the final path string
                 // -----------------------
                 
-                // 2. Fetch the document data directly from Firebase
+                // 3. Fetch the document data directly from Firebase
                 const orderSnap = await getDoc(orderRef);
-        
+                
                 if (!orderSnap.exists()) {
                     return console.error(`Order ${orderId} not found in database.`);
                 }
         
-                // 3. Construct the orderData object from the fetched snapshot
+                // 4. Construct the orderData object from the fetched snapshot
                 const orderData = { id: orderSnap.id, ...orderSnap.data() };
                 
-                // 4. Render the modal using the fetched data
+                // 5. Render the modal using the fetched data
                 const modalHtml = renderOrderEditModal(orderData);
                 
                 document.getElementById('editModalContainer').innerHTML = modalHtml;
@@ -2394,7 +2404,6 @@
                     renderUserList, 
                     orders,
                     userId,
-                    ORDERS_COLLECTION,
                     getOrdersCollectionPath,
             
                     fetchAdminConfig,
