@@ -1958,12 +1958,17 @@
             const orders = getFilteredOrders();
             
             const tableRows = orders.map(order => {
-                // Assume 'order.uid' contains the client's UID, which is necessary for the path.
-                if (!order.uid) {
-                     console.error(`Order ${order.id} is missing a client UID and cannot be edited.`);
-                     // Skip this order or render a disabled button if client UID is essential.
-                }
+                
+                // 🔑 1. Determine the necessary ID for the Firestore path
+                // This will be the client's UID OR the admin's email for manual orders.
+                const targetId = order.uid || order.createdByAdmin; 
         
+                if (!targetId) {
+                     // Only log error if neither UID nor Admin source is present
+                     console.error(`Order ${order.id} is missing a client UID/Admin source and cannot be edited.`);
+                }
+                
+                // 2. Set the status classes (no change)
                 const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
                                      order.status === 'Pending' ? 'text-red-600 font-bold' :
                                      order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
@@ -1974,7 +1979,6 @@
                 } else if (order.status === 'Processing') {
                     deliveryButton = `<span class="text-xs text-blue-500">Tracking: ${order.trackingId || 'N/A'}</span>`;
                 } else if (order.status === 'Delivered' || order.status === 'Cancelled' || order.status === 'Manually Created') {
-                    // Show a small status label instead of 'Delivered/Cancelled' placeholder
                     deliveryButton = `<span class="text-xs text-gray-500 font-semibold">${order.status}</span>`;
                 } else {
                     deliveryButton = '';
@@ -1985,12 +1989,16 @@
                     `<p>${item.quantity}x ${item.name.substring(0,20)}${item.name.length > 20 ? '...' : ''}</p>`
                 ).join('');
         
-                const isPaid = order.isPaid || false; // Use true/false based on your actual data
+                const isPaid = order.isPaid || false; 
                 const paymentStatusBadge = isPaid
                     ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
                     : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
-                // --------------------------------------------------------
                 
+                // 3. Conditional Edit Button Rendering
+                const editButton = targetId 
+                    ? `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>`
+                    : `<span class="text-xs text-red-500 p-1">No Edit Source</span>`;
+        
                 return `
                     <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
                         
@@ -2022,10 +2030,8 @@
                             <div class="text-xs text-gray-500 font-semibold mb-2">
                                 ${formatTime(order.createdAt)} 
                             </div>
-                            // We pass the order ID and the createdByAdmin field as the second argument.
-                            <button onclick="window.module.showOrderEditForm('${order.id}', '${order.uid || order.createdByAdmin}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>
                             
-                            ${deliveryButton}
+                            ${editButton} ${deliveryButton}
                             <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="w-full p-1 border rounded text-xs bg-white">
                                 <option value="" disabled selected>Update Status</option>
                                 <option value="Pending">Pending</option>
