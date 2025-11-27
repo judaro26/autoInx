@@ -1,14 +1,15 @@
 /**
  * Netlify Function: send-email.js
- * Handles order confirmation emails (initial) and status update notifications (Processing, Delivered, Cancelled).
+ * Handles order confirmation (initial) and status update notifications,
+ * dynamically selecting the template based on the 'language' property.
  */
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
 const path = require("path");
 
-// --- Configuration and Helpers (Unchanged) ---
+// --- Configuration and Helpers ---
 
-// 1. Configure Nodemailer Transporter using Brevo SMTP details
+// 1. Configure Nodemailer Transporter
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
     port: process.env.BREVO_SMTP_PORT,
@@ -28,19 +29,30 @@ function formatPrice(cents) {
     }).format(cents / 100);
 }
 
-// Load base HTML template
-async function getTemplateHtml() {
+// MODIFIED: Load base HTML template based on language code
+async function getTemplateHtml(languageCode) {
+    let filename = (languageCode === 'es') 
+        ? "orderConfirmationTemplateSpanish.html" 
+        : "orderConfirmationTemplate.html";
+        
     try {
-        const templatePath = path.join(__dirname, "emailTemplates", "orderConfirmationTemplate.html");
+        const templatePath = path.join(__dirname, "emailTemplates", filename);
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
-        console.error("Error reading order confirmation template:", error);
-        throw new Error("Failed to load email template");
+        console.error(`Error reading email template for ${languageCode}: ${filename}`, error);
+        // Fallback gracefully to English if the localized template file is missing
+        if (languageCode !== 'en') {
+             console.warn("Falling back to English template.");
+             return getTemplateHtml('en'); 
+        }
+        throw new Error(`Failed to load email template: ${filename}`);
     }
 }
 
 // Generate HTML rows for the order items table
-function generateTableRows(items) {
+function generateTableRows(items, languageCode) {
+    // NOTE: You would ideally internationalize the column headers (Item, Qty, Unit Price) 
+    // inside the template file itself, not here.
     return items.map(item => {
         const subtotal = item.price * item.quantity;
         return `
@@ -56,95 +68,87 @@ function generateTableRows(items) {
 
 /**
  * Populates the order template with dynamic content.
- * MODIFIED to handle 'newStatus' for notifications.
- * @param {object} orderData - The complete order object.
- * @param {string} recipientType - 'customer' or 'admin'
+ * @param {object} orderData - The complete order object, including 'newStatus' and 'language'.
  */
 async function populateTemplate(orderData, recipientType) {
-    let template = await getTemplateHtml();
-
-    const orderDate = new Date(orderData.timestamp).toLocaleDateString('en-US', {
-        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
-    
-    // NEW: Extract status. Default to 'Confirmed' if not a status update
+    const languageCode = orderData.language || 'en';
     const orderStatus = orderData.newStatus || 'Confirmed'; 
     const orderIdShort = orderData.orderId.substring(0, 5);
 
+    // FIX: Load template based on language
+    let template = await getTemplateHtml(languageCode); 
+
     // Dynamic Variables for Template Injection
+    // NOTE: Subject, Titles, and Intro text should ideally be handled by a translation utility 
+    // but are hardcoded here for simplicity based on the language.
     let mainTitle;
     let mainIntro;
     let badgeText;
     let badgeColor;
     let closeMessage;
     let subjectLine;
-    
-    // 1. Generate dynamic content
-    const tableRows = generateTableRows(orderData.items);
-    const totalPrice = formatPrice(orderData.totalCents);
-    
-    // 2. Determine content based on recipient and status
-    if (recipientType === 'customer') {
-        switch (orderStatus) {
-            case 'Confirmed':
-            case 'Manually Created':
-                subjectLine = "Your autoInx Order is Confirmed";
-                mainTitle = "Thank you for your order!";
-                mainIntro = `We’ve received your order and are getting it ready to ship.`;
-                badgeText = "✓ Order Confirmed";
-                badgeColor = "#10b981"; // Green
-                closeMessage = `You’ll receive another email when your order ships. Questions? Reply to this email — we’re here to help!`;
-                break;
-            case 'Processing':
-                subjectLine = `Update: Your autoInx Order is Now Processing`;
-                mainTitle = "Your Order is on its Way!";
-                mainIntro = `Your order #${orderIdShort} is now processing. We will notify you when it is out for delivery.`;
-                badgeText = "→ Now Processing";
-                badgeColor = "#6366f1"; // Indigo/Blue
-                closeMessage = `Track your order's progress online or reply to this email with any questions.`;
-                break;
-            case 'Delivered':
-                subjectLine = `Order Delivered: Thank you for shopping with autoInx!`;
-                mainTitle = "Order Delivered!";
-                mainIntro = `Your order #${orderIdShort} has been successfully delivered. We appreciate your business.`;
-                badgeText = "🎉 Order Delivered";
-                badgeColor = "#3b82f6"; // Blue
-                closeMessage = `We hope you love your new parts! If you need anything else, please contact us.`;
-                break;
-            case 'Cancelled':
-                subjectLine = `Order Update: Your autoInx Order Has Been Cancelled`;
-                mainTitle = "Order Cancelled";
-                mainIntro = `Your order #${orderIdShort} has been cancelled per your request or due to an issue.`;
-                badgeText = "✗ Order Cancelled";
-                badgeColor = "#ef4444"; // Red
-                closeMessage = `If this was an error, please reply immediately or create a new order.`;
-                break;
-            default: // Fallback
-                subjectLine = "Order Status Update";
-                mainTitle = `Status: ${orderStatus}`;
-                mainIntro = `Your order #${orderIdShort} status has been updated to ${orderStatus}.`;
-                badgeText = `Status: ${orderStatus}`;
-                badgeColor = "#64748b";
-        }
-        recipientEmailPlaceholder = orderData.buyerEmail;
 
-    } else { // admin notification or requester copy
+    // --- Dynamic Content Calculation ---
+    // (This logic needs to be manually translated based on languageCode)
+    if (languageCode === 'es') {
+        if (orderStatus === 'Confirmed') {
+            subjectLine = "Su pedido autoInx ha sido Confirmado";
+            mainTitle = "¡Gracias por su pedido!";
+            mainIntro = `Hola ${orderData.buyerName}, hemos recibido su pedido y estamos preparando sus artículos para el envío.`;
+            badgeText = "✓ Pedido Confirmado";
+            badgeColor = "#10b981"; // Green
+            closeMessage = `Recibirá otro correo cuando su pedido sea enviado. ¿Preguntas? Responda a este correo—¡estamos aquí para ayudar!`;
+        } else if (orderStatus === 'Cancelled') {
+            subjectLine = "Actualización: Su Pedido autoInx ha sido Cancelado";
+            mainTitle = "Pedido Cancelado";
+            mainIntro = `Su pedido #${orderIdShort} ha sido cancelado. Contacte a soporte si tiene preguntas.`;
+            badgeText = "✗ Pedido Cancelado";
+            badgeColor = "#ef4444"; // Red
+            closeMessage = `Si fue un error, responda inmediatamente o cree un nuevo pedido.`;
+        } else {
+             subjectLine = `Actualización: Su Pedido ahora es ${orderStatus}`;
+             mainTitle = `Estado: ${orderStatus}`;
+             mainIntro = `Hola ${orderData.buyerName}, el estado de su pedido #${orderIdShort} ahora es **${orderStatus}**.`;
+             badgeText = `Estado: ${orderStatus}`;
+             badgeColor = "#6366f1";
+        }
+    } else { // English (en)
+        if (orderStatus === 'Confirmed') {
+            subjectLine = "Your autoInx Order is Confirmed";
+            mainTitle = "Thank you for your order!";
+            mainIntro = `Hello ${orderData.buyerName}, we've received your order and are getting it ready to ship.`;
+            badgeText = "✓ Order Confirmed";
+            badgeColor = "#10b981"; 
+            closeMessage = `You’ll receive another email when your order ships. Questions? Reply to this email — we’re here to help!`;
+        } else if (orderStatus === 'Cancelled') {
+            subjectLine = "Update: Your autoInx Order Has Been Cancelled";
+            mainTitle = "Order Cancelled";
+            mainIntro = `Your order #${orderIdShort} has been cancelled per your request or due to an issue.`;
+            badgeText = "✗ Order Cancelled";
+            badgeColor = "#ef4444"; 
+            closeMessage = `If this was an error, please reply immediately or create a new order.`;
+        } else {
+             subjectLine = `Update: Your autoInx Order is Now ${orderStatus}`;
+             mainTitle = `Your Order is Now ${orderStatus}!`;
+             mainIntro = `Hello ${orderData.buyerName}, the status of your order #${orderIdShort} is now **${orderStatus}**.`;
+             badgeText = `Status: ${orderStatus}`;
+             badgeColor = "#6366f1";
+        }
+    }
+
+    // Admin subject logic override
+    if (recipientType !== 'customer') {
         subjectLine = orderStatus === 'Confirmed' 
             ? `NEW ORDER #${orderData.orderId.substring(0, 8).toUpperCase()} - ${orderData.buyerName}`
             : `STATUS UPDATE [${orderStatus}]: Order #${orderIdShort} - ${orderData.buyerName}`;
-            
         mainTitle = subjectLine;
-        mainIntro = orderStatus === 'Confirmed' 
-            ? `A new order has been placed on the site.`
-            : `Order status has been manually updated to **${orderStatus}**.`;
-        badgeText = orderStatus;
-        badgeColor = "#6366f1"; 
-        closeMessage = 'Internal admin copy. This notification confirms the status change.';
-        recipientEmailPlaceholder = 'orders@autoinx.com';
+        mainIntro = "Internal notification. Please process this order.";
+        closeMessage = 'Internal admin copy.';
     }
 
-    // 3. Perform replacements on the template
-    // Note: The template must have placeholders for {{params.badgeColor}}, {{params.badgeText}}, etc.
+    recipientEmailPlaceholder = orderData.buyerEmail; // Default recipient email
+
+    // 4. Perform replacements on the template (Ensure your template has these exact placeholders)
     template = template.replace(/{{params\.badgeColor}}/g, badgeColor); 
     template = template.replace(/{{params\.badgeText}}/g, badgeText); 
     template = template.replace(/{{params\.mainTitle}}/g, mainTitle); 
@@ -153,14 +157,12 @@ async function populateTemplate(orderData, recipientType) {
     
     // Existing replacements:
     template = template.replace(/{{params\.orderId}}/g, orderData.orderId);
-    template = template.replace(/{{params\.orderDate}}/g, orderDate);
-    template = template.replace(/{{params\.orderTableRows}}/g, tableRows);
-    template = template.replace(/{{params\.totalPrice}}/g, totalPrice);
-    template = template.replace(/{{params\.orderStatus}}/g, orderStatus); // New status row in table
-    
-    // Final Template Cleanup (Replacing intro text placeholder to clean up surrounding tags)
-    // NOTE: This relies on the template HTML being clean. 
-    template = template.replace(/Thank you for your order![\s\S]*?<\/p>/, `${mainTitle}</p><p style="margin:12px 0 0; font-size:17px; color:#64748b; line-height:1.6;">${mainIntro}</p>`);
+    template = template.replace(/{{params\.orderDate}}/g, new Date(orderData.timestamp).toLocaleDateString(languageCode === 'es' ? 'es-ES' : 'en-US', {
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    }));
+    template = template.replace(/{{params\.orderTableRows}}/g, generateTableRows(orderData.items));
+    template = template.replace(/{{params\.totalPrice}}/g, formatPrice(orderData.totalCents));
+    template = template.replace(/{{params\.orderStatus}}/g, orderStatus);
     
     // Brevo email placeholder in footer 
     template = template.replace(/{{contact\.EMAIL}}/g, recipientEmailPlaceholder);
@@ -180,7 +182,6 @@ async function populateTemplate(orderData, recipientType) {
             </p>
             <div style="border-top: 1px solid #ddd;"></div>
         `;
-        // Inject admin details right above the order items table, after Order Date
         template = template.replace(/<\/p>\s*/, `</p>${adminDetails}`);
     }
 
@@ -195,8 +196,7 @@ exports.handler = async function (event) {
     }
 
     const orderData = JSON.parse(event.body);
-    // MODIFIED: Destructure newStatus from the payload
-    const { orderId, buyerEmail, items, totalCents, requesterEmail, newStatus } = orderData; 
+    const { orderId, buyerEmail, items, totalCents, requesterEmail, newStatus, language } = orderData; 
     
     // Basic Validation Check
     if (!orderId || !buyerEmail || !items || items.length === 0 || totalCents === undefined) {
@@ -204,8 +204,8 @@ exports.handler = async function (event) {
     }
 
     try {
-        // --- 1. Customer Email (ISOLATED FOR DEBUGGING SILENT FAILURES) ---
-        const customerEmailData = await populateTemplate({ ...orderData, newStatus }, 'customer'); 
+        // --- 1. Customer Email (Pass language and status) ---
+        const customerEmailData = await populateTemplate({ ...orderData, newStatus, language }, 'customer'); 
 
         const customerMailOptions = {
             from: "noreply@autoinx.com", 
@@ -218,12 +218,11 @@ exports.handler = async function (event) {
             await transporter.sendMail(customerMailOptions);
             console.log(`Successfully sent email to customer: ${buyerEmail}`);
         } catch (customerSendError) {
-            console.error(`CRITICAL FAILURE: Failed to send email to customer ${buyerEmail}. This is the likely cause of your previous issue.`, customerSendError);
-            // We continue the function execution to try and send admin emails, but report the failure.
+            console.error(`CRITICAL FAILURE: Failed to send email to customer ${buyerEmail}.`, customerSendError);
         }
 
-        // --- 2. Admin Notification Email (to main orders mailbox) ---
-        const adminEmailData = await populateTemplate({ ...orderData, newStatus }, 'admin'); // Pass newStatus
+        // --- 2. Admin Notification Email (Force English for Admin Copy) ---
+        const adminEmailData = await populateTemplate({ ...orderData, newStatus, language: 'en' }, 'admin'); // Force 'en'
 
         const adminMailOptions = {
             from: "noreply@autoinx.com", 
@@ -233,9 +232,9 @@ exports.handler = async function (event) {
         };
         await transporter.sendMail(adminMailOptions);
         
-        // --- 3. Requester/Sales Agent Notification Email (NEW) ---
+        // --- 3. Requester/Sales Agent Notification Email ---
         if (requesterEmail && requesterEmail !== buyerEmail && requesterEmail !== "orders@autoinx.com") {
-            const requesterEmailData = await populateTemplate({ ...orderData, newStatus }, 'admin'); // Pass newStatus
+            const requesterEmailData = await populateTemplate({ ...orderData, newStatus, language: 'en' }, 'admin'); // Force 'en'
             
             const requesterMailOptions = {
                 from: "noreply@autoinx.com", 
