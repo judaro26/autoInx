@@ -294,16 +294,17 @@
                 });
             }
         }
-        function getOrdersCollectionPath(currentUserId) { 
-            // const currentUserId = window.module.userId; // <-- REMOVE THIS LINE
+        function getOrdersCollectionPath(targetUserId) { 
+            // Assuming 'appId' is defined globally
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             
-            if (!currentUserId) {
-                console.error("Cannot build order collection path: userId is missing.");
-                throw new Error("Admin user context (userId/collection path) is missing."); // Use throw here for immediate exit
+            if (!targetUserId) {
+                // This throw is hit if the HTML fails to pass the client's UID.
+                throw new Error("Cannot build order collection path: Target User ID is missing.");
             }
             
-            return `artifacts/${appId}/users/${currentUserId}/orders`;
+            // This structure assumes orders are nested under a client's UID.
+            return `artifacts/${appId}/users/${targetUserId}/orders`; 
         }
     
         function resetTimer() {
@@ -313,26 +314,25 @@
             }
         }
 
-
-
         function waitForUserId(timeout = 5000) {
             return new Promise((resolve, reject) => {
                 const startTime = Date.now();
                 
                 const check = () => {
                     // Check the GLOBAL variable 'userId' directly
-                    if (userId) { // <--- CRITICAL: Check the global variable name
-                        resolve(userId);
+                    if (userId) { 
+                        resolve(userId); // Resolve with the UID string
                     } else if (Date.now() - startTime >= timeout) {
                         reject(new Error("Timeout waiting for Admin user ID."));
                     } else {
+                        // Check again in 100 milliseconds
                         setTimeout(check, 100); 
                     }
                 };
         
                 check();
             });
-        }   
+        } 
         
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
@@ -1637,17 +1637,18 @@
          */
         // Ensure you have 'getDoc' imported: import { getFirestore, doc, getDoc, ... }
         
-        async function showOrderEditForm(orderId) {
-            if (!orderId) return console.error("No Order ID provided for editing.");
+        async function showOrderEditForm(orderId, clientUid) { // 🔑 Accepts both IDs
+            if (!orderId || !clientUid) return console.error("Missing Order ID or Client UID for editing.");
         
-            // 1. Define Firestore reference variables outside the try block
+            // Define Firestore reference variables outside the try block
             let orderRef;
             let orderSnap; 
             let path;
         
             try {
-                // AWAIT the resolved user ID value
-                const currentUserId = await waitForUserId(); // Gets the resolved UID string
+                // 1. AWAIT Admin Auth: Ensure admin context is loaded (prevents race conditions)
+                // We capture the UID but only use it to confirm context readiness.
+                const adminUserId = await waitForUserId(); 
                 
                 const collectionPathFn = window.module.getOrdersCollectionPath;
                 
@@ -1655,19 +1656,17 @@
                      throw new Error("Collection path helper is missing or not a function.");
                 }
                 
-                // 2. Get the path string by PASSING the awaited userId
-                path = collectionPathFn(currentUserId); // Assignment is safe
+                // 2. Get the path string by PASSING the client's UID
+                path = collectionPathFn(clientUid); 
                 
                 // 3. Get a reference to the specific order document
-                // Assign to the variable defined outside the try block
                 orderRef = doc(db, path, orderId); 
                 
                 // 4. Fetch the document data directly from Firebase
-                orderSnap = await getDoc(orderRef); // Assign to the variable defined outside the try block
+                orderSnap = await getDoc(orderRef); 
                 
-                // Check if the document exists
                 if (!orderSnap.exists()) {
-                    return console.error(`Order ${orderId} not found in database.`);
+                    return console.error(`Order ${orderId} not found in database at path: ${path}`);
                 }
         
                 // 5. Construct the orderData object from the fetched snapshot
@@ -1681,7 +1680,14 @@
         
             } catch (error) {
                 console.error("Error fetching order for edit:", error);
-                // ... (rest of the error handling)
+                
+                if (error.message.includes("Timeout")) {
+                    alert("Authorization error: Admin user ID was not detected. Please refresh the page.");
+                } else if (error.message.includes("Target User ID is missing")) {
+                    alert("Error: Client User ID is missing from the order list data. Check HTML generation.");
+                } else {
+                    alert("Failed to fetch order details. See console.");
+                }
             }
         }
         
