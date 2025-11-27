@@ -294,17 +294,22 @@
                 });
             }
         }
-        function getOrdersCollectionPath(targetUserId) { 
+        function getOrdersCollectionPath(targetIdOrIndicator) { 
+            if (!targetIdOrIndicator) {
+                throw new Error("Cannot build order collection path: Target ID is missing.");
+            }
+        
+            // 1. Check for Admin Email (Manual Order Path)
+            if (targetIdOrIndicator.includes('@autoinx.com')) {
+                // Use the hardcoded path for manual admin orders
+                return `adminOrders/manual/orders`; 
+            }
+        
+            // 2. Default to Client Order Path
             // Assuming 'appId' is defined globally
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             
-            if (!targetUserId) {
-                // This throw is hit if the HTML fails to pass the client's UID.
-                throw new Error("Cannot build order collection path: Target User ID is missing.");
-            }
-            
-            // This structure assumes orders are nested under a client's UID.
-            return `artifacts/${appId}/users/${targetUserId}/orders`; 
+            return `artifacts/${appId}/users/${targetIdOrIndicator}/orders`; 
         }
     
         function resetTimer() {
@@ -1656,11 +1661,12 @@
                      throw new Error("Collection path helper is missing or not a function.");
                 }
                 
-                // 2. Get the path string by PASSING the client's UID
-                path = collectionPathFn(clientUid); 
+                // 2. Get the path string by PASSING the awaited ID
+                path = collectionPathFn(clientUid || adminEmail); // Note: clientUid is the first param in the function call
                 
                 // 3. Get a reference to the specific order document
-                orderRef = doc(db, path, orderId); 
+                // This works because the path now resolves to the 'orders' collection.
+                orderRef = doc(db, path, orderId);
                 
                 // 4. Fetch the document data directly from Firebase
                 orderSnap = await getDoc(orderRef); 
@@ -2016,8 +2022,8 @@
                             <div class="text-xs text-gray-500 font-semibold mb-2">
                                 ${formatTime(order.createdAt)} 
                             </div>
-                            
-                            <button onclick="window.module.showOrderEditForm('${order.id}', '${order.uid}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>
+                            // We pass the order ID and the createdByAdmin field as the second argument.
+                            <button onclick="window.module.showOrderEditForm('${order.id}', '${order.uid || order.createdByAdmin}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>
                             
                             ${deliveryButton}
                             <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="w-full p-1 border rounded text-xs bg-white">
