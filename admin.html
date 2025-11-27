@@ -1316,18 +1316,47 @@
             
             resetTimer();
         
+            // The logic in the email function is dynamic, so we trigger for all statuses except Pending/Manually Created
+            const requiresNotification = ['Delivered', 'Cancelled', 'Processing'].includes(newStatus);
+            let orderDetails = null;
+        
             try {
+                // 1. Perform Firestore Update
                 const orderRef = doc(db, ORDERS_COLLECTION, orderId);
                 await updateDoc(orderRef, { status: newStatus });
                 
                 await logAdminAction('ORDER_STATUS_UPDATE', { orderId, newStatus }, orderId);
         
-                showMessage('success', `Order ${orderId} status updated to ${newStatus}.`, 5000, 'orders');
-                // The realtime listener will handle the UI render here!
+                // 2. Trigger Email Notification (if required)
+                if (requiresNotification) {
+                    // Find the order details from the local state
+                    orderDetails = state.orders.find(o => o.id === orderId);
+        
+                    if (orderDetails) {
+                        const emailPayload = {
+                            ...orderDetails,
+                            orderId: orderId,
+                            newStatus: newStatus, // CRITICAL: This tells the Netlify function which email template/subject to use
+                        };
+                        
+                        // Assuming EMAIL_CONFIRMATION_FUNCTION is defined globally (e.g., '/.netlify/functions/sendOrderConfirmation')
+                        const emailNotificationUrl = EMAIL_CONFIRMATION_FUNCTION; 
+                        
+                        await fetch(emailNotificationUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(emailPayload)
+                        });
+                        console.log(`Notification email triggered for status: ${newStatus}`);
+                    }
+                }
+        
+                // The UI will update automatically via the realtime listener (onSnapshot).
+                showMessage('success', `Order ${orderId} status updated to ${newStatus}. Notification sent.`, 5000, 'orders');
         
             } catch (error) {
-                console.error('Error updating order status:', error);
-                showMessage('error', `Failed to update status: ${error.message}`, 5000, 'orders');
+                console.error('Error updating order status or sending email:', error);
+                showMessage('error', `Failed to update status: ${error.message}. Check Firebase Rules.`, 5000, 'orders');
             }
         }
     
