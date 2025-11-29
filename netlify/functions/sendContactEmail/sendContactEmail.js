@@ -4,7 +4,6 @@
  * and routes the email using Brevo SMTP with dynamic templating.
  */
 const nodemailer = require("nodemailer");
-// --- FIXED: Corrected assignment for fs.promises ---
 const fs = require("fs").promises;
 const path = require("path");
 
@@ -24,11 +23,18 @@ const transporter = nodemailer.createTransport({
     },
 });
 
+// Helper function to sanitize strings and prevent XSS
+function sanitizeString(str) {
+    if (!str) return '';
+    // Simple filter to prevent XSS (Cross-Site Scripting) injection
+    return String(str).replace(/</g, "&lt;").replace(/>/g, "&gt;").trim();
+}
 
 // Load base HTML template
 async function getEmailHtml() {
     try {
-        const templatePath = path.join(__dirname, "emailTemplates", "contactSubmissionTemplate.html");
+        // This path is defined relative to the directory containing this function file
+        const templatePath = path.join(__dirname, "emailTemplates", "contactSubmissionTemplate.html"); 
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
         console.error("Error reading contact email template:", error);
@@ -38,7 +44,7 @@ async function getEmailHtml() {
 
 /**
  * Loads the contact template and populates all dynamic placeholders.
- * @param {object} data - Submission data (name, email, subjectType, message)
+ * @param {object} data - Sanitized submission data (name, email, subjectType, message)
  * @param {object} runtimeData - Server-side data (recipientEmail, timestamp, ip)
  */
 async function getContactTemplate(data, runtimeData) {
@@ -46,16 +52,12 @@ async function getContactTemplate(data, runtimeData) {
 
     // 1. --- Dynamic Header/Title Updates ---
     const headerReplacement =
-        data.subjectType === "order"
+        data.subjectType.includes("ORDER")
             ? "Consulta de Pedido Recibida"
             : "Mensaje de Soporte General";
 
     // Replace main header title (e.g., in the <title> or main h1)
     template = template.replace(/Nuevo Mensaje Recibido/g, headerReplacement);
-    
-    // Update the main page title in the hero section (H1)
-    template = template.replace(/<h1>Nuevo Mensaje Recibido<\/h1>/, `<h1>${headerReplacement}</h1>`);
-
 
     // 2. --- Global Placeholder Replacement (Populate all {{variables}}) ---
     
@@ -73,9 +75,8 @@ async function getContactTemplate(data, runtimeData) {
     template = template.replace(/{{timestamp}}/g, runtimeData.timestamp);
     template = template.replace(/{{ip}}/g, runtimeData.ip || 'N/A');
     
-    // 3. --- Dynamic Button Link Update (Responder por Email) ---
-    
-    const mailToSubject = data.subjectType === "order" 
+    // 3. --- Dynamic Button Link Update ---
+    const mailToSubject = data.subjectType.includes("ORDER")
         ? `Re: Consulta de Pedido de ${data.name}` 
         : `Re: Consulta de Soporte de ${data.name}`;
         
@@ -87,7 +88,7 @@ async function getContactTemplate(data, runtimeData) {
     template = template.replace(/href="mailto:{{email}}[^"]*"/, `href="${dynamicMailTo}"`);
     
     
-    // 4. --- Response Time SLA Message (NEW LOGIC) ---
+    // 4. --- Response Time SLA Message ---
     const dayOfWeek = new Date().getDay(); // 0 = Sunday, 6 = Saturday
     let responseTimeMessage;
 
@@ -102,19 +103,12 @@ async function getContactTemplate(data, runtimeData) {
     // Replace the new placeholder in the template
     template = template.replace(/{{responseTimeMessage}}/g, responseTimeMessage);
 
-
-    // 5. --- Cleanup Order Placeholders ---
+    // Cleanup unnecessary placeholders
     template = template
         .replace(/{{params\.orderId}}/g, "")
         .replace(/{{params\.orderDate}}/g, "")
         .replace(/{{params\.orderTableRows}}/g, "")
         .replace(/{{params\.totalPrice}}/g, "");
-
-    // Update generic confirmation line (if it exists)
-    template = template.replace(
-        /We will send you a separate email notification when your order is ready\./g,
-        "Please permite hasta 24 horas para recibir una respuesta a tu consulta."
-    );
 
     return template;
 }
@@ -154,22 +148,30 @@ exports.handler = async function (event) {
     try {
         const { name, email, subjectType, message, urlCheck } = JSON.parse(event.body);
 
+        // --- SANITIZE USER INPUTS ---
+        const sanitizedName = sanitizeString(name);
+        const sanitizedEmail = sanitizeString(email);
+        const sanitizedSubjectType = sanitizeString(subjectType);
+        const sanitizedMessage = sanitizeString(message);
+        // -----------------------------
+
         // 4. --- Honeypot Check (Bot Mitigation) ---
         if (urlCheck) {
             console.warn(`Honeypot triggered by IP: ${clientIp}`);
-            return { statusCode: 200, body: JSON.stringify({ message: "Thank you for your submission (bot detected)" }) };
+            // Return 200 OK to fool the bot, but skip sending the email
+            return { statusCode: 200, body: JSON.stringify({ message: "Thank you for your submission (bot detected)" }) }; 
         }
         
         // 5. --- Input Validation ---
-        if (!name || !email || !subjectType || !message) {
-            return { statusCode: 400, body: JSON.stringify({ error: "Missing required fields" }) };
+        if (!sanitizedName || !sanitizedEmail || !sanitizedSubjectType || !sanitizedMessage) {
+            return { statusCode: 400, body: JSON.stringify({ error: "Missing required fields after sanitization." }) };
         }
 
         // 6. --- Prepare Email Data & Recipients ---
         const adminRecipient =
-            subjectType === "order" ? "orders@autoinx.com" : "support@autoinx.com";
+            sanitizedSubjectType.toLowerCase().includes("order") ? "orders@autoinx.com" : "support@autoinx.com";
             
-        const customerRecipient = email;
+        const customerRecipient = sanitizedEmail;
         
         const currentTime = new Date();
         const runtimeData = {
@@ -178,14 +180,19 @@ exports.handler = async function (event) {
             ip: clientIp,
         };
 
-        // Generate the HTML body
-        const htmlBody = await getContactTemplate({ name, email, subjectType, message }, runtimeData);
+        // Generate the HTML body using SANITIZED variables
+        const htmlBody = await getContactTemplate({ 
+            name: sanitizedName, 
+            email: sanitizedEmail, 
+            subjectType: sanitizedSubjectType, 
+            message: sanitizedMessage 
+        }, runtimeData);
 
         // 7. --- Send Emails ---
         
-        const adminSubject = subjectType === "order"
-            ? `[Order Inquiry] New Question from ${name}`
-            : `[General Support] New Message from ${name}`;
+        const adminSubject = sanitizedSubjectType.toLowerCase().includes("order")
+            ? `[Order Inquiry] New Question from ${sanitizedName}`
+            : `[General Support] New Message from ${sanitizedName}`;
 
         const customerSubject = `Copia de tu Consulta - AutoInx`;
         
@@ -195,7 +202,7 @@ exports.handler = async function (event) {
             to: adminRecipient, 
             subject: adminSubject,
             html: htmlBody,
-            replyTo: email,
+            replyTo: sanitizedEmail,
         });
 
         // 7b. Send copy to Customer
