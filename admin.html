@@ -1398,13 +1398,18 @@
                 // 2. Trigger Email Notification (if required)
                 if (requiresNotification) {
                     // Find the order details from the local state
-                    orderDetails = state.orders.find(o => o.id === orderId);
+                    orderDetails = state.orders.find(o => o.id === orderId); //
         
                     if (orderDetails) {
+                        // --- NEW: Determine the customer's language preference ---
+                        const customerLang = orderDetails.language || orderDetails.communicationLang || 'en'; //
+                        // -----------------------------------------------------------
+                        
                         const emailPayload = {
                             ...orderDetails,
                             orderId: orderId,
-                            newStatus: newStatus, // CRITICAL: This tells the Netlify function which email template/subject to use
+                            newStatus: newStatus, 
+                            language: customerLang, // <<< NEW: Pass the customer's language preference
                         };
                         
                         // Assuming EMAIL_CONFIRMATION_FUNCTION is defined globally (e.g., '/.netlify/functions/sendOrderConfirmation')
@@ -1770,6 +1775,15 @@
                 <option value="true" ${order.isPaid ? 'selected' : ''}>Paid</option>
             `;
         
+            // Determine the current language preference
+            // We check both order.language and order.communicationLang for compatibility
+            const currentLang = order.language || order.communicationLang || 'en'; 
+            
+            const languageOptions = `
+                <option value="en" ${currentLang === 'en' ? 'selected' : ''}>🇺🇸 English</option>
+                <option value="es" ${currentLang === 'es' ? 'selected' : ''}>🇪🇸 Español</option>
+            `;
+        
             // Determine the ID needed for the update path: Use UID for user orders, Admin Email for others
             // We use auth.currentUser.email as a reliable fallback if neither is set (though they should be)
             const updateSourceId = order.uid || order.createdByAdmin || auth.currentUser.email;
@@ -1788,6 +1802,12 @@
                                 </select>
                             </div>
                             
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-language">Customer Language</label>
+                                <select id="edit-language" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                    ${languageOptions}
+                                </select>
+                            </div>
                             <div class="mb-4">
                                 <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-payment-status">Payment Status</label>
                                 <select id="edit-payment-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
@@ -1844,6 +1864,7 @@
             saveBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white inline" viewBox="0 0 24 24">...</svg> Saving...`; // Simplified SVG for brevity
         
             const newStatus = document.getElementById('edit-status').value;
+            const newLanguage = document.getElementById('edit-language').value; 
             const newAddress = document.getElementById('edit-address').value;
             const newNotes = document.getElementById('edit-notes').value;
             const newIsPaidString = document.getElementById('edit-payment-status').value;
@@ -1861,6 +1882,8 @@
                     isPaid: newIsPaid,
                     deliveryAddress: newAddress,
                     adminNotes: newNotes,
+                    language: newLanguage, // <--- NEW: Save for use in email notifications
+                    communicationLang: newLanguage, // <--- NEW: Save for compatibility with checkout/other parts
                     updatedAt: serverTimestamp() 
                 });
                 
