@@ -1713,41 +1713,45 @@
                 }
             }
         }
-        
+                
         function renderOrderEditModal(order) {
             // Basic status options (customize these to your business logic)
             const statuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
             const statusOptions = statuses.map(s => 
                 `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`
             ).join('');
-            // --- ADDED PAYMENT STATUS OPTIONS ---
+            
+            // ADDED PAYMENT STATUS OPTIONS
             const isPaidOptions = `
                 <option value="false" ${!order.isPaid ? 'selected' : ''}>Unpaid</option>
                 <option value="true" ${order.isPaid ? 'selected' : ''}>Paid</option>
             `;
-            // ------------------------------------
+        
+            // Determine the ID needed for the update path: Use UID for user orders, Admin Email for others
+            // We use auth.currentUser.email as a reliable fallback if neither is set (though they should be)
+            const updateSourceId = order.uid || order.createdByAdmin || auth.currentUser.email;
         
             return `
                 <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onclick="window.module.closeEditModal()">
                     
-                        <div class="relative top-20 mx-auto p-8 border w-3/4 md:w-1/2 shadow-2xl rounded-xl bg-white transform transition-all duration-300 scale-100" onclick="event.stopPropagation()">
-                            <h3 class="text-3xl font-bold text-indigo-700 mb-6">Edit Order: ${order.id.slice(0, 8)}...</h3>
-                            <form id="orderEditForm" onsubmit="window.module.updateOrder(event, '${order.id}')">
-                                
-                                <div class="mb-4">
-                                    <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-status">Status</label>
-                                    <select id="edit-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                        ${statusOptions}
-                                    </select>
-                                </div>
-                                
-                                <div class="mb-4">
-                                    <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-payment-status">Payment Status</label>
-                                    <select id="edit-payment-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                        ${isPaidOptions}
-                                    </select>
-                                </div>
-                                <div class="mb-4">
+                    <div class="relative top-20 mx-auto p-8 border w-3/4 md:w-1/2 shadow-2xl rounded-xl bg-white transform transition-all duration-300 scale-100" onclick="event.stopPropagation()">
+                        <h3 class="text-3xl font-bold text-indigo-700 mb-6">Edit Order: ${order.id.slice(0, 8)}...</h3>
+                        <form id="orderEditForm" onsubmit="window.module.updateOrder(event, '${order.id}', '${updateSourceId}')">
+                            
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-status">Status</label>
+                                <select id="edit-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                    ${statusOptions}
+                                </select>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-payment-status">Payment Status</label>
+                                <select id="edit-payment-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                                    ${isPaidOptions}
+                                </select>
+                            </div>
+                            <div class="mb-4">
                                 <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-address">Delivery Address</label>
                                 <input type="text" id="edit-address" value="${order.deliveryAddress || ''}" required 
                                        class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
@@ -1787,10 +1791,10 @@
          * @param {Event} e The submit event.
          * @param {string} orderId The ID of the order being updated.
          */
-        async function updateOrder(e, orderId) {
+        // MODIFIED: Accept new parameter `sourceId`
+        async function updateOrder(e, orderId, sourceId) { 
             e.preventDefault();
             
-            // Disable button and show loading state
             const saveBtn = document.getElementById('saveOrderBtn');
             const originalText = saveBtn.innerHTML;
             saveBtn.disabled = true;
@@ -1799,14 +1803,14 @@
             const newStatus = document.getElementById('edit-status').value;
             const newAddress = document.getElementById('edit-address').value;
             const newNotes = document.getElementById('edit-notes').value;
-
-            // --- ADDED PAYMENT STATUS LOGIC ---
             const newIsPaidString = document.getElementById('edit-payment-status').value;
-            const newIsPaid = newIsPaidString === 'true'; // Convert string "true"/"false" to boolean
-            // ---------------------------------
+            const newIsPaid = newIsPaidString === 'true'; 
             
-            // Ensure you have a global 'db' variable for Firestore and 'userId' for the path
-            const orderRef = doc(db, ORDERS_COLLECTION(userId), orderId);
+            // --- FIX: Correctly determine order path using helper function and sourceId ---
+            const collectionPath = window.module.getOrdersCollectionPath(sourceId);
+            // Use the correctly resolved path string (collectionPath) instead of the ORDERS_COLLECTION constant
+            const orderRef = doc(db, collectionPath, orderId); // <-- CORRECTED LINE
+            // --- END FIX ---
         
             try {
                 await updateDoc(orderRef, {
