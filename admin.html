@@ -295,20 +295,18 @@
             }
         }
         function getOrdersCollectionPath(targetIdOrIndicator) { 
-            if (!targetIdOrIndicator) {
-                throw new Error("Cannot build order collection path: Target ID is missing.");
-            }
-        
-            // 1. Check for Admin Email (Manual Order Path)
-            if (targetIdOrIndicator.includes('@autoinx.com')) {
-                // Use the hardcoded path for manual admin orders
-                return `adminOrders/manual/orders`; 
-            }
-        
-            // 2. Default to Client Order Path
-            // Assuming 'appId' is defined globally
+            // Get the application ID (or use default)
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             
+            // 1. Check for Admin Email or Admin-Created Order Indicator
+            // Orders created by adminCreateOrder.js are stored in the public path.
+            if (targetIdOrIndicator.includes('@autoinx.com') || targetIdOrIndicator === 'ADMIN_ORDER_SOURCE') {
+                // Use the public order collection path: /artifacts/{appId}/public/data/orders
+                return `artifacts/${appId}/public/data/orders`; 
+            }
+        
+            // 2. Default to Client Order Path: /artifacts/{appId}/users/{userId}/orders
+            // This is for regular user checkouts.
             return `artifacts/${appId}/users/${targetIdOrIndicator}/orders`; 
         }
     
