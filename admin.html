@@ -1453,7 +1453,7 @@
     
         // --- ADMIN CONFIG FUNCTIONS ---
         
-         async function fetchAdminConfig() {
+        async function fetchAdminConfig() {
             try {
                 // 1. Get the Admin User's JWT token
                 if (!auth.currentUser) throw new Error("User not authenticated.");
@@ -1461,10 +1461,10 @@
                 // This forces a refresh if the token is near expiration
                 const idToken = await auth.currentUser.getIdToken(true); 
         
+                // CRITICAL: Attach the Authorization header for the secure Netlify function
                 const res = await fetch(CONFIG_FUNCTION, {
                     method: 'GET',
                     headers: {
-                        // 2. Attach the Authorization header
                         'Authorization': `Bearer ${idToken}` 
                     }
                 });
@@ -1472,7 +1472,7 @@
                 if (!res.ok) throw new Error('Config fetch failed.');
                 const config = await res.json();
                 
-                // Update global config state
+                // Update global config state (this object now includes the chatSchedule)
                 globalConfig = config;
                 
                 // Update UI elements
@@ -1508,7 +1508,7 @@
                 showMessage('error', `Failed to load configuration: ${error.message}`, 8000, 'config');
             }
         }
-        
+                
         function displayStaticIps() {
             const el = document.getElementById('staticIpListDisplay');
             if (el) {
@@ -1528,12 +1528,24 @@
             const maintenanceToggle = document.getElementById('maintenanceToggle');
             const chatWidgetToggle = document.getElementById('chatWidgetToggle');
             const dynamicIpList = document.getElementById('dynamicIpList');
+
+            // --- NEW: Gather dynamic schedule data ---
+            const activeDaysCheckboxes = Array.from(document.querySelectorAll('#chatActiveDays input[name="chatDay"]:checked'));
+            const activeDaysValues = activeDaysCheckboxes.map(cb => parseInt(cb.value, 10));
             
+            const chatScheduleUpdates = {
+                enableTime: document.getElementById('chatEnableTime').value,
+                disableTime: document.getElementById('chatDisableTime').value,
+                activeDays: activeDaysValues,
+            };
+            // -----------------------------------------
+        
             // Use values directly from the toggles and the textarea
             const updates = {
                 maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
                 chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
-                ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist
+                ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist,
+                chatSchedule: chatScheduleUpdates,
             };
             
             try {
@@ -1725,6 +1737,24 @@
                     alert("Failed to fetch order details. See console.");
                 }
             }
+        }
+        function renderDayCheckboxes(activeDays = [1, 2, 3, 4, 5]) {
+            const days = [
+                { label: 'Mon', value: 1 }, { label: 'Tue', value: 2 }, { label: 'Wed', value: 3 }, 
+                { label: 'Thu', value: 4 }, { label: 'Fri', value: 5 }, { label: 'Sat', value: 6 }, 
+                { label: 'Sun', value: 0 }
+            ];
+            
+            return days.map(day => {
+                const isChecked = activeDays.includes(day.value);
+                return `
+                    <div class="flex items-center">
+                        <input type="checkbox" id="chatDay${day.value}" name="chatDay" value="${day.value}" ${isChecked ? 'checked' : ''}
+                               class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                        <label for="chatDay${day.value}" class="ml-2 text-sm text-gray-700">${day.label}</label>
+                    </div>
+                `;
+            }).join('');
         }
                 
         function renderOrderEditModal(order) {
@@ -2328,57 +2358,83 @@
                     </section>
                 `;
             } else if (state.activeTab === 'config') {
-                return `
-                    <section class="space-y-8">
-                        <div id="configMessage"></div>
-                        <h2 class="text-2xl font-bold text-indigo-700">Global System Configuration</h2>
+            // Use default times if config doesn't have them
+            const enableTime = globalConfig.chatSchedule?.enableTime || '08:00';
+            const disableTime = globalConfig.chatSchedule?.disableTime || '20:00';
+            const activeDays = globalConfig.chatSchedule?.activeDays || [1, 2, 3, 4, 5]; // Default Mon-Fri
+            
+            return `
+                <section class="space-y-8">
+                    <div id="configMessage"></div>
+                    <h2 class="text-2xl font-bold text-indigo-700">Global System Configuration</h2>
     
-                        <div class="p-4 bg-blue-50 rounded-xl shadow-inner border border-blue-300">
-                            <div class="flex items-center justify-between">
-                                <label for="chatWidgetToggle" class="text-lg font-medium text-gray-700">Enable Site Chat Widget</label>
-                                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                    <input type="checkbox" name="chatWidgetToggle" id="chatWidgetToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
-                                    <label for="chatWidgetToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                                </div>
-                            </div>
-                            <p class="text-sm text-blue-600 mt-2">Controls visibility of the customer support chat widget on the public site.</p>
-                        </div>
-                        <div class="p-4 bg-red-100 rounded-xl shadow-inner border border-red-300">
-                            <p class="text-sm font-semibold text-red-700 mb-3">User Management Utility (Global Action):</p>
-                            <button id="clearAnonButtonConfig" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md">
-                                Clear All Anonymous Users
-                            </button>
-                            <p class="text-xs text-red-500 mt-2">Warning: This action is irreversible and should only be performed after careful consideration.</p>
-                        </div>
+                    <div class="p-6 border rounded-xl bg-blue-50 border-blue-200">
+                        <h3 class="text-xl font-bold mb-4 text-blue-700">Chat Widget Schedule</h3>
+                        <p class="text-sm text-gray-600 mb-4">Set the window (in UTC-5 / Colombia Time) when the chat widget should be automatically enabled.</p>
                         
-                        <form id="configForm" onsubmit="window.module.handleUpdateConfig(event)" class="bg-white p-6 rounded-xl shadow-lg space-y-6">
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Enable Time (UTC-5)</label>
+                                <input type="time" id="chatEnableTime" required class="w-full p-2 border rounded-lg" value="${enableTime}">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Disable Time (UTC-5)</label>
+                                <input type="time" id="chatDisableTime" required class="w-full p-2 border rounded-lg" value="${disableTime}">
+                            </div>
+                        </div>
+    
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Active Days</label>
+                        <div id="chatActiveDays" class="flex flex-wrap space-x-4">
+                            ${renderDayCheckboxes(activeDays)}
+                        </div>
+                    </div>
+                    <div class="p-4 bg-blue-50 rounded-xl shadow-inner border border-blue-300">
+                        <div class="flex items-center justify-between">
+                            <label for="chatWidgetToggle" class="text-lg font-medium text-gray-700">Enable Site Chat Widget (Manual Override)</label>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="chatWidgetToggle" id="chatWidgetToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                <label for="chatWidgetToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <p class="text-sm text-blue-600 mt-2">Controls visibility of the customer support chat widget on the public site.</p>
+                    </div>
+                    <div class="p-4 bg-red-100 rounded-xl shadow-inner border border-red-300">
+                        <p class="text-sm font-semibold text-red-700 mb-3">User Management Utility (Global Action):</p>
+                        <button id="clearAnonButtonConfig" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md">
+                            Clear All Anonymous Users
+                        </button>
+                        <p class="text-xs text-red-500 mt-2">Warning: This action is irreversible and should only be performed after careful consideration.</p>
+                    </div>
+                    
+                    <form id="configForm" onsubmit="window.module.handleUpdateConfig(event)" class="bg-white p-6 rounded-xl shadow-lg space-y-6">
+                        
+                        <div class="flex items-center justify-between p-4 border rounded-lg bg-red-50 border-red-200">
+                            <label for="maintenanceToggle" class="text-lg font-medium text-gray-700">Maintenance Mode</label>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="maintenanceToggle" id="maintenanceToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                <label for="maintenanceToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-red-300 cursor-pointer"></label>
+                            </div>
+                            <p class="text-sm text-red-600">Disables store functionality for public users.</p>
+                                    </div>
+    
+                            <div>
+                                <h3 class="text-xl font-bold mb-2 text-gray-700">Dynamic Admin IP Whitelist (Stored in Firestore)</h3>
+                                <p class="text-sm text-gray-500 mb-4">Users from these IPs can access the Admin Login page even if Maintenance Mode is active. One IP address per line.</p>
+                                <textarea id="dynamicIpList" rows="4" placeholder="123.45.67.89&#10;98.76.54.32" class="w-full p-3 border rounded-lg font-mono text-sm"></textarea>
+                                <p id="configLastUpdated" class="text-xs text-gray-500 mt-2"></p>
+                            </div>
+    
+                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <h3 class="text-xl font-bold mb-2 text-gray-700">Static Client IP Whitelist (Codebase)</h3>
+                                <p class="text-sm text-gray-500 mb-2">This is the list of IP addresses whitelisted to allow access to admin functionality</p>
+                                <pre id="staticIpListDisplay" class="bg-white p-3 rounded-lg border font-mono text-sm text-gray-800"></pre>
+                            </div>
                             
-                            <div class="flex items-center justify-between p-4 border rounded-lg bg-red-50 border-red-200">
-                                <label for="maintenanceToggle" class="text-lg font-medium text-gray-700">Maintenance Mode</label>
-                                <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                    <input type="checkbox" name="maintenanceToggle" id="maintenanceToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
-                                    <label for="maintenanceToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-red-300 cursor-pointer"></label>
-                                </div>
-                                <p class="text-sm text-red-600">Disables store functionality for public users.</p>
-                                        </div>
-    
-                                <div>
-                                    <h3 class="text-xl font-bold mb-2 text-gray-700">Dynamic Admin IP Whitelist (Stored in Firestore)</h3>
-                                    <p class="text-sm text-gray-500 mb-4">Users from these IPs can access the Admin Login page even if Maintenance Mode is active. One IP address per line.</p>
-                                    <textarea id="dynamicIpList" rows="4" placeholder="123.45.67.89&#10;98.76.54.32" class="w-full p-3 border rounded-lg font-mono text-sm"></textarea>
-                                    <p id="configLastUpdated" class="text-xs text-gray-500 mt-2"></p>
-                                </div>
-    
-                                <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                    <h3 class="text-xl font-bold mb-2 text-gray-700">Static Client IP Whitelist (Codebase)</h3>
-                                    <p class="text-sm text-gray-500 mb-2">This is the list of IP addresses whitelisted to allow access to admin functionality</p>
-                                    <pre id="staticIpListDisplay" class="bg-white p-3 rounded-lg border font-mono text-sm text-gray-800"></pre>
-                                </div>
-                                
-                                <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">Save Configuration</button>
-                            </form>
-                        </section>
-                    `;
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">Save Configuration</button>
+                        </form>
+                    </section>
+                `;
+        }
             } else if (state.activeTab === 'users') {
                 return `
                         <section class="space-y-8">
