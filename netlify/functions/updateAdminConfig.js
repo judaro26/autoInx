@@ -51,8 +51,7 @@ exports.handler = async function (event) {
             return { statusCode: 400, body: JSON.stringify({ error: 'No update fields provided' }) };
         }
         
-        // --- 2. Input Filtering (Highly Recommended) ---
-        // Only allow specific fields to be updated to prevent abuse
+        // --- 2. Input Filtering & Validation ---
         const allowedUpdates = {};
         if (updates.hasOwnProperty('maintenanceMode')) {
             allowedUpdates.maintenanceMode = !!updates.maintenanceMode; // Coerce to boolean
@@ -62,6 +61,19 @@ exports.handler = async function (event) {
         }
         if (updates.hasOwnProperty('ipWhitelist') && Array.isArray(updates.ipWhitelist)) {
             allowedUpdates.ipWhitelist = updates.ipWhitelist.filter(ip => typeof ip === 'string'); // Filter for strings
+        }
+        
+        // ADDED: Allow saving the dynamic chat schedule object
+        if (updates.hasOwnProperty('chatSchedule') && typeof updates.chatSchedule === 'object') {
+            const schedule = updates.chatSchedule;
+            if (!schedule.enableTime || !schedule.disableTime || !Array.isArray(schedule.activeDays)) {
+                 return { statusCode: 400, body: JSON.stringify({ error: 'Chat schedule object is incomplete.' }) };
+            }
+            allowedUpdates.chatSchedule = {
+                enableTime: schedule.enableTime,
+                disableTime: schedule.disableTime,
+                activeDays: schedule.activeDays.map(d => parseInt(d)).filter(d => !isNaN(d)),
+            };
         }
 
         if (Object.keys(allowedUpdates).length === 0) {
