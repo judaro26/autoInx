@@ -1655,34 +1655,42 @@
         async function showOrderEditForm(orderId, clientUid) { // 🔑 Accepts both IDs
             if (!orderId || !clientUid) return console.error("Missing Order ID or Client UID for editing.");
         
-            // Define Firestore reference variables outside the try block
             let orderRef;
             let orderSnap; 
             let path;
         
             try {
-                // 1. AWAIT Admin Auth: Ensure admin context is loaded (prevents race conditions)
-                // We capture the UID but only use it to confirm context readiness.
                 const adminUserId = await waitForUserId(); 
-                
                 const collectionPathFn = window.module.getOrdersCollectionPath;
                 
                 if (typeof collectionPathFn !== 'function') {
                      throw new Error("Collection path helper is missing or not a function.");
                 }
                 
-                // 2. Get the path string by PASSING the awaited ID
-                path = collectionPathFn(clientUid || adminEmail); // Note: clientUid is the first param in the function call
+                path = collectionPathFn(clientUid); 
                 
-                // 3. Get a reference to the specific order document
-                // This works because the path now resolves to the 'orders' collection.
                 orderRef = doc(db, path, orderId);
                 
                 // 4. Fetch the document data directly from Firebase
                 orderSnap = await getDoc(orderRef); 
+        
+                // --- DEBUG LOGGING: CHECK THIS IN YOUR CONSOLE ---
+                console.log(`[DEBUG] Attempted path: ${path}/${orderId}`);
+                console.log(`[DEBUG] Document Exists: ${orderSnap.exists()}`);
+                // --- END DEBUG LOGGING ---
                 
                 if (!orderSnap.exists()) {
-                    return console.error(`Order ${orderId} not found in database at path: ${path}`);
+                    // FIX: Show a clear error message instead of returning silently
+                    document.getElementById('editModalContainer').innerHTML = `
+                        <div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onclick="window.module.closeEditModal()">
+                            <div class="relative top-20 mx-auto p-8 border w-3/4 md:w-1/2 shadow-2xl rounded-xl bg-white transform transition-all duration-300 scale-100" onclick="event.stopPropagation()">
+                                <h3 class="text-3xl font-bold text-red-700 mb-6">Error: Order Not Found</h3>
+                                <p class="text-lg text-gray-700">The order <b>${orderId.slice(0, 8)}...</b> could not be found at the path: <code>${path}</code>. Check the console for permissions errors.</p>
+                                <div class="flex justify-end mt-6"><button onclick="window.module.closeEditModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition shadow-md">Close</button></div>
+                            </div>
+                        </div>
+                    `;
+                    return; // Exit after showing error
                 }
         
                 // 5. Construct the orderData object from the fetched snapshot
@@ -1690,7 +1698,9 @@
                 
                 // 6. Render the modal using the fetched data
                 const modalHtml = window.module.renderOrderEditModal(orderData);
-                        
+                
+                document.getElementById('editModalContainer').innerHTML = modalHtml;
+        
             } catch (error) {
                 console.error("Error fetching order for edit:", error);
                 
