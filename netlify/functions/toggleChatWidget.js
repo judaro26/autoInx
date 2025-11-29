@@ -1,20 +1,33 @@
 const admin = require('firebase-admin');
 
-// Initialize Firebase Admin SDK (must be done outside the handler)
-// Netlify uses FIREBASE_SERVICE_ACCOUNT_KEY env var for authentication.
+// Ensure Firebase Admin is initialized once using explicit credentials
 if (!admin.apps.length) {
+    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
+    let cleanedPrivateKey = undefined;
+
+    if (privateKeyString) {
+        // Handle escaped newlines from environment variables
+        cleanedPrivateKey = privateKeyString.replace(/\\n/g, '\n').trim();
+    }
+
     try {
         admin.initializeApp({
-            credential: admin.credential.applicationDefault()
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                // Use the cleaned private key
+                privateKey: cleanedPrivateKey,
+            }),
         });
     } catch (e) {
-        console.error("Firebase Admin initialization failed:", e);
+        console.error("Firebase Admin initialization failed in cron job:", e);
     }
 }
+
 const db = admin.firestore();
 
-// Path to your configuration document (adjust 'config/admin' if needed)
-const CONFIG_DOC_REF = db.doc('config/admin');
+// FIX: Path to your configuration document must be 'admin/config'
+const CONFIG_DOC_REF = db.doc('admin/config');
 
 exports.handler = async function(event, context) {
     
@@ -40,6 +53,7 @@ exports.handler = async function(event, context) {
     }
 
     try {
+        // Use .update() to modify the existing document
         await CONFIG_DOC_REF.update({
             chatWidgetEnabled: chatWidgetEnabled,
             lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
@@ -53,7 +67,8 @@ exports.handler = async function(event, context) {
             body: JSON.stringify({ status: 'success', message: action })
         };
     } catch (error) {
-        console.error('Error updating chat widget configuration:', error);
+        // The "No results found for query" log should be replaced by a proper error log if it fails.
+        console.error('CRON Error updating chat widget configuration (Check path and permissions):', error);
         return {
             statusCode: 500,
             body: JSON.stringify({ error: 'Failed to update chat widget visibility.' })
