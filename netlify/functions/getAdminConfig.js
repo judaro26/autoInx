@@ -1,34 +1,27 @@
 /**
- * Netlify Function to get or initialize Admin configuration from Firestore.
+ * Netlify Function (Admin Only) to get or initialize Admin configuration from Firestore.
  * This includes the dynamic IP Whitelist and Maintenance Mode status.
  */
 const admin = require('firebase-admin');
 
 // Ensure Firebase Admin is initialized once
 if (!admin.apps.length) {
-    // FIX: Reverting the Netlify variable value to single-backslash required a code adjustment.
-    // This logic handles the possibility of either '\n' or '\\n' being the delimiter.
     
     const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
     let cleanedPrivateKey = undefined;
 
     if (privateKeyString) {
-        // Step 1: Replace all instances of single-backslash-n (\n) or double-backslash-n (\\n) 
-        // with the literal newline character (\n).
-        // The regex /\n/g targets the literal string "\n" passed from the environment (where the \ is already escaped by Node).
-        // Since we are reverting the environment variable to the single-backslash version, this should now work.
+        // Handle escaped newlines from environment variables
         cleanedPrivateKey = privateKeyString
-                                .replace(/\\n/g, '\n') // Handles the case if Netlify auto-escapes or we used \\n
-                                .replace(/\n/g, '\n') // Handles the simple \n case, ensuring it's a newline
-                                .trim(); // Remove any leading/trailing whitespace that invalidates PEM
-
+                                .replace(/\\n/g, '\n')
+                                .replace(/\n/g, '\n')
+                                .trim(); 
     }
 
     admin.initializeApp({
         credential: admin.credential.cert({
             projectId: process.env.FIREBASE_PROJECT_ID,
             clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            // Use the cleaned private key
             privateKey: cleanedPrivateKey,
         }),
     });
@@ -39,6 +32,29 @@ const db = admin.firestore();
 const CONFIG_DOC_PATH = 'admin/config';
 
 exports.handler = async function (event) {
+    
+    // --- START SECURITY CHECK: Validate Admin Token ---
+    // This blocks public access to the IP Whitelist and other settings.
+    const authHeader = event.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        // Return 401 if no token is present
+        return { statusCode: 401, body: JSON.stringify({ error: 'Authorization token required for admin configuration access.' }) };
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    try {
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        if (decodedToken.admin !== true) {
+            // Return 403 if token is present but lacks admin claim
+            return { statusCode: 403, body: JSON.stringify({ error: 'Access denied: Admin privileges required.' }) };
+        }
+    } catch (e) {
+        // Return 401 if token is invalid or expired
+        return { statusCode: 401, body: JSON.stringify({ error: 'Invalid or expired token.' }) };
+    }
+    // --- END SECURITY CHECK ---
+
     try {
         const configRef = db.doc(CONFIG_DOC_PATH);
         const configDoc = await configRef.get();
@@ -48,7 +64,7 @@ exports.handler = async function (event) {
             const initialConfig = {
                 ipWhitelist: ["127.0.0.1"], // Default IP
                 maintenanceMode: false,
-                chatWidgetEnabled: true, // Ensuring this field is present in the initial config
+                chatWidgetEnabled: true, 
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             };
             await configRef.set(initialConfig);
@@ -60,13 +76,9 @@ exports.handler = async function (event) {
             };
         }
         
-        // Ensure new fields are added if missing from old config (chatWidgetEnabled added here)
         const configData = configDoc.data();
         if (configData.chatWidgetEnabled === undefined) {
              configData.chatWidgetEnabled = true;
-             // NOTE: We do NOT write this update back to Firestore in the fetch function, 
-             // we just use the updated data structure on the fly.
-
         }
 
         return {
@@ -77,7 +89,6 @@ exports.handler = async function (event) {
 
     } catch (error) {
         console.error('Error fetching admin config:', error);
-        // This log will only show if the error happened AFTER successful initialization.
         return {
             statusCode: 500, // Return 500 on server error
             body: JSON.stringify({ error: 'Failed to fetch admin configuration', details: error.message }),
