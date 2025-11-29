@@ -9,6 +9,11 @@ const path = require("path");
 
 // --- Configuration and Helpers ---
 
+// ADDED: Global Rate Limiting Variables (to prevent DoS/Email Flooding)
+const rateLimitStore = {}; 
+const MAX_REQUESTS_PER_HOUR = 5;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 // 1. Configure Nodemailer Transporter
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
@@ -51,8 +56,6 @@ async function getTemplateHtml(languageCode) {
 
 // Generate HTML rows for the order items table
 function generateTableRows(items, languageCode) {
-    // NOTE: You would ideally internationalize the column headers (Item, Qty, Unit Price) 
-    // inside the template file itself, not here.
     return items.map(item => {
         const subtotal = item.price * item.quantity;
         return `
@@ -75,12 +78,8 @@ async function populateTemplate(orderData, recipientType) {
     const orderStatus = orderData.newStatus || 'Confirmed'; 
     const orderIdShort = orderData.orderId.substring(0, 5);
 
-    // FIX: Load template based on language
     let template = await getTemplateHtml(languageCode); 
 
-    // Dynamic Variables for Template Injection
-    // NOTE: Subject, Titles, and Intro text should ideally be handled by a translation utility 
-    // but are hardcoded here for simplicity based on the language.
     let mainTitle;
     let mainIntro;
     let badgeText;
@@ -89,7 +88,6 @@ async function populateTemplate(orderData, recipientType) {
     let subjectLine;
 
     // --- Dynamic Content Calculation ---
-    // (This logic needs to be manually translated based on languageCode)
     if (languageCode === 'es') {
         if (orderStatus === 'Confirmed') {
             subjectLine = "Su pedido autoInx ha sido Confirmado";
@@ -137,6 +135,8 @@ async function populateTemplate(orderData, recipientType) {
     }
 
     // Admin subject logic override
+    let recipientEmailPlaceholder = orderData.buyerEmail;
+
     if (recipientType !== 'customer') {
         subjectLine = orderStatus === 'Confirmed' 
             ? `NEW ORDER #${orderData.orderId.substring(0, 8).toUpperCase()} - ${orderData.buyerName}`
@@ -144,11 +144,10 @@ async function populateTemplate(orderData, recipientType) {
         mainTitle = subjectLine;
         mainIntro = "Internal notification. Please process this order.";
         closeMessage = 'Internal admin copy.';
+        recipientEmailPlaceholder = "orders@autoinx.com"; 
     }
 
-    recipientEmailPlaceholder = orderData.buyerEmail; // Default recipient email
-
-    // 4. Perform replacements on the template (Ensure your template has these exact placeholders)
+    // 4. Perform replacements on the template
     template = template.replace(/{{params\.badgeColor}}/g, badgeColor); 
     template = template.replace(/{{params\.badgeText}}/g, badgeText); 
     template = template.replace(/{{params\.mainTitle}}/g, mainTitle); 
@@ -194,6 +193,30 @@ exports.handler = async function (event) {
     if (event.httpMethod !== "POST") {
         return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
     }
+    
+    // --- START RATE LIMITING CHECK ---
+    const clientIp = event.headers['client-ip'] || event.headers['x-nf-client-connection-ip'] || 'unknown';
+    const now = Date.now();
+    
+    if (!rateLimitStore[clientIp]) {
+        rateLimitStore[clientIp] = [];
+    }
+    
+    // Remove requests older than the window
+    rateLimitStore[clientIp] = rateLimitStore[clientIp].filter(timestamp => timestamp > now - RATE_LIMIT_WINDOW_MS);
+    
+    if (rateLimitStore[clientIp].length >= MAX_REQUESTS_PER_HOUR) {
+        console.warn(`Rate limit exceeded for IP: ${clientIp} on order confirmation.`);
+        return {
+            statusCode: 429, // Too Many Requests
+            body: JSON.stringify({ error: `Rate limit exceeded. Please wait one hour before trying another purchase.` }),
+        };
+    }
+    
+    // Record the current request timestamp
+    rateLimitStore[clientIp].push(now);
+    // --- END RATE LIMITING CHECK ---
+
 
     const orderData = JSON.parse(event.body);
     const { orderId, buyerEmail, items, totalCents, requesterEmail, newStatus, language } = orderData; 
@@ -222,7 +245,7 @@ exports.handler = async function (event) {
         }
 
         // --- 2. Admin Notification Email (Force English for Admin Copy) ---
-        const adminEmailData = await populateTemplate({ ...orderData, newStatus, language: 'en' }, 'admin'); // Force 'en'
+        const adminEmailData = await populateTemplate({ ...orderData, newStatus, language: 'en' }, 'admin'); 
 
         const adminMailOptions = {
             from: "noreply@autoinx.com", 
@@ -234,7 +257,7 @@ exports.handler = async function (event) {
         
         // --- 3. Requester/Sales Agent Notification Email ---
         if (requesterEmail && requesterEmail !== buyerEmail && requesterEmail !== "orders@autoinx.com") {
-            const requesterEmailData = await populateTemplate({ ...orderData, newStatus, language: 'en' }, 'admin'); // Force 'en'
+            const requesterEmailData = await populateTemplate({ ...orderData, newStatus, language: 'en' }, 'admin'); 
             
             const requesterMailOptions = {
                 from: "noreply@autoinx.com", 
