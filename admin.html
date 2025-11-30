@@ -350,26 +350,24 @@
             }
         }
         
-          function renderCategorySalesTable(salesData) {
+        function renderCategorySalesTable(salesData) {
             if (salesData.tableData.length === 0) {
                 return `<p class="text-center text-gray-500 p-4">No sales data found for the selected time period.</p>`;
             }
         
             const tableRows = salesData.tableData.map(row => {
-                // --- DEFINITIVE FIX ---
-                // 1. Take the dollar value (which is a float, e.g., 900000.00)
-                // 2. Multiply by 100 to get the cent value (e.g., 90000000)
-                // 3. Use Math.round() to ensure a clean integer is passed to formatPriceDisplay.
-                const totalRevenueCents = Math.round(row.totalRevenue * 100);
-                const averagePriceCents = Math.round(row.averagePrice * 100);
-                // ----------------------
+                // --- CLEANUP: Use the CENTS values directly from the data structure ---
+                // We use Math.round() just in case averagePriceCents resulted in a float.
+                const totalRevenue = row.totalRevenueCents;
+                const averagePrice = Math.round(row.averagePriceCents);
+                // --------------------------------------------------------------------
         
                 return `
                     <div class="grid grid-cols-4 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
                         <div class="text-sm font-semibold text-gray-800 truncate">${row.category}</div>
                         <div class="text-sm text-center">${row.unitsSold}</div>
-                        <div class="text-sm font-bold text-green-700">${formatPriceDisplay(totalRevenueCents)}</div>
-                        <div class="text-sm text-right text-gray-500">${formatPriceDisplay(averagePriceCents)}</div>
+                        <div class="text-sm font-bold text-green-700">${formatPriceDisplay(totalRevenue)}</div>
+                        <div class="text-sm text-right text-gray-500">${formatPriceDisplay(averagePrice)}</div>
                     </div>
                 `;
             }).join('');
@@ -400,7 +398,7 @@
             `;
         }
         
-          function processSalesDataByCategory() {
+         function processSalesDataByCategory() {
             const categorySales = {};
             const itemMap = state.items.reduce((map, item) => {
                 map[item.id] = item;
@@ -423,7 +421,7 @@
                         
                         const salesAmount = orderItem.price * orderItem.quantity;
                         
-                        categoryMetrics[categoryName].totalRevenue += salesAmount;
+                        categoryMetrics[categoryName].totalRevenue += salesAmount; // Total revenue in CENTS
                         categoryMetrics[categoryName].unitsSold += orderItem.quantity;
                     }
                 });
@@ -436,24 +434,28 @@
             Object.keys(categoryMetrics).forEach(categoryName => {
                 const metrics = categoryMetrics[categoryName];
                 if (metrics.totalRevenue > 0) {
-                    chartData.labels.push(categoryName);
-                    chartData.data.push(metrics.totalRevenue / 100); // Convert cents to dollars for Chart.js
-        
+                    
+                    // For the CHART: Must use dollar value (cents / 100)
                     const revenueDollars = metrics.totalRevenue / 100;
-                    const avgPrice = metrics.unitsSold > 0 ? revenueDollars / metrics.unitsSold : 0;
+                    chartData.labels.push(categoryName);
+                    chartData.data.push(revenueDollars); 
+        
+                    // For the TABLE: Store values as CENTS (integer) for consistency with formatPriceDisplay
+                    const totalRevenueCents = metrics.totalRevenue; // <<< FIX 1: Store CENTS
+                    const averagePriceCents = totalRevenueCents / metrics.unitsSold; // Avg price in CENTS per unit
         
                     tableData.push({
                         category: categoryName,
-                        totalRevenue: revenueDollars,
+                        totalRevenueCents: totalRevenueCents, // <<< NEW PROPERTY NAME (CENTS)
                         unitsSold: metrics.unitsSold,
-                        averagePrice: avgPrice,
+                        averagePriceCents: averagePriceCents, // <<< NEW PROPERTY NAME (CENTS)
                     });
                 }
             });
         
             return {
                 chartData: chartData,
-                tableData: tableData.sort((a, b) => b.totalRevenue - a.totalRevenue), // Sort by revenue descending
+                tableData: tableData.sort((a, b) => b.totalRevenueCents - a.totalRevenueCents), // Sort by cents descending
             };
         }
 // --- NEW HELPER FUNCTIONS FOR DRAFT CART MANAGEMENT (Add around line 1300) ---
