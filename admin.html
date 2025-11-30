@@ -2356,26 +2356,28 @@
             }).join('');
         
             const contentEl = document.getElementById('ordersListContent');
-            if (contentEl) {
-                contentEl.innerHTML = tableRows || '<p class="text-center p-6 text-gray-500">No orders found matching this filter.</p>';
+                if (contentEl) {
+                    contentEl.innerHTML = tableRows || '<p class="text-center p-6 text-gray-500">No orders found matching this filter.</p>';
+                }
+                const statsEl = document.getElementById('ordersStats');
+                if (statsEl) {
+                    statsEl.innerHTML = window.module.getOrdersStatsHtml();
+                    window.module.renderSalesCharts(); // Call the renderer after injecting the HTML
+                }
+                
+                // Clear the loading message after rendering
+                const ordersMsgElClear = document.getElementById('ordersMessage');
+                if (ordersMsgElClear) ordersMsgElClear.textContent = '';
             }
-        
-            // 🎯 CRITICAL FIX: Trigger the stats and charts render immediately after the list updates.
-            window.module.renderOrdersStats(); 
-            
-            // Clear the loading message after rendering
-            const ordersMsgElClear = document.getElementById('ordersMessage');
-            if (ordersMsgElClear) ordersMsgElClear.textContent = '';
-        }
             
         function renderOrdersStats() {
             const statsEl = document.getElementById('ordersStats');
             if (statsEl) {
-                // 1. Inject the HTML for the summary cards, filters, and CANVAS elements
+                // 1. Inject the HTML (which contains the <canvas> tags)
                 statsEl.innerHTML = getOrdersStatsHtml(); 
                 
                 // 2. Now that the canvases exist in the DOM, draw the charts
-                renderSalesCharts(); 
+                renderSalesCharts(); // <-- Call the locally defined drawing function
             }
         }
     
