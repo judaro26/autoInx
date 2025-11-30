@@ -385,16 +385,19 @@
                 return orderDate >= cutoffDate;
             });
         }
+        // Located around line 430 in your current setup
         function renderSalesCharts() {
             // 1. Destroy existing charts before rendering new ones
-            destroyCharts();
+            destroyCharts(); // This function clears salesCharts.category and salesCharts.month
         
+            // 2. Process data using the *local* helper functions
             const categoryData = processSalesDataByCategory();
             const monthlyData = processSalesDataByMonth();
         
             // --- Pie Chart: Sales by Category ---
             const ctxCategory = document.getElementById('salesByCategoryChart');
             if (ctxCategory) {
+                // Use local variable 'salesCharts' to store the instance
                 salesCharts.category = new Chart(ctxCategory, {
                     type: 'doughnut',
                     data: {
@@ -416,15 +419,18 @@
                             },
                             title: {
                                 display: true,
+                                // Access state.salesTimeFilter directly
                                 text: 'Sales by Product Category (Net)',
                                 font: { size: 16 }
                             },
                             tooltip: {
                                 callbacks: {
+                                    // Custom callback to format value as currency for the tooltip
                                     label: function(context) {
                                         let label = context.label || '';
                                         if (context.parsed !== null) {
-                                            // Converts back to cents internally for formatting ($0.00)
+                                            // The chart data is already in dollars (cents/100), so we multiply by 100 
+                                            // only to use the existing formatPriceDisplay(cents) utility.
                                             label += `: ${formatPriceDisplay(context.parsed * 100)}`;
                                         }
                                         return label;
@@ -439,6 +445,7 @@
             // --- Time Chart: Sales per Month ---
             const ctxMonth = document.getElementById('salesPerMonthChart');
             if (ctxMonth) {
+                 // Use local variable 'salesCharts' to store the instance
                  salesCharts.month = new Chart(ctxMonth, {
                     type: 'line',
                     data: {
@@ -458,15 +465,16 @@
                         plugins: {
                             title: {
                                 display: true,
+                                // Access state.salesTimeFilter directly
                                 text: `Monthly Sales Trends (${state.salesTimeFilter.replace('last', 'Last ')})`,
                                 font: { size: 16 }
                             },
                             tooltip: {
                                 callbacks: {
+                                    // Custom callback to format value as currency for the tooltip
                                     label: function(context) {
                                         let label = context.dataset.label || '';
                                         if (context.parsed.y !== null) {
-                                            // Converts back to cents internally for formatting ($0.00)
                                             label += `: ${formatPriceDisplay(context.parsed.y * 100)}`;
                                         }
                                         return label;
@@ -482,8 +490,8 @@
                                     text: 'Revenue (USD)'
                                 },
                                 ticks: {
+                                    // Custom callback to format Y-axis labels as currency
                                     callback: function(value) {
-                                        // Formats Y-axis labels as currency
                                         return formatPriceDisplay(value * 100).replace(/\.00$/, ''); 
                                     }
                                 }
@@ -2403,11 +2411,13 @@
         function renderOrdersStats() {
             const statsEl = document.getElementById('ordersStats');
             if (statsEl) {
-                // 1. Inject the HTML (which contains the <canvas> tags)
+                // 1. Inject the entire statistics HTML structure (containing the canvases)
                 statsEl.innerHTML = getOrdersStatsHtml(); 
                 
-                // 2. Now that the canvases exist in the DOM, draw the charts
-                renderSalesCharts(); // <-- Call the locally defined drawing function
+                // 2. IMPORTANT: Now that the canvases are in the DOM, 
+                //    call the chart drawing function immediately using its global path.
+                //    (Using window.module ensures it is accessible globally.)
+                window.module.renderSalesCharts(); 
             }
         }
     
