@@ -10,12 +10,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>autoInx Admin Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style type="text/tailwindcss">
         body { font-family: 'Inter', sans-serif; }
@@ -105,25 +100,19 @@
             <p class="text-gray-600">Checking authentication and loading configuration...</p>
         </div>
     </div>
-    <body class="bg-gray-100 min-h-screen">
 
     <div id="editModalContainer"></div> 
 
     <script type="module">
-        // ... all your existing JavaScript code ...
-    </script>
-    </body>
-
-    <script type="module">
+        // 2. ADDED: Global object to hold Chart.js instances
+        let salesCharts = { category: null, month: null };
+        // import modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         // CORRECTED: Import static IP list directly from the new client-accessible path
         import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js'; 
-
-        // 2. ADDED: Global object to hold Chart.js instances
-        let salesCharts = { category: null, month: null };
         
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
@@ -2354,99 +2343,21 @@
         function renderOrdersList() {
             // This logic filters the mock orders based on state.orderStatusFilter
             const orders = getFilteredOrders();
+            // ... (rest of tableRows generation remains the same) ...
             const tableRows = orders.map(order => {
-                
-                // 🔑 1. Determine the necessary ID for the Firestore path
-                // This will be the client's UID OR the admin's email for manual orders.
-                const targetId = order.uid || order.createdByAdmin; 
-                
-                if (!targetId) {
-                    // Only log error if neither UID nor Admin source is present
-                    console.error(`Order ${order.id} is missing a client UID/Admin source and cannot be edited.`);
-                }
-                
-                // 2. Set the status classes (no change)
-                const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
-                                           order.status === 'Pending' ? 'text-red-600 font-bold' :
-                                           order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
-                                           
-                let deliveryButton;
-                if (order.status === 'Pending') {
-                    deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
-                } else if (order.status === 'Processing') {
-                    deliveryButton = `<span class="text-xs text-blue-500">Tracking: ${order.trackingId || 'N/A'}</span>`;
-                } else if (order.status === 'Delivered' || order.status === 'Cancelled' || order.status === 'Manually Created') {
-                    deliveryButton = `<span class="text-xs text-gray-500 font-semibold">${order.status}</span>`;
-                } else {
-                    deliveryButton = '';
-                }
-                
-                // Generates the HTML for the list of items in the order
-                const itemListHtml = order.items.map(item => 
-                    `<p>${item.quantity}x ${item.name.substring(0,20)}${item.name.length > 20 ? '...' : ''}</p>`
-                ).join('');
-                
-                const isPaid = order.isPaid || false; 
-                const paymentStatusBadge = isPaid
-                    ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
-                    : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
-                
-                // 3. Conditional Edit Button Rendering
-                const editButton = targetId 
-                    ? `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>`
-                    : `<span class="text-xs text-red-500 p-1">No Edit Source</span>`;
-                
+                // ... (order mapping logic) ...
                 return `
                     <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
-                        
-                        <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
-                            <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
-                            <p class="text-xs text-gray-500 font-mono">${order.id}</p>
                         </div>
-                        
-                        <div class="col-span-2 text-sm">
-                            <p class="font-semibold">${order.buyerName}</p>
-                            <p class="text-xs text-gray-500 truncate">${order.buyerEmail}</p>
-                            <p class="text-xs text-gray-500 truncate">${order.deliveryAddress}</p>
-                        </div>
-                        
-                        <div class="col-span-3 flex flex-col items-center justify-center space-y-1"> 
-                            <div class="flex items-center">
-                                <span class="text-lg font-bold text-pink-700">${formatPriceDisplay(order.totalCents)}</span>
-                                ${paymentStatusBadge} 
-                            </div>
-                            <span class="text-sm font-bold ${statusClass} flex-shrink-0">${order.status}</span>
-                        </div>
-                        
-                        <div class="col-span-1"></div>
-                        <div class="col-span-2 text-xs text-gray-700">
-                            ${itemListHtml} 
-                        </div>
-                        
-                        <div class="col-span-2 space-y-1"> 
-                            <div class="text-xs text-gray-500 font-semibold mb-2">
-                                ${formatTime(order.createdAt)} 
-                            </div>
-                            
-                            ${editButton} ${deliveryButton}
-                            <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="w-full p-1 border rounded text-xs bg-white">
-                                <option value="" disabled selected>Update Status</option>
-                                <option value="Pending">Pending</option>
-                                <option value="Processing">Processing</option>
-                                <option value="Delivered">Delivered</option>
-                                <option value="Cancelled">Cancelled</option>
-                            </select>
-                        </div>
-                    </div>
                 `;
             }).join('');
-            
+        
             const contentEl = document.getElementById('ordersListContent');
             if (contentEl) {
                 contentEl.innerHTML = tableRows || '<p class="text-center p-6 text-gray-500">No orders found matching this filter.</p>';
             }
-            
-            // CRITICAL: Call the stats and chart renderer after updating the list
+        
+            // 🎯 CRITICAL FIX: Trigger the stats and charts render immediately after the list updates.
             window.module.renderOrdersStats(); 
             
             // Clear the loading message after rendering
@@ -2455,41 +2366,14 @@
         }
     
         function renderOrdersStats() {
-            // --- Mockup Stats Data ---
-            const totalSales = state.orders.reduce((sum, order) => sum + (order.status !== 'Cancelled' ? order.totalCents : 0), 0);
-            const orderCounts = state.orders.reduce((counts, order) => {
-                counts[order.status] = (counts[order.status] || 0) + 1;
-                return counts;
-            }, {});
-            // --- End Mockup ---
-    
-            return `
-                <div class="grid grid-cols-3 gap-4 text-center">
-                    <div class="bg-indigo-50 p-4 rounded-lg">
-                        <p class="text-xs font-semibold text-indigo-700">Total Revenue (Net)</p>
-                        <p class="text-2xl font-bold text-indigo-900">${formatPriceDisplay(totalSales)}</p>
-                    </div>
-                    <div class="bg-blue-50 p-4 rounded-lg">
-                        <p class="text-xs font-semibold text-blue-700">Total Orders</p>
-                        <p class="text-2xl font-bold text-blue-900">${state.orders.length}</p>
-                    </div>
-                    <div class="bg-red-50 p-4 rounded-lg">
-                        <p class="text-xs font-semibold text-red-700">Pending Orders</p>
-                        <p class="text-2xl font-bold text-red-900">${orderCounts['Pending'] || 0}</p>
-                    </div>
-                </div>
-    
-                <div class="mt-6 p-4 bg-white rounded-xl border border-gray-200 shadow-md">
-                    <h4 class="font-bold text-lg mb-3">Order Status Breakdown</h4>
-                    <ul class="space-y-1 text-sm">
-                        <li><span class="font-semibold text-green-600">Delivered:</span> ${orderCounts['Delivered'] || 0}</li>
-                        <li><span class="font-semibold text-blue-600">Processing:</span> ${orderCounts['Processing'] || 0}</li>
-                        <li><span class="font-semibold text-red-600">Pending:</span> ${orderCounts['Pending'] || 0}</li>
-                        <li><span class="font-semibold text-gray-600">Cancelled:</span> ${orderCounts['Cancelled'] || 0}</li>
-                    </ul>
-                    <p class="text-xs text-gray-500 mt-4">Note: Chart integration (e.g., Chart.js) would replace this simple list.</p>
-                </div>
-            `;
+            const statsEl = document.getElementById('ordersStats');
+            if (statsEl) {
+                // 1. Inject the HTML structure (using the old HTML generating function)
+                statsEl.innerHTML = window.module.getOrdersStatsHtml(); 
+                
+                // 2. Start the chart drawing process using the newly created canvas elements
+                window.module.renderSalesCharts(); 
+            }
         }
     
         function renderOrderCreateForm() {
@@ -2565,46 +2449,20 @@
             `;
         }
     
-        function renderOrderTracker() {
+          function renderOrderTracker() {
             const statusOptions = ['All', 'Pending', 'Processing', 'Delivered', 'Cancelled'];
-        
+            
+            // We remove the hardcoded, blank #ordersStats div from renderOrderTracker's HTML return 
+            // and let renderOrdersStats inject it.
+            
             return `
                 <section class="space-y-8">
                     <h2 class="text-3xl font-extrabold text-indigo-700">Sales and Delivery Tracking</h2>
                     <div id="ordersMessage" class="text-center font-semibold">Loading orders...</div>
-                    <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
-                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-                                <h3 class="text-xl font-bold text-indigo-700">Recent Orders List</h3>
-                                
-                                <input 
-                                    type="text" 
-                                    oninput="window.module.handleOrderListSearchInput(event)" 
-                                    placeholder="Search name, email, order #, or SKU..." 
-                                    class="w-full sm:w-80 p-2 border rounded-lg text-sm mb-4 sm:mb-0 sm:mr-4"
-                                    value="${state.orderListSearchTerm}"
-                                >
-                                
-                                <div class="flex space-x-4">
-                                    <select onchange="window.module.handleStatusFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
-                                        ${statusOptions.map(s => `<option value="${s}" ${state.orderStatusFilter === s ? 'selected' : ''}>Filter: ${s}</option>`).join('')}
-                                    </select>
-                                    <button onclick="window.module.switchOrderPage('create')" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition">Create Manual Order</button>
-                                </div>
-                            </div>
-                                <div class="bg-gray-100 p-3 rounded-t-lg font-bold text-sm grid grid-cols-12 gap-4">
-                                    <div class="col-span-2">Order # / ID</div>        
-                                    <div class="col-span-2">Buyer/Address</div>
-                                    <div class="col-span-3 text-center">Total / Paid</div>
-                                    <div class="col-span-1"></div>
-                                    <div class="col-span-2 text-center">Items</div>
-                                    <div class="col-span-2 text-center">Actions / Time</div> 
-                                </div>
-                        <div id="ordersListContent" class="max-h-[70vh] custom-scrollbar overflow-y-auto">
-                        </div>
-                    </div>
+                    
                     <div id="ordersStatsContainer" class="space-y-6">
                         <div id="ordersStats" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
-                        </div>
+                            </div>
                     </div>
                 </section>
             `;
