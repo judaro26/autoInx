@@ -328,6 +328,142 @@
                 data: Object.values(categorySales).map(cents => cents / 100), 
             };
         }
+// --- NEW HELPER FUNCTIONS FOR DRAFT CART MANAGEMENT (Add around line 1300) ---
+        function initializeDraftCart(orderItems) {
+            state.editingOrderDraftCart = {};
+            orderItems.forEach(orderItem => {
+                // Find the full product details from the global item list
+                const fullItem = state.items.find(i => i.id === orderItem.id);
+                if (fullItem) {
+                    state.editingOrderDraftCart[orderItem.id] = {
+                        item: fullItem,
+                        quantity: orderItem.quantity,
+                    };
+                } else {
+                    // Handle deleted or missing item gracefully by using its name/price from the order
+                    state.editingOrderDraftCart[orderItem.id] = {
+                        item: { 
+                            id: orderItem.id, 
+                            name: orderItem.name || 'DELETED PRODUCT', 
+                            price: orderItem.price || 0,
+                            sku: orderItem.sku || 'N/A'
+                        },
+                        quantity: orderItem.quantity,
+                    };
+                }
+            });
+        }
+        
+        // Re-use the updateAdminCartDisplay logic, renamed for the modal
+        function updateDraftCartDisplay() {
+            const cartEl = document.getElementById('editOrderItemsDisplay');
+            const totalEl = document.getElementById('editOrderTotal');
+            let totalCents = 0;
+        
+            if (!cartEl || !totalEl) return;
+        
+            const itemsInCart = Object.values(state.editingOrderDraftCart);
+        
+            if (itemsInCart.length === 0) {
+                cartEl.innerHTML = '<p class="text-gray-500 italic">No items currently in order.</p>';
+                totalEl.textContent = formatPriceDisplay(0);
+                return;
+            }
+        
+            const cartHtml = itemsInCart.map(entry => {
+                const subtotal = entry.item.price * entry.quantity;
+                totalCents += subtotal;
+        
+                return `
+                    <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                        <div class="flex-1 min-w-0 pr-2">
+                            <p class="text-sm font-semibold text-gray-900 truncate">${entry.item.name}</p>
+                            <p class="text-xs text-gray-500">${formatPriceDisplay(entry.item.price)}</p>
+                        </div>
+                        <div class="flex items-center space-x-2 flex-shrink-0">
+                            <input type="number" data-item-id="${entry.item.id}" value="${entry.quantity}" min="1" 
+                                   onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
+                                   class="w-16 p-1 border rounded text-sm text-center">
+                            <span class="text-sm font-bold text-pink-700">${formatPriceDisplay(subtotal)}</span>
+                            <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" 
+                                    class="text-red-500 hover:text-red-700 text-sm font-semibold ml-2" title="Remove Item">❌</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        
+            cartEl.innerHTML = cartHtml;
+            totalEl.textContent = formatPriceDisplay(totalCents);
+        }
+        
+        // Function to add a NEW item to the draft cart
+        function addDraftCartItem() {
+            const selector = document.getElementById('editItemSelector');
+            const quantityEl = document.getElementById('editItemQuantity');
+        
+            if (!selector || !quantityEl) return;
+        
+            const itemId = selector.value;
+            const quantity = parseInt(quantityEl.value, 10);
+        
+            if (!itemId || quantity <= 0) {
+                showMessage('error', 'Please select a product and quantity to add.', 2000, 'orders');
+                return;
+            }
+        
+            const item = state.items.find(i => i.id === itemId);
+            if (!item) return;
+        
+            state.editingOrderDraftCart = {
+                ...state.editingOrderDraftCart,
+                [itemId]: {
+                    item,
+                    quantity: (state.editingOrderDraftCart[itemId]?.quantity || 0) + quantity
+                }
+            };
+            
+            // Reset inputs
+            quantityEl.value = 1; 
+            selector.value = '';
+        
+            showMessage('success', `Added ${quantity}x ${item.name} to the order draft.`, 2000, 'orders');
+            updateDraftCartDisplay();
+        }
+        
+        // Function to remove an item from the draft cart
+        function removeDraftCartItem(itemId) {
+            const currentEntry = state.editingOrderDraftCart[itemId];
+            if (!currentEntry) return;
+        
+            const newCart = { ...state.editingOrderDraftCart };
+            delete newCart[itemId];
+            state.editingOrderDraftCart = newCart;
+        
+            showMessage('info', `${currentEntry.item.name} removed from order draft.`, 2000, 'orders');
+            updateDraftCartDisplay();
+        }
+        
+        // Function to update the quantity of an item in the draft cart
+        function updateDraftItemQuantity(quantityString, itemId) {
+            const quantity = parseInt(quantityString, 10);
+            const currentEntry = state.editingOrderDraftCart[itemId];
+            
+            if (!currentEntry) return;
+            
+            if (quantity <= 0) {
+                removeDraftCartItem(itemId);
+            } else {
+                state.editingOrderDraftCart = {
+                    ...state.editingOrderDraftCart,
+                    [itemId]: {
+                        ...currentEntry,
+                        quantity: quantity
+                    }
+                };
+                updateDraftCartDisplay();
+            }
+        }
+        
         function processSalesDataByMonth() {
             const filteredOrders = getFilteredSalesOrders();
             const monthlySales = {};
@@ -1974,26 +2110,26 @@
         
         async function showOrderEditForm(orderId, clientUid) { // 🔑 Accepts both IDs
             if (!orderId || !clientUid) return console.error("Missing Order ID or Client UID for editing.");
-        
+            
             let orderRef;
-            let orderSnap; 
+            let orderSnap;
             let path;
-        
+            
             try {
-                const adminUserId = await waitForUserId(); 
+                const adminUserId = await waitForUserId(); // Ensures admin user ID is available
                 const collectionPathFn = window.module.getOrdersCollectionPath;
                 
                 if (typeof collectionPathFn !== 'function') {
                      throw new Error("Collection path helper is missing or not a function.");
                 }
                 
-                path = collectionPathFn(clientUid); 
+                path = collectionPathFn(clientUid);
                 
                 orderRef = doc(db, path, orderId);
                 
                 // 4. Fetch the document data directly from Firebase
-                orderSnap = await getDoc(orderRef); 
-        
+                orderSnap = await getDoc(orderRef);
+                
                 // --- DEBUG LOGGING: CHECK THIS IN YOUR CONSOLE ---
                 console.log(`[DEBUG] Attempted path: ${path}/${orderId}`);
                 console.log(`[DEBUG] Document Exists: ${orderSnap.exists()}`);
@@ -2012,14 +2148,32 @@
                     `;
                     return; // Exit after showing error
                 }
-        
+                
                 // 5. Construct the orderData object from the fetched snapshot
                 const orderData = { id: orderSnap.id, ...orderSnap.data() };
+                
+                // **NEW CRITICAL STEP: Initialize the draft cart state**
+                window.module.initializeDraftCart(orderData.items || []); // Use helper from window.module
                 
                 // 6. Render the modal using the fetched data
                 const modalHtml = window.module.renderOrderEditModal(orderData);
                 
                 document.getElementById('editModalContainer').innerHTML = modalHtml;
+                
+                // **NEW CRITICAL STEP: Populate the modal's item list immediately after injection**
+                window.module.updateDraftCartDisplay(); 
+        
+                // RENDER ITEM SELECTOR OPTIONS (Uses existing state.items and state.catalogs)
+                const selectorEl = document.getElementById('editItemSelector');
+                if(selectorEl) {
+                    const items = state.items; 
+                    let optionsHtml = '<option value="" disabled selected>-- Add Product --</option>';
+                    optionsHtml += items.map(item => {
+                        const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                        return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
+                    }).join('');
+                    selectorEl.innerHTML = optionsHtml;
+                }
         
             } catch (error) {
                 console.error("Error fetching order for edit:", error);
@@ -2066,8 +2220,7 @@
             `;
         
             // Determine the current language preference
-            // We check both order.language and order.communicationLang for compatibility
-            const currentLang = order.language || order.communicationLang || 'en'; 
+            const currentLang = order.language || order.communicationLang || 'en';
             
             const languageOptions = `
                 <option value="en" ${currentLang === 'en' ? 'selected' : ''}>🇺🇸 English</option>
@@ -2075,47 +2228,75 @@
             `;
         
             // Determine the ID needed for the update path: Use UID for user orders, Admin Email for others
-            // We use auth.currentUser.email as a reliable fallback if neither is set (though they should be)
             const updateSourceId = order.uid || order.createdByAdmin || auth.currentUser.email;
-        
+            
             return `
                 <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onclick="window.module.closeEditModal()">
-                    
-                    <div class="relative top-20 mx-auto p-8 border w-3/4 md:w-1/2 shadow-2xl rounded-xl bg-white transform transition-all duration-300 scale-100" onclick="event.stopPropagation()">
+                    <div class="relative top-10 mx-auto p-8 border w-11/12 md:w-3/4 lg:w-2/3 shadow-2xl rounded-xl bg-white transform transition-all duration-300 scale-100" onclick="event.stopPropagation()">
                         <h3 class="text-3xl font-bold text-indigo-700 mb-6">Edit Order: ${order.id.slice(0, 8)}...</h3>
                         <form id="orderEditForm" onsubmit="window.module.updateOrder(event, '${order.id}', '${updateSourceId}')">
-                            
-                            <div class="mb-4">
-                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-status">Status</label>
-                                <select id="edit-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                    ${statusOptions}
-                                </select>
-                            </div>
-                            
-                            <div class="mb-4">
-                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-language">Customer Language</label>
-                                <select id="edit-language" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                    ${languageOptions}
-                                </select>
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-payment-status">Payment Status</label>
-                                <select id="edit-payment-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                                    ${isPaidOptions}
-                                </select>
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-address">Delivery Address</label>
-                                <input type="text" id="edit-address" value="${order.deliveryAddress || ''}" required 
-                                       class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
-                            </div>
-                            
-                            <div class="mb-4">
-                                <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-notes">Internal Notes (for Admin)</label>
-                                <textarea id="edit-notes" rows="3" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">${order.adminNotes || ''}</textarea>
-                            </div>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                
+                                <div class="lg:col-span-1 space-y-4">
+                                    <h4 class="text-xl font-bold text-gray-700 border-b pb-2">Details</h4>
+                                    <div class="mb-4">
+                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-status">Status</label>
+                                        <select id="edit-status" class="w-full p-2 border border-gray-300 rounded-lg text-base">
+                                            ${statusOptions}
+                                        </select>
+                                    </div>
+                                    <div class="mb-4">
+                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-payment-status">Payment Status</label>
+                                        <select id="edit-payment-status" class="w-full p-2 border border-gray-300 rounded-lg text-base">
+                                            ${isPaidOptions}
+                                        </select>
+                                    </div>
+                                    <div class="mb-4">
+                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-language">Customer Language</label>
+                                        <select id="edit-language" class="w-full p-2 border border-gray-300 rounded-lg text-base">
+                                            ${languageOptions}
+                                        </select>
+                                    </div>
+                                    <div class="mb-4">
+                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-address">Delivery Address</label>
+                                        <input type="text" id="edit-address" value="${order.deliveryAddress || ''}" required 
+                                               class="w-full p-2 border border-gray-300 rounded-lg text-base">
+                                    </div>
+                                    <div class="mb-4">
+                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-notes">Internal Notes (for Admin)</label>
+                                        <textarea id="edit-notes" rows="3" class="w-full p-2 border border-gray-300 rounded-lg text-base">${order.adminNotes || ''}</textarea>
+                                    </div>
+                                </div>
         
-                            <div class="flex justify-end space-x-4 mt-8">
+                                <div class="lg:col-span-1 space-y-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                    <h4 class="text-xl font-bold text-pink-700 border-b pb-2">Items Ordered (Edit)</h4>
+        
+                                    <div class="space-y-3 p-3 border border-pink-200 rounded-lg bg-white">
+                                        <p class="text-sm font-semibold text-pink-600">Add Product:</p>
+                                        <div class="flex space-x-2 items-center">
+                                            <select id="editItemSelector" class="flex-grow p-2 border rounded-lg text-sm">
+                                                </select>
+                                            <input type="number" id="editItemQuantity" value="1" min="1" class="w-14 p-2 border rounded-lg text-center flex-shrink-0 text-sm">
+                                        </div>
+                                        <button type="button" onclick="window.module.addDraftCartItem()" class="w-full bg-pink-600 text-white py-2 rounded-lg text-sm hover:bg-pink-700">Add to Order</button>
+                                    </div>
+        
+                                    <div class="max-h-60 custom-scrollbar overflow-y-auto pr-2 border-t pt-2">
+                                        <div id="editOrderItemsDisplay" class="space-y-1">
+                                            </div>
+                                    </div>
+        
+                                    <div class="pt-4 mt-4 border-t border-gray-300">
+                                        <div class="flex justify-between font-bold text-xl text-gray-800">
+                                            <span>New Total:</span>
+                                            <span id="editOrderTotal">$0.00</span>
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-1 italic">The final total will be recalculated upon saving.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex justify-end space-x-4 mt-8 pt-4 border-t border-gray-200">
                                 <button type="button" onclick="window.module.closeEditModal()" 
                                         class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition shadow-md">
                                     Cancel
@@ -2131,84 +2312,148 @@
             `;
         }
         
-        /**
-         * Closes the edit modal and clears the container.
-         */
         function closeEditModal() {
             // Hide the modal by clearing its container
             document.getElementById('editModalContainer').innerHTML = '';
         }
         
-        async function updateOrder(e, orderId, sourceId) { 
+        async function updateOrder(e, orderId, sourceId) {
             e.preventDefault();
             
             const saveBtn = document.getElementById('saveOrderBtn');
             const originalText = saveBtn.innerHTML;
             saveBtn.disabled = true;
-            saveBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white inline" viewBox="0 0 24 24">...</svg> Saving...`; // Simplified SVG for brevity
-        
+            saveBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white inline" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving...`;
+            
             const newStatus = document.getElementById('edit-status').value;
-            const newLanguage = document.getElementById('edit-language').value; 
+            const newLanguage = document.getElementById('edit-language').value;
             const newAddress = document.getElementById('edit-address').value;
             const newNotes = document.getElementById('edit-notes').value;
             const newIsPaidString = document.getElementById('edit-payment-status').value;
-            const newIsPaid = newIsPaidString === 'true'; 
+            const newIsPaid = newIsPaidString === 'true';
             
+            // **NEW: Get the draft items and calculate the new total**
+            const newItemsDraft = Object.values(state.editingOrderDraftCart);
+            const newItemsList = newItemsDraft.map(entry => ({
+                id: entry.item.id,
+                name: entry.item.name,
+                sku: entry.item.sku || null,
+                price: entry.item.price, // Price in cents
+                quantity: entry.quantity
+            }));
+            const newTotalCents = newItemsDraft.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+        
+            // Validate if the cart is empty after editing
+            if (newItemsList.length === 0) {
+                alert("Cannot save an empty order. Please add at least one item or cancel.");
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalText;
+                return;
+            }
+            // ----------------------------------------------------
+        
             const collectionPath = window.module.getOrdersCollectionPath(sourceId);
-            const orderRef = doc(db, collectionPath, orderId); 
+            const orderRef = doc(db, collectionPath, orderId);
             
-            // 1. Get the original order object from local state to compare statuses
-            const originalOrder = state.orders.find(o => o.id === orderId); //
-            const originalStatus = originalOrder ? originalOrder.status : ''; //
+            // 1. Get the original order object from local state
+            const originalOrder = state.orders.find(o => o.id === orderId); 
+            const originalStatus = originalOrder ? originalOrder.status : '';
+            const originalItemsMap = originalOrder ? originalOrder.items.reduce((map, item) => { map[item.id] = item.quantity; return map; }, {}) : {};
         
             try {
-                // 2. Perform Firestore Update (Save all modal fields)
+                // 2. Perform Firestore Update with all fields, INCLUDING ITEMS AND TOTAL
                 await updateDoc(orderRef, {
                     status: newStatus,
                     isPaid: newIsPaid,
                     deliveryAddress: newAddress,
                     adminNotes: newNotes,
-                    language: newLanguage, 
-                    communicationLang: newLanguage, 
-                    updatedAt: serverTimestamp() 
+                    language: newLanguage,
+                    communicationLang: newLanguage,
+                    items: newItemsList,          // <-- NEW
+                    totalCents: newTotalCents,    // <-- NEW
+                    updatedAt: serverTimestamp()
+                });
+        
+                // 3. **CRITICAL: Handle Inventory Adjustment**
+                const inventoryUpdatePromises = newItemsList.map(async newItem => {
+                    const originalQty = originalItemsMap[newItem.id] || 0;
+                    const change = newItem.quantity - originalQty; // +ve for added, -ve for removed
+        
+                    if (change !== 0) {
+                        const currentItem = state.items.find(i => i.id === newItem.id);
+                        if (currentItem) {
+                            const newStock = Math.max(0, (currentItem.stock || 0) - change);
+                            const itemRef = doc(db, ITEMS_COLLECTION, newItem.id);
+                            await updateDoc(itemRef, { stock: newStock });
+                            
+                            await logAdminAction('INVENTORY_ADJUSTED_VIA_EDIT', {
+                                itemId: newItem.id,
+                                item: currentItem.name,
+                                orderId,
+                                qtyChange: change,
+                                oldStock: currentItem.stock,
+                                newStock
+                            }, newItem.id);
+                        }
+                    }
+                });
+        
+                // Handle items that were completely removed from the order (inventory must be returned)
+                const removedItemPromises = Object.keys(originalItemsMap).filter(id => !newItemsList.some(item => item.id === id)).map(async removedItemId => {
+                    const removedQty = originalItemsMap[removedItemId];
+                    const currentItem = state.items.find(i => i.id === removedItemId);
+                    if (currentItem) {
+                        const newStock = (currentItem.stock || 0) + removedQty;
+                        const itemRef = doc(db, ITEMS_COLLECTION, removedItemId);
+                        await updateDoc(itemRef, { stock: newStock });
+        
+                        await logAdminAction('INVENTORY_RETURNED_VIA_EDIT', {
+                            itemId: removedItemId,
+                            item: currentItem.name,
+                            orderId,
+                            qtyReturned: removedQty,
+                            oldStock: currentItem.stock,
+                            newStock
+                        }, removedItemId);
+                    }
                 });
                 
-                // 3. Notification Trigger Check
-                const requiresNotification = ['Processing', 'Delivered', 'Cancelled'].includes(newStatus) && newStatus !== originalStatus; //
+                await Promise.all([...inventoryUpdatePromises, ...removedItemPromises]);
+                // ------------------------------------------
+        
+                // 4. Notification Trigger Check (status change is separate from item change)
+                const requiresNotification = ['Processing', 'Delivered', 'Cancelled'].includes(newStatus) && newStatus !== originalStatus;
                 
                 if (requiresNotification && originalOrder) {
                     
-                    // Build payload using the original order + the newly updated values from the modal
                     const emailPayload = {
                         ...originalOrder,
                         orderId: orderId,
-                        newStatus: newStatus, 
-                        language: newLanguage, // Use the new language from the modal
-                        // Overwrite the saved address/notes with the new ones from the modal
+                        newStatus: newStatus,
+                        language: newLanguage,
                         deliveryAddress: newAddress,
                         adminNotes: newNotes,
+                        items: newItemsList, // Pass the NEW list of items to the email template
+                        totalCents: newTotalCents, // Pass the NEW total to the email template
                     };
                     
-                    // EMAIL_CONFIRMATION_FUNCTION is defined globally in admin.html
                     await fetch(EMAIL_CONFIRMATION_FUNCTION, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(emailPayload)
                     });
-                    console.log(`Order ${orderId} status changed from ${originalStatus} to ${newStatus}. Notification email sent.`);
-                    
                     alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. Notification email triggered.`);
                 } else {
-                     alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. No status notification sent (status did not change or does not require notification).`);
+                    alert(`Order ${orderId.slice(0, 8)} updated. No status notification sent.`);
                 }
                 
                 closeEditModal();
                 // Reload order list which triggers the listener to update the display
-                window.module.fetchOrders(); 
-        
+                window.module.fetchOrders();
+                
             } catch (error) {
-                console.error("Error updating document or sending email: ", error);
-                alert('Error updating order. Check console for details.');
+                console.error("Error updating document or adjusting inventory/sending email: ", error);
+                alert(`Error updating order: ${error.message}. Check console for details.`);
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalText;
@@ -2906,7 +3151,14 @@
                     updateOrder,
                     renderOrderEditModal,
                     // NEW ORDER EDIT FUNCTIONS >>>
-            
+
+                    // NEW DRAFT CART FUNCTIONS
+                    initializeDraftCart,      
+                    updateDraftCartDisplay,    
+                    addDraftCartItem,         
+                    removeDraftCartItem,      
+                    updateDraftItemQuantity,   
+                    
                     // NEW Inventory Functions
                     renderInventorySection,
                     handleUpdateStock,
