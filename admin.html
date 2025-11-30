@@ -1849,12 +1849,6 @@
             document.getElementById('editModalContainer').innerHTML = '';
         }
         
-        /**
-         * Handles the form submission to update the order in Firestore.
-         * @param {Event} e The submit event.
-         * @param {string} orderId The ID of the order being updated.
-         */
-        // MODIFIED: Accept new parameter `sourceId`
         async function updateOrder(e, orderId, sourceId) { 
             e.preventDefault();
             
@@ -1870,31 +1864,60 @@
             const newIsPaidString = document.getElementById('edit-payment-status').value;
             const newIsPaid = newIsPaidString === 'true'; 
             
-            // --- FIX: Correctly determine order path using helper function and sourceId ---
             const collectionPath = window.module.getOrdersCollectionPath(sourceId);
-            // Use the correctly resolved path string (collectionPath) instead of the ORDERS_COLLECTION constant
-            const orderRef = doc(db, collectionPath, orderId); // <-- CORRECTED LINE
-            // --- END FIX ---
+            const orderRef = doc(db, collectionPath, orderId); 
+            
+            // 1. Get the original order object from local state to compare statuses
+            const originalOrder = state.orders.find(o => o.id === orderId); //
+            const originalStatus = originalOrder ? originalOrder.status : ''; //
         
             try {
+                // 2. Perform Firestore Update (Save all modal fields)
                 await updateDoc(orderRef, {
                     status: newStatus,
                     isPaid: newIsPaid,
                     deliveryAddress: newAddress,
                     adminNotes: newNotes,
-                    language: newLanguage, // <--- NEW: Save for use in email notifications
-                    communicationLang: newLanguage, // <--- NEW: Save for compatibility with checkout/other parts
+                    language: newLanguage, 
+                    communicationLang: newLanguage, 
                     updatedAt: serverTimestamp() 
                 });
                 
-                alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}`);
+                // 3. Notification Trigger Check
+                const requiresNotification = ['Processing', 'Delivered', 'Cancelled'].includes(newStatus) && newStatus !== originalStatus; //
+                
+                if (requiresNotification && originalOrder) {
+                    
+                    // Build payload using the original order + the newly updated values from the modal
+                    const emailPayload = {
+                        ...originalOrder,
+                        orderId: orderId,
+                        newStatus: newStatus, 
+                        language: newLanguage, // Use the new language from the modal
+                        // Overwrite the saved address/notes with the new ones from the modal
+                        deliveryAddress: newAddress,
+                        adminNotes: newNotes,
+                    };
+                    
+                    // EMAIL_CONFIRMATION_FUNCTION is defined globally in admin.html
+                    await fetch(EMAIL_CONFIRMATION_FUNCTION, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(emailPayload)
+                    });
+                    console.log(`Order ${orderId} status changed from ${originalStatus} to ${newStatus}. Notification email sent.`);
+                    
+                    alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. Notification email triggered.`);
+                } else {
+                     alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. No status notification sent (status did not change or does not require notification).`);
+                }
                 
                 closeEditModal();
-                // Reload or update the order list display to show the changes
+                // Reload order list which triggers the listener to update the display
                 window.module.fetchOrders(); 
         
             } catch (error) {
-                console.error("Error updating document: ", error);
+                console.error("Error updating document or sending email: ", error);
                 alert('Error updating order. Check console for details.');
             } finally {
                 saveBtn.disabled = false;
