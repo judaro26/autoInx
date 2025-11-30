@@ -125,6 +125,7 @@
         const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
         let idleTimer;
         let orders = [];
+        let lastCategorySalesData = { tableData: [] };
     
         const state = {
             activeTab: 'catalog',
@@ -297,6 +298,57 @@
                 });
            }
         }
+
+        function downloadCategorySalesCsv() {
+            resetTimer();
+            const data = lastCategorySalesData.tableData;
+        
+            if (data.length === 0) {
+                showMessage('error', 'No data available to download.', 5000, 'orders');
+                return;
+            }
+        
+            // Define CSV headers
+            const headers = ["Category", "Units Sold", "Total Revenue (USD)", "Avg. Item Price (USD)"];
+            
+            // Format the data rows
+            const csvRows = data.map(row => {
+                // Ensure values are formatted correctly for CSV, removing $ and commas if any.
+                const category = `"${row.category.replace(/"/g, '""')}"`; // Double quotes and escape internal quotes
+                const unitsSold = row.unitsSold;
+                const totalRevenue = row.totalRevenue.toFixed(2);
+                const averagePrice = row.averagePrice.toFixed(2);
+                
+                return [category, unitsSold, totalRevenue, averagePrice].join(',');
+            });
+        
+            // Combine headers and rows
+            const csvString = [
+                headers.join(','),
+                ...csvRows
+            ].join('\n');
+        
+            // Create a Blob and trigger download
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            
+            const filename = `Sales_Breakdown_${state.salesTimeFilter}_${new Date().toISOString().slice(0, 10)}.csv`;
+        
+            if (link.download !== undefined) { 
+                // HTML5 download attribute is supported
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showMessage('success', `Exported ${data.length} categories to ${filename}.`, 5000, 'orders');
+            } else {
+                showMessage('error', 'Browser does not support automatic CSV download.', 5000, 'orders');
+            }
+        }
+        
         function renderCategorySalesTable(salesData) {
             if (salesData.tableData.length === 0) {
                 return `<p class="text-center text-gray-500 p-4">No sales data found for the selected time period.</p>`;
@@ -318,8 +370,14 @@
             }).join('');
         
             return `
-                <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 mt-8">
-                    <h4 class="text-xl font-bold mb-4 text-indigo-700">Sales Breakdown by Category</h4>
+                <div id="categorySalesBreakdown" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 mt-8">
+                    <div class="flex justify-between items-center mb-4 border-b pb-2">
+                        <h4 class="text-xl font-bold text-indigo-700">Sales Breakdown by Category</h4>
+                        <button onclick="window.module.downloadCategorySalesCsv()" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition duration-150 text-sm">
+                            ⬇️ Download CSV
+                        </button>
+                    </div>
+                    
                     <div class="overflow-x-auto">
                         <div class="min-w-[500px]">
                             <div class="grid grid-cols-4 gap-4 font-bold bg-gray-100 p-3 rounded-t-lg border-b border-gray-300">
@@ -591,9 +649,10 @@
             // 1. Destroy existing charts before rendering new ones
             destroyCharts(); // This function clears salesCharts.category and salesCharts.month
             
-            // 2. Process data using the *local* helper functions
-            // NOTE: We rename 'categoryData' to 'categoryResult' as it now holds both chart and table data
-            const categoryResult = processSalesDataByCategory(); // Now returns { chartData, tableData }
+            // 2. Process data and STORE THE RESULT GLOBALLY
+            // NOTE: categoryResult contains { chartData: {labels, data}, tableData: [...] }
+            const categoryResult = processSalesDataByCategory(); 
+            lastCategorySalesData = categoryResult; // Store the processed data for CSV download
             const monthlyData = processSalesDataByMonth();
             
             // --- Pie Chart: Sales by Category ---
@@ -623,7 +682,7 @@
                         },
                         plugins: {
                             legend: {
-                                position: 'bottom',    // ← THIS FIXES THE OVERLAP
+                                position: 'bottom',
                                 align: 'center',
                                 labels: {
                                     boxWidth: 16,
@@ -650,7 +709,6 @@
                                             const value = context.parsed;
                                             const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                             const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                                            // Use the formatted display helper for currency
                                             label += `: ${formatPriceDisplay(value * 100)} (${percentage}%)`;
                                         }
                                         return label;
@@ -662,7 +720,7 @@
                 });
             }
             
-            // --- Time Chart: Sales per Month (unchanged) ---
+            // --- Time Chart: Sales per Month ---
             const ctxMonth = document.getElementById('salesPerMonthChart');
             if (ctxMonth) {
                 salesCharts.month = new Chart(ctxMonth, {
@@ -719,7 +777,7 @@
                 });
             }
         
-            // 3. **NEW STEP: Render the Sales Breakdown Table**
+            // 3. **NEW STEP: Render the Sales Breakdown Table (including the CSV download button)**
             const tableContainer = document.getElementById('categorySalesTableContainer');
             if (tableContainer) {
                 tableContainer.innerHTML = window.module.renderCategorySalesTable(categoryResult);
@@ -3221,6 +3279,7 @@
                     renderSalesCharts,
                     handleSalesTimeFilterChange,
                     renderCategorySalesTable,
+                    downloadCategorySalesCsv,
             
                     // <<< NEW ORDER EDIT FUNCTIONS
                     showOrderEditForm,
