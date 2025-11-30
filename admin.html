@@ -2367,16 +2367,15 @@
             const ordersMsgElClear = document.getElementById('ordersMessage');
             if (ordersMsgElClear) ordersMsgElClear.textContent = '';
         }
-    
+            
         function renderOrdersStats() {
             const statsEl = document.getElementById('ordersStats');
             if (statsEl) {
-                // 1. Inject the HTML structure (using the locally defined function)
+                // 1. Inject the HTML for the summary cards, filters, and CANVAS elements
                 statsEl.innerHTML = getOrdersStatsHtml(); 
                 
-                // 2. 🎯 CRITICAL CHECK: Call the function by its locally defined name, 
-                //    even if it's exported globally.
-                renderSalesCharts(); // <-- This should be called without the window.module prefix
+                // 2. Now that the canvases exist in the DOM, draw the charts
+                renderSalesCharts(); 
             }
         }
     
@@ -2453,16 +2452,40 @@
             `;
         }
     
-          function renderOrderTracker() {
+        function renderOrderTracker() {
             const statusOptions = ['All', 'Pending', 'Processing', 'Delivered', 'Cancelled'];
-            
-            // We remove the hardcoded, blank #ordersStats div from renderOrderTracker's HTML return 
-            // and let renderOrdersStats inject it.
             
             return `
                 <section class="space-y-8">
                     <h2 class="text-3xl font-extrabold text-indigo-700">Sales and Delivery Tracking</h2>
                     <div id="ordersMessage" class="text-center font-semibold">Loading orders...</div>
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                            <h3 class="text-xl font-bold text-indigo-700">Recent Orders List</h3>
+                            
+                            <input type="text" oninput="window.module.handleOrderListSearchInput(event)" 
+                                placeholder="Search name, email, order #, or SKU..." 
+                                class="w-full sm:w-80 p-2 border rounded-lg text-sm mb-4 sm:mb-0 sm:mr-4"
+                                value="${state.orderListSearchTerm}">
+                            
+                            <div class="flex space-x-4">
+                                <select onchange="window.module.handleStatusFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
+                                    ${statusOptions.map(s => `<option value="${s}" ${state.orderStatusFilter === s ? 'selected' : ''}>Filter: ${s}</option>`).join('')}
+                                </select>
+                                <button onclick="window.module.switchOrderPage('create')" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition">Create Manual Order</button>
+                            </div>
+                        </div>
+                        <div class="bg-gray-100 p-3 rounded-t-lg font-bold text-sm grid grid-cols-12 gap-4">
+                            <div class="col-span-2">Order # / ID</div>        
+                            <div class="col-span-2">Buyer/Address</div>
+                            <div class="col-span-3 text-center">Total / Paid</div>
+                            <div class="col-span-1"></div>
+                            <div class="col-span-2 text-center">Items</div>
+                            <div class="col-span-2 text-center">Actions / Time</div>    
+                        </div>
+                        <div id="ordersListContent" class="max-h-[70vh] custom-scrollbar overflow-y-auto">
+                            </div>
+                    </div>
                     
                     <div id="ordersStatsContainer" class="space-y-6">
                         <div id="ordersStats" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
