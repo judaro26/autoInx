@@ -334,132 +334,141 @@
                 const startTime = Date.now();
                 
                 const check = () => {
+                    // Check the GLOBAL variable 'userId' directly
                     if (userId) { 
-                        resolve(userId); 
+                        resolve(userId); // Resolve with the UID string
                     } else if (Date.now() - startTime >= timeout) {
                         reject(new Error("Timeout waiting for Admin user ID."));
                     } else {
+                        // Check again in 100 milliseconds
                         setTimeout(check, 100); 
                     }
                 };
+        
                 check();
             });
-        }
+        } 
         
         // --- AUTHENTICATION CHECK & REDIRECT ---
-            function checkAuthAndRender() {
-                onAuthStateChanged(auth, user => {
-                    if (user && !user.isAnonymous) {
-                        user.getIdTokenResult(true).then(idTokenResult => {
-                            if (idTokenResult.claims.admin === true) {
-                                
-                                userId = user.uid;
-                                document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                                document.addEventListener('touchstart', resetTimer); 
-                                resetTimer();
-                                
-                                setupRealtimeListeners();
-                                renderAdminPage(user.email || 'Admin');
-                                
-                                if (window.module.fetchOrders) {
-                                    window.module.fetchOrders();
-                                }
+        function checkAuthAndRender() {
+            onAuthStateChanged(auth, user => {
+                if (user && !user.isAnonymous) {
+                    // User is signed in, now check admin claims
+                    user.getIdTokenResult(true).then(idTokenResult => {
+                        if (idTokenResult.claims.admin === true) {
+                            
+                            // 1. SET THE GLOBAL userId VARIABLE FIRST
+                            userId = user.uid;
         
-                            } else {
-                                signOut(auth);
-                                window.location.href = '/?error=unauthorized';
+                            // 2. Start session/activity tracking
+                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                            document.addEventListener('touchstart', resetTimer); // Added touch listener
+                            resetTimer();
+                            
+                            // 3. Setup listeners and render the main admin page HTML
+                            setupRealtimeListeners();
+                            renderAdminPage(user.email || 'Admin');
+                            
+                            // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
+                            // This resolves the timing issue you were seeing.
+                            if (window.module.fetchOrders) {
+                                window.module.fetchOrders();
                             }
-                        }).catch(err => {
-                            console.error("Token error:", err);
+        
+                        } else {
+                            // Not an admin, sign out and redirect
                             signOut(auth);
-                            window.location.href = '/?error=auth_failed';
-                        });
-                    } else {
-                        window.location.href = '/';
-                    }
-                });
-            }
-    
-         // --- FIRESTORE REALTIME LISTENERS ---
-            function setupRealtimeListeners() {
-                if (!db) return;
-            
-                // Listener for Catalogs (Categories)
-                onSnapshot(collection(db, CATALOGS_COLLECTION), snap => {
-                    state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                    if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-                    if (state.activeTab === 'orders' && !state.previewMode) {
-                        updateItemSelector(); 
-                        if (state.orderPage === 'list') window.module.renderOrdersStats();
-                    }
-                }, err => {
-                    console.error("Error listening to categories:", err);
-                    showMessage('error', 'Failed to fetch categories.', 5000, 'catalog');
-                });
-            
-                // Listener for Items (Products)
-                onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
-                    state.items = snap.docs.map(d => {
-                        const data = d.data();
-                        return { 
-                            id: d.id, 
-                            ...data,
-                            stock: data.stock !== undefined ? data.stock : 0
-                        };
+                            window.location.href = '/?error=unauthorized';
+                        }
+                    }).catch(err => {
+                        // Token verification error
+                        console.error("Token error:", err);
+                        signOut(auth);
+                        window.location.href = '/?error=auth_failed';
                     });
-                    
-                    if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-                    if (state.activeTab === 'orders' && !state.previewMode) {
-                        updateItemSelector();
-                        updateAdminCartDisplay();
-                    }
-                    if (state.activeTab === 'inventory' && !state.previewMode) renderInventorySection();
-                }, err => {
-                    console.error("Error listening to items:", err);
-                    showMessage('error', 'Failed to fetch items.', 5000, 'catalog');
-                });
-            
-                // NEW LISTENER: Realtime Listener for Orders
-                onSnapshot(collection(db, ORDERS_COLLECTION), snap => {
-                    state.orders = snap.docs.map(d => ({ 
+                } else {
+                    // User not signed in, redirect to login page
+                    window.location.href = '/';
+                }
+            });
+        }
+    
+        // --- FIRESTORE REALTIME LISTENERS ---
+        function setupRealtimeListeners() {
+            if (!db) return;
+        
+            // Listener for Catalogs (Categories)
+            onSnapshot(collection(db, CATALOGS_COLLECTION), snap => {
+                state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+                if (state.activeTab === 'orders' && !state.previewMode) {
+                    updateItemSelector(); 
+                    if (state.orderPage === 'list') renderOrdersStats();
+                }
+            }, err => {
+                console.error("Error listening to categories:", err);
+                showMessage('error', 'Failed to fetch categories.', 5000, 'catalog');
+            });
+        
+            // Listener for Items (Products)
+            onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
+                state.items = snap.docs.map(d => {
+                    const data = d.data();
+                    return { 
                         id: d.id, 
-                        ...d.data(),
-                        // CRITICAL: Convert Firebase Timestamp to Date object for charting
-                        createdAt: d.data().createdAt?.toDate ? d.data().createdAt.toDate() : d.data().createdAt, 
-                        timestamp: d.data().timestamp || new Date().toISOString() 
-                    })); 
-        
-                    if (state.activeTab === 'orders' && state.orderPage === 'list') {
-                        window.module.renderOrdersList(); 
-                        window.module.renderOrdersStats(); // Trigger chart render 
-                    }
-                    
-                    const ordersMsgElClear = document.getElementById('ordersMessage');
-                    if (ordersMsgElClear) ordersMsgElClear.textContent = ''; 
-        
-                }, err => {
-                    console.error("Error listening to orders:", err);
-                    showMessage('error', 'Failed to fetch orders in real-time.', 5000, 'orders');
+                        ...data,
+                        stock: data.stock !== undefined ? data.stock : 0
+                    };
                 });
-            }
+                
+                if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+                if (state.activeTab === 'orders' && !state.previewMode) {
+                    updateItemSelector();
+                    updateAdminCartDisplay();
+                }
+                if (state.activeTab === 'inventory' && !state.previewMode) renderInventorySection();
+            }, err => {
+                console.error("Error listening to items:", err);
+                showMessage('error', 'Failed to fetch items.', 5000, 'catalog');
+            });
+        
+            // NEW LISTENER: Realtime Listener for Orders (Replaces mock data source)
+            onSnapshot(collection(db, ORDERS_COLLECTION), snap => {
+                // 1. Update the state.orders array with live data
+                state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+                // 2. If the Orders tab is open, trigger a re-render
+                if (state.activeTab === 'orders' && state.orderPage === 'list') {
+                    window.module.renderOrdersList(); 
+                }
+                
+                // Clear any loading message
+                const ordersMsgElClear = document.getElementById('ordersMessage');
+                if (ordersMsgElClear) ordersMsgElClear.textContent = ''; 
+        
+            }, err => {
+                console.error("Error listening to orders:", err);
+                showMessage('error', 'Failed to fetch orders in real-time.', 5000, 'orders');
+            });
+        }
     
         // --- HELPER FUNCTIONS ---
         function formatPriceDisplay(cents) {
-                return `$${(cents / 100).toFixed(2)}`;
-            }
+            return `$${(cents / 100).toFixed(2)}`;
+        }
         
         function handleOrderListSearchInput(e) {
             state.orderListSearchTerm = e.target.value;
-            renderOrdersList(); 
+            renderOrdersList(); // Re-render the list to show filtered results
             resetTimer();
         }
-                
+        
         function formatTime(ts) {
             if (!ts) return 'N/A';
             const date = ts.toDate ? ts.toDate() : new Date(ts);
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
         }
-            
+    
         function showMessage(type, text, duration = 5000, targetTab) {
             const id = targetTab === 'config' ? 'configMessage' : targetTab === 'orders' ? 'ordersMessage' : targetTab === 'inventory' ? 'inventoryMessage' : 'catalogMessage';
             const el = document.getElementById(id);
@@ -470,19 +479,20 @@
         }
     
         async function logAdminAction(actionType, details, objectId = null) {
-                try {
-                    await fetch(LOG_ACTION_FUNCTION, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            actionType,
-                            details,
-                            performedByEmail: auth.currentUser?.email || 'Unknown',
-                            objectId
-                        })
-                    });
-                } catch (e) { console.error("Log failed:", e); }
-            }
+            try {
+                await fetch(LOG_ACTION_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        actionType,
+                        details,
+                        performedByEmail: auth.currentUser?.email || 'Unknown',
+                        objectId
+                    })
+                });
+            } catch (e) { console.error("Log failed:", e); }
+        }
+    
         function generateUniqueSku() {
             const t = Date.now().toString(36).toUpperCase();
             const r = Math.random().toString(36).substring(2, 4).toUpperCase();
@@ -572,14 +582,7 @@
             state.previewMode = false;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
-            if (tab === 'orders') {
-                state.orderPage = 'list'; 
-                window.module.fetchOrders();
-                // Destroy charts when leaving the orders tab (or before rendering a new view)
-            } else {
-                destroyCharts();
-            }
-            
+        
             if (tab === 'config') {
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
@@ -1452,215 +1455,6 @@
             globalConfig.maintenanceMode = e.target.checked;
             resetTimer();
         }
-        
-        // --- NEW SALES CHART FUNCTIONS ---      
-        function processSalesDataByCategory() {
-                const categorySales = {};
-                const itemMap = state.items.reduce((map, item) => {
-                    map[item.id] = item;
-                    return map;
-                }, {});
-        
-                getFilteredSalesOrders().forEach(order => {
-                    order.items.forEach(orderItem => {
-                        const item = itemMap[orderItem.id];
-                        if (item) {
-                            const catalogId = item.catalogId || 'no_category';
-                            // Fallback to item name if catalog lookup fails (unlikely if listeners work)
-                            const categoryName = state.catalogs.find(c => c.id === catalogId)?.name || (catalogId === 'no_category' ? 'Uncategorized' : 'Unknown Category');
-                            
-                            const salesAmount = orderItem.price * orderItem.quantity;
-        
-                            if (!categorySales[categoryName]) {
-                                categorySales[categoryName] = 0;
-                            }
-                            categorySales[categoryName] += salesAmount;
-                        }
-                    });
-                });
-        
-                return {
-                    labels: Object.keys(categorySales),
-                    // Data remains in cents for high precision during aggregation, Chart.js displays it correctly.
-                    data: Object.values(categorySales).map(cents => cents / 100), 
-                };
-            }
-        
-         function getFilteredSalesOrders() {
-                let filteredOrders = state.orders.filter(o => o.status !== 'Cancelled');
-                const now = new Date();
-                let cutoffDate = null;
-                
-                switch (state.salesTimeFilter) {
-                    case 'lastmonth':
-                        cutoffDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-                        break;
-                    case 'last6months':
-                        cutoffDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
-                        break;
-                    case 'lastyear':
-                        cutoffDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-                        break;
-                    case 'all':
-                    default:
-                        return filteredOrders;
-                }
-        
-                return filteredOrders.filter(order => {
-                    // Check if createdAt is a Date object (from listener conversion) or needs parsing
-                    const orderDate = (order.createdAt instanceof Date) ? order.createdAt : new Date(order.timestamp);
-                    return orderDate >= cutoffDate;
-                });
-            }
-            
-        function processSalesDataByMonth() {
-                const filteredOrders = getFilteredSalesOrders();
-                const monthlySales = {};
-                
-                filteredOrders.forEach(order => {
-                    const dateObj = (order.createdAt instanceof Date) ? order.createdAt : new Date(order.timestamp);
-                    const yearMonth = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
-                    
-                    if (!monthlySales[yearMonth]) {
-                        monthlySales[yearMonth] = 0;
-                    }
-                    monthlySales[yearMonth] += order.totalCents;
-                });
-        
-                const sortedKeys = Object.keys(monthlySales).sort();
-                const monthNames = sortedKeys.map(key => {
-                    const [year, month] = key.split('-');
-                    const date = new Date(year, parseInt(month) - 1);
-                    return date.toLocaleString('default', { month: 'short', year: 'numeric' }); 
-                });
-        
-                return {
-                    labels: monthNames,
-                    // Data must be in dollars for Chart.js display (as labels are formatted for it)
-                    data: sortedKeys.map(key => monthlySales[key] / 100), 
-                };
-            }
-
-        function handleSalesTimeFilterChange(e) {
-            state.salesTimeFilter = e.target.value;
-            renderSalesCharts();
-            resetTimer();
-        }
-
-        function destroyCharts() {
-            if (salesCharts.category) {
-                salesCharts.category.destroy();
-            }
-            if (salesCharts.month) {
-                salesCharts.month.destroy();
-            }
-        }
-        
-        function renderSalesCharts() {
-                // 1. Destroy existing charts before rendering new ones
-                destroyCharts();
-        
-                const categoryData = processSalesDataByCategory();
-                const monthlyData = processSalesDataByMonth();
-                
-                // --- Pie Chart: Sales by Category ---
-                const ctxCategory = document.getElementById('salesByCategoryChart');
-                if (ctxCategory) {
-                    salesCharts.category = new Chart(ctxCategory, {
-                        type: 'doughnut',
-                        data: {
-                            labels: categoryData.labels,
-                            datasets: [{
-                                label: 'Sales by Category',
-                                data: categoryData.data,
-                                backgroundColor: ['#6366f1', '#f87171', '#34d399', '#facc15', '#a78bfa', '#22d3ee', '#fb7185'],
-                                hoverOffset: 4
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: {
-                                    position: 'right',
-                                    align: 'start',
-                                },
-                                title: {
-                                    display: true,
-                                    text: 'Sales by Product Category (Net)',
-                                    font: { size: 16 }
-                                },
-                                tooltip: {
-                                    callbacks: {
-                                        label: function(context) {
-                                            let label = context.label || '';
-                                            if (context.parsed !== null) {
-                                                label += `: ${formatPriceDisplay(context.parsed * 100)}`;
-                                            }
-                                            return label;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-        
-                // --- Time Chart: Sales per Month ---
-                const ctxMonth = document.getElementById('salesPerMonthChart');
-                if (ctxMonth) {
-                     salesCharts.month = new Chart(ctxMonth, {
-                        type: 'line',
-                        data: {
-                            labels: monthlyData.labels,
-                            datasets: [{
-                                label: 'Monthly Net Sales',
-                                data: monthlyData.data,
-                                borderColor: '#8b5cf6',
-                                backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                                fill: true,
-                                tension: 0.4
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                title: {
-                                    display: true,
-                                    text: `Monthly Sales Trends (${state.salesTimeFilter.replace('last', 'Last ')})`,
-                                    font: { size: 16 }
-                                },
-                                tooltip: {
-                                    callbacks: {
-                                        label: function(context) {
-                                            let label = context.dataset.label || '';
-                                            if (context.parsed.y !== null) {
-                                                label += `: ${formatPriceDisplay(context.parsed.y * 100)}`;
-                                            }
-                                            return label;
-                                        }
-                                    }
-                                }
-                            },
-                            scales: {
-                                y: {
-                                    beginAtZero: true,
-                                    title: {
-                                        display: true,
-                                        text: 'Revenue (USD)'
-                                    },
-                                    ticks: {
-                                        callback: function(value) {
-                                            return formatPriceDisplay(value * 100).replace(/\.00$/, ''); 
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-            }
     
         // --- ADMIN CONFIG FUNCTIONS ---
         
@@ -1980,8 +1774,9 @@
                 <option value="false" ${!order.isPaid ? 'selected' : ''}>Unpaid</option>
                 <option value="true" ${order.isPaid ? 'selected' : ''}>Paid</option>
             `;
-
+        
             // Determine the current language preference
+            // We check both order.language and order.communicationLang for compatibility
             const currentLang = order.language || order.communicationLang || 'en'; 
             
             const languageOptions = `
@@ -2006,14 +1801,13 @@
                                     ${statusOptions}
                                 </select>
                             </div>
-
+                            
                             <div class="mb-4">
                                 <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-language">Customer Language</label>
                                 <select id="edit-language" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
                                     ${languageOptions}
                                 </select>
                             </div>
-                            
                             <div class="mb-4">
                                 <label class="block text-gray-700 text-lg font-bold mb-2" for="edit-payment-status">Payment Status</label>
                                 <select id="edit-payment-status" class="w-full p-4 border border-gray-300 rounded-lg text-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
@@ -2047,92 +1841,89 @@
             `;
         }
         
+        /**
+         * Closes the edit modal and clears the container.
+         */
         function closeEditModal() {
-                    // Hide the modal by clearing its container
-                    document.getElementById('editModalContainer').innerHTML = '';
-                }
-                
-                /**
-                 * Handles the form submission to update the order in Firestore.
-                 * @param {Event} e The submit event.
-                 * @param {string} orderId The ID of the order being updated.
-                 */
-                // MODIFIED: Accepts new parameter `sourceId` and includes email notification logic
-                async function updateOrder(e, orderId, sourceId) { 
-                    e.preventDefault();
-                    
-                    const saveBtn = document.getElementById('saveOrderBtn');
-                    const originalText = saveBtn.innerHTML;
-                    saveBtn.disabled = true;
-                    saveBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white inline" viewBox="0 0 24 24">...</svg> Saving...`; // Simplified SVG for brevity
-                
-                    const newStatus = document.getElementById('edit-status').value;
-                    const newLanguage = document.getElementById('edit-language').value; 
-                    const newAddress = document.getElementById('edit-address').value;
-                    const newNotes = document.getElementById('edit-notes').value;
-                    const newIsPaidString = document.getElementById('edit-payment-status').value;
-                    const newIsPaid = newIsPaidString === 'true'; 
-                    
-                    const collectionPath = window.module.getOrdersCollectionPath(sourceId);
-                    const orderRef = doc(db, collectionPath, orderId); 
-                    
-                    // 1. Get the original order object from local state to compare statuses
-                    const originalOrder = state.orders.find(o => o.id === orderId);
-                    const originalStatus = originalOrder ? originalOrder.status : '';
+            // Hide the modal by clearing its container
+            document.getElementById('editModalContainer').innerHTML = '';
+        }
         
-                    try {
-                        // 2. Perform Firestore Update (Save all modal fields)
-                        await updateDoc(orderRef, {
-                            status: newStatus,
-                            isPaid: newIsPaid,
-                            deliveryAddress: newAddress,
-                            adminNotes: newNotes,
-                            language: newLanguage, 
-                            communicationLang: newLanguage, 
-                            updatedAt: serverTimestamp() 
-                        });
-                        
-                        // 3. Notification Trigger Check
-                        const requiresNotification = ['Processing', 'Delivered', 'Cancelled'].includes(newStatus) && newStatus !== originalStatus;
-                        
-                        if (requiresNotification && originalOrder) {
-                            
-                            // Build payload using the original order + the newly updated values from the modal
-                            const emailPayload = {
-                                ...originalOrder,
-                                orderId: orderId,
-                                newStatus: newStatus, 
-                                language: newLanguage, // Use the new language from the modal
-                                // Overwrite the saved address/notes with the new ones from the modal
-                                deliveryAddress: newAddress,
-                                adminNotes: newNotes,
-                            };
-                            
-                            // EMAIL_CONFIRMATION_FUNCTION is defined globally in admin.html
-                            await fetch(EMAIL_CONFIRMATION_FUNCTION, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(emailPayload)
-                            });
-                            console.log(`Order ${orderId} status changed from ${originalStatus} to ${newStatus}. Notification email sent.`);
-                            
-                            alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. Notification email triggered.`);
-                        } else {
-                             alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. No status notification sent (status did not change or does not require notification).`);
-                        }
-                        
-                        closeEditModal();
-                        // Reload order list which triggers the listener to update the display
-                        window.module.fetchOrders(); 
+        async function updateOrder(e, orderId, sourceId) { 
+            e.preventDefault();
+            
+            const saveBtn = document.getElementById('saveOrderBtn');
+            const originalText = saveBtn.innerHTML;
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white inline" viewBox="0 0 24 24">...</svg> Saving...`; // Simplified SVG for brevity
+        
+            const newStatus = document.getElementById('edit-status').value;
+            const newLanguage = document.getElementById('edit-language').value; 
+            const newAddress = document.getElementById('edit-address').value;
+            const newNotes = document.getElementById('edit-notes').value;
+            const newIsPaidString = document.getElementById('edit-payment-status').value;
+            const newIsPaid = newIsPaidString === 'true'; 
+            
+            const collectionPath = window.module.getOrdersCollectionPath(sourceId);
+            const orderRef = doc(db, collectionPath, orderId); 
+            
+            // 1. Get the original order object from local state to compare statuses
+            const originalOrder = state.orders.find(o => o.id === orderId); //
+            const originalStatus = originalOrder ? originalOrder.status : ''; //
+        
+            try {
+                // 2. Perform Firestore Update (Save all modal fields)
+                await updateDoc(orderRef, {
+                    status: newStatus,
+                    isPaid: newIsPaid,
+                    deliveryAddress: newAddress,
+                    adminNotes: newNotes,
+                    language: newLanguage, 
+                    communicationLang: newLanguage, 
+                    updatedAt: serverTimestamp() 
+                });
                 
-                    } catch (error) {
-                        console.error("Error updating document or sending email: ", error);
-                        alert('Error updating order. Check console for details.');
-                    } finally {
-                        saveBtn.disabled = false;
-                        saveBtn.innerHTML = originalText;
-                    }
+                // 3. Notification Trigger Check
+                const requiresNotification = ['Processing', 'Delivered', 'Cancelled'].includes(newStatus) && newStatus !== originalStatus; //
+                
+                if (requiresNotification && originalOrder) {
+                    
+                    // Build payload using the original order + the newly updated values from the modal
+                    const emailPayload = {
+                        ...originalOrder,
+                        orderId: orderId,
+                        newStatus: newStatus, 
+                        language: newLanguage, // Use the new language from the modal
+                        // Overwrite the saved address/notes with the new ones from the modal
+                        deliveryAddress: newAddress,
+                        adminNotes: newNotes,
+                    };
+                    
+                    // EMAIL_CONFIRMATION_FUNCTION is defined globally in admin.html
+                    await fetch(EMAIL_CONFIRMATION_FUNCTION, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(emailPayload)
+                    });
+                    console.log(`Order ${orderId} status changed from ${originalStatus} to ${newStatus}. Notification email sent.`);
+                    
+                    alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. Notification email triggered.`);
+                } else {
+                     alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. No status notification sent (status did not change or does not require notification).`);
                 }
+                
+                closeEditModal();
+                // Reload order list which triggers the listener to update the display
+                window.module.fetchOrders(); 
+        
+            } catch (error) {
+                console.error("Error updating document or sending email: ", error);
+                alert('Error updating order. Check console for details.');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalText;
+            }
+        }
     
         function renderUserControls() {
             const loadMoreBtn = document.getElementById('loadMoreUsersButton');
@@ -2290,7 +2081,7 @@
             return '';
         }
     
-         // --- ORDERS TRACKING FUNCTIONS (Render) ---
+        // --- ORDERS TRACKING FUNCTIONS (Render) ---
         function renderOrdersList() {
             // This logic filters the mock orders based on state.orderStatusFilter
             const orders = getFilteredOrders();
@@ -2397,81 +2188,48 @@
             }
         
             if (statsEl) {
-                // The parent function renderOrdersStats will handle calling getOrdersStatsHtml and renderSalesCharts
+                statsEl.innerHTML = renderOrdersStats();
             }
         }
     
-
-          // NEW: Function to handle rendering HTML and charts
-            function renderOrdersStats() {
-                const statsEl = document.getElementById('ordersStats');
-                if (statsEl) {
-                    statsEl.innerHTML = window.module.getOrdersStatsHtml();
-                    window.module.renderSalesCharts(); 
-                }
-            }
-        
-        // NEW: Renamed and modified existing function to return HTML string
-                function getOrdersStatsHtml() {
-                    // --- Sales Data ---
-                    const totalSales = state.orders.reduce((sum, order) => sum + (order.status !== 'Cancelled' ? order.totalCents : 0), 0);
-                    const orderCounts = state.orders.reduce((counts, order) => {
-                        counts[order.status] = (counts[order.status] || 0) + 1;
-                        return counts;
-                    }, {});
-                    // --- End Sales Data ---
-            
-                    return `
-                        <div id="ordersStatsSummary" class="grid grid-cols-3 gap-4 text-center">
-                            <div class="bg-indigo-50 p-4 rounded-lg">
-                                <p class="text-xs font-semibold text-indigo-700">Total Revenue (Net)</p>
-                                <p class="text-2xl font-bold text-indigo-900">${formatPriceDisplay(totalSales)}</p>
-                            </div>
-                            <div class="bg-blue-50 p-4 rounded-lg">
-                                <p class="text-xs font-semibold text-blue-700">Total Orders</p>
-                                <p class="text-2xl font-bold text-blue-900">${state.orders.length}</p>
-                            </div>
-                            <div class="bg-red-50 p-4 rounded-lg">
-                                <p class="text-xs font-semibold text-red-700">Pending Orders</p>
-                                <p class="text-2xl font-bold text-red-900">${orderCounts['Pending'] || 0}</p>
-                            </div>
-                        </div>
-            
-                        <div class="mt-6 p-4 bg-white rounded-xl border border-gray-200 shadow-md">
-                            <h4 class="font-bold text-lg mb-3">Order Status Breakdown</h4>
-                            <ul class="space-y-1 text-sm">
-                                <li><span class="font-semibold text-green-600">Delivered:</span> ${orderCounts['Delivered'] || 0}</li>
-                                <li><span class="font-semibold text-blue-600">Processing:</span> ${orderCounts['Processing'] || 0}</li>
-                                <li><span class="font-semibold text-red-600">Pending:</span> ${orderCounts['Pending'] || 0}</li>
-                                <li><span class="font-semibold text-gray-600">Cancelled:</span> ${orderCounts['Cancelled'] || 0}</li>
-                            </ul>
-                        </div>
-                        
-                        <div id="salesChartsControls" class="mt-8 pt-4 border-t border-gray-200 flex justify-end items-center space-x-4">
-                            <label class="font-semibold text-gray-700 text-sm">Sales Filter:</label>
-                            <select onchange="window.module.handleSalesTimeFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
-                                <option value="all" ${state.salesTimeFilter === 'all' ? 'selected' : ''}>All Time</option>
-                                <option value="lastmonth" ${state.salesTimeFilter === 'lastmonth' ? 'selected' : ''}>Last Month</option>
-                                <option value="last6months" ${state.salesTimeFilter === 'last6months' ? 'selected' : ''}>Last 6 Months</option>
-                                <option value="lastyear" ${state.salesTimeFilter === 'lastyear' ? 'selected' : ''}>Last Year</option>
-                            </select>
-                        </div>
-        
-                        <div id="salesChartsGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-6">
-                            <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <div style="height: 350px;">
-                                    <canvas id="salesByCategoryChart"></canvas>
-                                </div>
-                            </div>
-                            <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <div style="height: 350px;">
-                                    <canvas id="salesPerMonthChart"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }
-        
+        function renderOrdersStats() {
+            // --- Mockup Stats Data ---
+            const totalSales = state.orders.reduce((sum, order) => sum + (order.status !== 'Cancelled' ? order.totalCents : 0), 0);
+            const orderCounts = state.orders.reduce((counts, order) => {
+                counts[order.status] = (counts[order.status] || 0) + 1;
+                return counts;
+            }, {});
+            // --- End Mockup ---
+    
+            return `
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div class="bg-indigo-50 p-4 rounded-lg">
+                        <p class="text-xs font-semibold text-indigo-700">Total Revenue (Net)</p>
+                        <p class="text-2xl font-bold text-indigo-900">${formatPriceDisplay(totalSales)}</p>
+                    </div>
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <p class="text-xs font-semibold text-blue-700">Total Orders</p>
+                        <p class="text-2xl font-bold text-blue-900">${state.orders.length}</p>
+                    </div>
+                    <div class="bg-red-50 p-4 rounded-lg">
+                        <p class="text-xs font-semibold text-red-700">Pending Orders</p>
+                        <p class="text-2xl font-bold text-red-900">${orderCounts['Pending'] || 0}</p>
+                    </div>
+                </div>
+    
+                <div class="mt-6 p-4 bg-white rounded-xl border border-gray-200 shadow-md">
+                    <h4 class="font-bold text-lg mb-3">Order Status Breakdown</h4>
+                    <ul class="space-y-1 text-sm">
+                        <li><span class="font-semibold text-green-600">Delivered:</span> ${orderCounts['Delivered'] || 0}</li>
+                        <li><span class="font-semibold text-blue-600">Processing:</span> ${orderCounts['Processing'] || 0}</li>
+                        <li><span class="font-semibold text-red-600">Pending:</span> ${orderCounts['Pending'] || 0}</li>
+                        <li><span class="font-semibold text-gray-600">Cancelled:</span> ${orderCounts['Cancelled'] || 0}</li>
+                    </ul>
+                    <p class="text-xs text-gray-500 mt-4">Note: Chart integration (e.g., Chart.js) would replace this simple list.</p>
+                </div>
+            `;
+        }
+    
         function renderOrderCreateForm() {
             return `
                 <section class="space-y-8">
@@ -2546,49 +2304,49 @@
         }
     
         function renderOrderTracker() {
-                    const statusOptions = ['All', 'Pending', 'Processing', 'Delivered', 'Cancelled'];
-                
-                    return `
-                        <section class="space-y-8">
-                            <h2 class="text-3xl font-extrabold text-indigo-700">Sales and Delivery Tracking</h2>
-                            <div id="ordersMessage" class="text-center font-semibold">Loading orders...</div>
-                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
-                                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-                                        <h3 class="text-xl font-bold text-indigo-700">Recent Orders List</h3>
-                                        
-                                        <input 
-                                            type="text" 
-                                            oninput="window.module.handleOrderListSearchInput(event)" 
-                                            placeholder="Search name, email, order #, or SKU..." 
-                                            class="w-full sm:w-80 p-2 border rounded-lg text-sm mb-4 sm:mb-0 sm:mr-4"
-                                            value="${state.orderListSearchTerm}"
-                                        >
-                                        
-                                        <div class="flex space-x-4">
-                                            <select onchange="window.module.handleStatusFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
-                                                ${statusOptions.map(s => `<option value="${s}" ${state.orderStatusFilter === s ? 'selected' : ''}>Filter: ${s}</option>`).join('')}
-                                            </select>
-                                            <button onclick="window.module.switchOrderPage('create')" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition">Create Manual Order</button>
-                                        </div>
-                                    </div>
-                                        <div class="bg-gray-100 p-3 rounded-t-lg font-bold text-sm grid grid-cols-12 gap-4">
-                                            <div class="col-span-2">Order # / ID</div>        
-                                            <div class="col-span-2">Buyer/Address</div>
-                                            <div class="col-span-3 text-center">Total / Paid</div>
-                                            <div class="col-span-1"></div>
-                                            <div class="col-span-2 text-center">Items</div>
-                                            <div class="col-span-2 text-center">Actions / Time</div> 
-                                        </div>
-                                <div id="ordersListContent" class="max-h-[70vh] custom-scrollbar overflow-y-auto">
+            const statusOptions = ['All', 'Pending', 'Processing', 'Delivered', 'Cancelled'];
+        
+            return `
+                <section class="space-y-8">
+                    <h2 class="text-3xl font-extrabold text-indigo-700">Sales and Delivery Tracking</h2>
+                    <div id="ordersMessage" class="text-center font-semibold">Loading orders...</div>
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                                <h3 class="text-xl font-bold text-indigo-700">Recent Orders List</h3>
+                                
+                                <input 
+                                    type="text" 
+                                    oninput="window.module.handleOrderListSearchInput(event)" 
+                                    placeholder="Search name, email, order #, or SKU..." 
+                                    class="w-full sm:w-80 p-2 border rounded-lg text-sm mb-4 sm:mb-0 sm:mr-4"
+                                    value="${state.orderListSearchTerm}"
+                                >
+                                
+                                <div class="flex space-x-4">
+                                    <select onchange="window.module.handleStatusFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
+                                        ${statusOptions.map(s => `<option value="${s}" ${state.orderStatusFilter === s ? 'selected' : ''}>Filter: ${s}</option>`).join('')}
+                                    </select>
+                                    <button onclick="window.module.switchOrderPage('create')" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition">Create Manual Order</button>
                                 </div>
                             </div>
-                            <div id="ordersStatsContainer" class="space-y-6">
-                                <div id="ordersStats" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
+                                <div class="bg-gray-100 p-3 rounded-t-lg font-bold text-sm grid grid-cols-12 gap-4">
+                                    <div class="col-span-2">Order # / ID</div>        
+                                    <div class="col-span-2">Buyer/Address</div>
+                                    <div class="col-span-3 text-center">Total / Paid</div>
+                                    <div class="col-span-1"></div>
+                                    <div class="col-span-2 text-center">Items</div>
+                                    <div class="col-span-2 text-center">Actions / Time</div> 
                                 </div>
-                            </div>
-                        </section>
-                    `;
-                }
+                        <div id="ordersListContent" class="max-h-[70vh] custom-scrollbar overflow-y-auto">
+                        </div>
+                    </div>
+                    <div id="ordersStatsContainer" class="space-y-6">
+                        <div id="ordersStats" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-pink-500">
+                        </div>
+                    </div>
+                </section>
+            `;
+        }
     
         function renderAdminTabs() {
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
@@ -2916,13 +2674,7 @@
                     // NEW Inventory Functions
                     renderInventorySection,
                     handleUpdateStock,
-                    showPurchaseOrderForm,
-                    
-                    // NEW Charting/Filtering Exports
-                    getOrdersStatsHtml,
-                    handleSalesTimeFilterChange,
-                    renderSalesCharts,
-                    // NEW Charting/Filtering Exports >>>
+                    showPurchaseOrderForm 
                 };
     
         document.addEventListener('DOMContentLoaded', setupFirebase);
