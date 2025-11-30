@@ -355,19 +355,50 @@
                 return `<p class="text-center text-gray-500 p-4">No sales data found for the selected time period.</p>`;
             }
         
-            const tableRows = salesData.tableData.map(row => {
+            const tableRows = salesData.tableData.map((row, index) => {
                 // --- CLEANUP: Use the CENTS values directly from the data structure ---
                 // We use Math.round() just in case averagePriceCents resulted in a float.
                 const totalRevenue = row.totalRevenueCents;
                 const averagePrice = Math.round(row.averagePriceCents);
                 // --------------------------------------------------------------------
         
+                // NEW: Generate HTML for the detailed order list
+                const detailRows = row.rawOrders.map(order => `
+                    <div class="grid grid-cols-5 text-xs py-2 border-b border-gray-100 hover:bg-gray-50">
+                        <div class="truncate text-gray-600">${formatTime(order.date)}</div>
+                        <div class="text-center font-semibold text-gray-700">${order.status}</div>
+                        <div class="text-center">${order.quantity}x ${order.itemName}</div>
+                        <div class="text-center font-bold ${order.paymentStatus === 'Paid' ? 'text-green-600' : 'text-red-600'}">${order.paymentStatus}</div>
+                        <div class="text-right font-mono">${formatPriceDisplay(order.totalItemCents)}</div>
+                    </div>
+                `).join('');
+        
                 return `
-                    <div class="grid grid-cols-4 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
-                        <div class="text-sm font-semibold text-gray-800 truncate">${row.category}</div>
-                        <div class="text-sm text-center">${row.unitsSold}</div>
-                        <div class="text-sm font-bold text-green-700">${formatPriceDisplay(totalRevenue)}</div>
-                        <div class="text-sm text-right text-gray-500">${formatPriceDisplay(averagePrice)}</div>
+                    <div class="category-row-container border-b border-gray-100">
+                        <div class="grid grid-cols-5 gap-4 items-center p-3 hover:bg-gray-50">
+                            <div class="text-sm font-semibold text-gray-800 truncate">${row.category}</div>
+                            <div class="text-sm text-center">${row.unitsSold}</div>
+                            <div class="text-sm font-bold text-green-700">${formatPriceDisplay(totalRevenue)}</div>
+                            <div class="text-sm text-right text-gray-500">${formatPriceDisplay(averagePrice)}</div>
+                            <div class="text-right">
+                                <button onclick="document.getElementById('details-${index}').classList.toggle('hidden')" class="px-3 py-1 bg-indigo-500 text-white text-xs rounded-full hover:bg-indigo-600 transition duration-150">
+                                    Details (${row.rawOrders.length})
+                                </button>
+                            </div>
+                        </div>
+                        <div id="details-${index}" class="hidden p-4 bg-gray-50 border-t border-gray-200">
+                            <h5 class="text-sm font-bold mb-2 border-b pb-1 text-gray-700">Orders for ${row.category} (Units Sold: ${row.unitsSold})</h5>
+                            <div class="grid grid-cols-5 text-xs font-bold text-gray-700 bg-gray-200 p-2 rounded-t-md">
+                                <div>Order Date/Time</div>
+                                <div class="text-center">Status</div>
+                                <div class="text-center">Item Purchased</div>
+                                <div class="text-center">Payment Status</div>
+                                <div class="text-right">Item Revenue</div>
+                            </div>
+                            <div class="max-h-40 custom-scrollbar overflow-y-auto">
+                                ${detailRows}
+                            </div>
+                        </div>
                     </div>
                 `;
             }).join('');
@@ -383,11 +414,12 @@
                     
                     <div class="overflow-x-auto">
                         <div class="min-w-[500px]">
-                            <div class="grid grid-cols-4 gap-4 font-bold bg-gray-100 p-3 rounded-t-lg border-b border-gray-300">
+                            <div class="grid grid-cols-5 gap-4 font-bold bg-gray-100 p-3 rounded-t-lg border-b border-gray-300">
                                 <div>Category</div>
                                 <div class="text-center">Units Sold</div>
                                 <div class="text-center">Total Revenue</div>
                                 <div class="text-right">Avg. Item Price</div>
+                                <div class="text-right">Actions</div>
                             </div>
                             <div class="max-h-80 custom-scrollbar overflow-y-auto">
                                 ${tableRows}
@@ -398,19 +430,19 @@
             `;
         }
         
-         function processSalesDataByCategory() {
+        function processSalesDataByCategory() {
             const categorySales = {};
             const itemMap = state.items.reduce((map, item) => {
                 map[item.id] = item;
                 return map;
             }, {});
-            
-            // Initialize category tracking
+        
+            // Initialize category tracking - ADDED orders array
             const categoryMetrics = state.catalogs.reduce((metrics, cat) => {
-                metrics[cat.name] = { totalRevenue: 0, unitsSold: 0, averagePrice: 0 };
+                metrics[cat.name] = { totalRevenue: 0, unitsSold: 0, averagePrice: 0, orders: [] };
                 return metrics;
             }, {});
-            categoryMetrics['Uncategorized'] = { totalRevenue: 0, unitsSold: 0, averagePrice: 0 }; // Handle uncategorized items
+            categoryMetrics['Uncategorized'] = { totalRevenue: 0, unitsSold: 0, averagePrice: 0, orders: [] }; // Handle uncategorized items
         
             getFilteredSalesOrders().forEach(order => {
                 order.items.forEach(orderItem => {
@@ -420,9 +452,22 @@
                         const categoryName = state.catalogs.find(c => c.id === catalogId)?.name || 'Uncategorized';
                         
                         const salesAmount = orderItem.price * orderItem.quantity;
-                        
+        
                         categoryMetrics[categoryName].totalRevenue += salesAmount; // Total revenue in CENTS
                         categoryMetrics[categoryName].unitsSold += orderItem.quantity;
+                        
+                        // CRITICAL ADDITION: Store order details relevant to this category
+                        // We store the full order data for later display
+                        categoryMetrics[categoryName].orders.push({
+                            id: order.id.substring(0, 5),
+                            fullId: order.id,
+                            date: order.createdAt,
+                            status: order.status,
+                            paymentStatus: order.isPaid ? 'Paid' : 'Unpaid',
+                            itemName: orderItem.name,
+                            quantity: orderItem.quantity,
+                            totalItemCents: orderItem.price * orderItem.quantity,
+                        });
                     }
                 });
             });
@@ -449,6 +494,8 @@
                         totalRevenueCents: totalRevenueCents, // <<< NEW PROPERTY NAME (CENTS)
                         unitsSold: metrics.unitsSold,
                         averagePriceCents: averagePriceCents, // <<< NEW PROPERTY NAME (CENTS)
+                        // CRITICAL ADDITION: Pass the filtered orders for this category
+                        rawOrders: metrics.orders.sort((a, b) => new Date(b.date) - new Date(a.date)) 
                     });
                 }
             });
