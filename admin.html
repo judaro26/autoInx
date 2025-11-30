@@ -8,7 +8,7 @@
     <link rel="icon" type="image/x-icon" href="/images/AutoInx logo.ico">
     
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
-
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <head>
@@ -106,10 +106,6 @@
         </div>
     </div>
     <body class="bg-gray-100 min-h-screen">
-    <div id="app" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
-        <div id="loadingState" class="text-center p-20">
-            </div>
-    </div>
 
     <div id="editModalContainer"></div> 
 
@@ -125,7 +121,10 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         // CORRECTED: Import static IP list directly from the new client-accessible path
         import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js'; 
-    
+
+        // 2. ADDED: Global object to hold Chart.js instances
+        let salesCharts = { category: null, month: null };
+        
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
         let db;
@@ -206,19 +205,19 @@
         function updateSubmitButtonState() {
             const submitButton = document.getElementById('submitOrderButton');
             const addressInput = document.getElementById('deliveryAddress');
-            
+
             // Check if address is validated (data-validated="true") 
             const isAddressValid = addressInput?.dataset.validated === 'true';
-            
+
             // Check if cart has items
             const isCartNotEmpty = Object.keys(state.adminCart).length > 0; 
-            
+
             if (submitButton) {
                 // Button is enabled only if address is valid AND the cart is not empty
                 submitButton.disabled = !(isAddressValid && isCartNotEmpty);
             }
         }
-    
+            
     
         // Function called by the dynamically loaded Google Maps script
         window.initGooglePlaces = function() {
@@ -304,8 +303,285 @@
                     logAdminAction('ADMIN_AUTO_LOGOUT', { reason: 'Idle Timeout (15m)' });
                     window.location.href = '/?error=idle_timeout';
                 });
+           }
+        }
+        function processSalesDataByCategory() {
+            const categorySales = {};
+            const itemMap = state.items.reduce((map, item) => {
+                map[item.id] = item;
+                return map;
+            }, {});
+        
+            getFilteredSalesOrders().forEach(order => {
+                order.items.forEach(orderItem => {
+                    const item = itemMap[orderItem.id];
+                    if (item) {
+                        const catalogId = item.catalogId || 'no_category';
+                        // Fallback to item name if catalog lookup fails (unlikely if listeners work)
+                        const categoryName = state.catalogs.find(c => c.id === catalogId)?.name || (catalogId === 'no_category' ? 'Uncategorized' : 'Unknown Category');
+        
+                        const salesAmount = orderItem.price * orderItem.quantity;
+        
+                        if (!categorySales[categoryName]) {
+                            categorySales[categoryName] = 0;
+                        }
+                        categorySales[categoryName] += salesAmount;
+                    }
+                });
+            });
+        
+            return {
+                labels: Object.keys(categorySales),
+                // Data is converted from cents to dollars for Chart.js display
+                data: Object.values(categorySales).map(cents => cents / 100), 
+            };
+        }
+        function processSalesDataByMonth() {
+            const filteredOrders = getFilteredSalesOrders();
+            const monthlySales = {};
+        
+            filteredOrders.forEach(order => {
+                const dateObj = (order.createdAt instanceof Date) ? order.createdAt : new Date(order.timestamp);
+                // Creates a key like "2025-11" for grouping
+                const yearMonth = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+        
+                if (!monthlySales[yearMonth]) {
+                    monthlySales[yearMonth] = 0;
+                }
+                monthlySales[yearMonth] += order.totalCents;
+            });
+        
+            const sortedKeys = Object.keys(monthlySales).sort();
+            const monthNames = sortedKeys.map(key => {
+                const [year, month] = key.split('-');
+                const date = new Date(year, parseInt(month) - 1);
+                return date.toLocaleString('default', { month: 'short', year: 'numeric' }); 
+            });
+        
+            return {
+                labels: monthNames,
+                // Data is converted from cents to dollars for Chart.js display
+                data: sortedKeys.map(key => monthlySales[key] / 100), 
+            };
+        }
+        function getFilteredSalesOrders() {
+            let filteredOrders = state.orders.filter(o => o.status !== 'Cancelled');
+            const now = new Date();
+            let cutoffDate = null;
+        
+            switch (state.salesTimeFilter) {
+                case 'lastmonth':
+                    // Creates a date roughly 30 days ago
+                    cutoffDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+                    break;
+                case 'last6months':
+                    // Creates a date 6 months ago
+                    cutoffDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+                    break;
+                case 'lastyear':
+                    // Creates a date 1 year ago
+                    cutoffDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                    break;
+                case 'all':
+                default:
+                    return filteredOrders;
+            }
+        
+            return filteredOrders.filter(order => {
+                // Uses the pre-converted Date object (from the Firestore listener)
+                const orderDate = (order.createdAt instanceof Date) ? order.createdAt : new Date(order.timestamp);
+                return orderDate >= cutoffDate;
+            });
+        }
+        function renderSalesCharts() {
+            // 1. Destroy existing charts before rendering new ones
+            destroyCharts();
+        
+            const categoryData = processSalesDataByCategory();
+            const monthlyData = processSalesDataByMonth();
+        
+            // --- Pie Chart: Sales by Category ---
+            const ctxCategory = document.getElementById('salesByCategoryChart');
+            if (ctxCategory) {
+                salesCharts.category = new Chart(ctxCategory, {
+                    type: 'doughnut',
+                    data: {
+                        labels: categoryData.labels,
+                        datasets: [{
+                            label: 'Sales by Category',
+                            data: categoryData.data,
+                            backgroundColor: ['#6366f1', '#f87171', '#34d399', '#facc15', '#a78bfa', '#22d3ee', '#fb7185'],
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                align: 'start',
+                            },
+                            title: {
+                                display: true,
+                                text: 'Sales by Product Category (Net)',
+                                font: { size: 16 }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.label || '';
+                                        if (context.parsed !== null) {
+                                            // Converts back to cents internally for formatting ($0.00)
+                                            label += `: ${formatPriceDisplay(context.parsed * 100)}`;
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        
+            // --- Time Chart: Sales per Month ---
+            const ctxMonth = document.getElementById('salesPerMonthChart');
+            if (ctxMonth) {
+                 salesCharts.month = new Chart(ctxMonth, {
+                    type: 'line',
+                    data: {
+                        labels: monthlyData.labels,
+                        datasets: [{
+                            label: 'Monthly Net Sales',
+                            data: monthlyData.data,
+                            borderColor: '#8b5cf6',
+                            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: `Monthly Sales Trends (${state.salesTimeFilter.replace('last', 'Last ')})`,
+                                font: { size: 16 }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (context.parsed.y !== null) {
+                                            // Converts back to cents internally for formatting ($0.00)
+                                            label += `: ${formatPriceDisplay(context.parsed.y * 100)}`;
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Revenue (USD)'
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        // Formats Y-axis labels as currency
+                                        return formatPriceDisplay(value * 100).replace(/\.00$/, ''); 
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
             }
         }
+        function renderOrdersStats() {
+            const statsEl = document.getElementById('ordersStats');
+            if (statsEl) {
+                statsEl.innerHTML = window.module.getOrdersStatsHtml();
+                window.module.renderSalesCharts(); 
+            }
+        }
+
+        function getOrdersStatsHtml() {
+        // --- Calculate Sales Data ---
+        // Net sales: excludes cancelled orders
+        const totalSales = state.orders.reduce((sum, order) => sum + (order.status !== 'Cancelled' ? order.totalCents : 0), 0);
+        const orderCounts = state.orders.reduce((counts, order) => {
+            counts[order.status] = (counts[order.status] || 0) + 1;
+            return counts;
+        }, {});
+        // --- End Sales Data ---
+    
+        return `
+            <div id="ordersStatsSummary" class="grid grid-cols-3 gap-4 text-center">
+                <div class="bg-indigo-50 p-4 rounded-lg">
+                    <p class="text-xs font-semibold text-indigo-700">Total Revenue (Net)</p>
+                    <p class="text-2xl font-bold text-indigo-900">${formatPriceDisplay(totalSales)}</p>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <p class="text-xs font-semibold text-blue-700">Total Orders</p>
+                    <p class="text-2xl font-bold text-blue-900">${state.orders.length}</p>
+                </div>
+                <div class="bg-red-50 p-4 rounded-lg">
+                    <p class="text-xs font-semibold text-red-700">Pending Orders</p>
+                    <p class="text-2xl font-bold text-red-900">${orderCounts['Pending'] || 0}</p>
+                </div>
+            </div>
+    
+            <div class="mt-6 p-4 bg-white rounded-xl border border-gray-200 shadow-md">
+                <h4 class="font-bold text-lg mb-3">Order Status Breakdown</h4>
+                <ul class="space-y-1 text-sm">
+                    <li><span class="font-semibold text-green-600">Delivered:</span> ${orderCounts['Delivered'] || 0}</li>
+                    <li><span class="font-semibold text-blue-600">Processing:</span> ${orderCounts['Processing'] || 0}</li>
+                    <li><span class="font-semibold text-red-600">Pending:</span> ${orderCounts['Pending'] || 0}</li>
+                    <li><span class="font-semibold text-gray-600">Cancelled:</span> ${orderCounts['Cancelled'] || 0}</li>
+                </ul>
+            </div>
+            
+            <div id="salesChartsControls" class="mt-8 pt-4 border-t border-gray-200 flex justify-end items-center space-x-4">
+                <label class="font-semibold text-gray-700 text-sm">Sales Filter:</label>
+                <select onchange="window.module.handleSalesTimeFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
+                    <option value="all" ${state.salesTimeFilter === 'all' ? 'selected' : ''}>All Time</option>
+                    <option value="lastmonth" ${state.salesTimeFilter === 'lastmonth' ? 'selected' : ''}>Last Month</option>
+                    <option value="last6months" ${state.salesTimeFilter === 'last6months' ? 'selected' : ''}>Last 6 Months</option>
+                    <option value="lastyear" ${state.salesTimeFilter === 'lastyear' ? 'selected' : ''}>Last Year</option>
+                </select>
+            </div>
+    
+            <div id="salesChartsGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-6">
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <div style="height: 350px;">
+                        <canvas id="salesByCategoryChart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <div style="height: 350px;">
+                        <canvas id="salesPerMonthChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            `;
+    }
+        
+        
+        function destroyCharts() {
+            if (salesCharts.category) {
+                salesCharts.category.destroy();
+                salesCharts.category = null; // Clear reference
+            }
+            if (salesCharts.month) {
+                salesCharts.month.destroy();
+                salesCharts.month = null; // Clear reference
+            }
+        }
+        
         function getOrdersCollectionPath(targetIdOrIndicator) { 
             // Get the application ID (or use default)
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -2085,23 +2361,22 @@
         function renderOrdersList() {
             // This logic filters the mock orders based on state.orderStatusFilter
             const orders = getFilteredOrders();
-            
             const tableRows = orders.map(order => {
                 
                 // 🔑 1. Determine the necessary ID for the Firestore path
                 // This will be the client's UID OR the admin's email for manual orders.
                 const targetId = order.uid || order.createdByAdmin; 
-        
+                
                 if (!targetId) {
-                     // Only log error if neither UID nor Admin source is present
-                     console.error(`Order ${order.id} is missing a client UID/Admin source and cannot be edited.`);
+                    // Only log error if neither UID nor Admin source is present
+                    console.error(`Order ${order.id} is missing a client UID/Admin source and cannot be edited.`);
                 }
                 
                 // 2. Set the status classes (no change)
                 const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
-                                     order.status === 'Pending' ? 'text-red-600 font-bold' :
-                                     order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
-                                     
+                                           order.status === 'Pending' ? 'text-red-600 font-bold' :
+                                           order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
+                                           
                 let deliveryButton;
                 if (order.status === 'Pending') {
                     deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
@@ -2117,7 +2392,7 @@
                 const itemListHtml = order.items.map(item => 
                     `<p>${item.quantity}x ${item.name.substring(0,20)}${item.name.length > 20 ? '...' : ''}</p>`
                 ).join('');
-        
+                
                 const isPaid = order.isPaid || false; 
                 const paymentStatusBadge = isPaid
                     ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
@@ -2127,7 +2402,7 @@
                 const editButton = targetId 
                     ? `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>`
                     : `<span class="text-xs text-red-500 p-1">No Edit Source</span>`;
-        
+                
                 return `
                     <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
                         
@@ -2178,18 +2453,12 @@
                 contentEl.innerHTML = tableRows || '<p class="text-center p-6 text-gray-500">No orders found matching this filter.</p>';
             }
             
-            // Render Charts/Stats
-            const statsEl = document.getElementById('ordersStats');
+            // CRITICAL: Call the stats and chart renderer after updating the list
+            window.module.renderOrdersStats(); 
             
-            // FIX: Replaced optional chaining assignment with standard check (for clearing message)
+            // Clear the loading message after rendering
             const ordersMsgElClear = document.getElementById('ordersMessage');
-            if (ordersMsgElClear) {
-                ordersMsgElClear.textContent = '';
-            }
-        
-            if (statsEl) {
-                statsEl.innerHTML = renderOrdersStats();
-            }
+            if (ordersMsgElClear) ordersMsgElClear.textContent = '';
         }
     
         function renderOrdersStats() {
