@@ -410,30 +410,37 @@
                         }]
                     },
                     options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: {
-                                    // 🎯 FIX: Move the legend to the right and align it to the start
-                                    position: 'right', // Change from 'top' or 'center' to 'right'
-                                    align: 'start',    // Aligns legend items to the top-right
-                                    labels: {
-                                        boxWidth: 20, // Adjust box size if needed
-                                    }
-                                },
-                                title: {
-                                    display: true,
-                                    text: 'Sales by Product Category (Net)',
-                                    font: { size: 16 }
-                                },
-                        tooltip: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        
+                        // 🎯 CRITICAL FIX: Add Padding to force the chart area to respect the side legend
+                        layout: {
+                            padding: {
+                                right: 120, // Increase space on the right side for the legend
+                                top: 20,    // Add a bit of space below the title
+                                left: 20
+                            }
+                        },
+                        
+                        plugins: {
+                            legend: {
+                                // FIX is already applied here to move it right
+                                position: 'right',
+                                align: 'start',
+                                labels: {
+                                    boxWidth: 20,
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Sales by Product Category (Net)',
+                                font: { size: 16 }
+                            },
+                            tooltip: {
                                 callbacks: {
-                                    // Custom callback to format value as currency for the tooltip
                                     label: function(context) {
                                         let label = context.label || '';
                                         if (context.parsed !== null) {
-                                            // The chart data is already in dollars (cents/100), so we multiply by 100 
-                                            // only to use the existing formatPriceDisplay(cents) utility.
                                             label += `: ${formatPriceDisplay(context.parsed * 100)}`;
                                         }
                                         return label;
@@ -468,13 +475,11 @@
                         plugins: {
                             title: {
                                 display: true,
-                                // Access state.salesTimeFilter directly
                                 text: `Monthly Sales Trends (${state.salesTimeFilter.replace('last', 'Last ')})`,
                                 font: { size: 16 }
                             },
                             tooltip: {
                                 callbacks: {
-                                    // Custom callback to format value as currency for the tooltip
                                     label: function(context) {
                                         let label = context.dataset.label || '';
                                         if (context.parsed.y !== null) {
@@ -493,7 +498,6 @@
                                     text: 'Revenue (USD)'
                                 },
                                 ticks: {
-                                    // Custom callback to format Y-axis labels as currency
                                     callback: function(value) {
                                         return formatPriceDisplay(value * 100).replace(/\.00$/, ''); 
                                     }
@@ -504,7 +508,6 @@
                 });
             }
         }
-
             function handleSalesTimeFilterChange(e) {
                 state.salesTimeFilter = e.target.value;
                 renderSalesCharts();
