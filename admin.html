@@ -397,7 +397,6 @@
             // --- Pie Chart: Sales by Category ---
             const ctxCategory = document.getElementById('salesByCategoryChart');
             if (ctxCategory) {
-                // Use local variable 'salesCharts' to store the instance
                 salesCharts.category = new Chart(ctxCategory, {
                     type: 'doughnut',
                     data: {
@@ -406,44 +405,50 @@
                             label: 'Sales by Category',
                             data: categoryData.data,
                             backgroundColor: ['#6366f1', '#f87171', '#34d399', '#facc15', '#a78bfa', '#22d3ee', '#fb7185'],
-                            hoverOffset: 4
+                            hoverOffset: 8
                         }]
                     },
-           options: {
+                    options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        
-                        // 1. Keep the Layout Padding (it correctly limits the chart size)
                         layout: {
                             padding: {
-                                right: 120, // Space for the side legend
                                 top: 20,
-                                left: 20
+                                bottom: 20,
+                                left: 20,
+                                right: 20
                             }
                         },
-                        
                         plugins: {
                             legend: {
-                                // 2. Ensure legend is anchored to the right side
-                                position: 'right', 
-                                align: 'start', // Aligns legend to the top-right
+                                position: 'bottom',        // ← THIS FIXES THE OVERLAP
+                                align: 'center',
                                 labels: {
-                                    boxWidth: 20,
+                                    boxWidth: 16,
+                                    padding: 20,           // vertical space between items
+                                    usePointStyle: true,   // circular markers (much cleaner)
+                                    font: {
+                                        size: 12
+                                    }
                                 }
                             },
                             title: {
-                                // 3. CRITICAL FIX: Explicitly position the title at the top center
                                 display: true,
-                                position: 'top', // <-- Add this line
+                                position: 'top',
+                                align: 'center',
                                 text: 'Sales by Product Category (Net)',
-                                font: { size: 16 }
+                                font: { size: 16, weight: 'bold' },
+                                padding: { bottom: 20 }
                             },
                             tooltip: {
                                 callbacks: {
                                     label: function(context) {
                                         let label = context.label || '';
-                                        if (context.parsed !== null) {
-                                            label += `: ${formatPriceDisplay(context.parsed * 100)}`;
+                                        if (context.parsed !== undefined) {
+                                            const value = context.parsed;
+                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                            label += `: ${formatPriceDisplay(value * 100)} (${percentage}%)`;
                                         }
                                         return label;
                                     }
@@ -454,11 +459,10 @@
                 });
             }
         
-            // --- Time Chart: Sales per Month ---
+            // --- Time Chart: Sales per Month (unchanged) ---
             const ctxMonth = document.getElementById('salesPerMonthChart');
             if (ctxMonth) {
-                 // Use local variable 'salesCharts' to store the instance
-                 salesCharts.month = new Chart(ctxMonth, {
+                salesCharts.month = new Chart(ctxMonth, {
                     type: 'line',
                     data: {
                         labels: monthlyData.labels,
@@ -468,7 +472,9 @@
                             borderColor: '#8b5cf6',
                             backgroundColor: 'rgba(139, 92, 246, 0.1)',
                             fill: true,
-                            tension: 0.4
+                            tension: 0.4,
+                            pointBackgroundColor: '#8b5cf6',
+                            pointRadius: 4
                         }]
                     },
                     options: {
@@ -478,7 +484,7 @@
                             title: {
                                 display: true,
                                 text: `Monthly Sales Trends (${state.salesTimeFilter.replace('last', 'Last ')})`,
-                                font: { size: 16 }
+                                font: { size: 16, weight: 'bold' }
                             },
                             tooltip: {
                                 callbacks: {
@@ -501,7 +507,7 @@
                                 },
                                 ticks: {
                                     callback: function(value) {
-                                        return formatPriceDisplay(value * 100).replace(/\.00$/, ''); 
+                                        return formatPriceDisplay(value * 100).replace(/\.00$/, '');
                                     }
                                 }
                             }
