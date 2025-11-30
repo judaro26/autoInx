@@ -836,7 +836,6 @@
                         <option value="lastyear" ${state.salesTimeFilter === 'lastyear' ? 'selected' : ''}>Last Year</option>
                     </select>
                 </div>
-                
                 <div id="salesChartsGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-6">
                     <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
                         <div style="height: 350px;">
@@ -2752,33 +2751,49 @@
         }
     
             // --- ORDERS TRACKING FUNCTIONS (Render) ---
-          function renderOrdersList() {
-            // This logic filters the mock orders based on state.orderStatusFilter
+        function renderOrdersList() {
+            // This logic filters the orders based on state.orderStatusFilter
             const orders = getFilteredOrders();
             
-            // ❌ ISSUE: The mapping logic for tableRows is incomplete or empty in your code block
-            // It should be:
             const tableRows = orders.map(order => {
                 
                 // 🔑 1. Determine the necessary ID for the Firestore path
-                const targetId = order.uid || order.createdByAdmin; 
+                const targetId = order.uid || order.createdByAdmin;
                 
                 // 2. Set status classes and delivery button logic
                 const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
-                                           order.status === 'Pending' ? 'text-red-600 font-bold' :
-                                           order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
-                // ... (deliveryButton logic) ...
-                const deliveryButton = order.status === 'Pending' ? `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>` : ''; // Simplified for this example
+                                            order.status === 'Pending' ? 'text-red-600 font-bold' :
+                                            order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
+                
+                let deliveryButton = '';
+                if (order.status === 'Pending') {
+                     deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
+                } else if (order.status === 'Processing') {
+                     deliveryButton = `<button disabled class="px-3 py-1 w-full bg-gray-400 text-white text-xs rounded">Delivery In Progress</button>`;
+                }
                 
                 const itemListHtml = order.items.map(item => `<p>${item.quantity}x ${item.name.substring(0,20)}${item.name.length > 20 ? '...' : ''}</p>`).join('');
-                const isPaid = order.isPaid || false; 
+                const isPaid = order.isPaid || false;
                 const paymentStatusBadge = isPaid
                     ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
                     : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
-                const editButton = targetId 
-                    ? `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit</button>`
+                
+                const editButton = targetId
+                    ? `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit Order</button>`
                     : `<span class="text-xs text-red-500 p-1">No Edit Source</span>`;
         
+                // The status update dropdown remains for manual updates
+                const statusUpdateDropdown = `
+                    <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="p-1 border rounded-lg text-xs bg-gray-50 mt-1 w-full">
+                        <option value="${order.status}" selected>${order.status}</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Processing">Processing</option>
+                        <option value="Shipped">Shipped</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                `;
+                
                 return `
                     <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
                         <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
@@ -2790,28 +2805,24 @@
                             <p class="text-xs text-gray-500 truncate">${order.buyerEmail}</p>
                             <p class="text-xs text-gray-500 truncate">${order.deliveryAddress}</p>
                         </div>
-                        <div class="col-span-3 flex flex-col items-center justify-center space-y-1"> 
+                        <div class="col-span-3 flex flex-col items-center justify-center space-y-1">    
                             <div class="flex items-center">
                                 <span class="text-lg font-bold text-pink-700">${formatPriceDisplay(order.totalCents)}</span>
-                                ${paymentStatusBadge} 
+                                ${paymentStatusBadge}    
                             </div>
                             <span class="text-sm font-bold ${statusClass} flex-shrink-0">${order.status}</span>
                         </div>
                         <div class="col-span-1"></div>
                         <div class="col-span-2 text-xs text-gray-700">
-                            ${itemListHtml} 
+                            ${itemListHtml}    
                         </div>
-                        <div class="col-span-2 space-y-1"> 
+                        <div class="col-span-2 space-y-1">    
                             <div class="text-xs text-gray-500 font-semibold mb-2">
-                                ${formatTime(order.createdAt)} 
+                                ${formatTime(order.createdAt)}    
                             </div>
-                            ${editButton} ${deliveryButton}
-                        <select onchange="window.module.handleSalesTimeFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
-                            <option value="all" ${state.salesTimeFilter === 'all' ? 'selected' : ''}>All Time</option>
-                            <option value="lastmonth" ${state.salesTimeFilter === 'lastmonth' ? 'selected' : ''}>Last Month</option>
-                            <option value="last6months" ${state.salesTimeFilter === 'last6months' ? 'selected' : ''}>Last 6 Months</option>
-                            <option value="lastyear" ${state.salesTimeFilter === 'lastyear' ? 'selected' : ''}>Last Year</option>
-                        </select>
+                            ${editButton} 
+                            ${deliveryButton}
+                            ${statusUpdateDropdown}
                         </div>
                     </div>
                 `;
