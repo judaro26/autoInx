@@ -143,6 +143,7 @@
             orders: [],
             orderListSearchTerm: '',
             orderStatusFilter: 'All',
+            deliveryStatusFilter: 'All', 
             orderPage: 'list', 
             
             // ✅ CRITICAL FIX: Initialize the sales time filter
@@ -518,7 +519,13 @@
             cartEl.innerHTML = cartHtml;
             totalEl.textContent = formatPriceDisplay(totalCents);
         }
-        
+
+        function handleDeliveryFilterChange(e) {
+            state.deliveryStatusFilter = e.target.value;
+            renderOrdersList();
+            resetTimer();
+        }
+                
         // Function to add a NEW item to the draft cart
         function addDraftCartItem() {
             const selector = document.getElementById('editItemSelector');
@@ -1902,25 +1909,50 @@
         }
     
         function getFilteredOrders() {
-            // 1. Filter by status first (uses existing state property)
-            let filteredByStatus = state.orders;
+            // 1. Filter by status (uses existing state property)
+            let filteredOrders = state.orders;
             const statusFilter = state.orderStatusFilter;
+            const deliveryFilter = state.deliveryStatusFilter; // NEW: Added global state variable for delivery filter
         
             if (statusFilter !== 'All') {
-                filteredByStatus = state.orders.filter(order => order.status === statusFilter);
+                filteredOrders = filteredOrders.filter(order => order.status === statusFilter);
             }
             
+            // NEW: Filter by delivery status
+            if (deliveryFilter !== 'All') {
+                filteredOrders = filteredOrders.filter(order => {
+                    // Note: This logic maps a Delivery Status Filter (Ready, Scheduled, Unscheduled) 
+                    // to the core order.status field. Customize this mapping if you have a separate 'deliveryStatus' field in Firestore.
+                    
+                    if (deliveryFilter === 'Unscheduled') {
+                        // Typically orders ready to be processed but not yet picked up/shipped
+                        return order.status === 'Pending';
+                    }
+                    if (deliveryFilter === 'Ready') {
+                        // Typically orders actively being packed or waiting for courier pickup
+                        return order.status === 'Processing';
+                    }
+                    if (deliveryFilter === 'Scheduled') {
+                        // Orders that are currently en-route or completed delivery
+                        return order.status === 'Shipped' || order.status === 'Delivered';
+                    }
+                    // If none of the specific delivery options match, return true (shouldn't happen if filter is set)
+                    return true; 
+                });
+            }
+        
             // 2. Filter by search term
-            const term = state.orderListSearchTerm.toLowerCase().trim(); // <<< Uses the NEW state variable
+            const term = state.orderListSearchTerm.toLowerCase().trim();
         
-            if (!term) return filteredByStatus;
+            if (!term) return filteredOrders;
         
-            return filteredByStatus.filter(order => {
+            return filteredOrders.filter(order => {
                 // Search by core properties
-                const matchesName = order.buyerName.toLowerCase().includes(term);
-                const matchesEmail = order.buyerEmail.toLowerCase().includes(term);
-                const matchesAddress = order.deliveryAddress.toLowerCase().includes(term);
-                const matchesOrderNumber = String(order.orderNumber).includes(term);
+                const matchesName = (order.buyerName && order.buyerName.toLowerCase().includes(term));
+                const matchesEmail = (order.buyerEmail && order.buyerEmail.toLowerCase().includes(term));
+                const matchesAddress = (order.deliveryAddress && order.deliveryAddress.toLowerCase().includes(term));
+                // order.orderNumber is often undefined/missing, searching order ID is more reliable
+                const matchesOrderNumber = (order.id && order.id.toLowerCase().includes(term)); 
                 
                 // Search by item SKUs/Names
                 const matchesItem = order.items.some(item => 
@@ -2928,7 +2960,8 @@
         }
     
         function renderOrderTracker() {
-            const statusOptions = ['All', 'Pending', 'Processing', 'Delivered', 'Cancelled'];
+            const statusOptions = ['All', 'Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
+            const deliveryOptions = ['All', 'Ready', 'Scheduled', 'Unscheduled']; // NEW Options
             
             return `
                 <section class="space-y-8">
@@ -2947,6 +2980,11 @@
                                 <select onchange="window.module.handleStatusFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
                                     ${statusOptions.map(s => `<option value="${s}" ${state.orderStatusFilter === s ? 'selected' : ''}>Filter: ${s}</option>`).join('')}
                                 </select>
+                                
+                                <select onchange="window.module.handleDeliveryFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
+                                    ${deliveryOptions.map(s => `<option value="${s}" ${state.deliveryStatusFilter === s ? 'selected' : ''}>Delivery: ${s}</option>`).join('')}
+                                </select>
+                                
                                 <button onclick="window.module.switchOrderPage('create')" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition">Create Manual Order</button>
                             </div>
                         </div>
@@ -3291,6 +3329,7 @@
                     handleSalesTimeFilterChange,
                     renderCategorySalesTable,
                     downloadCategorySalesCsv,
+                    handleDeliveryFilterChange, 
             
                     // <<< NEW ORDER EDIT FUNCTIONS
                     showOrderEditForm,
