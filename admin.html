@@ -502,12 +502,13 @@
             }
         }
 
-        function getOrdersStatsHtml() {
-            // --- Calculate Sales Data ---
-            // Net sales: excludes cancelled orders
+           function getOrdersStatsHtml() {
+            // --- Calculate Sales Data (Net sales excludes cancelled orders) ---
             const totalSales = state.orders.reduce((sum, order) => sum + (order.status !== 'Cancelled' ? order.totalCents : 0), 0);
             const orderCounts = state.orders.reduce((counts, order) => {
-                counts[order.status] = (counts[order.status] || 0) + 1;
+                // Ensure accurate counting even if a status property is missing or unexpected
+                const status = order.status || 'Unknown';
+                counts[status] = (counts[status] || 0) + 1;
                 return counts;
             }, {});
             // --- End Sales Data ---
@@ -535,6 +536,7 @@
                         <li><span class="font-semibold text-blue-600">Processing:</span> ${orderCounts['Processing'] || 0}</li>
                         <li><span class="font-semibold text-red-600">Pending:</span> ${orderCounts['Pending'] || 0}</li>
                         <li><span class="font-semibold text-gray-600">Cancelled:</span> ${orderCounts['Cancelled'] || 0}</li>
+                        ${orderCounts['Unknown'] ? `<li><span class="font-semibold text-yellow-600">Unknown:</span> ${orderCounts['Unknown']}</li>` : ''}
                     </ul>
                 </div>
                 
