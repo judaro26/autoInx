@@ -297,35 +297,100 @@
                 });
            }
         }
-        function processSalesDataByCategory() {
+        function renderCategorySalesTable(salesData) {
+            if (salesData.tableData.length === 0) {
+                return `<p class="text-center text-gray-500 p-4">No sales data found for the selected time period.</p>`;
+            }
+        
+            const tableRows = salesData.tableData.map(row => {
+                // We use Math.round(price * 100) to pass cents to formatPriceDisplay, ensuring accuracy
+                const totalRevenueCents = Math.round(row.totalRevenue * 100);
+                const averagePriceCents = Math.round(row.averagePrice * 100);
+        
+                return `
+                    <div class="grid grid-cols-4 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
+                        <div class="text-sm font-semibold text-gray-800 truncate">${row.category}</div>
+                        <div class="text-sm text-center">${row.unitsSold}</div>
+                        <div class="text-sm font-bold text-green-700">${formatPriceDisplay(totalRevenueCents)}</div>
+                        <div class="text-sm text-right text-gray-500">${formatPriceDisplay(averagePriceCents)}</div>
+                    </div>
+                `;
+            }).join('');
+        
+            return `
+                <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 mt-8">
+                    <h4 class="text-xl font-bold mb-4 text-indigo-700">Sales Breakdown by Category</h4>
+                    <div class="overflow-x-auto">
+                        <div class="min-w-[500px]">
+                            <div class="grid grid-cols-4 gap-4 font-bold bg-gray-100 p-3 rounded-t-lg border-b border-gray-300">
+                                <div>Category</div>
+                                <div class="text-center">Units Sold</div>
+                                <div class="text-center">Total Revenue</div>
+                                <div class="text-right">Avg. Item Price</div>
+                            </div>
+                            <div class="max-h-80 custom-scrollbar overflow-y-auto">
+                                ${tableRows}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+          function processSalesDataByCategory() {
             const categorySales = {};
             const itemMap = state.items.reduce((map, item) => {
                 map[item.id] = item;
                 return map;
             }, {});
+            
+            // Initialize category tracking
+            const categoryMetrics = state.catalogs.reduce((metrics, cat) => {
+                metrics[cat.name] = { totalRevenue: 0, unitsSold: 0, averagePrice: 0 };
+                return metrics;
+            }, {});
+            categoryMetrics['Uncategorized'] = { totalRevenue: 0, unitsSold: 0, averagePrice: 0 }; // Handle uncategorized items
         
             getFilteredSalesOrders().forEach(order => {
                 order.items.forEach(orderItem => {
                     const item = itemMap[orderItem.id];
                     if (item) {
                         const catalogId = item.catalogId || 'no_category';
-                        // Fallback to item name if catalog lookup fails (unlikely if listeners work)
-                        const categoryName = state.catalogs.find(c => c.id === catalogId)?.name || (catalogId === 'no_category' ? 'Uncategorized' : 'Unknown Category');
-        
+                        const categoryName = state.catalogs.find(c => c.id === catalogId)?.name || 'Uncategorized';
+                        
                         const salesAmount = orderItem.price * orderItem.quantity;
-        
-                        if (!categorySales[categoryName]) {
-                            categorySales[categoryName] = 0;
-                        }
-                        categorySales[categoryName] += salesAmount;
+                        
+                        categoryMetrics[categoryName].totalRevenue += salesAmount;
+                        categoryMetrics[categoryName].unitsSold += orderItem.quantity;
                     }
                 });
             });
         
+            // Finalize data structure for charts and the new table
+            const chartData = { labels: [], data: [] };
+            const tableData = [];
+        
+            Object.keys(categoryMetrics).forEach(categoryName => {
+                const metrics = categoryMetrics[categoryName];
+                if (metrics.totalRevenue > 0) {
+                    chartData.labels.push(categoryName);
+                    chartData.data.push(metrics.totalRevenue / 100); // Convert cents to dollars for Chart.js
+        
+                    const revenueDollars = metrics.totalRevenue / 100;
+                    const avgPrice = metrics.unitsSold > 0 ? revenueDollars / metrics.unitsSold : 0;
+        
+                    tableData.push({
+                        category: categoryName,
+                        totalRevenue: revenueDollars,
+                        unitsSold: metrics.unitsSold,
+                        averagePrice: avgPrice,
+                    });
+                }
+            });
+        
             return {
-                labels: Object.keys(categorySales),
-                // Data is converted from cents to dollars for Chart.js display
-                data: Object.values(categorySales).map(cents => cents / 100), 
+                chartData: chartData,
+                tableData: tableData.sort((a, b) => b.totalRevenue - a.totalRevenue), // Sort by revenue descending
             };
         }
 // --- NEW HELPER FUNCTIONS FOR DRAFT CART MANAGEMENT (Add around line 1300) ---
@@ -525,21 +590,22 @@
         function renderSalesCharts() {
             // 1. Destroy existing charts before rendering new ones
             destroyCharts(); // This function clears salesCharts.category and salesCharts.month
-        
+            
             // 2. Process data using the *local* helper functions
-            const categoryData = processSalesDataByCategory();
+            // NOTE: We rename 'categoryData' to 'categoryResult' as it now holds both chart and table data
+            const categoryResult = processSalesDataByCategory(); // Now returns { chartData, tableData }
             const monthlyData = processSalesDataByMonth();
-        
+            
             // --- Pie Chart: Sales by Category ---
             const ctxCategory = document.getElementById('salesByCategoryChart');
             if (ctxCategory) {
                 salesCharts.category = new Chart(ctxCategory, {
                     type: 'doughnut',
                     data: {
-                        labels: categoryData.labels,
+                        labels: categoryResult.chartData.labels,
                         datasets: [{
                             label: 'Sales by Category',
-                            data: categoryData.data,
+                            data: categoryResult.chartData.data,
                             backgroundColor: ['#6366f1', '#f87171', '#34d399', '#facc15', '#a78bfa', '#22d3ee', '#fb7185'],
                             hoverOffset: 8
                         }]
@@ -557,12 +623,12 @@
                         },
                         plugins: {
                             legend: {
-                                position: 'bottom',        // ← THIS FIXES THE OVERLAP
+                                position: 'bottom',    // ← THIS FIXES THE OVERLAP
                                 align: 'center',
                                 labels: {
                                     boxWidth: 16,
-                                    padding: 20,           // vertical space between items
-                                    usePointStyle: true,   // circular markers (much cleaner)
+                                    padding: 20,
+                                    usePointStyle: true,
                                     font: {
                                         size: 12
                                     }
@@ -584,6 +650,7 @@
                                             const value = context.parsed;
                                             const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                             const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                            // Use the formatted display helper for currency
                                             label += `: ${formatPriceDisplay(value * 100)} (${percentage}%)`;
                                         }
                                         return label;
@@ -594,7 +661,7 @@
                     }
                 });
             }
-        
+            
             // --- Time Chart: Sales per Month (unchanged) ---
             const ctxMonth = document.getElementById('salesPerMonthChart');
             if (ctxMonth) {
@@ -651,6 +718,12 @@
                     }
                 });
             }
+        
+            // 3. **NEW STEP: Render the Sales Breakdown Table**
+            const tableContainer = document.getElementById('categorySalesTableContainer');
+            if (tableContainer) {
+                tableContainer.innerHTML = window.module.renderCategorySalesTable(categoryResult);
+            }
         }
             function handleSalesTimeFilterChange(e) {
                 state.salesTimeFilter = e.target.value;
@@ -658,7 +731,7 @@
                 resetTimer();
             }
 
-           function getOrdersStatsHtml() {
+        function getOrdersStatsHtml() {
             // --- Calculate Sales Data (Net sales excludes cancelled orders) ---
             const totalSales = state.orders.reduce((sum, order) => sum + (order.status !== 'Cancelled' ? order.totalCents : 0), 0);
             const orderCounts = state.orders.reduce((counts, order) => {
@@ -705,7 +778,7 @@
                         <option value="lastyear" ${state.salesTimeFilter === 'lastyear' ? 'selected' : ''}>Last Year</option>
                     </select>
                 </div>
-        
+                
                 <div id="salesChartsGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-6">
                     <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
                         <div style="height: 350px;">
@@ -718,6 +791,10 @@
                         </div>
                     </div>
                 </div>
+                
+                <div id="categorySalesTableContainer">
+                    </div>
+        
                 `;
         }
         
@@ -2699,13 +2776,12 @@
         function renderOrdersStats() {
             const statsEl = document.getElementById('ordersStats');
             if (statsEl) {
-                // 1. Inject the entire statistics HTML structure (containing the canvases)
-                statsEl.innerHTML = getOrdersStatsHtml(); 
+                // 1. Inject the entire statistics HTML structure (containing the canvases and the new container)
+                statsEl.innerHTML = getOrdersStatsHtml();
                 
-                // 2. IMPORTANT: Now that the canvases are in the DOM, 
-                //    call the chart drawing function immediately using its global path.
-                //    (Using window.module ensures it is accessible globally.)
-                window.module.renderSalesCharts(); 
+                // 2. IMPORTANT: Now that the canvases and table container are in the DOM, 
+                //    call the chart and table drawing function immediately.
+                window.module.renderSalesCharts();
             }
         }
     
@@ -3144,6 +3220,7 @@
                     getOrdersStatsHtml,
                     renderSalesCharts,
                     handleSalesTimeFilterChange,
+                    renderCategorySalesTable,
             
                     // <<< NEW ORDER EDIT FUNCTIONS
                     showOrderEditForm,
