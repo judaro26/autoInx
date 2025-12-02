@@ -314,7 +314,7 @@
         function renderAuthToggle() {
             // Condition reads: If not loaded, OR (if Maintenance AND not logged in AND not whitelisted), then return ''.
             if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName && !state.isAdminIP)) return '';
-
+        
             if (state.view === 'admin') {
                 return `
                     <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
@@ -323,6 +323,7 @@
                 `;
             }
             
+            // This block determines the "logged-in status"
             if (state.userName) {
                 return `
                     <div class="flex items-center space-x-4">
@@ -342,6 +343,7 @@
                 `;
             }
             
+            // This block determines the "logged-out status"
             const commonButtons = `
                 <button onclick="window.module.registerUser()"
                         class="text-sm font-medium text-gray-500 hover:text-indigo-600 transition duration-150">
@@ -381,17 +383,6 @@
                 `;
             }
         }
-        window.onloadRecaptchaCallback = function() {
-            console.log("reCAPTCHA script loaded successfully.");
-            // If the register modal is currently open, attempt to render the widget now
-            if (state.isModalOpen && state.modalMode === 'register') {
-                 // You can explicitly render the widget here if needed, 
-                 // but usually simply being present in the DOM is enough 
-                 // if showLoginModal is called after load.
-                 // We'll rely on showLoginModal's reset/render logic.
-                 window.module.showLoginModal(state.modalType, state.modalMode, true); 
-            }
-        };
         function renderModal() {
             if (!state.isModalOpen) return '';
             
@@ -1132,14 +1123,14 @@
                 if (storedLang && TEXT[storedLang]) {
                     currentLang = storedLang;
                 }
-
+        
                 // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK ---
                 const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
                 const { ip: clientIp } = await ipResponse.json();
                 
                 const configResponse = await fetch(GET_CONFIG_FUNCTION);
                 const globalConfig = await configResponse.json();
-
+        
                 state.isMaintenanceMode = globalConfig.maintenanceMode === true;
                 
                 const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
@@ -1147,17 +1138,17 @@
                 const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
                 
                 state.isAdminIP = isWhitelisted; 
-
+        
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
                     isAuthReady = true;
                     render();
                     console.log("Site locked by maintenance mode. IP not whitelisted. Exiting setup.");
-                    return; 
+                    return;
                 }
                 
                 // --- END MAINTENANCE GATE ---
-
+        
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
                 
@@ -1183,6 +1174,8 @@
                         console.error("Error during initial anonymous sign-in:", error);
                     });
                 }
+                
+                // onAuthStateChanged Listener (MODIFIED TO GUARANTEE MODAL CLOSURE)
                 onAuthStateChanged(auth, async (user) => {
                     
                     if (user) {
@@ -1196,6 +1189,7 @@
                         }
                         
                         explicitSignOutOccurred = false;
+                        
                     } else {
                         userId = null;
                         state.userName = null;
@@ -1207,6 +1201,15 @@
                     isAuthReady = true;
                     await fetchAndApplyGlobalConfig(); 
                     if (db) setupRealtimeListeners();
+                    
+                    // START FINAL GUARANTEE CHECK (Ensures state is updated before final render)
+                    if (user && !user.isAnonymous && state.isModalOpen) {
+                        // Guarantee the modal is marked for closure before the final render
+                        state.isModalOpen = false;
+                        console.log("Auth success detected. Forcing modal close.");
+                    }
+                    // END FINAL GUARANTEE CHECK
+                    
                     render();
                 });
             } catch (error) {
