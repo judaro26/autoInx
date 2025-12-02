@@ -1,354 +1,142 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mis Pedidos - autoInx</title>
-    <meta name="description" content="Revisa el historial y estado de tus pedidos en autoInx.">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
-                    colors: {
-                        primary: '#6366f1',
-                        accent: '#a78bfa'
-                    },
-                    animation: {
-                        'fade-in': 'fadeIn 0.6s ease-out forwards',
-                        'slide-up': 'slideUp 0.5s ease-out forwards'
-                    },
-                    keyframes: {
-                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
-                        slideUp: { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } }
-                    }
-                }
-            }
-        }
-    </script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <style>
-        body { background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%); min-height: 100vh; }
-        .glass-header {
-            background: rgba(255, 255, 255, 0.25);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: linear-gradient(to bottom, #c4b5fd, #818cf8);
-            border-radius: 3px;
-        }
-        .order-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .order-card:hover { transform: translateY(-8px); box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
-    </style>
-</head>
-<body class="antialiased text-gray-800">
-    <div class="flex flex-col min-h-screen">
-        <div id="app" class="max-w-7xl mx-auto px-6 sm:px-8 lg:px-10 py-8 flex-grow w-full">
-            <header class="glass-header rounded-3xl shadow-2xl p-8 mb-12 border-t-8 border-indigo-600 sticky top-4 z-50">
-                <div class="flex flex-col lg:flex-row justify-between items-center gap-6">
-                    <div class="flex items-center space-x-6">
-                        <img src="images/AutoInx logo.png" alt="AutoInx" class="h-14 drop-shadow-lg">
-                        <h1 class="text-4xl lg:text-5xl font-extrabold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-                            Mis Pedidos
-                        </h1>
+function renderOrders(orders) {
+    console.log("=== RENDER ORDERS DEBUG ===");
+    console.log("Number of orders:", orders.length);
+    console.log("Full orders data:", orders);
+    
+    const container = document.getElementById('ordersList');
+    const ordersContainerEl = document.getElementById('ordersContainer');
+    
+    console.log("Container element:", container);
+    console.log("Orders container element:", ordersContainerEl);
+    
+    if (!container) {
+        console.error("ERROR: ordersList container not found!");
+        return;
+    }
+    
+    if (!ordersContainerEl) {
+        console.error("ERROR: ordersContainer element not found!");
+        return;
+    }
+    
+    // --- 1. Render Logic (Empty State) ---
+    if (orders.length === 0) {
+        console.log("Rendering empty state");
+        container.innerHTML = `
+            <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
+                <div class="w-24 h-24 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
+                    <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+                </div>
+                <h3 class="text-2xl font-bold text-gray-700 mb-2">Aún no tienes pedidos</h3>
+                <p class="text-gray-500">Cuando hagas tu primera compra, aparecerá aquí</p>
+                <a href="index.html" class="mt-6 inline-block px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-s-full hover:shadow-xl transform hover:scale-105 transition">
+                    Ir a la Tienda
+                </a>
+            </div>`;
+    } 
+    
+    // --- 2. Render Logic (Orders List) ---
+    else {
+        console.log("Rendering", orders.length, "orders");
+        
+        // Check if order data has required fields
+        orders.forEach((order, index) => {
+            console.log(`Order ${index}:`, {
+                id: order.id,
+                totalCents: order.totalCents,
+                items: order.items,
+                itemsCount: order.items ? order.items.length : 0,
+                createdAt: order.createdAt,
+                isPaid: order.isPaid,
+                status: order.status
+            });
+        });
+        
+        const ordersHTML = orders.map((order, idx) => {
+            const statusColors = {
+                'Delivered': 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                'Shipped': 'bg-blue-100 text-blue-800 border-blue-200',
+                'Processing': 'bg-indigo-100 text-indigo-800 border-indigo-200',
+                'Cancelled': 'bg-red-100 text-red-800 border-red-200',
+                'Pending': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+                'Manually Created': 'bg-purple-100 text-purple-800 border-purple-200',
+            };
+
+            const badge = statusColors[order.status] || 'bg-gray-100 text-gray-800 border-gray-200';
+            
+            // Ensure items array exists
+            const items = order.items || [];
+            const isPaid = order.isPaid || false;
+            const totalCents = order.totalCents || 0;
+            const deliveryAddress = order.deliveryAddress || 'No especificada';
+            const createdAt = order.createdAt || order.timestamp;
+
+            return `
+                <div class="order-card bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-indigo-600 opacity-0" style="animation: slide-up 0.6s ease-out ${idx * 0.1}s forwards">
+                    <div class="bg-gradient-to-r from-indigo-50 to-purple-50 px-8 py-5 border-b border-gray-100">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <div>
+                                <h3 class="text-2xl font-extrabold text-gray-800">
+                                    Pedido <span class="font-mono text-indigo-600">#${order.id ? order.id.slice(0, 10) : 'N/A'}</span>
+                                </h3>
+                                <p class="text-sm text-gray-600 mt-1">${formatTime(createdAt)}</p>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <span class="px-4 py-2 rounded-full text-xs font-bold ${isPaid ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'} shadow-lg">
+                                    ${isPaid ? 'PAGADO' : 'PENDIENTE'}
+                                </span>
+                                <span class="px-5 py-2 rounded-full text-sm font-bold border-2 ${badge}">
+                                    ${order.status || 'PENDING'}
+                                </span>
+                            </div>
+                        </div>
                     </div>
-                    <a href="index.html" class="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-full hover:shadow-2xl transform hover:scale-105 transition-all duration-300">
-                        <svg class="w-5 h-5 group-hover:-translate-x-1 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-                        Volver a la Tienda
-                    </a>
-                </div>
-            </header>
-
-            <div id="loadingState" class="min-h-[60vh] flex items-center justify-center">
-                <div class="text-center">
-                    <div class="w-16 h-16 mx-auto mb-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                    <p class="text-2xl font-bold text-indigo-700">Cargando tus pedidos...</p>
-                    <p class="text-gray-500 mt-2">Esto solo toma un segundo</p>
-                </div>
-            </div>
-
-            <div id="ordersContainer" class="hidden space-y-8 opacity-0" style="animation: fade-in 0.8s ease-out forwards">
-                <div class="text-center mb-10">
-                    <h2 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
-                        Historial de Compras
-                    </h2>
-                    <p class="text-gray-600 mt-3 text-lg">Aquí tienes todos tus pedidos realizados en autoInx</p>
-                </div>
-
-                <div id="ordersList" class="grid gap-8 md:grid-cols-1 lg:grid-cols-1"></div>
-            </div>
-
-            <div id="messageContainer" class="mt-12"></div>
-        </div>
-
-        <footer class="bg-gradient-to-t from-gray-900 to-gray-800 text-white py-16 mt-20">
-            <!-- Footer content remains the same -->
-        </footer>
-    </div>
-
-    <script type="module">
-        // FIXED: Added 'where' to imports
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { 
-            getFirestore, 
-            collection, 
-            onSnapshot, 
-            query, 
-            orderBy,
-            where,
-            getDocs  // Added for diagnosis
-        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        let db, auth, userId;
-        
-        const appId = window.__app_id || 'default-app-id';
-        
-        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
-        const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
-
-        const formatPrice = c => `$${(c/100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',').replace('.', '#').replace(',', '.').replace('#', ',')}`;
-        const formatTime = (ts) => {
-            if (!ts) return 'N/A';
-            const date = ts.toDate ? ts.toDate() : new Date(ts);
-            return date.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) +
-                            ' • ' + date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-        };
-
-        function showMessage(type, text) {
-            const el = document.getElementById('messageContainer');
-            if (!el) return;
-            el.innerHTML = `<div class="p-6 rounded-2xl text-lg font-bold text-center ${type === 'error' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'} shadow-lg">${text}</div>`;
-        }
-
-        // NEW: Diagnostic function
-        async function diagnoseFirestoreIssue(uid) {
-            console.log("=== FIRESTORE DIAGNOSIS ===");
-            console.log("User UID:", uid);
-            
-            // Try multiple paths
-            const possiblePaths = [
-                `artifacts/${appId}/users/${uid}/orders`,
-                `users/${uid}/orders`,
-                `orders`  // Single collection approach
-            ];
-            
-            for (let i = 0; i < possiblePaths.length; i++) {
-                const path = possiblePaths[i];
-                console.log(`\nTrying path ${i+1}: "${path}"`);
-                
-                try {
-                    const ref = collection(db, path);
-                    const snapshot = await getDocs(ref);
-                    console.log(`✓ Path exists! Found ${snapshot.docs.length} documents`);
-                    
-                    if (snapshot.docs.length > 0) {
-                        console.log("Sample document:", snapshot.docs[0].id, snapshot.docs[0].data());
-                        return { success: true, path: path, count: snapshot.docs.length };
-                    }
-                } catch (error) {
-                    console.log(`✗ Error: ${error.code} - ${error.message}`);
-                }
-            }
-            
-            return { success: false, path: null, count: 0 };
-        }
-
-        async function initApp() {
-            try {
-                const res = await fetch(CONFIG_CLIENT_FUNCTION);
-                if (!res.ok) throw new Error("No se pudo cargar la configuración");
-                const cfg = await res.json();
-                
-                if (!cfg.apiKey || !cfg.projectId) {
-                    throw new Error("Firebase config incompleta.");
-                }
-                
-                const appInstance = initializeApp(cfg);
-                auth = getAuth(appInstance);
-                db = getFirestore(appInstance);
-
-                onAuthStateChanged(auth, async (user) => {
-                    const loadingStateEl = document.getElementById('loadingState');
-                    const ordersContainerEl = document.getElementById('ordersContainer');
-                    
-                    if (loadingStateEl) {
-                        loadingStateEl.classList.add('hidden');
-                    }
-                        
-                    if (user && !user.isAnonymous) {
-                        userId = user.uid;
-                        console.log("Authenticated. User UID:", userId);
-                        
-                        // NEW: Run diagnosis first
-                        const diagnosis = await diagnoseFirestoreIssue(userId);
-                        console.log("Diagnosis result:", diagnosis);
-                        
-                        if (diagnosis.success) {
-                            console.log("Using path:", diagnosis.path);
-                            fetchUserOrders(userId, diagnosis.path);
-                        } else {
-                            // Try alternative approach
-                            console.log("Trying single collection with where clause...");
-                            fetchUserOrdersAlternative(userId);
-                        }
-                        
-                    } else {
-                        showMessage('error', 'Inicia sesión para ver tus pedidos. Redirigiendo...');
-                        setTimeout(() => window.location.href = '/index.html', 3000);
-                    }
-                });
-            } catch (e) {
-                console.error(e);
-                
-                const loadingStateEl = document.getElementById('loadingState');
-                if (loadingStateEl) {
-                    loadingStateEl.classList.add('hidden');
-                }
-                
-                let errorMessage = `Error: ${e.message}`;
-                if (e.message.includes('timeout') || e.message.includes('No se pudo cargar la configuración')) {
-                    errorMessage = "Error de red: No se pudo conectar con el servidor de autenticación. Por favor, revisa tu conexión a internet o intenta de nuevo más tarde.";
-                }
-                
-                showMessage('error', errorMessage);
-            }
-        }
-
-        function fetchUserOrders(uid, path = null) {
-            // Use provided path or default
-            const ordersPath = path || ORDERS_COLLECTION(uid);
-            const q = query(collection(db, ordersPath), orderBy('createdAt', 'desc'));
-            
-            console.log("Final query path:", ordersPath);
-
-            onSnapshot(q, (snapshot) => {
-                console.log("Orders received:", snapshot.docs.length);
-                const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderOrders(orders);
-            }, (error) => {
-                console.error("FIRESTORE ERROR:", error);
-                showMessage('error', `Error al cargar los pedidos: ${error.message}`);
-            });
-        }
-
-        // NEW: Alternative function for single orders collection
-        function fetchUserOrdersAlternative(uid) {
-            const q = query(
-                collection(db, "orders"), 
-                where("userId", "==", uid), 
-                orderBy('createdAt', 'desc')
-            );
-            
-            console.log("Using alternative query: orders collection with userId filter");
-
-            onSnapshot(q, (snapshot) => {
-                console.log("Alternative query results:", snapshot.docs.length);
-                const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                renderOrders(orders);
-            }, (error) => {
-                console.error("Alternative query error:", error);
-                showMessage('error', `No se encontraron pedidos: ${error.message}`);
-            });
-        }
-
-        function renderOrders(orders) {
-            const container = document.getElementById('ordersList');
-            const ordersContainerEl = document.getElementById('ordersContainer');
-            
-            console.log("Rendering orders:", orders.length);
-            
-            if (!container || !ordersContainerEl) return; 
-            
-            if (orders.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
-                        <div class="w-24 h-24 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
-                            <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
-                        </div>
-                        <h3 class="text-2xl font-bold text-gray-700 mb-2">Aún no tienes pedidos</h3>
-                        <p class="text-gray-500">Cuando hagas tu primera compra, aparecerá aquí</p>
-                        <a href="index.html" class="mt-6 inline-block px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-full hover:shadow-xl transform hover:scale-105 transition">
-                            Ir a la Tienda
-                        </a>
-                    </div>`;
-            } else {
-                container.innerHTML = orders.map((order, idx) => {
-                    const statusColors = {
-                        'Delivered': 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                        'Shipped': 'bg-blue-100 text-blue-800 border-blue-200',
-                        'Processing': 'bg-indigo-100 text-indigo-800 border-indigo-200',
-                        'Cancelled': 'bg-red-100 text-red-800 border-red-200',
-                        'Pending': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-                        'Manually Created': 'bg-purple-100 text-purple-800 border-purple-200',
-                    };
-        
-                    const badge = statusColors[order.status] || 'bg-gray-100 text-gray-800 border-gray-200';
-        
-                    return `
-                        <div class="order-card bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-indigo-600 opacity-0" style="animation: slide-up 0.6s ease-out ${idx * 0.1}s forwards">
-                            <div class="bg-gradient-to-r from-indigo-50 to-purple-50 px-8 py-5 border-b border-gray-100">
-                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                    <div>
-                                        <h3 class="text-2xl font-extrabold text-gray-800">
-                                            Pedido <span class="font-mono text-indigo-600">#${order.id.slice(0, 10)}</span>
-                                        </h3>
-                                        <p class="text-sm text-gray-600 mt-1">${formatTime(order.createdAt || order.timestamp)}</p>
-                                    </div>
-                                    <div class="flex items-center gap-4">
-                                        <span class="px-4 py-2 rounded-full text-xs font-bold ${order.isPaid ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'} shadow-lg">
-                                            ${order.isPaid ? 'PAGADO' : 'PENDIENTE'}
-                                        </span>
-                                        <span class="px-5 py-2 rounded-full text-sm font-bold border-2 ${badge}">
-                                            ${order.status}
-                                        </span>
-                                    </div>
-                                </div>
+                    <div class="p-8">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div>
+                                <p class="text-sm font-semibold text-gray-600">Total Pagado</p>
+                                <p class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
+                                    ${formatPrice(totalCents)}
+                                </p>
                             </div>
-                            <div class="p-8">
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                                    <div>
-                                        <p class="text-sm font-semibold text-gray-600">Total Pagado</p>
-                                        <p class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
-                                            ${formatPrice(order.totalCents)}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-semibold text-gray-600">Dirección de Envío</p>
-                                        <p class="text-gray-800 font-medium">${order.deliveryAddress || 'No especificada'}</p>
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-semibold text-gray-600">Artículos</p>
-                                        <p class="text-2xl font-bold text-indigo-600">${order.items.length}</p>
-                                    </div>
-                                </div>
-                                <div class="border-t pt-6">
-                                    <p class="font-bold text-gray-700 mb-3">Productos comprados:</p>
-                                    <ul class="space-y-3 custom-scrollbar max-h-48 overflow-y-auto">
-                                        ${order.items.map(item => `
-                                            <li class="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
-                                                <span class="font-medium text-gray-800">${item.quantity}x ${item.name}</span>
-                                                <span class="font-mono text-indigo-600 font-bold">${formatPrice(item.price * item.quantity)}</span>
-                                            </li>
-                                        `).join('')}
-                                    </ul>
-                                </div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-600">Dirección de Envío</p>
+                                <p class="text-gray-800 font-medium">${deliveryAddress}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-600">Artículos</p>
+                                <p class="text-2xl font-bold text-indigo-600">${items.length}</p>
                             </div>
                         </div>
-                    `;
-                }).join('');
-            }
-            
-            ordersContainerEl.classList.remove('hidden');
-            ordersContainerEl.classList.remove('opacity-0'); 
-        }
-
-        document.addEventListener('DOMContentLoaded', initApp);
-    </script>
-</body>
-</html>
+                        <div class="border-t pt-6">
+                            <p class="font-bold text-gray-700 mb-3">Productos comprados:</p>
+                            <ul class="space-y-3 custom-scrollbar max-h-48 overflow-y-auto">
+                                ${items.map(item => `
+                                    <li class="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
+                                        <span class="font-medium text-gray-800">${item.quantity || 1}x ${item.name || 'Producto'}</span>
+                                        <span class="font-mono text-indigo-600 font-bold">${formatPrice((item.price || 0) * (item.quantity || 1))}</span>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        console.log("Generated HTML length:", ordersHTML.length);
+        console.log("First 500 chars of HTML:", ordersHTML.substring(0, 500));
+        
+        container.innerHTML = ordersHTML;
+    }
+    
+    // --- 3. Make the container visible ---
+    console.log("Making container visible...");
+    ordersContainerEl.classList.remove('hidden');
+    ordersContainerEl.classList.remove('opacity-0');
+    
+    // Force a reflow to trigger CSS animation
+    void ordersContainerEl.offsetWidth;
+    
+    console.log("Render complete!");
+}
