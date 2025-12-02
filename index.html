@@ -9,7 +9,6 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
 
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
 </head>
 <html lang="en">
 <head>
@@ -38,6 +37,8 @@
         
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const RECAPTCHA_SITE_KEY = '6LdiVx4sAAAAAJR3votlSI8nB61NMFmh5YZokFQ-';
+        const CAPTCHA_VERIFY_FUNCTION = '/.netlify/functions/verifyCaptcha';
         
         let app, db, auth;
         let userId = null;
@@ -196,7 +197,7 @@
         
         async function verifyCaptcha(token) {
             if (!token) return false;
-            
+        
             try {
                 const response = await fetch(CAPTCHA_VERIFY_FUNCTION, {
                     method: 'POST',
@@ -207,13 +208,14 @@
                 if (!response.ok) throw new Error('Network response was not ok');
         
                 const result = await response.json();
-                return result.success; // Serverless function should return { success: true/false }
+                // The Netlify function should return { success: true/false }
+                return result.success; 
         
             } catch (error) {
                 console.error("Error verifying reCAPTCHA:", error);
                 return false;
             }
-        }        
+        }       
         
 
         function renderItemDetailModal() {
@@ -253,6 +255,19 @@
                     </div>
                 </div>
             `;
+        }
+        function loadRecaptchaScript() {
+            if (document.getElementById('recaptcha-script')) return; // Already loaded
+        
+            const script = document.createElement('script');
+            script.id = 'recaptcha-script';
+            // Use the globally defined RECAPTCHA_SITE_KEY from your script
+            const RECAPTCHA_SITE_KEY = '6LdiVx4sAAAAAJR3votlSI8nB61NMFmh5YZokFQ-'; 
+            // Pass the handleCaptchaSuccess function as the callback
+            script.src = `https://www.google.com/recaptcha/enterprise.js?render=${RECAPTCHA_SITE_KEY}&onload=onloadRecaptchaCallback`;
+            script.async = true;
+            document.head.appendChild(script);
+            console.log("reCAPTCHA script injected.");
         }
 
         function renderProductCard(item) {
@@ -363,6 +378,17 @@
                 `;
             }
         }
+        window.onloadRecaptchaCallback = function() {
+            console.log("reCAPTCHA script loaded successfully.");
+            // If the register modal is currently open, attempt to render the widget now
+            if (state.isModalOpen && state.modalMode === 'register') {
+                 // You can explicitly render the widget here if needed, 
+                 // but usually simply being present in the DOM is enough 
+                 // if showLoginModal is called after load.
+                 // We'll rely on showLoginModal's reset/render logic.
+                 window.module.showLoginModal(state.modalType, state.modalMode, true); 
+            }
+        };
         function renderModal() {
             if (!state.isModalOpen) return '';
             
@@ -373,19 +399,21 @@
             const title = isLogin ? (isStandard ? t('loginUser') : t('loginAdmin')) : t('registerNew');
             const submitText = isLogin ? t('loginBtn') : t('registerBtn');
             const switchModeText = isLogin ? t('needAccount') : t('alreadyRegistered');
-        
+            
             let emailField = `<input type="email" id="email-input" placeholder="${t('emailLabel') || 'Email'}" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
             let passwordField = `<input type="password" id="password-input" placeholder="${t('passwordLabel') || 'Password'}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
-                        
+                                
             // NEW: T&C and CAPTCHA fields for registration
             let registerFields = '';
             if (isRegister) {
                 registerFields = `
-                    <div class="flex items-start">
-                        <input type="checkbox" id="accept-tos" required class="mt-1 mr-2 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
-                        <label for="accept-tos" class="text-sm text-gray-600" dangerouslySetInnerHTML={{ __html: t('acceptTOS') }}></label>
+                    <div class="space-y-4">
+                        <div class="flex items-start">
+                            <input type="checkbox" id="accept-tos" required class="mt-1 mr-2 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                            <label for="accept-tos" class="text-sm text-gray-600" id="tos-label-container">${t('acceptTOS')}</label>
+                        </div>
+                        <div id="captcha-container"></div> 
                     </div>
-                    <div id="captcha-container" class="g-recaptcha" data-sitekey="YOUR_RECAPTCHA_SITE_KEY" data-callback="window.module.handleCaptchaSuccess"></div>
                 `;
             }
             
@@ -399,6 +427,7 @@
                     ${isLogin ? 'Sign in with Google' : 'Register with Google'}
                 </button>
             ` : '';
+            
             const switchModeSection = isAdminLogin ?
                 `<p class="w-full mt-4 text-sm text-gray-400 text-center">${t('adminSetupNote')}</p>` :
                 `<button type="button" onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
@@ -416,7 +445,8 @@
                             <div class="space-y-4">
                                 ${emailField}
                                 ${passwordField}
-                                ${registerFields} </div>
+                                ${registerFields}
+                            </div>
                             <button type="submit" id="auth-submit-btn" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
                                 ${submitText}
                             </button>
@@ -866,12 +896,20 @@
                 }
         
                 // CAPTCHA Validation
-                if (!state.captchaToken) {
-                    messageEl.textContent = `❌ ${t('captchaRequired')}`;
-                    // Optional: Force re-render/reset of captcha if it was not successful
-                    if (typeof grecaptcha !== 'undefined' && document.getElementById('captcha-container')?.children.length > 0) {
-                         grecaptcha.reset(); 
+                if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
+                    messageEl.textContent = 'Validating anti-bot check...';
+                    try {
+                        // Execute the action 'register' to get a token
+                        state.captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, {action: 'register'});
+                        messageEl.textContent = ''; // Clear temporary message
+                    } catch (e) {
+                        console.error("reCAPTCHA execution failed:", e);
+                        messageEl.textContent = `❌ ${t('captchaRequired')}`;
+                        return;
                     }
+                } else {
+                    // Fallback if reCAPTCHA script hasn't loaded (though dynamic load should prevent this)
+                    messageEl.textContent = `❌ ${t('captchaRequired')}`;
                     return;
                 }
         
@@ -1197,6 +1235,7 @@
         };
         document.addEventListener('DOMContentLoaded', () => {
             setupFirebase();
+            loadRecaptchaScript();
         });
     </script>
 </head>
