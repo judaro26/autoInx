@@ -192,6 +192,74 @@
             
             checkAuthAndRender();
         }
+
+        // NEW FUNCTION: Exports individual order item details, which contain date/status/payment.
+        function downloadIndividualItemSalesCsv() {
+            resetTimer();
+            const data = lastCategorySalesData.tableData;
+        
+            if (data.length === 0) {
+                showMessage('error', 'No data available to download.', 5000, 'orders');
+                return;
+            }
+        
+            // Define CSV headers for individual items
+            const headers = [
+                "Category", "Order ID (Short)", "Full Order ID", "Date", "Status", 
+                "Payment Status", "Item Name", "Quantity", "Total Item Revenue (USD)"
+            ];
+        
+            // Collect ALL individual sales records from all categories
+            const csvRows = [];
+            data.forEach(categoryRow => {
+                categoryRow.rawOrders.forEach(orderItem => {
+                    // Convert Cents back to Dollars for CSV display and use .toFixed(2)
+                    const totalRevenueUSD = (orderItem.totalItemCents / 100).toFixed(2);
+                    const category = `"${categoryRow.category.replace(/"/g, '""')}"`;
+                    const itemName = `"${orderItem.itemName.replace(/"/g, '""')}"`;
+        
+                    // Use UTC string for most accurate timestamp
+                    const dateStr = orderItem.date ? new Date(orderItem.date).toISOString() : 'N/A';
+        
+                    csvRows.push([
+                        category,
+                        orderItem.id, // Short ID
+                        orderItem.fullId, // Full ID
+                        dateStr, 
+                        orderItem.status,
+                        orderItem.paymentStatus,
+                        itemName,
+                        orderItem.quantity,
+                        totalRevenueUSD
+                    ].join(','));
+                });
+            });
+        
+            // Combine headers and rows
+            const csvString = [
+                headers.join(','),
+                ...csvRows
+            ].join('\n');
+        
+            // Create a Blob and trigger download
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            
+            const filename = `Sales_Detail_Items_${state.salesTimeFilter}_${new Date().toISOString().slice(0, 10)}.csv`;
+        
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showMessage('success', `Exported ${csvRows.length} item records to ${filename}.`, 5000, 'orders');
+            } else {
+                showMessage('error', 'Browser does not support automatic CSV download.', 5000, 'orders');
+            }
+        }  
     
         // --- GOOGLE MAPS AUTOCPMLETE LOGIC ---
     
@@ -439,12 +507,17 @@
                 <div id="categorySalesBreakdown" class="bg-white rounded-xl shadow-xl border-t-4 border-indigo-600 overflow-hidden mt-8">
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50">
                         <h4 class="text-2xl font-bold text-indigo-800 mb-3 sm:mb-0">Sales Breakdown by Category</h4>
-                        <button onclick="window.module.downloadCategorySalesCsv()" 
-                                class="px-5 py-2.5 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition shadow-md text-sm flex items-center gap-2">
-                            <span>⬇️ Download CSV</span>
-                        </button>
+                        <div class="flex flex-wrap gap-3">
+                            <button onclick="window.module.downloadCategorySalesCsv()"
+                                    class="px-5 py-2.5 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition shadow-md text-sm flex items-center gap-2">
+                                <span>⬇️ Download Summary CSV</span>
+                            </button>
+                            <button onclick="window.module.downloadIndividualItemSalesCsv()"
+                                    class="px-5 py-2.5 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-md text-sm flex items-center gap-2">
+                                <span>⬇️ Download Detailed Items CSV</span>
+                            </button>
+                        </div>
                     </div>
-        
                     <div class="overflow-x-auto">
                         <div class="min-w-[800px]">
                             <!-- Table Header -->
@@ -3424,6 +3497,7 @@
                     renderCategorySalesTable,
                     downloadCategorySalesCsv,
                     handleDeliveryFilterChange, 
+                    downloadIndividualItemSalesCsv,
             
                     // <<< NEW ORDER EDIT FUNCTIONS
                     showOrderEditForm,
