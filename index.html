@@ -798,11 +798,12 @@
             
             try {
                 sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
-                window.location.href = '/checkout.html';
             } catch (error) {
                 console.error("Failed to save cart to session storage:", error);
                 showMessage('error', 'Could not save cart for checkout. Try clearing your browser cache.', 5000);
+                return;
             }
+            window.location.href = '/checkout.html';
         }
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
         function openItemDetailModal(item) {
@@ -1145,7 +1146,6 @@
                 const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
                 
                 state.isAdminIP = isWhitelisted; 
-                state.clientIp = clientIp; // Store for e-consent logging
         
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
@@ -1183,43 +1183,27 @@
                     });
                 }
                 
-                 // onAuthStateChanged Listener (UPDATED)
+                // onAuthStateChanged Listener (UPDATED)
                 onAuthStateChanged(auth, async (user) => {
                     
-                    // 🚨 NEW LOGIC: Check for checkout redirection request
-                    const redirectDataJson = sessionStorage.getItem('redirectedForLogin');
-                    sessionStorage.removeItem('redirectedForLogin'); // Clear immediately after reading
-                    let redirectData = null;
-                    if (redirectDataJson) {
-                        try {
-                            redirectData = JSON.parse(redirectDataJson);
-                        } catch (e) {
-                            console.error("Failed to parse redirect data:", e);
-                        }
-                    }
-                
                     if (user) {
                         userId = user.uid;
                         
                         if (!user.isAnonymous) {
-                            // Logged in user
-                            state.userName = user.email || user.displayName || 'Authenticated User';
-                            explicitSignOutOccurred = false;
-                            console.log("STATE UPDATE: state.userName set to:", state.userName);  
+                            // NEW: Log the source user data and the assigned state
+                            console.log("Firebase User Object: Email:", user.email, "Display Name:", user.displayName);
                             
-                            // If redirected from checkout, but now authenticated, close modal and show success.
-                            if (redirectData && state.isModalOpen) {
-                                 closeModal();
-                                 showMessage('success', t('loginSuccessful'), 2000);
-                            }
-                
+                            state.userName = user.email || user.displayName || 'Authenticated User';
+                            
+                            // NEW: Log the resulting state value
+                            console.log("STATE UPDATE: state.userName set to:", state.userName); 
+                            
+                            explicitSignOutOccurred = false;
                         } else {
-                            // Anonymous user
                             state.userName = null;
                         }
                         
                     } else {
-                        // Not authenticated
                         userId = null;
                         state.userName = null;
                         if (explicitSignOutOccurred) {
@@ -1228,40 +1212,22 @@
                         }
                         console.log("STATE UPDATE: state.userName set to NULL (Signed Out)");
                     }
-                    
                     isAuthReady = true;
-                    await fetchAndApplyGlobalConfig();  
+                    await fetchAndApplyGlobalConfig(); 
                     if (db) setupRealtimeListeners();
                     
-                    // 1. Trigger the main render (This inserts the modal HTML structure into the DOM)
-                    render(); 
-                    
-                    // 2. GUARANTEE CHECK: If a redirect from checkout occurred AND the user is not authenticated:
-                    if (redirectData && (!user || user.isAnonymous)) {
-                        console.log("Action: Delayed opening of login modal due to checkout redirect.");
-                        
-                        // 🚨 CRITICAL FIX: Add a small delay (100ms) to ensure the render() function
-                        // has finished manipulating the DOM and the modal container exists.
-                        setTimeout(() => {
-                            // Set the language from the checkout page before showing the message/modal
-                            setLanguage(redirectData.lang || currentLang); // Uses the exported setLanguage function
-                            
-                            // Show the message using the now correct 'currentLang'
-                            showMessage('warning', redirectData.message, 6000); 
-                            
-                            // Open modal
-                            showLoginModal('standard', 'login'); 
-                            
-                            // Re-render once more to ensure language/modal state is reflected
-                            // (Note: setLanguage already calls render, but calling it here is a good safety net)
-                            render(); 
-                        }, 100); 
-                    } else if (user && !user.isAnonymous && state.isModalOpen) {
-                        // Force modal closure if user somehow logged in during this auth change listener loop
+                    // START FINAL GUARANTEE CHECK (Guarantees modal closure and correct status)
+                    if (user && !user.isAnonymous && state.isModalOpen) {
+                        // 1. Force state.isModalOpen to false to close the modal.
                         state.isModalOpen = false;
                         console.log("Auth success detected. Forcing modal close and displaying user status.");
-                        render();
+                    } else if (state.isModalOpen) {
+                        // If modal is open, but we are not authenticated, keep state.isModalOpen as is.
+                        // This ensures the modal stays open if an error occurred during login/registration.
                     }
+                    // END FINAL GUARANTEE CHECK
+                    
+                    render();
                 });
             } catch (error) {
                 console.error("Firebase setup failed:", error);
