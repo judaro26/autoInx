@@ -116,6 +116,7 @@
             maintenanceTitle: 'Sitio en Mantenimiento', maintenanceMsg: 'El checkout no está disponible temporalmente. Vuelve pronto.',
             // NEW message for redirection
             loginRequiredMessage: 'Debes iniciar sesión o registrarte para completar un pedido.',
+            redirectingMessage: 'Por favor, inicia sesión o regístrate para hacer un pedido. Redirigiendo a la página principal...',
         },
         en: {
             title: 'Checkout', return: 'Back to Store', formHeader: 'Delivery Information',
@@ -134,6 +135,7 @@
             maintenanceTitle: 'Site Under Maintenance', maintenanceMsg: 'Checkout is temporarily unavailable. Please try again later.',
             // NEW message for redirection
             loginRequiredMessage: 'You must log in or register to complete an order.',
+            redirectingMessage: 'Please log-in or register to place an order. Returning you to the main page to login.',
         }
     };
 
@@ -450,8 +452,8 @@
             currentLang = storedLang && TEXT[storedLang] ? storedLang : (navigator.language.startsWith('en') ? 'en' : 'es');
         
             await fetchAdminConfig();
+            
             if (isMaintenanceMode) {
-                // ... (Maintenance mode display logic remains the same) ...
                 document.getElementById('app').innerHTML = `
                     <div class="text-center py-32 bg-white rounded-3xl shadow-2xl">
                         <svg class="w-20 h-20 mx-auto text-yellow-500 mb-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.503-1.614 1.732-3.042l-6.928-12.004a1.986 1.986 0 00-3.464 0L5.206 17.958C4.435 19.386 5.398 21 6.938 21z"></path></svg>
@@ -469,23 +471,33 @@
                 auth = getAuth(appInstance); db = getFirestore(appInstance);
                 renderChatWidget();
                 
-                // 🚨 CRITICAL CHANGE: Enforce Non-Anonymous Login
+                // CRITICAL CHANGE: Enforce Non-Anonymous Login
                 onAuthStateChanged(auth, user => {
                     if (user && !user.isAnonymous) {
                         userId = user.uid;
                         loadCheckout();
                     } else {
-                        // User is not logged in permanently. Redirect to index and prompt login.
-                        console.log("User not logged in permanently. Redirecting for authentication.");
+                        // 🚨 NEW LOGIC: Display temporary message before redirecting
+                        console.log("User not logged in permanently. Displaying message and redirecting.");
                         
-                        // Keep the cart in sessionStorage, but set the redirect flag
+                        // 1. Display the temporary message and remove loading state
+                        document.getElementById('app').innerHTML = `
+                            <div class="max-w-4xl mx-auto text-center py-32 bg-white rounded-3xl shadow-2xl mt-12">
+                                <svg class="w-20 h-20 mx-auto text-red-500 mb-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path></svg>
+                                <p class="text-3xl font-bold text-red-600 mb-4">${t('redirectingMessage')}</p>
+                                <p class="text-xl text-gray-700">(${t('loginRequiredMessage')})</p>
+                            </div>`;
+        
+                        // 2. Set the redirect flag for index.html
                         sessionStorage.setItem('redirectedForLogin', JSON.stringify({
-                            message: t('loginRequiredMessage'),
+                            message: t('loginRequiredMessage'), // The message to display on index.html
                             lang: currentLang
                         }));
                         
-                        // NO LONGER CLEARING CART HERE!
-                        window.location.href = '/index.html'; 
+                        // 3. Delay the redirect
+                        setTimeout(() => {
+                            window.location.href = '/index.html'; 
+                        }, 3000); // 3-second delay
                     }
                 });
             } catch (e) {
