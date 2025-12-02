@@ -458,7 +458,18 @@
             const appInstance = initializeApp(cfg);
             auth = getAuth(appInstance); db = getFirestore(appInstance);
             renderChatWidget();
-            onAuthStateChanged(auth, user => { userId = user?.uid; loadCheckout(); });
+            // New code in initApp() of checkout.html
+            onAuthStateChanged(auth, user => {
+                if (user && !user.isAnonymous) {
+                    userId = user.uid;
+                    loadCheckout();
+                } else {
+                    // User is not logged in (or is only anonymous), enforce login.
+                    alert("Please log in to complete your order.");
+                    sessionStorage.removeItem('autoInxCart'); // Clear cart on redirection
+                    window.location.href = '/index.html'; 
+                }
+            });
         } catch (e) {
             console.error(e);
             document.getElementById('app').innerHTML = `<p class="text-red-600 text-3xl font-bold text-center">Error crítico. Recarga la página.</p>`;
