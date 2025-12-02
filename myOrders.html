@@ -39,23 +39,30 @@
             db = getFirestore(appInstance);
 
             onAuthStateChanged(auth, user => {
-                // FIX 2: Safely check if loadingState exists before manipulating classes
+                // FIX 2: Use null checks on all DOM elements before manipulating them
                 const loadingStateEl = document.getElementById('loadingState');
+                const ordersContainerEl = document.getElementById('ordersContainer');
+                
                 if (loadingStateEl) {
                     loadingStateEl.classList.add('hidden');
                 }
-                    if (user && !user.isAnonymous) {
-                        userId = user.uid;
-                        document.getElementById('ordersContainer').classList.remove('hidden');
-                        fetchUserOrders(userId);
-                    } else {
-                        showMessage('error', 'Inicia sesión para ver tus pedidos. Redirigiendo...');
-                        setTimeout(() => window.location.href = '/index.html', 3000);
-                    }
+                    
+                if (user && !user.isAnonymous) {
+                    userId = user.uid;
+                    if (ordersContainerEl) {
+                        ordersContainerEl.classList.remove('hidden');
+                    }
+                    fetchUserOrders(userId);
+                    
+                } else {
+                    showMessage('error', 'Inicia sesión para ver tus pedidos. Redirigiendo...');
+                    setTimeout(() => window.location.href = '/index.html', 3000);
+                }
             });
         } catch (e) {
             console.error(e);
-            // Ensure loading state is hidden even if there's a fatal setup error
+            
+            // Ensure loading state is hidden even if there's a fatal setup error
             const loadingStateEl = document.getElementById('loadingState');
             if (loadingStateEl) {
                 loadingStateEl.classList.add('hidden');
