@@ -9,6 +9,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
 
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
 </head>
 <html lang="en">
 <head>
@@ -47,10 +48,30 @@
         // --- LANGUAGE TEXT MAPPING (NEW) ---
         const TEXT = {
             es: {
-                logoTitle: 'Catálogo', welcome: 'Bienvenido,', signOut: 'Cerrar Sesión', adminDashboard: 'Panel Admin', adminLogin: 'Acceso Admin', standardLogin: 'Acceso Estándar', signUp: 'Registrarse', forgotPassword: '¿Olvidaste la Contraseña?', searchPlaceholder: 'Buscar productos por nombre o descripción...', categoriesHeader: 'Categorías', productsVisible: 'visibles', allProducts: 'Todos los Productos', noProducts: 'No se encontraron productos que coincidan con tus filtros.', shoppingCart: 'Carrito de Compras', cartEmpty: 'Tu carrito está vacío.', maintenanceTitle: 'Sistema en Mantenimiento', maintenanceMsg: 'Estamos realizando mantenimiento programado. Disculpa las molestias.', exitAdminView: 'Salir de la Vista Admin', loginSuccessful: '¡Inicio de sesión exitoso!', registerSuccessful: '¡Registro exitoso! Ya has iniciado sesión.', loginUser: 'Acceso de Usuario', loginAdmin: 'Acceso de Administrador (Seguro)', registerNew: 'Registrar Cuenta Nueva', loginBtn: 'Acceder', registerBtn: 'Registrar', needAccount: '¿Necesitas una cuenta? Regístrate', alreadyRegistered: '¿Ya estás registrado? Accede', adminSetupNote: 'Las cuentas de administrador deben ser configuradas por un administrador.', checkout: 'Finalizar Compra',
+                // ... (existing translations) ...
+                registerBtn: 'Registrar', 
+                needAccount: '¿Necesitas una cuenta? Regístrate', 
+                alreadyRegistered: '¿Ya estás registrado? Accede', 
+                adminSetupNote: 'Las cuentas de administrador deben ser configuradas por un administrador.', 
+                checkout: 'Finalizar Compra',
+                // NEW ENTRIES BELOW
+                acceptTOS: 'Acepto los <a href="/terms.html" target="_blank" class="font-semibold text-indigo-500 hover:text-indigo-700">Términos y Condiciones</a> y la Política de Privacidad.',
+                eConsentRequired: 'Debe aceptar los Términos y Condiciones para registrarse.',
+                captchaRequired: 'Por favor, complete la validación anti-bot.',
+                eConsentStoreFail: 'Error al registrar el consentimiento. Intente nuevamente.',
             },
             en: {
-                logoTitle: 'Catalog', welcome: 'Welcome,', signOut: 'Sign Out', adminDashboard: 'Admin Dashboard', adminLogin: 'Admin Login', standardLogin: 'Standard Login', signUp: 'Sign Up', forgotPassword: 'Forgot Password?', searchPlaceholder: 'Search products by name or description...', categoriesHeader: 'Categories', productsVisible: 'visible', allProducts: 'All Products', noProducts: 'No products match your current filters.', shoppingCart: 'Shopping Cart', cartEmpty: 'Your cart is empty.', maintenanceTitle: 'System Under Maintenance', maintenanceMsg: 'We are performing scheduled maintenance. We apologize for any inconvenience.', exitAdminView: 'Exit Admin View', loginSuccessful: 'Login successful!', registerSuccessful: 'Registration successful! You are now logged in.', loginUser: 'User Login', loginAdmin: 'Admin Login (Secure)', registerNew: 'Register New Account', loginBtn: 'Login', registerBtn: 'Register', needAccount: 'Need an account? Register', alreadyRegistered: 'Already registered? Login', adminSetupNote: 'Admin accounts must be set up by an administrator.', checkout: 'Checkout',
+                // ... (existing translations) ...
+                registerBtn: 'Register', 
+                needAccount: 'Need an account? Register', 
+                alreadyRegistered: 'Already registered? Login', 
+                adminSetupNote: 'Admin accounts must be set up by an administrator.', 
+                checkout: 'Checkout',
+                // NEW ENTRIES BELOW
+                acceptTOS: 'I agree to the <a href="/terms.html" target="_blank" class="font-semibold text-indigo-500 hover:text-indigo-700">Terms and Conditions</a> and Privacy Policy.',
+                eConsentRequired: 'You must accept the Terms and Conditions to register.',
+                captchaRequired: 'Please complete the anti-bot validation.',
+                eConsentStoreFail: 'Failed to record consent. Please try again.',
             }
         };
 
@@ -82,7 +103,8 @@
             chatWidgetEnabled: false, 
             productSearchTerm: '', 
             selectedCategoryId: 'all', 
-            selectedItem: null
+            selectedItem: null,
+            captchaToken: null
         };
         
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
@@ -95,16 +117,17 @@
             if (!appElement) return;
             const loadingState = document.getElementById('loadingState');
             if (loadingState && (state.configLoaded && isAuthReady)) {
-                 loadingState.remove();
+                loadingState.remove();
             }
             const totalCartPrice = getTotalCartPrice();
             
+            // RENDER THE ENTIRE PAGE STRUCTURE
             appElement.innerHTML = `
                 <div class="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50">
                     <header class="bg-white shadow-lg sticky top-0 z-40">
                         <div class="container mx-auto px-4 py-4">
                             
-                            <div class="flex justify-between items-center mb-2"> 
+                            <div class="flex justify-between items-center mb-2">  
                                 <div class="flex items-center space-x-2">
                                     <img src="images/AutoInx logo.png" alt="AutoInx Logo" class="h-8 w-auto">
                                     <h1 class="text-3xl font-bold text-indigo-700">${t('logoTitle')}</h1>
@@ -132,7 +155,68 @@
                     ${renderChatWidget()}
                 </div>
             `;
+        
+            // POST-RENDER FIX: Safely insert the HTML for the T&C link after the modal has been added to the DOM.
+            const tosLabel = document.querySelector('label[for="accept-tos"]');
+            if (tosLabel) {
+                tosLabel.innerHTML = t('acceptTOS');
+            }
         }
+
+        // --- NEW UTILITY FUNCTIONS ---
+        
+        // This function is called by the reCAPTCHA script when validation is successful
+        function handleCaptchaSuccess(token) {
+            console.log("reCAPTCHA successful. Token:", token);
+            state.captchaToken = token;
+        }
+        
+        // Function to log e-consent to Firestore
+        async function logEconsent(userId, email, ipAddress, tosVersion = 'v1') {
+            if (!db) return console.error("Firestore not initialized for e-consent logging.");
+        
+            try {
+                const econsentDocRef = doc(db, 'users', userId, 'econsent', tosVersion);
+                await setDoc(econsentDocRef, {
+                    email: email,
+                    tosAccepted: true,
+                    tosVersion: tosVersion, // Use a version identifier for T&C changes
+                    ipAddress: ipAddress,
+                    timestamp: serverTimestamp(),
+                    userAgent: navigator.userAgent
+                });
+                console.log("E-Consent logged successfully for user:", userId);
+                return true;
+            } catch (error) {
+                console.error("Error logging e-consent:", error);
+                return false;
+            }
+        }
+        
+        // Netlify Function endpoint for Captcha verification
+        const CAPTCHA_VERIFY_FUNCTION = '/.netlify/functions/verifyCaptcha';
+        
+        async function verifyCaptcha(token) {
+            if (!token) return false;
+            
+            try {
+                const response = await fetch(CAPTCHA_VERIFY_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+        
+                if (!response.ok) throw new Error('Network response was not ok');
+        
+                const result = await response.json();
+                return result.success; // Serverless function should return { success: true/false }
+        
+            } catch (error) {
+                console.error("Error verifying reCAPTCHA:", error);
+                return false;
+            }
+        }        
+        
 
         function renderItemDetailModal() {
             if (!state.selectedItem) return '';
@@ -291,9 +375,21 @@
             const title = isLogin ? (isStandard ? t('loginUser') : t('loginAdmin')) : t('registerNew');
             const submitText = isLogin ? t('loginBtn') : t('registerBtn');
             const switchModeText = isLogin ? t('needAccount') : t('alreadyRegistered');
-
-            let emailField = `<input type="email" id="email-input" placeholder="${t('emailLabel')}" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
-            let passwordField = `<input type="password" id="password-input" placeholder="${t('passwordLabel')}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
+        
+            let emailField = `<input type="email" id="email-input" placeholder="${t('emailLabel') || 'Email'}" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
+            let passwordField = `<input type="password" id="password-input" placeholder="${t('passwordLabel') || 'Password'}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
+            
+            // NEW: T&C and CAPTCHA fields for registration
+            let registerFields = '';
+            if (isRegister) {
+                registerFields = `
+                    <div class="flex items-start">
+                        <input type="checkbox" id="accept-tos" required class="mt-1 mr-2 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                        <label for="accept-tos" class="text-sm text-gray-600" dangerouslySetInnerHTML={{ __html: t('acceptTOS') }}></label>
+                    </div>
+                    <div id="captcha-container" class="g-recaptcha" data-sitekey="YOUR_RECAPTCHA_SITE_KEY" data-callback="window.module.handleCaptchaSuccess"></div>
+                `;
+            }
             
             const googleAuthButton = (isStandard || isRegister) ? `
                 <div class="my-4 flex items-center">
@@ -307,22 +403,23 @@
             ` : '';
             const switchModeSection = isAdminLogin ?
                 `<p class="w-full mt-4 text-sm text-gray-400 text-center">${t('adminSetupNote')}</p>` :
-                `<button onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
+                `<button type="button" onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
                         class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
                     ${switchModeText}
                 </button>`;
+        
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
                     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm relative" onclick="event.stopPropagation()">
                         <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center">${title}</h2>
                         <div id="auth-message" class="text-red-500 text-sm mb-4 text-center font-medium"></div>
                         
-                        <form onsubmit="window.module.handleStandardLogin(event)" class="space-y-4" novalidate>
+                        <form onsubmit="window.module.handleStandardAuth(event)" class="space-y-4" novalidate>
                             <div class="space-y-4">
                                 ${emailField}
                                 ${passwordField}
-                            </div>
-                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
+                                ${registerFields} </div>
+                            <button type="submit" id="auth-submit-btn" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 shadow-md mt-4">
                                 ${submitText}
                             </button>
                             ${googleAuthButton}
@@ -693,12 +790,33 @@
             state.isModalOpen = true;
             state.modalMode = mode;
             state.modalType = type;
+            state.captchaToken = null; // NEW: Reset captcha token on modal open
+        
             render();
-            document.getElementById('auth-message').textContent = '';
+            
+            // Clear previous error messages
+            const messageEl = document.getElementById('auth-message');
+            if (messageEl) {
+                messageEl.textContent = '';
+            }
+        
+            // Clear input fields
             const emailInput = document.getElementById('email-input');
             const passwordInput = document.getElementById('password-input');
             if (emailInput) emailInput.value = '';
             if (passwordInput) passwordInput.value = '';
+        
+            // If switching to registration mode, ensure reCAPTCHA is ready to render
+            if (mode === 'register' && typeof grecaptcha !== 'undefined') {
+                // This is a placeholder call; the global reCAPTCHA script handles initial rendering 
+                // using the <div id="captcha-container" class="g-recaptcha" data-sitekey="KEY">.
+                // We use reset() if it's already rendered in the DOM from a previous attempt.
+                try {
+                    grecaptcha.reset(); 
+                } catch (e) {
+                    // Ignore if grecaptcha is not yet fully loaded
+                }
+            }
         }
         function closeModal() {
             state.isModalOpen = false;
@@ -716,62 +834,97 @@
             }
             render();
         }
-        async function handleStandardLogin(event) {
+        async function handleStandardAuth(event) {
             event.preventDefault();
-            console.log('handleStandardLogin called.');
+            console.log('handleStandardAuth called.');
             const emailInput = document.getElementById('email-input');
             const passwordInput = document.getElementById('password-input');
-            
-            const email = emailInput ? emailInput.value : ''; 
-            const password = passwordInput ? passwordInput.value : ''; 
-            
+            const email = emailInput ? emailInput.value : '';  
+            const password = passwordInput ? passwordInput.value : '';  
             const messageEl = document.getElementById('auth-message');
             messageEl.textContent = '';
+            
+            // 1. Basic Validation (for both login and register)
             if (!email || !password) {
-                messageEl.textContent = `❌ ${t('loginBtn')} Error: Please enter both email and password.`;
+                messageEl.textContent = `❌ ${t(state.modalMode === 'login' ? 'loginBtn' : 'registerBtn')} Error: Please enter both email and password.`;
                 return;
             }
-            if (state.modalType === 'admin') {
-                try {
-                    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                    const user = userCredential.user;
-                    const idTokenResult = await user.getIdTokenResult(true);
-                    if (idTokenResult.claims.admin === true) {
-                        console.log('Admin authenticated and authorized. Redirecting.');
-                        closeModal();
-                        window.location.href = '/admin.html';
-                    } else {
-                        console.log('User is authenticated but lacks admin privileges.');
-                        await signOut(auth);
-                        messageEl.textContent = `❌ ${t('loginBtn')} Error: Admin privileges required.`;
-                    }
-                } catch (error) {
-                    console.error("Admin Authentication Failed:", error);
-                    let errorMessage = 'Invalid email or password.';
-                    messageEl.textContent = `❌ ${errorMessage}`;
+        
+            // 2. Registration-Specific Validation (T&C and CAPTCHA)
+            if (state.modalMode === 'register') {
+                const acceptTosCheckbox = document.getElementById('accept-tos');
+                if (!acceptTosCheckbox || !acceptTosCheckbox.checked) {
+                    messageEl.textContent = `❌ ${t('eConsentRequired')}`;
+                    return;
                 }
-                render();
-                return;
+        
+                // CAPTCHA Validation
+                if (!state.captchaToken) {
+                    messageEl.textContent = `❌ ${t('captchaRequired')}`;
+                    // Optional: Force re-render of captcha if it was not successful
+                    if (typeof grecaptcha !== 'undefined') {
+                        grecaptcha.reset();
+                    }
+                    return;
+                }
+        
+                const captchaVerified = await verifyCaptcha(state.captchaToken);
+                if (!captchaVerified) {
+                     messageEl.textContent = `❌ ${t('captchaRequired')}`;
+                     state.captchaToken = null; // Clear token on failure
+                     grecaptcha.reset();
+                     return;
+                }
             }
+            
+            // 3. Authentication Logic
             try {
                 if (state.modalMode === 'login') {
-                    await signInWithEmailAndPassword(auth, email, password);
-                    showMessage('success', t('loginSuccessful'), 2000);
+                    // Login Logic (Admin or Standard)
+                    if (state.modalType === 'admin') {
+                        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                        const user = userCredential.user;
+                        const idTokenResult = await user.getIdTokenResult(true);
+                        if (idTokenResult.claims.admin === true) {
+                            closeModal();
+                            window.location.href = '/admin.html';
+                        } else {
+                            await signOut(auth);
+                            messageEl.textContent = `❌ ${t('loginBtn')} Error: Admin privileges required.`;
+                        }
+                    } else {
+                        await signInWithEmailAndPassword(auth, email, password);
+                        showMessage('success', t('loginSuccessful'), 2000);
+                    }
                 } else {
-                    await createUserWithEmailAndPassword(auth, email, password);
+                    // Registration Logic
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    const user = userCredential.user;
+        
+                    // Log E-Consent for Compliance
+                    const eConsentSuccess = await logEconsent(user.uid, email, state.clientIp); // Assumes state.clientIp is available (see below)
+                    if (!eConsentSuccess) {
+                        // Critical failure: delete the account and log the error.
+                        await user.delete(); 
+                        messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
+                        return;
+                    }
+        
                     showMessage('success', t('registerSuccessful'), 2000);
                 }
                 closeModal();
             } catch (error) {
-                console.error("Standard Authentication failed:", error.code, error);
+                console.error("Authentication failed:", error.code, error);
                 let errorMessage = 'An error occurred during authentication.';
+                // ... (error message logic remains the same) ...
                 if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-                    errorMessage = 'Invalid email or password.';
+                     errorMessage = 'Invalid email or password.';
                 } else if (error.code === 'auth/email-already-in-use') {
-                    errorMessage = 'This email is already registered. Try logging in.';
+                     errorMessage = 'This email is already registered. Try logging in.';
                 } else if (error.code === 'auth/weak-password') {
-                    errorMessage = 'Password is too weak (must be 6+ characters).';
+                     errorMessage = 'Password is too weak (must be 6+ characters).';
                 }
+                
                 messageEl.textContent = `❌ ${errorMessage}`;
             }
             render();
@@ -962,7 +1115,8 @@
             requestPasswordReset,
             registerUser,
             showLoginModal,
-            handleStandardLogin,
+            handleStandardAuth,
+            handleCaptchaSuccess,
             handleGoogleSignIn,
             closeModal,
             handleSignOut,
