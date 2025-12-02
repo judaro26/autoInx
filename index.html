@@ -788,9 +788,9 @@
             state.isModalOpen = true;
             state.modalMode = mode;
             state.modalType = type;
-            state.captchaToken = null; 
+            state.captchaToken = null; // NEW: Reset captcha token on modal open
         
-            render(); // This renders the new modal structure into the DOM
+            render(); // This renders the new modal structure (including the g-recaptcha div) into the DOM
             
             // Clear previous error messages
             const messageEl = document.getElementById('auth-message');
@@ -805,22 +805,22 @@
             if (passwordInput) passwordInput.value = '';
         
             // FIX: Only attempt to reset reCAPTCHA if we are in register mode 
-            // AND the global grecaptcha object exists.
+            // AND the global grecaptcha object exists. We use a slight delay 
+            // to give the reCAPTCHA script time to process the newly rendered div.
             if (mode === 'register' && typeof grecaptcha !== 'undefined') {
-                try {
-                    // The widget needs to be rendered for it to exist as a "client" to reset.
-                    // Since `render()` just ran, the HTML is in the DOM. 
-                    // We use setTimeout to defer the call slightly, allowing the reCAPTCHA 
-                    // script to process the newly rendered g-recaptcha div.
-                    setTimeout(() => {
-                        const captchaContainer = document.getElementById('captcha-container');
-                        if (captchaContainer && captchaContainer.children.length > 0) {
-                             grecaptcha.reset(); 
+                setTimeout(() => {
+                    const captchaContainer = document.getElementById('captcha-container');
+                    
+                    // Check if the container is present AND if reCAPTCHA has actually rendered a widget inside it.
+                    if (captchaContainer && captchaContainer.children.length > 0) {
+                        try {
+                            grecaptcha.reset(); 
+                        } catch (e) {
+                            // This catch is a last resort, but the DOM check should prevent the common error.
+                            console.warn("reCAPTCHA reset failed: Client may not be fully ready.", e);
                         }
-                    }, 50); // Small delay
-                } catch (e) {
-                    console.warn("reCAPTCHA reset failed (expected if not fully rendered yet):", e);
-                }
+                    }
+                }, 100); // 100ms delay for robustness
             }
         }
         function closeModal() {
@@ -944,71 +944,75 @@
             render();
         }
         async function handleGoogleSignIn() {
-                    // New: Check if the modal is in Registration mode
-                    if (state.modalMode === 'register') {
-                        const acceptTosCheckbox = document.getElementById('accept-tos');
-                        const messageEl = document.getElementById('auth-message');
-                        messageEl.textContent = ''; // Clear previous message
+            const messageEl = document.getElementById('auth-message');
+            messageEl.textContent = ''; // Clear previous message
         
-                        // 1. T&C Check
-                        if (!acceptTosCheckbox || !acceptTosCheckbox.checked) {
-                            messageEl.textContent = `❌ ${t('eConsentRequired')}`;
-                            return;
-                        }
+            // Check if the modal is in Registration mode
+            if (state.modalMode === 'register') {
+                const acceptTosCheckbox = document.getElementById('accept-tos');
         
-                        // 2. CAPTCHA Check and Verification
-                        if (!state.captchaToken) {
-                            messageEl.textContent = `❌ ${t('captchaRequired')}`;
-                            if (typeof grecaptcha !== 'undefined') { grecaptcha.reset(); }
-                            return;
-                        }
-        
-                        const captchaVerified = await verifyCaptcha(state.captchaToken);
-                        if (!captchaVerified) {
-                            messageEl.textContent = `❌ ${t('captchaRequired')}`;
-                            state.captchaToken = null;
-                            grecaptcha.reset();
-                            return;
-                        }
-                        // CAPTCHA is verified, continue with sign-in
-                    }
-                    
-                    // Original Google Sign-In Logic
-                    const provider = new GoogleAuthProvider();
-                    const messageEl = document.getElementById('auth-message');
-                    messageEl.textContent = 'Logging in with Google...';
-                    
-                    try {
-                        const userCredential = await signInWithPopup(auth, provider);
-                        const user = userCredential.user;
-                        
-                        // NEW: Log E-Consent for the Google-signed-up user
-                        // This check is crucial for compliance even if Google Sign-In is for an existing user, 
-                        // but it's most important for *new* sign-ups. Since the user might be new 
-                        // and we already checked T&C/Captcha, we log it.
-                        if (state.modalMode === 'register') {
-                            const eConsentSuccess = await logEconsent(user.uid, user.email, state.clientIp); 
-                            if (!eConsentSuccess) {
-                                // Critical failure: delete the account and log the error.
-                                await user.delete(); // Delete the Firebase user account
-                                messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
-                                return;
-                            }
-                        }
-        
-                        showMessage('success', 'Google Sign-In successful!', 2000);
-                        closeModal();
-                    } catch (error) {
-                        console.error("Google Sign-In failed:", error);
-                        // The error handling logic here is simplified for brevity but should be robust
-                        let errorMessage = 'Google Sign-In failed. Check console for details.';
-                        if (error.code === 'auth/popup-closed-by-user') {
-                            errorMessage = 'Sign-in window closed. Please try again.';
-                        }
-                        messageEl.textContent = `❌ ${errorMessage}`;
-                    }
-                    render();
+                // 1. T&C Check
+                if (!acceptTosCheckbox || !acceptTosCheckbox.checked) {
+                    messageEl.textContent = `❌ ${t('eConsentRequired')}`;
+                    return;
                 }
+        
+                // 2. CAPTCHA Check and Verification
+                if (!state.captchaToken) {
+                    messageEl.textContent = `❌ ${t('captchaRequired')}`;
+                    
+                    // --- FIX: Add robust check before calling reset() ---
+                    if (typeof grecaptcha !== 'undefined' && document.getElementById('captcha-container')?.children.length > 0) {
+                         // Reset only if the client is active in the DOM
+                         grecaptcha.reset(); 
+                    }
+                    return;
+                }
+        
+                const captchaVerified = await verifyCaptcha(state.captchaToken);
+                if (!captchaVerified) {
+                    messageEl.textContent = `❌ ${t('captchaRequired')}`;
+                    state.captchaToken = null; // Clear token on failure
+                    
+                    // --- FIX: Add robust check before calling reset() ---
+                    if (typeof grecaptcha !== 'undefined' && document.getElementById('captcha-container')?.children.length > 0) {
+                        grecaptcha.reset();
+                    }
+                    return;
+                }
+                // CAPTCHA is verified, continue with sign-in
+            }
+            
+            // Original Google Sign-In Logic
+            messageEl.textContent = 'Logging in with Google...';
+            
+            try {
+                const provider = new GoogleAuthProvider();
+                const userCredential = await signInWithPopup(auth, provider);
+                const user = userCredential.user;
+                
+                // Log E-Consent only if the user went through the registration flow
+                if (state.modalMode === 'register') {
+                    const eConsentSuccess = await logEconsent(user.uid, user.email, state.clientIp); 
+                    if (!eConsentSuccess) {
+                        await user.delete();
+                        messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
+                        return;
+                    }
+                }
+        
+                showMessage('success', 'Google Sign-In successful!', 2000);
+                closeModal();
+            } catch (error) {
+                console.error("Google Sign-In failed:", error);
+                let errorMessage = 'Google Sign-In failed. Check console for details.';
+                if (error.code === 'auth/popup-closed-by-user') {
+                    errorMessage = 'Sign-in window closed. Please try again.';
+                }
+                messageEl.textContent = `❌ ${errorMessage}`;
+            }
+            render();
+        }
         async function requestPasswordReset() {
             const email = prompt("Enter the email associated with your account to receive a password reset link:");
             
