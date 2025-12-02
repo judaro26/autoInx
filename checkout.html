@@ -103,8 +103,8 @@
             title: 'Finalizar Compra', return: 'Volver a la Tienda', formHeader: 'Información de Entrega',
             emailLabel: 'Correo Electrónico', nameLabel: 'Nombre Completo', phoneLabel: 'Teléfono (WhatsApp)',
             phoneHelp: 'Te enviaremos actualizaciones por WhatsApp', whatsappOptIn: 'Sí, deseo recibir notificaciones por WhatsApp.',
-            communicationLangLabel: 'Idioma Preferido para Comunicaciones',
-            langPlaceholder: 'Selecciona tu idioma',
+            communicationLangLabel: 'Idioma Preferido para Comunicaciones', // NEW
+            langPlaceholder: 'Selecciona tu idioma', // NEW
             addressLabel: 'Dirección de Entrega', addressHelp: 'Escribe y selecciona tu dirección, luego ajusta el pin en el mapa.',
             addressPlaceholder: 'Escribe tu dirección completa...', addressStatusDefault: 'Escribe para ver sugerencias',
             addressStatusValid: '¡Dirección confirmada!', addressStatusSelect: 'Selecciona una dirección de la lista',
@@ -114,16 +114,13 @@
             sendWhatsapp: 'Chatear por WhatsApp', cartEmpty: 'Tu carrito está vacío. <a href="/" class="text-indigo-600 underline">Volver a la tienda</a>',
             mapPinInstructions: 'Arrastra el pin para ajustar tu ubicación exacta', countrySelect: 'Colombia +57',
             maintenanceTitle: 'Sitio en Mantenimiento', maintenanceMsg: 'El checkout no está disponible temporalmente. Vuelve pronto.',
-            // NEW message for redirection
-            loginRequiredMessage: 'Debes iniciar sesión o registrarte para completar un pedido.',
-            redirectingMessage: 'Por favor, inicia sesión o regístrate para hacer un pedido. Redirigiendo a la página principal...',
         },
         en: {
             title: 'Checkout', return: 'Back to Store', formHeader: 'Delivery Information',
             emailLabel: 'Email Address', nameLabel: 'Full Name', phoneLabel: 'Phone (WhatsApp)',
             phoneHelp: 'We’ll send updates via WhatsApp', whatsappOptIn: 'Yes, send me updates via WhatsApp.',
-            communicationLangLabel: 'Preferred Communication Language',
-            langPlaceholder: 'Select your language',
+            communicationLangLabel: 'Preferred Communication Language', // NEW
+            langPlaceholder: 'Select your language', // NEW
             addressLabel: 'Delivery Address', addressHelp: 'Type and select your address, then fine-tune the pin on the map.',
             addressPlaceholder: 'Enter your full address...', addressStatusDefault: 'Type to see suggestions',
             addressStatusValid: 'Address confirmed!', addressStatusSelect: 'Select from the list',
@@ -133,9 +130,6 @@
             sendWhatsapp: 'Chat on WhatsApp', cartEmpty: 'Your cart is empty. <a href="/" class="text-indigo-600 underline">Back to store</a>',
             mapPinInstructions: 'Drag the pin to pinpoint your exact location', countrySelect: 'USA +1',
             maintenanceTitle: 'Site Under Maintenance', maintenanceMsg: 'Checkout is temporarily unavailable. Please try again later.',
-            // NEW message for redirection
-            loginRequiredMessage: 'You must log in or register to complete an order.',
-            redirectingMessage: 'Please log-in or register to place an order. Returning you to the main page to login.',
         }
     };
 
@@ -343,8 +337,8 @@
     }
 
     function renderCheckoutContent() {
-        const columbiaSelected = $('country-code')?.value === '+57' ? 'selected' : currentLang === 'es' ? 'selected' : '';
-        const usaSelected = $('country-code')?.value === '+1' ? 'selected' : currentLang === 'en' ? 'selected' : '';
+        const columbiaSelected = currentLang === 'es' ? 'selected' : '';
+        const usaSelected = currentLang === 'en' ? 'selected' : '';
 
         return `
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-10">
@@ -440,22 +434,13 @@
         document.getElementById('app').innerHTML = renderHeader() + renderCheckoutContent();
         renderChatWidget();
         loadGoogleMaps();
-        
-        // Populate existing user data if available
-        if (auth.currentUser && auth.currentUser.email) {
-            $('buyer-email').value = auth.currentUser.email;
-        }
     }
 
     async function initApp() {
-        // 🚨 FIX: Calculate currentLang BEFORE maintenance and auth checks.
         const storedLang = localStorage.getItem('checkoutLang');
         currentLang = storedLang && TEXT[storedLang] ? storedLang : (navigator.language.startsWith('en') ? 'en' : 'es');
-    
-        // All subsequent calls to t('key') will now use the correct language.
-    
+
         await fetchAdminConfig();
-        
         if (isMaintenanceMode) {
             document.getElementById('app').innerHTML = `
                 <div class="text-center py-32 bg-white rounded-3xl shadow-2xl">
@@ -465,7 +450,7 @@
                 </div>`;
             return;
         }
-    
+
         try {
             const res = await fetch(CONFIG_CLIENT_FUNCTION);
             if (!res.ok) throw new Error("Config failed");
@@ -473,55 +458,22 @@
             const appInstance = initializeApp(cfg);
             auth = getAuth(appInstance); db = getFirestore(appInstance);
             renderChatWidget();
-            
-            onAuthStateChanged(auth, user => {
-                if (user && !user.isAnonymous) {
-                    userId = user.uid;
-                    loadCheckout();
-                } else {
-                    // User is not logged in permanently. Display message before redirecting.
-                    console.log("User not logged in permanently. Displaying message and redirecting.");
-                    
-                    // 1. Display the temporary message using the CORRECTLY initialized currentLang
-                    document.getElementById('app').innerHTML = `
-                        <div class="max-w-4xl mx-auto text-center py-32 bg-white rounded-3xl shadow-2xl mt-12">
-                            <svg class="w-20 h-20 mx-auto text-red-500 mb-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path></svg>
-                            <p class="text-3xl font-bold text-red-600 mb-4">${t('redirectingMessage')}</p>
-                            <p class="text-xl text-gray-700">(${t('loginRequiredMessage')})</p>
-                        </div>`;
-    
-                    // 2. Set the redirect flag for index.html (lang is now correctly passed)
-                    sessionStorage.setItem('redirectedForLogin', JSON.stringify({
-                        message: t('loginRequiredMessage'), // The message displayed on index.html
-                        lang: currentLang
-                    }));
-                    
-                    // 3. Delay the redirect
-                    setTimeout(() => {
-                        window.location.href = '/index.html'; 
-                    }, 3000); // 3-second delay
-                }
-            });
+            onAuthStateChanged(auth, user => { userId = user?.uid; loadCheckout(); });
         } catch (e) {
             console.error(e);
             document.getElementById('app').innerHTML = `<p class="text-red-600 text-3xl font-bold text-center">Error crítico. Recarga la página.</p>`;
         }
     }
+
     window.module = {
         async submitOrder(e) {
             e.preventDefault();
             if (isMaintenanceMode) return showMessage('error', t('maintenanceMsg'));
-            // ... (rest of submitOrder logic remains the same) ...
-            
-            // Ensure userId is available before proceeding
-            if (!userId) {
-                return showMessage('error', 'Authentication failed. Please reload or log in again.');
-            }
 
             const email = $('buyer-email').value.trim();
             const name = $('buyer-name').value.trim();
             const phone = $('country-code').value + $('buyer-phone').value.trim();
-            const communicationLang = $('communication-lang').value;
+            const communicationLang = $('communication-lang').value; // NEW
             const address = $('delivery-address').value.trim();
             const valid = $('delivery-address').dataset.validated === 'true';
             const prefersWhatsapp = $('whatsapp-opt-in').checked;
@@ -532,7 +484,7 @@
                 return showMessage('error', t('addressError'));
             }
 
-            if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address || !communicationLang) {
+            if (!email || !name || !phone.match(/^\+\d{8,15}$/) || !address || !communicationLang) { // ADDED communicationLang validation
                 return showMessage('error', 'Completa todos los campos obligatorios.');
             }
 
@@ -542,7 +494,7 @@
                 buyerEmail: email,
                 buyerName: name,
                 buyerPhone: phone,
-                communicationLang,
+                communicationLang, // NEW
                 deliveryAddress: address,
                 prefersWhatsapp,
                 items: Object.values(cartData).map(e => ({
@@ -569,7 +521,7 @@
                     buyerEmail: email,
                     buyerName: name,
                     buyerPhone: phone,
-                    communicationLang,
+                    communicationLang, // NEW
                     deliveryAddress: address,
                     prefersWhatsapp,
                     items: order.items,
