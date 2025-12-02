@@ -1013,7 +1013,6 @@
                 const captchaVerified = await verifyCaptcha(state.captchaToken);
                 if (!captchaVerified) {
                     messageEl.textContent = `❌ ${t('captchaRequired')}`;
-                    // The verifyCaptcha function should clear state.captchaToken internally
                     return;
                 }
             }
@@ -1023,27 +1022,28 @@
             
             try {
                 const provider = new GoogleAuthProvider();
-                const userCredential = await signInWithPopup(auth, provider);
-                const user = userCredential.user;
+                await signInWithPopup(auth, provider);
                 
-                // Log E-Consent only if the user went through the registration flow
+                // E-consent logging (moved inside listener for final confirmation if necessary, 
+                // but keeping it here for immediate execution after user object is available from popup.)
                 if (state.modalMode === 'register') {
-                    // NOTE: clientIp must be available in state for this to work
-                    const eConsentSuccess = await logEconsent(user.uid, user.email, state.clientIp); 
-                    if (!eConsentSuccess) {
-                        // Critical failure: delete the account and log the error.
-                        await user.delete();
-                        messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
-                        return;
-                    }
+                     // NOTE: The listener will now handle state updates, but we need the user object 
+                     // for logEconsent. For now, we assume the user object is available here.
+                     const user = auth.currentUser; 
+                     if (user) {
+                        const eConsentSuccess = await logEconsent(user.uid, user.email, state.clientIp); 
+                        if (!eConsentSuccess) {
+                            await user.delete();
+                            messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
+                            return;
+                        }
+                     }
                 }
                 
                 showMessage('success', 'Google Sign-In successful!', 2000);
-                // CRITICAL FIX: DO NOT CALL closeModal() here.
-                // The onAuthStateChanged listener will detect the successful sign-in
-                // and handle the modal closure and UI render.
                 
             } catch (error) {
+                // ... (error handling remains the same)
                 console.error("Google Sign-In failed:", error);
                 let errorMessage = 'Google Sign-In failed. Check console for details.';
                 if (error.code === 'auth/popup-closed-by-user') {
@@ -1115,6 +1115,7 @@
             console.log('WhatsApp Chat widget clicked. Direct link is being opened.');
         }
         
+
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
             try {
@@ -1175,20 +1176,25 @@
                     });
                 }
                 
-                // onAuthStateChanged Listener (MODIFIED TO GUARANTEE MODAL CLOSURE)
+                // onAuthStateChanged Listener (UPDATED)
                 onAuthStateChanged(auth, async (user) => {
                     
                     if (user) {
                         userId = user.uid;
                         
                         if (!user.isAnonymous) {
+                            // NEW: Log the source user data and the assigned state
+                            console.log("Firebase User Object: Email:", user.email, "Display Name:", user.displayName);
+                            
                             state.userName = user.email || user.displayName || 'Authenticated User';
-                            console.log("User authenticated with persistent account. UID:", userId);
+                            
+                            // NEW: Log the resulting state value
+                            console.log("STATE UPDATE: state.userName set to:", state.userName); 
+                            
+                            explicitSignOutOccurred = false;
                         } else {
                             state.userName = null;
                         }
-                        
-                        explicitSignOutOccurred = false;
                         
                     } else {
                         userId = null;
@@ -1197,16 +1203,20 @@
                             console.log("Explicit sign-out processed. Preventing anonymous re-sign-in on this loop.");
                             explicitSignOutOccurred = false;
                         }
+                        console.log("STATE UPDATE: state.userName set to NULL (Signed Out)");
                     }
                     isAuthReady = true;
                     await fetchAndApplyGlobalConfig(); 
                     if (db) setupRealtimeListeners();
                     
-                    // START FINAL GUARANTEE CHECK (Ensures state is updated before final render)
+                    // START FINAL GUARANTEE CHECK (Guarantees modal closure and correct status)
                     if (user && !user.isAnonymous && state.isModalOpen) {
-                        // Guarantee the modal is marked for closure before the final render
+                        // 1. Force state.isModalOpen to false to close the modal.
                         state.isModalOpen = false;
-                        console.log("Auth success detected. Forcing modal close.");
+                        console.log("Auth success detected. Forcing modal close and displaying user status.");
+                    } else if (state.isModalOpen) {
+                        // If modal is open, but we are not authenticated, keep state.isModalOpen as is.
+                        // This ensures the modal stays open if an error occurred during login/registration.
                     }
                     // END FINAL GUARANTEE CHECK
                     
