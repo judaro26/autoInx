@@ -306,6 +306,7 @@
             return div.innerHTML;
         }
 
+        // Located around line 316
         function downloadCategorySalesCsv() {
             resetTimer();
             const data = lastCategorySalesData.tableData;
@@ -317,16 +318,19 @@
         
             // Define CSV headers
             const headers = ["Category", "Units Sold", "Total Revenue (USD)", "Avg. Item Price (USD)"];
-            
+        
             // Format the data rows
             const csvRows = data.map(row => {
-                // Ensure values are formatted correctly for CSV, removing $ and commas if any.
+                // --- FIX: Use the new 'Cents' properties and convert to Dollars for the CSV output ---
                 const category = `"${row.category.replace(/"/g, '""')}"`; // Double quotes and escape internal quotes
                 const unitsSold = row.unitsSold;
-                const totalRevenue = row.totalRevenue.toFixed(2);
-                const averagePrice = row.averagePrice.toFixed(2);
                 
-                return [category, unitsSold, totalRevenue, averagePrice].join(',');
+                // Convert Cents back to Dollars for CSV display and use .toFixed(2)
+                const totalRevenueUSD = (row.totalRevenueCents / 100).toFixed(2); 
+                const averagePriceUSD = (row.averagePriceCents / 100).toFixed(2);
+                // ------------------------------------------------------------------------------------
+        
+                return [category, unitsSold, totalRevenueUSD, averagePriceUSD].join(',');
             });
         
             // Combine headers and rows
