@@ -156,80 +156,88 @@
 
     function showMessage(type, text) {
         const el = document.getElementById('messageContainer');
+        if (!el) return;
         el.innerHTML = `<div class="p-6 rounded-2xl text-lg font-bold text-center ${type === 'error' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'} shadow-lg">${text}</div>`;
     }
 
     async function initApp() {
-            try {
-                const res = await fetch(CONFIG_CLIENT_FUNCTION);
-                if (!res.ok) throw new Error("No se pudo cargar la configuración");
-                const cfg = await res.json();
-                
-                if (!cfg.apiKey || !cfg.projectId) {
-                    throw new Error("Firebase config incompleta.");
-                }
-                
-                const appInstance = initializeApp(cfg);
-                auth = getAuth(appInstance);
-                db = getFirestore(appInstance);
-    
-                onAuthStateChanged(auth, user => {
-                    const loadingStateEl = document.getElementById('loadingState');
-                    const ordersContainerEl = document.getElementById('ordersContainer');
-                    
-                    // Hide loading state immediately when auth state is known
-                    if (loadingStateEl) {
-                        loadingStateEl.classList.add('hidden');
-                    }
-                        
-                    if (user && !user.isAnonymous) {
-                        userId = user.uid;
-                        
-                        // Show orders container immediately (now that it's safe)
-                        if (ordersContainerEl) {
-                            ordersContainerEl.classList.remove('hidden');
-                        }
-                        fetchUserOrders(userId);
-                        
-                    } else {
-                        showMessage('error', 'Inicia sesión para ver tus pedidos. Redirigiendo...');
-                        setTimeout(() => window.location.href = '/index.html', 3000);
-                    }
-                });
-            } catch (e) {
-                console.error(e);
-                
-                // ⭐ Ensure loading state is hidden even on config fetch errors or major startup failures
+        try {
+            const res = await fetch(CONFIG_CLIENT_FUNCTION);
+            if (!res.ok) throw new Error("No se pudo cargar la configuración");
+            const cfg = await res.json();
+            
+            if (!cfg.apiKey || !cfg.projectId) {
+                throw new Error("Firebase config incompleta.");
+            }
+            
+            const appInstance = initializeApp(cfg);
+            auth = getAuth(appInstance);
+            db = getFirestore(appInstance);
+
+            onAuthStateChanged(auth, user => {
                 const loadingStateEl = document.getElementById('loadingState');
+                const ordersContainerEl = document.getElementById('ordersContainer');
+                
+                // Hide loading state immediately when auth state is known
                 if (loadingStateEl) {
                     loadingStateEl.classList.add('hidden');
                 }
-                
-                // Display a more user-friendly message for a network timeout
-                let errorMessage = `Error: ${e.message}`;
-                if (e.message.includes('timeout') || e.message.includes('No se pudo cargar la configuración')) {
-                    errorMessage = "Error de red: No se pudo conectar con el servidor de autenticación. Por favor, revisa tu conexión a internet o intenta de nuevo más tarde.";
+                    
+                if (user && !user.isAnonymous) {
+                    userId = user.uid;
+                    console.log("Authenticated. Starting order fetch for UID:", userId); // DIAGNOSTIC LOG 1
+                    
+                    // Show orders container immediately
+                    if (ordersContainerEl) {
+                        ordersContainerEl.classList.remove('hidden');
+                    }
+                    fetchUserOrders(userId);
+                    
+                } else {
+                    showMessage('error', 'Inicia sesión para ver tus pedidos. Redirigiendo...');
+                    setTimeout(() => window.location.href = '/index.html', 3000);
                 }
-                
-                showMessage('error', errorMessage);
+            });
+        } catch (e) {
+            console.error(e);
+            
+            const loadingStateEl = document.getElementById('loadingState');
+            if (loadingStateEl) {
+                loadingStateEl.classList.add('hidden');
             }
+            
+            let errorMessage = `Error: ${e.message}`;
+            if (e.message.includes('timeout') || e.message.includes('No se pudo cargar la configuración')) {
+                errorMessage = "Error de red: No se pudo conectar con el servidor de autenticación. Por favor, revisa tu conexión a internet o intenta de nuevo más tarde.";
+            }
+            
+            showMessage('error', errorMessage);
         }
+    }
+
     function fetchUserOrders(uid) {
-        const q = query(collection(db, ORDERS_COLLECTION(uid)), orderBy('createdAt', 'desc'));
+        const path = ORDERS_COLLECTION(uid);
+        const q = query(collection(db, path), orderBy('createdAt', 'desc'));
+        
+        console.log("Subscribing to Firestore path:", path); // DIAGNOSTIC LOG 2
+
         onSnapshot(q, (snapshot) => {
+            console.log("Orders received:", snapshot.docs.length); // DIAGNOSTIC LOG 3
             const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             renderOrders(orders);
         }, (error) => {
-            console.error(error);
-            showMessage('error', 'Error al cargar los pedidos');
+            console.error("FIRESTORE ERROR:", error);
+            showMessage('error', `Error al cargar los pedidos: ${error.message}`);
         });
     }
 
     function renderOrders(orders) {
         const container = document.getElementById('ordersList');
-        // Defensive check is crucial to avoid TypeErrors
         if (!container) return; 
         
+        // ... (rest of renderOrders logic remains the same) ...
+        // ... (including empty state message and order mapping) ...
+
         if (orders.length === 0) {
             container.innerHTML = `
                 <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
@@ -277,7 +285,6 @@
                                 </div>
                             </div>
                         </div>
-
                         <div class="p-8">
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                                 <div>
@@ -295,7 +302,6 @@
                                     <p class="text-2xl font-bold text-indigo-600">${order.items.length}</p>
                                 </div>
                             </div>
-
                             <div class="border-t pt-6">
                                 <p class="font-bold text-gray-700 mb-3">Productos comprados:</p>
                                 <ul class="space-y-3 custom-scrollbar max-h-48 overflow-y-auto">
