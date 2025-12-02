@@ -1183,7 +1183,7 @@
                     });
                 }
                 
-                // onAuthStateChanged Listener (UPDATED)
+                 // onAuthStateChanged Listener (UPDATED)
                 onAuthStateChanged(auth, async (user) => {
                     
                     // 🚨 NEW LOGIC: Check for checkout redirection request
@@ -1197,7 +1197,7 @@
                             console.error("Failed to parse redirect data:", e);
                         }
                     }
-        
+                
                     if (user) {
                         userId = user.uid;
                         
@@ -1212,7 +1212,7 @@
                                  closeModal();
                                  showMessage('success', t('loginSuccessful'), 2000);
                             }
-        
+                
                         } else {
                             // Anonymous user
                             state.userName = null;
@@ -1228,26 +1228,32 @@
                         }
                         console.log("STATE UPDATE: state.userName set to NULL (Signed Out)");
                     }
+                    
                     isAuthReady = true;
                     await fetchAndApplyGlobalConfig();  
                     if (db) setupRealtimeListeners();
                     
-                    // START FINAL GUARANTEE CHECK
-                    if (redirectData && !user?.isAnonymous) {
-                        // User was already logged in when redirect occurred, just proceed
-                    } else if (redirectData && !user) {
-                        // User was not logged in at all or was anonymous. Open login modal.
-                        currentLang = redirectData.lang || currentLang; // Set language from checkout if possible
-                        showMessage('warning', redirectData.message, 6000); // Show the requirement message
-                        showLoginModal('standard', 'login'); // Open modal
+                    // 1. Trigger the main render (This inserts the modal HTML structure into the DOM)
+                    render(); 
+                    
+                    // 2. GUARANTEE CHECK: If a redirect from checkout occurred AND the user is not authenticated:
+                    if (redirectData && (!user || user.isAnonymous)) {
+                        console.log("Action: Delayed opening of login modal due to checkout redirect.");
                         
+                        // 🚨 CRITICAL FIX: Add a small delay (100ms) to ensure the render() function
+                        // has finished manipulating the DOM and the modal container exists.
+                        setTimeout(() => {
+                            currentLang = redirectData.lang || currentLang; // Set language from checkout
+                            showMessage('warning', redirectData.message, 6000); // Show the requirement message
+                            showLoginModal('standard', 'login'); // Open modal
+                            render(); // Re-render once more to ensure language/modal state is reflected
+                        }, 100); 
                     } else if (user && !user.isAnonymous && state.isModalOpen) {
+                        // Force modal closure if user somehow logged in during this auth change listener loop
                         state.isModalOpen = false;
                         console.log("Auth success detected. Forcing modal close and displaying user status.");
+                        render();
                     }
-                    // END FINAL GUARANTEE CHECK
-                    
-                    render();
                 });
             } catch (error) {
                 console.error("Firebase setup failed:", error);
