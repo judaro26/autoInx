@@ -928,19 +928,71 @@
             render();
         }
         async function handleGoogleSignIn() {
-            const provider = new GoogleAuthProvider();
-            const messageEl = document.getElementById('auth-message');
-            messageEl.textContent = 'Logging in with Google...';
-            try {
-                await signInWithPopup(auth, provider);
-                showMessage('success', 'Google Sign-In successful!', 2000);
-                closeModal();
-            } catch (error) {
-                console.error("Google Sign-In failed:", error);
-                messageEl.textContent = '❌ Google Sign-In failed. Check console for details.';
-            }
-            render();
-        }
+                    // New: Check if the modal is in Registration mode
+                    if (state.modalMode === 'register') {
+                        const acceptTosCheckbox = document.getElementById('accept-tos');
+                        const messageEl = document.getElementById('auth-message');
+                        messageEl.textContent = ''; // Clear previous message
+        
+                        // 1. T&C Check
+                        if (!acceptTosCheckbox || !acceptTosCheckbox.checked) {
+                            messageEl.textContent = `❌ ${t('eConsentRequired')}`;
+                            return;
+                        }
+        
+                        // 2. CAPTCHA Check and Verification
+                        if (!state.captchaToken) {
+                            messageEl.textContent = `❌ ${t('captchaRequired')}`;
+                            if (typeof grecaptcha !== 'undefined') { grecaptcha.reset(); }
+                            return;
+                        }
+        
+                        const captchaVerified = await verifyCaptcha(state.captchaToken);
+                        if (!captchaVerified) {
+                            messageEl.textContent = `❌ ${t('captchaRequired')}`;
+                            state.captchaToken = null;
+                            grecaptcha.reset();
+                            return;
+                        }
+                        // CAPTCHA is verified, continue with sign-in
+                    }
+                    
+                    // Original Google Sign-In Logic
+                    const provider = new GoogleAuthProvider();
+                    const messageEl = document.getElementById('auth-message');
+                    messageEl.textContent = 'Logging in with Google...';
+                    
+                    try {
+                        const userCredential = await signInWithPopup(auth, provider);
+                        const user = userCredential.user;
+                        
+                        // NEW: Log E-Consent for the Google-signed-up user
+                        // This check is crucial for compliance even if Google Sign-In is for an existing user, 
+                        // but it's most important for *new* sign-ups. Since the user might be new 
+                        // and we already checked T&C/Captcha, we log it.
+                        if (state.modalMode === 'register') {
+                            const eConsentSuccess = await logEconsent(user.uid, user.email, state.clientIp); 
+                            if (!eConsentSuccess) {
+                                // Critical failure: delete the account and log the error.
+                                await user.delete(); // Delete the Firebase user account
+                                messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
+                                return;
+                            }
+                        }
+        
+                        showMessage('success', 'Google Sign-In successful!', 2000);
+                        closeModal();
+                    } catch (error) {
+                        console.error("Google Sign-In failed:", error);
+                        // The error handling logic here is simplified for brevity but should be robust
+                        let errorMessage = 'Google Sign-In failed. Check console for details.';
+                        if (error.code === 'auth/popup-closed-by-user') {
+                            errorMessage = 'Sign-in window closed. Please try again.';
+                        }
+                        messageEl.textContent = `❌ ${errorMessage}`;
+                    }
+                    render();
+                }
         async function requestPasswordReset() {
             const email = prompt("Enter the email associated with your account to receive a password reset link:");
             
