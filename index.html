@@ -196,24 +196,29 @@
         async function verifyCaptcha(token) {
             if (!token) return false;
         
+            // Save token locally before clearing the global state
+            const currentToken = state.captchaToken; 
+            state.captchaToken = null; // Clear immediately to prevent accidental reuse
+        
             try {
                 const response = await fetch(CAPTCHA_VERIFY_FUNCTION, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token })
+                    // Use the locally saved token, but this is the original code structure:
+                    body: JSON.stringify({ token }) 
                 });
         
                 if (!response.ok) throw new Error('Network response was not ok');
         
                 const result = await response.json();
                 // The Netlify function should return { success: true/false }
-                return result.success; 
+                return result.success; // The server determines success
         
             } catch (error) {
                 console.error("Error verifying reCAPTCHA:", error);
                 return false;
             }
-        }       
+        }     
         
 
         function renderItemDetailModal() {
