@@ -1145,6 +1145,7 @@
                 const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
                 
                 state.isAdminIP = isWhitelisted; 
+                state.clientIp = clientIp; // Store for e-consent logging
         
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
@@ -1185,24 +1186,40 @@
                 // onAuthStateChanged Listener (UPDATED)
                 onAuthStateChanged(auth, async (user) => {
                     
+                    // 🚨 NEW LOGIC: Check for checkout redirection request
+                    const redirectDataJson = sessionStorage.getItem('redirectedForLogin');
+                    sessionStorage.removeItem('redirectedForLogin'); // Clear immediately after reading
+                    let redirectData = null;
+                    if (redirectDataJson) {
+                        try {
+                            redirectData = JSON.parse(redirectDataJson);
+                        } catch (e) {
+                            console.error("Failed to parse redirect data:", e);
+                        }
+                    }
+        
                     if (user) {
                         userId = user.uid;
                         
                         if (!user.isAnonymous) {
-                            // NEW: Log the source user data and the assigned state
-                            console.log("Firebase User Object: Email:", user.email, "Display Name:", user.displayName);
-                            
+                            // Logged in user
                             state.userName = user.email || user.displayName || 'Authenticated User';
-                            
-                            // NEW: Log the resulting state value
-                            console.log("STATE UPDATE: state.userName set to:", state.userName); 
-                            
                             explicitSignOutOccurred = false;
+                            console.log("STATE UPDATE: state.userName set to:", state.userName);  
+                            
+                            // If redirected from checkout, but now authenticated, close modal and show success.
+                            if (redirectData && state.isModalOpen) {
+                                 closeModal();
+                                 showMessage('success', t('loginSuccessful'), 2000);
+                            }
+        
                         } else {
+                            // Anonymous user
                             state.userName = null;
                         }
                         
                     } else {
+                        // Not authenticated
                         userId = null;
                         state.userName = null;
                         if (explicitSignOutOccurred) {
@@ -1212,17 +1229,21 @@
                         console.log("STATE UPDATE: state.userName set to NULL (Signed Out)");
                     }
                     isAuthReady = true;
-                    await fetchAndApplyGlobalConfig(); 
+                    await fetchAndApplyGlobalConfig();  
                     if (db) setupRealtimeListeners();
                     
-                    // START FINAL GUARANTEE CHECK (Guarantees modal closure and correct status)
-                    if (user && !user.isAnonymous && state.isModalOpen) {
-                        // 1. Force state.isModalOpen to false to close the modal.
+                    // START FINAL GUARANTEE CHECK
+                    if (redirectData && !user?.isAnonymous) {
+                        // User was already logged in when redirect occurred, just proceed
+                    } else if (redirectData && !user) {
+                        // User was not logged in at all or was anonymous. Open login modal.
+                        currentLang = redirectData.lang || currentLang; // Set language from checkout if possible
+                        showMessage('warning', redirectData.message, 6000); // Show the requirement message
+                        showLoginModal('standard', 'login'); // Open modal
+                        
+                    } else if (user && !user.isAnonymous && state.isModalOpen) {
                         state.isModalOpen = false;
                         console.log("Auth success detected. Forcing modal close and displaying user status.");
-                    } else if (state.isModalOpen) {
-                        // If modal is open, but we are not authenticated, keep state.isModalOpen as is.
-                        // This ensures the modal stays open if an error occurred during login/registration.
                     }
                     // END FINAL GUARANTEE CHECK
                     
