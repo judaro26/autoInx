@@ -987,6 +987,9 @@
         async function handleGoogleSignIn() {
             const messageEl = document.getElementById('auth-message');
             messageEl.textContent = ''; // Clear previous message
+            
+            // Define RECAPTCHA_SITE_KEY here for use in grecaptcha.enterprise.execute
+            const RECAPTCHA_SITE_KEY = '6LdiVx4sAAAAAJR3votlSI8nB61NMFmh5YZokFQ-';
         
             // Check if the modal is in Registration mode
             if (state.modalMode === 'register') {
@@ -998,12 +1001,11 @@
                     return;
                 }
         
-                // --- START FIX: EXPLICIT RECAPTCHA EXECUTION ---
+                // --- 2. EXPLICIT RECAPTCHA EXECUTION ---
                 if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
                     messageEl.textContent = 'Validating anti-bot check...';
                     try {
-                        // Explicitly execute reCAPTCHA Enterprise for a token before proceeding.
-                        // We use the same key and action as standard registration.
+                        // Execute reCAPTCHA Enterprise for a token
                         state.captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, {action: 'register'});
                         messageEl.textContent = ''; // Clear temporary message
                     } catch (e) {
@@ -1016,22 +1018,14 @@
                     return;
                 }
                 
-                // 2. CAPTCHA Verification (Use the newly acquired token)
+                // 3. CAPTCHA Verification (server-side check)
                 const captchaVerified = await verifyCaptcha(state.captchaToken);
                 if (!captchaVerified) {
                     messageEl.textContent = `❌ ${t('captchaRequired')}`;
-                    state.captchaToken = null; // Clear token on failure
-                    // No need to reset grecaptcha widget as we are calling execute every time
+                    // The verifyCaptcha function should clear state.captchaToken internally
                     return;
                 }
-                // --- END FIX ---
             }
-            
-            // Original Google Sign-In Logic resumes here...
-            // The previous token checks/resets (lines 1378-1400 in your original code) should be deleted
-            // as they are replaced by the explicit execution block above.
-        
-            messageEl.textContent = 'Logging in with Google...';
             
             // Original Google Sign-In Logic
             messageEl.textContent = 'Logging in with Google...';
@@ -1043,25 +1037,32 @@
                 
                 // Log E-Consent only if the user went through the registration flow
                 if (state.modalMode === 'register') {
+                    // NOTE: clientIp must be available in state for this to work
                     const eConsentSuccess = await logEconsent(user.uid, user.email, state.clientIp); 
                     if (!eConsentSuccess) {
+                        // Critical failure: delete the account and log the error.
                         await user.delete();
                         messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
                         return;
                     }
                 }
-        
+                
                 showMessage('success', 'Google Sign-In successful!', 2000);
-                closeModal();
+                // CRITICAL FIX: DO NOT CALL closeModal() here.
+                // The onAuthStateChanged listener will detect the successful sign-in
+                // and handle the modal closure and UI render.
+                
             } catch (error) {
                 console.error("Google Sign-In failed:", error);
                 let errorMessage = 'Google Sign-In failed. Check console for details.';
                 if (error.code === 'auth/popup-closed-by-user') {
                     errorMessage = 'Sign-in window closed. Please try again.';
+                } else if (error.code === 'auth/cancelled-popup-request') {
+                     errorMessage = 'Authentication window was cancelled or already in progress.';
                 }
                 messageEl.textContent = `❌ ${errorMessage}`;
             }
-            render();
+            render(); // Update the message in the modal if an error occurred
         }
         async function requestPasswordReset() {
             const email = prompt("Enter the email associated with your account to receive a password reset link:");
