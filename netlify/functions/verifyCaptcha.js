@@ -2,61 +2,86 @@
 
 const fetch = require('node-fetch');
 
-// The Secret Key is automatically injected from the Netlify Environment Variables
-const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
-const VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify';
+// NEW: Use environment variables for Enterprise verification
+const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID; 
+const GCP_API_KEY = process.env.GCP_API_KEY; 
+
+// The site key from your frontend (6LdiVx4sAAAAAJR3votlSI8nB61NMFmh5YZokFQ-)
+const RECAPTCHA_SITE_KEY = '6LdiVx4sAAAAAJR3votlSI8nB61NMFmh5YZokFQ-'; 
+const ACTION = 'register'; // The expected action name from your frontend execution
 
 exports.handler = async (event, context) => {
     // 1. Security Check: Only allow POST requests
     if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            body: JSON.stringify({ error: 'Method Not Allowed' }),
-        };
+        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
 
-    // 2. Secret Key Check
-    if (!RECAPTCHA_SECRET_KEY) {
-        console.error("RECAPTCHA_SECRET_KEY is not set in environment variables.");
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Server configuration error.' }),
-        };
+    // 2. Enterprise Key Check
+    if (!GCP_PROJECT_ID || !GCP_API_KEY) {
+        console.error("GCP_PROJECT_ID or GCP_API_KEY is not set.");
+        return { statusCode: 500, body: JSON.stringify({ error: 'Server configuration error: Enterprise keys missing.' }) };
     }
 
     try {
         const { token } = JSON.parse(event.body);
 
         if (!token) {
-            return {
-                statusCode: 400,
-                body: JSON.stringify({ success: false, error: 'Missing reCAPTCHA token.' }),
-            };
+            return { statusCode: 400, body: JSON.stringify({ success: false, error: 'Missing reCAPTCHA token.' }) };
         }
 
-        // 3. Call Google reCAPTCHA API for verification
-        const response = await fetch(VERIFY_URL, {
+        // NEW: Construct the Enterprise API URL
+        const VERIFY_URL_ENTERPRISE = `https://recaptchaenterprise.googleapis.com/v1/projects/${GCP_PROJECT_ID}/assessments?key=${GCP_API_KEY}`;
+        
+        // NEW: Construct the Enterprise request body (Assessment object)
+        const requestBody = {
+            event: {
+                token: token,
+                siteKey: RECAPTCHA_SITE_KEY,
+                expectedAction: ACTION,
+            },
+        };
+
+        // 3. Call Google reCAPTCHA Enterprise API for verification
+        const response = await fetch(VERIFY_URL_ENTERPRISE, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json' // Must be JSON for Enterprise
             },
-            body: `secret=${RECAPTCHA_SECRET_KEY}&response=${token}`
+            body: JSON.stringify(requestBody)
         });
 
         const data = await response.json();
 
-        // 4. Respond to client
-        if (data.success) {
-            // Optional: You can check the score for v3 here (data.score)
+        // Check for general API errors
+        if (data.error) {
+            console.error("reCAPTCHA Enterprise API Error:", data.error.message);
+            // This often means invalid API key or PROJECT ID
+            return { statusCode: 500, body: JSON.stringify({ success: false, error: 'Enterprise API error.' }) };
+        }
+
+        // 4. Enterprise Verification Logic
+        // Enterprise returns a "name" property on success and a list of policy violations
+        const isTokenValid = data.tokenProperties.valid;
+        const actionMatches = data.tokenProperties.action === ACTION;
+        // Adjust score threshold as needed (e.g., require score >= 0.5)
+        const scorePasses = data.riskAnalysis.score >= 0.5; 
+        
+        const success = isTokenValid && actionMatches && scorePasses;
+
+        if (success) {
             return {
                 statusCode: 200,
-                body: JSON.stringify({ success: true, score: data.score || 1.0 }),
+                body: JSON.stringify({ success: true, score: data.riskAnalysis.score }),
             };
         } else {
-            console.warn("reCAPTCHA verification failed:", data['error-codes']);
+            console.warn("reCAPTCHA Enterprise check failed:", data.riskAnalysis.reasons);
             return {
-                statusCode: 200, // Return 200 but indicate failure
-                body: JSON.stringify({ success: false, error: 'reCAPTCHA failed verification.' }),
+                statusCode: 200, 
+                body: JSON.stringify({ 
+                    success: false, 
+                    error: 'reCAPTCHA failed verification.',
+                    reasons: data.riskAnalysis.reasons 
+                }),
             };
         }
 
