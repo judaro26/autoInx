@@ -300,6 +300,12 @@
            }
         }
 
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function downloadCategorySalesCsv() {
             resetTimer();
             const data = lastCategorySalesData.tableData;
@@ -350,53 +356,75 @@
             }
         }
         
-        function renderCategorySalesTable(salesData) {
-            if (salesData.tableData.length === 0) {
-                return `<p class="text-center text-gray-500 p-4">No sales data found for the selected time period.</p>`;
+          function renderCategorySalesTable(salesData) {
+            if (!salesData.tableData || salesData.tableData.length === 0) {
+                return `<p class="text-center text-gray-500 p-8">No sales data found for the selected time period.</p>`;
             }
         
             const tableRows = salesData.tableData.map((row, index) => {
-                // --- CLEANUP: Use the CENTS values directly from the data structure ---
-                // We use Math.round() just in case averagePriceCents resulted in a float.
                 const totalRevenue = row.totalRevenueCents;
                 const averagePrice = Math.round(row.averagePriceCents);
-                // --------------------------------------------------------------------
         
-                // NEW: Generate HTML for the detailed order list
+                // Generate detailed order rows
                 const detailRows = row.rawOrders.map(order => `
-                    <div class="grid grid-cols-5 text-xs py-2 border-b border-gray-100 hover:bg-gray-50">
-                        <div class="truncate text-gray-600">${formatTime(order.date)}</div>
-                        <div class="text-center font-semibold text-gray-700">${order.status}</div>
-                        <div class="text-center">${order.quantity}x ${order.itemName}</div>
-                        <div class="text-center font-bold ${order.paymentStatus === 'Paid' ? 'text-green-600' : 'text-red-600'}">${order.paymentStatus}</div>
-                        <div class="text-right font-mono">${formatPriceDisplay(order.totalItemCents)}</div>
+                    <div class="grid grid-cols-5 gap-4 text-xs py-2 border-b border-gray-100 hover:bg-gray-50">
+                        <div class="truncate text-gray-600" title="${formatTime(order.date, true)}">
+                            ${formatTime(order.date)}
+                        </div>
+                        <div class="text-center">
+                            <span class="px-2 py-1 text-xs rounded-full ${
+                                order.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                                order.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
+                                order.status === 'Cancelled' ? 'bg-red-100 text-red-800' :
+                                'bg-gray-100 text-gray-800'
+                            }">${order.status}</span>
+                        </div>
+                        <div class="text-center font-medium">${order.quantity}x ${escapeHtml(order.itemName)}</div>
+                        <div class="text-center">
+                            <span class="font-bold ${order.paymentStatus === 'Paid' ? 'text-green-600' : 'text-red-600'}">
+                                ${order.paymentStatus}
+                            </span>
+                        </div>
+                        <div class="text-right font-mono text-gray-700">${formatPriceDisplay(order.totalItemCents)}</div>
                     </div>
                 `).join('');
         
                 return `
-                    <div class="category-row-container border-b border-gray-100">
-                        <div class="grid grid-cols-5 gap-4 items-center p-3 hover:bg-gray-50">
-                            <div class="text-sm font-semibold text-gray-800 truncate">${row.category}</div>
-                            <div class="text-sm text-center">${row.unitsSold}</div>
-                            <div class="text-sm font-bold text-green-700">${formatPriceDisplay(totalRevenue)}</div>
-                            <div class="text-sm text-right text-gray-500">${formatPriceDisplay(averagePrice)}</div>
+                    <div class="border-b border-gray-200 last:border-b-0">
+                        <!-- Summary Row -->
+                        <div class="grid grid-cols-5 gap-4 items-center p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                             onclick="document.getElementById('details-${index}').classList.toggle('hidden')">
+                            <div class="text-sm font-semibold text-gray-800 truncate">${escapeHtml(row.category)}</div>
+                            <div class="text-center text-gray-700">${row.unitsSold.toLocaleString()}</div>
+                            <div class="text-center font-bold text-green-700">${formatPriceDisplay(totalRevenue)}</div>
+                            <div class="text-right text-gray-600">${formatPriceDisplay(averagePrice)}</div>
                             <div class="text-right">
-                                <button onclick="document.getElementById('details-${index}').classList.toggle('hidden')" class="px-3 py-1 bg-indigo-500 text-white text-xs rounded-full hover:bg-indigo-600 transition duration-150">
-                                    Details (${row.rawOrders.length})
-                                </button>
+                                <span class="px-3 py-1 bg-indigo-600 text-white text-xs font-medium rounded-full">
+                                    ${row.rawOrders.length} order${row.rawOrders.length !== 1 ? 's' : ''}
+                                </span>
                             </div>
                         </div>
-                        <div id="details-${index}" class="hidden p-4 bg-gray-50 border-t border-gray-200">
-                            <h5 class="text-sm font-bold mb-2 border-b pb-1 text-gray-700">Orders for ${row.category} (Units Sold: ${row.unitsSold})</h5>
-                            <div class="grid grid-cols-5 text-xs font-bold text-gray-700 bg-gray-200 p-2 rounded-t-md">
-                                <div>Order Date/Time</div>
-                                <div class="text-center">Status</div>
-                                <div class="text-center">Item Purchased</div>
-                                <div class="text-center">Payment Status</div>
-                                <div class="text-right">Item Revenue</div>
-                            </div>
-                            <div class="max-h-40 custom-scrollbar overflow-y-auto">
-                                ${detailRows}
+        
+                        <!-- Expandable Details -->
+                        <div id="details-${index}" class="hidden bg-gray-50 border-t border-gray-200">
+                            <div class="p-4">
+                                <h5 class="text-sm font-bold mb-3 text-gray-700 border-b pb-2">
+                                    Orders in "${escapeHtml(row.category)}" (${row.unitsSold} units sold)
+                                </h5>
+        
+                                <!-- Detail Header -->
+                                <div class="grid grid-cols-5 gap-4 text-xs font-bold text-gray-600 bg-gray-200 px-3 py-2 rounded-t-md">
+                                    <div>Date & Time</div>
+                                    <div class="text-center">Status</div>
+                                    <div class="text-center">Item</div>
+                                    <div class="text-center">Payment</div>
+                                    <div class="text-right">Revenue</div>
+                                </div>
+        
+                                <!-- Detail Rows -->
+                                <div class="max-h-64 overflow-y-auto custom-scrollbar text-xs">
+                                    ${detailRows || '<div class="p-4 text-center text-gray-500">No individual orders found.</div>'}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -404,27 +432,36 @@
             }).join('');
         
             return `
-                <div id="categorySalesBreakdown" class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500 mt-8">
-                    <div class="flex justify-between items-center mb-4 border-b pb-2">
-                        <h4 class="text-xl font-bold text-indigo-700">Sales Breakdown by Category</h4>
-                        <button onclick="window.module.downloadCategorySalesCsv()" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition duration-150 text-sm">
-                            ⬇️ Download CSV
+                <div id="categorySalesBreakdown" class="bg-white rounded-xl shadow-xl border-t-4 border-indigo-600 overflow-hidden mt-8">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50">
+                        <h4 class="text-2xl font-bold text-indigo-800 mb-3 sm:mb-0">Sales Breakdown by Category</h4>
+                        <button onclick="window.module.downloadCategorySalesCsv()" 
+                                class="px-5 py-2.5 rounded-lg font-semibold text-white bg-green-600 hover:bg-green-700 transition shadow-md text-sm flex items-center gap-2">
+                            <span>⬇️ Download CSV</span>
                         </button>
                     </div>
-                    
+        
                     <div class="overflow-x-auto">
-                        <div class="min-w-[500px]">
-                            <div class="grid grid-cols-5 gap-4 font-bold bg-gray-100 p-3 rounded-t-lg border-b border-gray-300">
+                        <div class="min-w-[800px]">
+                            <!-- Table Header -->
+                            <div class="grid grid-cols-5 gap-4 font-bold text-gray-700 bg-gradient-to-r from-gray-100 to-gray-50 p-4 border-b-2 border-indigo-200">
                                 <div>Category</div>
                                 <div class="text-center">Units Sold</div>
                                 <div class="text-center">Total Revenue</div>
-                                <div class="text-right">Avg. Item Price</div>
-                                <div class="text-right">Actions</div>
+                                <div class="text-right">Avg Price</div>
+                                <div class="text-right">Orders</div>
                             </div>
-                            <div class="max-h-80 custom-scrollbar overflow-y-auto">
+        
+                            <!-- Table Body -->
+                            <div class="divide-y divide-gray-200">
                                 ${tableRows}
                             </div>
                         </div>
+                    </div>
+        
+                    <div class="p-4 text-right text-xs text-gray-500 bg-gray-50">
+                        Total Categories: ${salesData.tableData.length} | 
+                        Total Units Sold: ${salesData.tableData.reduce((sum, r) => sum + r.unitsSold, 0).toLocaleString()}
                     </div>
                 </div>
             `;
