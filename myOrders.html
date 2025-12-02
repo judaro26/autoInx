@@ -4,10 +4,10 @@
     import { getFirestore, collection, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     let db, auth, userId;
-    
+    
     // FIX 1: Safely check the global window scope for appId
     const appId = window.__app_id || 'default-app-id';
-    
+    
     const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
     const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
 
@@ -29,37 +29,37 @@
             const res = await fetch(CONFIG_CLIENT_FUNCTION);
             if (!res.ok) throw new Error("No se pudo cargar la configuración");
             const cfg = await res.json();
-            
-            if (!cfg.apiKey || !cfg.projectId) {
-                throw new Error("Firebase config incompleta.");
-            }
-            
+            
+            if (!cfg.apiKey || !cfg.projectId) {
+                throw new Error("Firebase config incompleta.");
+            }
+            
             const appInstance = initializeApp(cfg);
             auth = getAuth(appInstance);
             db = getFirestore(appInstance);
 
             onAuthStateChanged(auth, user => {
-                // Get elements once
-                const loadingStateEl = document.getElementById('loadingState');
-                const ordersContainerEl = document.getElementById('ordersContainer');
-                
-                // Hide loading state
-                if (loadingStateEl) {
+                // Get elements once
+                const loadingStateEl = document.getElementById('loadingState');
+                const ordersContainerEl = document.getElementById('ordersContainer');
+                
+                // Hide loading state
+                if (loadingStateEl) {
                     loadingStateEl.classList.add('hidden');
-                }
-                    
-                if (user && !user.isAnonymous) {
+                }
+                    
+                if (user && !user.isAnonymous) {
                     userId = user.uid;
-                    
-                    // FIX 3: Wrap critical display logic in a brief timeout 
-                    // to ensure all DOM elements are rendered after 'loadingState' is hidden.
-                    setTimeout(() => {
-                        if (ordersContainerEl) {
-                            ordersContainerEl.classList.remove('hidden');
-                        }
-                        fetchUserOrders(userId);
-                    }, 50); // 50ms delay
-                    
+                    
+                    // FIX 3: Wrap critical display logic in a brief timeout 
+                    // to ensure all DOM elements are rendered after 'loadingState' is hidden.
+                    setTimeout(() => {
+                        if (ordersContainerEl) {
+                            ordersContainerEl.classList.remove('hidden');
+                        }
+                        fetchUserOrders(userId);
+                    }, 50); // 50ms delay
+                    
                 } else {
                     showMessage('error', 'Inicia sesión para ver tus pedidos. Redirigiendo...');
                     setTimeout(() => window.location.href = '/index.html', 3000);
@@ -67,11 +67,11 @@
             });
         } catch (e) {
             console.error(e);
-            
-            const loadingStateEl = document.getElementById('loadingState');
-            if (loadingStateEl) {
-                loadingStateEl.classList.add('hidden');
-            }
+            
+            const loadingStateEl = document.getElementById('loadingState');
+            if (loadingStateEl) {
+                loadingStateEl.classList.add('hidden');
+            }
             showMessage('error', `Error: ${e.message}`);
         }
     }
@@ -89,8 +89,12 @@
 
     function renderOrders(orders) {
         const container = document.getElementById('ordersList');
-        if (!container) return; // Final defensive check
-        
+        // ⭐ CRITICAL FIX: Add this explicit check to prevent the TypeError
+        if (!container) {
+            console.warn("ordersList element not found, skipping render.");
+            return; 
+        }
+        
         if (orders.length === 0) {
             container.innerHTML = `
                     <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
@@ -113,185 +117,7 @@
                     'Processing': 'bg-indigo-100 text-indigo-800 border-indigo-200',
                     'Cancelled': 'bg-red-100 text-red-800 border-red-200',
                     'Pending': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-                    'Manually Created': 'bg-purple-100 text-purple-800 border-purple-200',
-                };
-
-                const badge = statusColors[order.status] || 'bg-gray-100 text-gray-800 border-gray-200';
-
-                return `
-                    <div class="order-card bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-indigo-600 opacity-0" style="animation: slide-up 0.6s ease-out ${idx * 0.1}s forwards">
-                        <div class="bg-gradient-to-r from-indigo-50 to-purple-50 px-8 py-5 border-b border-gray-100">
-                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                <div>
-            1.  **Establish user intent:** The user is reporting a persistent JavaScript error (`TypeError: Cannot read properties of null (reading 'classList')`) in their custom `myOrders.html` page, which is preventing the orders from displaying. The user needs the correct and final version of the `<script type="module">` block to resolve the error and ensure the page functions as intended. The error specifically occurs on line 88 of the previous script version, which corresponds to setting `innerHTML` on the `ordersList` container.
-
-2.  **Identify relevant files:** The most relevant file is the **user's provided code (which is the updated `myOrders.html` script block)**, as the error is confined to this client-side JavaScript implementation. Supporting files like `autoInx-main/index.html` (for context on Firebase initialization) and Netlify function files are relevant for understanding the overall application architecture, but the fix is local to the provided script block.
-
-3.  **Consider calling another tool for additional information:** No tool is necessary. The error is a classic client-side DOM manipulation timing issue: the `renderOrders` function is called from the asynchronous `onSnapshot` handler, and sometimes the `ordersList` element is not yet available when the function tries to update its `innerHTML`. Another possibility is that the element is available, but the reference to the container *inside* the `renderOrders` function is getting overwritten or lost. The previous fix addressed elements *outside* `renderOrders`, but the error is now *inside*.
-
-4.  **Generate Comprehensive Answers:**
-    * **Analyze the Error:** `TypeError: Cannot set properties of null (setting 'innerHTML')` at line 88 (or where `container.innerHTML = ...` is called inside `renderOrders`).
-    * This means `const container = document.getElementById('ordersList');` returned `null`.
-    * The `ordersList` element is defined *inside* the `ordersContainer` element in the static HTML.
-    * The fix for the previous error already ensured `ordersContainer` is available before being manipulated.
-    * However, if `renderOrders` is called *before* the outer element (`ordersContainer`) has fully finished rendering its children, `ordersList` might still be `null`.
-
-    * **Implement the Fix:**
-        * The original line that failed was: `container.innerHTML = orders.map((order, idx) => { ... })`.
-        * A defensive check needs to be placed at the very beginning of `renderOrders` to prevent execution if the element is missing, but the most likely cause is actually the code structure.
-
-        * **Refined Fix Strategy:** Look at how `ordersContainer` is being shown:
-            ```javascript
-            // Previous Fix Attempt:
-            if (ordersContainerEl) {
-                ordersContainerEl.classList.remove('hidden');
-            }
-            // The call to fetchUserOrders triggers onSnapshot, which calls renderOrders.
-            ```
-            If the `renderOrders` is called too quickly, even if `ordersContainerEl` exists, its children (`ordersList`) might not be ready.
-
-        * The simplest, most robust fix is to use a **defensive check AND consolidate the initialization logic.** The element the error points to is `ordersList`. We must ensure it exists.
-
-    * **Apply the Fix to `renderOrders`:**
-
-        ```javascript
-        function renderOrders(orders) {
-            // CRITICAL FIX: Check if the container exists. If it's null, stop immediately.
-            const container = document.getElementById('ordersList');
-            if (!container) {
-                console.error("Orders list element not found (ID: ordersList)");
-                return; 
-            }
-            // ... rest of the code is safe ...
-        }
-        ```
-    * This specific fix, combined with the previous defensive checks and `window.__app_id` fix, should resolve the issue.
-
-    * **Final Code Structure:** Present the complete, working script block again with the new defensive check highlighted.It sounds like a persistent element timing issue. The `TypeError: Cannot set properties of null` at that stage almost always means that the element with the ID `'ordersList'` cannot be found when the `renderOrders` function attempts to write HTML into it.
-
-Although the element exists in your static HTML, the asynchronous data loading process is completing before the browser has finished constructing the DOM subtree that contains the element.
-
-The final, most robust solution is to add a **defensive null check** at the very beginning of the `renderOrders` function.
-
-Here is the corrected and complete `<script type="module">` block for your `myOrders.html` page.
-
-## 🛠️ Final Corrected `myOrders.html` Script
-
-```html
-<script type="module">
-    import { initializeApp } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js)";
-    import { getAuth, onAuthStateChanged } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js)";
-    import { getFirestore, collection, onSnapshot, query, orderBy } from "[https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js](https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js)";
-
-    let db, auth, userId;
-    
-    // FIX 1: Safely check the global window scope for appId
-    const appId = window.__app_id || 'default-app-id';
-    
-    const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
-    const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
-
-    const formatPrice = c => `$${(c/100).toLocaleString('es-CO', { minimumFractionDigits: 2 })}`;
-    const formatTime = (ts) => {
-        if (!ts) return 'N/A';
-        const date = ts.toDate ? ts.toDate() : new Date(ts);
-        return date.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) +
-                   ' • ' + date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-    };
-
-    function showMessage(type, text) {
-        const el = document.getElementById('messageContainer');
-        el.innerHTML = `<div class="p-6 rounded-2xl text-lg font-bold text-center ${type === 'error' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'} shadow-lg">${text}</div>`;
-    }
-
-    async function initApp() {
-        try {
-            const res = await fetch(CONFIG_CLIENT_FUNCTION);
-            if (!res.ok) throw new Error("No se pudo cargar la configuración");
-            const cfg = await res.json();
-            
-            if (!cfg.apiKey || !cfg.projectId) {
-                throw new Error("Firebase config incompleta.");
-            }
-            
-            const appInstance = initializeApp(cfg);
-            auth = getAuth(appInstance);
-            db = getFirestore(appInstance);
-
-            onAuthStateChanged(auth, user => {
-                const loadingStateEl = document.getElementById('loadingState');
-                const ordersContainerEl = document.getElementById('ordersContainer');
-                
-                if (loadingStateEl) {
-                    loadingStateEl.classList.add('hidden');
-                }
-                    
-                if (user && !user.isAnonymous) {
-                    userId = user.uid;
-                    
-                    // FIX 3 (Previous): Use timeout to ensure ordersContainer is ready
-                    setTimeout(() => {
-                        if (ordersContainerEl) {
-                            ordersContainerEl.classList.remove('hidden');
-                        }
-                        fetchUserOrders(userId);
-                    }, 50); 
-                    
-                } else {
-                    showMessage('error', 'Inicia sesión para ver tus pedidos. Redirigiendo...');
-                    setTimeout(() => window.location.href = '/index.html', 3000);
-                }
-            });
-        } catch (e) {
-            console.error(e);
-            
-            const loadingStateEl = document.getElementById('loadingState');
-            if (loadingStateEl) {
-                loadingStateEl.classList.add('hidden');
-            }
-            showMessage('error', `Error: ${e.message}`);
-        }
-    }
-
-    function fetchUserOrders(uid) {
-        const q = query(collection(db, ORDERS_COLLECTION(uid)), orderBy('createdAt', 'desc'));
-        onSnapshot(q, (snapshot) => {
-            const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            renderOrders(orders);
-        }, (error) => {
-            console.error(error);
-            showMessage('error', 'Error al cargar los pedidos');
-        });
-    }
-
-    function renderOrders(orders) {
-        // CRITICAL FIX: Check if the element exists before attempting to set innerHTML
-        const container = document.getElementById('ordersList');
-        if (!container) return; 
-        
-        if (orders.length === 0) {
-            container.innerHTML = `
-                    <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
-                        <div class="w-24 h-24 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
-                            <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
-                        </div>
-                        <h3 class="text-2xl font-bold text-gray-700 mb-2">Aún no tienes pedidos</h3>
-                        <p class="text-gray-500">Cuando hagas tu primera compra, aparecerá aquí</p>
-                        <a href="index.html" class="mt-6 inline-block px-8 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-full hover:shadow-xl transform hover:scale-105 transition">
-                            Ir a la Tienda
-                        </a>
-                    </div>`;
-            return;
-        }
-
-            container.innerHTML = orders.map((order, idx) => {
-                const statusColors = {
-                    'Delivered': 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                    'Shipped': 'bg-blue-100 text-blue-800 border-blue-200',
-                    'Processing': 'bg-indigo-100 text-indigo-800 border-indigo-200',
-                    'Cancelled': 'bg-red-100 text-red-800 border-red-200',
-                    'Pending': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-                    'Manually Created': 'bg-purple-100 text-purple-800 border-purple-200',
+                    'Manually Created': 'bg-purple-100 text-purple-800 border-purple-200',
                 };
 
                 const badge = statusColors[order.status] || 'bg-gray-100 text-gray-800 border-gray-200';
