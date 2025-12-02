@@ -215,19 +215,46 @@
         }
     }
 
-    function fetchUserOrders(uid) {
+     function fetchUserOrders(uid) {
         const path = ORDERS_COLLECTION(uid);
         const q = query(collection(db, path), orderBy('createdAt', 'desc'));
         
-        console.log("Subscribing to Firestore path:", path); // DIAGNOSTIC LOG 2
-
-        onSnapshot(q, (snapshot) => {
-            console.log("Orders received:", snapshot.docs.length); // DIAGNOSTIC LOG 3
+        console.log("DEBUG: Full Firestore path:", path);
+        console.log("DEBUG: Using db instance:", db);
+        
+        // Try a direct collection reference first to debug
+        const ordersRef = collection(db, path);
+        console.log("DEBUG: Collection reference path:", ordersRef.path);
+        
+        // Try a simpler approach - get the collection directly
+        const simpleRef = collection(db, "users", uid, "orders");
+        console.log("DEBUG: Alternative path: users/", uid, "/orders");
+        
+        // Test with the simple path
+        const testQuery = query(simpleRef, orderBy('createdAt', 'desc'));
+        
+        onSnapshot(testQuery, (snapshot) => {
+            console.log("DEBUG: Simple path snapshot:", snapshot.docs.length);
+            console.log("DEBUG: First doc data:", snapshot.docs[0]?.data());
             const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log("DEBUG: Orders data:", orders);
             renderOrders(orders);
         }, (error) => {
-            console.error("FIRESTORE ERROR:", error);
-            showMessage('error', `Error al cargar los pedidos: ${error.message}`);
+            console.error("DEBUG: Simple path error:", error);
+            
+            // Try another alternative
+            console.log("DEBUG: Trying alternative path structure...");
+            const altRef = collection(db, "orders");
+            const altQuery = query(altRef, where("userId", "==", uid), orderBy('createdAt', 'desc'));
+            
+            onSnapshot(altQuery, (altSnapshot) => {
+                console.log("DEBUG: Alternative collection found:", altSnapshot.docs.length);
+                const orders = altSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderOrders(orders);
+            }, (altError) => {
+                console.error("DEBUG: All paths failed:", altError);
+                showMessage('error', `Error al cargar los pedidos: ${error.message}`);
+            });
         });
     }
 
