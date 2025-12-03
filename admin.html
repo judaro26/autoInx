@@ -1062,23 +1062,17 @@
             // Get the application ID (or use default)
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             
-            // 1. Check for Admin Email or Admin-Created Order Indicator
-            // Orders created by adminCreateOrder.js are stored in the public path.
-            if (targetIdOrIndicator.includes('@autoinx.com') || targetIdOrIndicator === 'ADMIN_ORDER_SOURCE') {
+            // 1. Check for Admin Email or Admin-Created Order Indicator (OR NEW FALLBACK)
+            if (targetIdOrIndicator.includes('@autoinx.com') || 
+                targetIdOrIndicator === 'ADMIN_ORDER_SOURCE' ||
+                targetIdOrIndicator === 'PUBLIC_ORDER_SOURCE' // <--- NEW FALLBACK CHECK
+            ) {
                 // Use the public order collection path: /artifacts/{appId}/public/data/orders
                 return `artifacts/${appId}/public/data/orders`; 
             }
         
             // 2. Default to Client Order Path: /artifacts/{appId}/users/{userId}/orders
-            // This is for regular user checkouts.
             return `artifacts/${appId}/users/${targetIdOrIndicator}/orders`; 
-        }
-    
-        function resetTimer() {
-            clearTimeout(idleTimer);
-            if (auth?.currentUser && !auth.currentUser.isAnonymous) {
-                idleTimer = setTimeout(autoLogout, IDLE_TIMEOUT_MS);
-            }
         }
 
         function waitForUserId(timeout = 5000) {
@@ -2968,83 +2962,84 @@
         }
     
             // --- ORDERS TRACKING FUNCTIONS (Render) ---
-        function renderOrdersList() {
-            // This logic filters the orders based on state.orderStatusFilter
-            const orders = getFilteredOrders();
             
-            const tableRows = orders.map(order => {
-                
-                // 🔑 1. Determine the necessary ID for the Firestore path
-                const targetId = order.uid || order.createdByAdmin;
-                
-                // 2. Set status classes and delivery button logic
-                const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
-                                            order.status === 'Pending' ? 'text-red-600 font-bold' :
-                                            order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
-                
-                let deliveryButton = '';
-                if (order.status === 'Pending') {
-                     deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
-                } else if (order.status === 'Processing') {
-                     deliveryButton = `<button disabled class="px-3 py-1 w-full bg-gray-400 text-white text-xs rounded">Delivery In Progress</button>`;
-                }
-                
-                const itemListHtml = order.items.map(item => `<p>${item.quantity}x ${item.name.substring(0,20)}${item.name.length > 20 ? '...' : ''}</p>`).join('');
-                const isPaid = order.isPaid || false;
-                const paymentStatusBadge = isPaid
-                    ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
-                    : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
-                
-                const editButton = targetId
-                    ? `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit Order</button>`
-                    : `<span class="text-xs text-red-500 p-1">No Edit Source</span>`;
-        
-                // The status update dropdown remains for manual updates
-                const statusUpdateDropdown = `
-                    <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="p-1 border rounded-lg text-xs bg-gray-50 mt-1 w-full">
-                        <option value="${order.status}" selected>${order.status}</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Processing">Processing</option>
-                        <option value="Shipped">Shipped</option>
-                        <option value="Delivered">Delivered</option>
-                        <option value="Cancelled">Cancelled</option>
-                    </select>
-                `;
-                
-                return `
-                    <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
-                        <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
-                            <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
-                            <p class="text-xs text-gray-500 font-mono">${order.id}</p>
-                        </div>
-                        <div class="col-span-2 text-sm">
-                            <p class="font-semibold">${order.buyerName}</p>
-                            <p class="text-xs text-gray-500 truncate">${order.buyerEmail}</p>
-                            <p class="text-xs text-gray-500 truncate">${order.deliveryAddress}</p>
-                        </div>
-                        <div class="col-span-3 flex flex-col items-center justify-center space-y-1">    
-                            <div class="flex items-center">
-                                <span class="text-lg font-bold text-pink-700">${formatPriceDisplay(order.totalCents)}</span>
-                                ${paymentStatusBadge}    
+            function renderOrdersList() {
+                // This logic filters the orders based on state.orderStatusFilter
+                const orders = getFilteredOrders();
+            
+                const tableRows = orders.map(order => {
+            
+                    // 🔑 1. Determine the necessary ID for the Firestore path
+                    // FIX: Fallback to 'PUBLIC_ORDER_SOURCE' if specific user/admin creator ID exists.
+                    const targetId = order.uid || order.createdByAdmin || 'PUBLIC_ORDER_SOURCE'; // <-- FIXED
+            
+                    // 2. Set status classes and delivery button logic
+                    const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
+                        order.status === 'Pending' ? 'text-red-600 font-bold' :
+                        order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
+            
+                    let deliveryButton = '';
+                    if (order.status === 'Pending') {
+                        deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
+                    } else if (order.status === 'Processing') {
+                        deliveryButton = `<button disabled class="px-3 py-1 w-full bg-gray-400 text-white text-xs rounded">Delivery In Progress</button>`;
+                    }
+            
+                    const itemListHtml = order.items.map(item => `<p>${item.quantity}x ${item.name.substring(0, 20)}${item.name.length > 20 ? '...' : ''}</p>`).join('');
+                    const isPaid = order.isPaid || false;
+                    const paymentStatusBadge = isPaid
+                        ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
+                        : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
+            
+                    // The editButton logic now always uses targetId, which is guaranteed to be set.
+                    const editButton = `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit Order</button>`;
+            
+                    // The status update dropdown remains for manual updates
+                    const statusUpdateDropdown = `
+                        <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="p-1 border rounded-lg text-xs bg-gray-50 mt-1 w-full">
+                            <option value="${order.status}" selected>${order.status}</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Processing">Processing</option>
+                            <option value="Shipped">Shipped</option>
+                            <option value="Delivered">Delivered</option>
+                            <option value="Cancelled">Cancelled</option>
+                        </select>
+                    `;
+            
+                    return `
+                        <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
+                            <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
+                                <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
+                                <p class="text-xs text-gray-500 font-mono">${order.id}</p>
                             </div>
-                            <span class="text-sm font-bold ${statusClass} flex-shrink-0">${order.status}</span>
-                        </div>
-                        <div class="col-span-1"></div>
-                        <div class="col-span-2 text-xs text-gray-700">
-                            ${itemListHtml}    
-                        </div>
-                        <div class="col-span-2 space-y-1">    
-                            <div class="text-xs text-gray-500 font-semibold mb-2">
-                                ${formatTime(order.createdAt)}    
+                            <div class="col-span-2 text-sm">
+                                <p class="font-semibold">${order.buyerName}</p>
+                                <p class="text-xs text-gray-500 truncate">${order.buyerEmail}</p>
+                                <p class="text-xs text-gray-500 truncate">${order.deliveryAddress}</p>
                             </div>
-                            ${editButton} 
-                            ${deliveryButton}
-                            ${statusUpdateDropdown}
+                            <div class="col-span-3 flex flex-col items-center justify-center space-y-1">    
+                                <div class="flex items-center">
+                                    <span class="text-lg font-bold text-pink-700">${formatPriceDisplay(order.totalCents)}</span>
+                                    ${paymentStatusBadge}    
+                                </div>
+                                <span class="text-sm font-bold ${statusClass} flex-shrink-0">${order.status}</span>
+                            </div>
+                            <div class="col-span-1"></div>
+                            <div class="col-span-2 text-xs text-gray-700">
+                                ${itemListHtml}    
+                            </div>
+                            <div class="col-span-2 space-y-1">    
+                                <div class="text-xs text-gray-500 font-semibold mb-2">
+                                    ${formatTime(order.createdAt)}    
+                                </div>
+                                ${editButton}
+                                ${deliveryButton}
+                                ${statusUpdateDropdown}
+                            </div>
                         </div>
-                    </div>
-                `;
-            }).join('');
-            const contentEl = document.getElementById('ordersListContent');
+                    `;
+                }).join('');
+                const contentEl = document.getElementById('ordersListContent');
                 if (contentEl) {
                     contentEl.innerHTML = tableRows || '<p class="text-center p-6 text-gray-500">No orders found matching this filter.</p>';
                 }
@@ -3053,7 +3048,7 @@
                     statsEl.innerHTML = window.module.getOrdersStatsHtml();
                     window.module.renderSalesCharts(); // Call the renderer after injecting the HTML
                 }
-                
+            
                 // Clear the loading message after rendering
                 const ordersMsgElClear = document.getElementById('ordersMessage');
                 if (ordersMsgElClear) ordersMsgElClear.textContent = '';
