@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en"> <head>
+<html lang="en">
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title id="pageTitle">My Orders - autoInx</title>
@@ -50,6 +51,12 @@
 <body class="antialiased text-gray-800">
     <div class="flex flex-col min-h-screen">
         <div id="app" class="max-w-7xl mx-auto px-6 sm:px-8 lg:px-10 py-8 flex-grow w-full">
+            
+            <div class="flex justify-end mb-4">
+                <div id="user-status-container" class="text-sm font-medium text-gray-600 flex items-center space-x-4">
+                    </div>
+            </div>
+
             <header class="glass-header rounded-3xl shadow-2xl p-8 mb-12 border-t-8 border-indigo-600 sticky top-4 z-50">
                 <div class="flex flex-col lg:flex-row justify-between items-center gap-6">
                     <div class="flex items-center space-x-6">
@@ -100,6 +107,7 @@
         // --- 1. LANGUAGE AND TRANSLATION LOGIC ---
         const translations = {
             en: {
+                // ... (Existing translations)
                 pageTitle: 'My Orders - autoInx',
                 pageDescription: 'Check the history and status of your orders at autoInx.',
                 headerTitle: 'My Orders',
@@ -127,9 +135,14 @@
                 statusCancelled: 'Cancelled',
                 statusPending: 'Pending',
                 statusManuallyCreated: 'Manually Created',
-                statusNoStatus: 'No Status'
+                statusNoStatus: 'No Status',
+                // NEW TRANSLATIONS
+                loggedInAs: 'Logged in as',
+                logout: 'Logout',
+                notLoggedInStatus: 'Not Logged In'
             },
             es: {
+                // ... (Existing translations)
                 pageTitle: 'Mis Pedidos - autoInx',
                 pageDescription: 'Revisa el historial y estado de tus pedidos en autoInx.',
                 headerTitle: 'Mis Pedidos',
@@ -157,13 +170,16 @@
                 statusCancelled: 'Cancelado',
                 statusPending: 'Pendiente',
                 statusManuallyCreated: 'Creado Manualmente',
-                statusNoStatus: 'Sin estado'
+                statusNoStatus: 'Sin estado',
+                // NEW TRANSLATIONS
+                loggedInAs: 'Sesión iniciada como',
+                logout: 'Cerrar Sesión',
+                notLoggedInStatus: 'Sesión no Iniciada'
             }
         };
 
         let currentLang = localStorage.getItem('lang') || 'en';
 
-        // Function to apply translations to all elements with 'data-i18n' attribute
         function applyTranslations(lang) {
             const dictionary = translations[lang];
             
@@ -179,36 +195,32 @@
                     element.textContent = dictionary[key];
                 }
             });
-
-            // Update loading and error messages if they are currently displayed (will be called from showMessage and renderOrders)
-            // This is handled by ensuring all new dynamic content generation uses the currentLang
+            // Update the user status display immediately after language switch
+            updateUserStatusDisplay(window.currentUser);
         }
 
         // Event listener for the language switcher
         document.addEventListener('DOMContentLoaded', () => {
             const switcher = document.getElementById('language-switcher');
             if (switcher) {
-                // Set initial selection
                 switcher.value = currentLang;
-                // Add change listener
                 switcher.addEventListener('change', (event) => {
                     currentLang = event.target.value;
                     localStorage.setItem('lang', currentLang);
                     applyTranslations(currentLang);
-                    // Rerender orders to update dynamic text like "No orders" message
                     if (window.lastOrders) {
                         renderOrders(window.lastOrders);
                     }
                 });
             }
-            // Apply initial translations
             applyTranslations(currentLang);
         });
 
 
-        // --- 2. FIREBASE AND ORDER LOGIC (UPDATED FOR BILINGUAL SUPPORT) ---
+        // --- 2. FIREBASE AND ORDER LOGIC (UPDATED) ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // IMPORT signOut FUNCTION
+        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import {
             getFirestore,
             collection,
@@ -224,9 +236,50 @@
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
         const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
         
-        // Helper to translate status from DB (English) to current language
+        // --- NEW FUNCTION: Render User Status ---
+        function updateUserStatusDisplay(user) {
+            window.currentUser = user;
+            const container = document.getElementById('user-status-container');
+            const langDict = translations[currentLang];
+
+            if (!container) return;
+            
+            if (user && !user.isAnonymous) {
+                const displayName = user.email || user.displayName || user.uid.slice(0, 8); // Display email, name, or a slice of the UID
+                
+                container.innerHTML = `
+                    <span class="text-gray-500">${langDict.loggedInAs}:</span>
+                    <span class="font-bold text-indigo-600 truncate max-w-xs">${displayName}</span>
+                    <button id="logout-button" class="px-4 py-1 bg-white border border-red-400 text-red-600 rounded-full hover:bg-red-50 hover:text-red-700 transition duration-200 shadow-md">
+                        ${langDict.logout}
+                    </button>
+                `;
+
+                // Attach logout listener to the new button
+                document.getElementById('logout-button').addEventListener('click', handleLogout);
+
+            } else {
+                container.innerHTML = `
+                    <span class="font-bold text-red-500">${langDict.notLoggedInStatus}</span>
+                `;
+            }
+        }
+        // --- NEW FUNCTION: Handle Logout ---
+        function handleLogout() {
+            signOut(auth).then(() => {
+                showMessage('info', 'Sesión cerrada exitosamente. Redirigiendo...'); // Simplified message or use a key
+                setTimeout(() => {
+                    window.location.href = '/index.html'; // Redirect to home/login page
+                }, 1500);
+            }).catch((error) => {
+                console.error("Logout Error:", error);
+                showMessage('error', `Error al cerrar sesión: ${error.message}`);
+            });
+        }
+
+
         function translateStatus(status) {
-            const key = 'status' + status.replace(/\s/g, ''); // e.g., 'Manually Created' -> 'statusManuallyCreated'
+            const key = 'status' + status.replace(/\s/g, '');
             return translations[currentLang][key] || status;
         }
 
@@ -234,7 +287,6 @@
         const formatTime = (ts) => {
             if (!ts) return translations[currentLang].notSpecified;
             const date = ts.toDate ? ts.toDate() : new Date(ts);
-            // Use currentLang for locale
             return date.toLocaleDateString(`${currentLang}-${currentLang.toUpperCase() === 'EN' ? 'US' : 'CO'}`, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) +
                    ' • ' + date.toLocaleTimeString(`${currentLang}-${currentLang.toUpperCase() === 'EN' ? 'US' : 'CO'}`, { hour: '2-digit', minute: '2-digit' });
         };
@@ -242,21 +294,19 @@
         function showMessage(type, textKey) {
             const el = document.getElementById('messageContainer');
             if (!el) return;
-            // Use the translation for the message
+            // Handle both literal string and translation key
             const text = translations[currentLang][textKey] || textKey; 
-            el.innerHTML = `<div class="p-6 rounded-2xl text-lg font-bold text-center ${type === 'error' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'} shadow-lg">${text}</div>`;
+            el.innerHTML = `<div class="p-6 rounded-2xl text-lg font-bold text-center ${type === 'error' ? 'bg-red-100 text-red-800' : (type === 'info' ? 'bg-indigo-100 text-indigo-800' : 'bg-blue-100 text-blue-800')} shadow-lg">${text}</div>`;
         }
 
         async function diagnoseFirestoreIssue(uid) {
             console.log("=== FIRESTORE DIAGNOSIS ===");
             console.log("User UID:", uid);
-
             const possiblePaths = [
                 `artifacts/${appId}/users/${uid}/orders`,
                 `users/${uid}/orders`,
                 `orders`
             ];
-
             for (let i = 0; i < possiblePaths.length; i++) {
                 const path = possiblePaths[i];
                 console.log(`\nTrying path ${i+1}: "${path}"`);
@@ -290,13 +340,15 @@
                 db = getFirestore(appInstance);
 
                 onAuthStateChanged(auth, async (user) => {
+                    updateUserStatusDisplay(user); // Display status immediately
+
                     const loadingStateEl = document.getElementById('loadingState');
                     if (loadingStateEl) loadingStateEl.classList.add('hidden');
 
                     if (user && !user.isAnonymous) {
                         userId = user.uid;
                         console.log("Authenticated. User UID:", userId);
-
+                        
                         const diagnosis = await diagnoseFirestoreIssue(userId);
                         console.log("Diagnosis result:", diagnosis);
 
@@ -306,14 +358,15 @@
                             fetchUserOrdersAlternative(userId);
                         }
                     } else {
-                        showMessage('error', 'notLoggedIn'); // Use translation key
+                        // User is NOT logged in
+                        showMessage('error', 'notLoggedIn'); 
                         setTimeout(() => window.location.href = '/index.html', 3000);
                     }
                 });
             } catch (e) {
                 console.error(e);
                 document.getElementById('loadingState')?.classList.add('hidden');
-                showMessage('error', 'connectionError'); // Use translation key
+                showMessage('error', 'connectionError'); 
             }
         }
 
@@ -324,11 +377,11 @@
             console.log("Final query path:", ordersPath);
             onSnapshot(q, (snapshot) => {
                 const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                window.lastOrders = orders; // Store for re-rendering on language change
+                window.lastOrders = orders;
                 renderOrders(orders);
             }, (error) => {
                 console.error("FIRESTORE ERROR:", error);
-                showMessage('error', `Error al cargar los pedidos: ${error.message}`); // Fallback to original error message
+                showMessage('error', `Error al cargar los pedidos: ${error.message}`);
             });
         }
 
@@ -340,22 +393,23 @@
             );
             onSnapshot(q, (snapshot) => {
                 const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                window.lastOrders = orders; // Store for re-rendering on language change
+                window.lastOrders = orders;
                 renderOrders(orders);
             }, (error) => {
                 console.error("Alternative query error:", error);
-                showMessage('error', `Error: ${error.message}`); // Fallback to original error message
+                showMessage('error', `Error: ${error.message}`); 
             });
         }
 
         function renderOrders(orders) {
             const container = document.getElementById('ordersList');
             const ordersContainerEl = document.getElementById('ordersContainer');
-            const langDict = translations[currentLang]; // Get current dictionary
+            const langDict = translations[currentLang]; 
 
             if (!container || !ordersContainerEl) return;
 
             if (!orders || orders.length === 0) {
+                // No orders state (uses translations)
                 container.innerHTML = `
                     <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
                         <div class="w-24 h-24 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
@@ -380,12 +434,12 @@
                     'Pending': 'bg-yellow-100 text-yellow-800 border-yellow-200',
                     'Manually Created': 'bg-purple-100 text-purple-800 border-purple-200',
                 };
-                const statusText = order.status ? translateStatus(order.status) : langDict.statusNoStatus; // Translate status
+                const statusText = order.status ? translateStatus(order.status) : langDict.statusNoStatus;
                 const badge = statusColors[order.status] || 'bg-gray-100 text-gray-800 border-gray-200';
                 const paymentBadgeClass = order.isPaid ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white';
-                const paymentText = order.isPaid ? langDict.paid : langDict.pending; // Translate payment status
+                const paymentText = order.isPaid ? langDict.paid : langDict.pending;
                 const items = Array.isArray(order.items) ? order.items : [];
-                const shippingAddress = order.deliveryAddress || langDict.notSpecified; // Translate 'Not Specified'
+                const shippingAddress = order.deliveryAddress || langDict.notSpecified;
 
                 return `
                     <div class="order-card bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-indigo-600" style="opacity: 0; animation: slideUp 0.7s ease-out forwards; animation-delay: ${idx * 0.15}s;">
@@ -440,9 +494,8 @@
                 `;
             }).join('');
 
-            // Mostrar contenedor y activar fade-in
             ordersContainerEl.classList.remove('hidden');
-            void ordersContainerEl.offsetWidth; // Forzar reflow
+            void ordersContainerEl.offsetWidth; 
             ordersContainerEl.style.opacity = '0';
             ordersContainerEl.style.animation = 'fadeIn 0.9s ease-out forwards';
         }
