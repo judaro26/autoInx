@@ -1094,18 +1094,20 @@
                 check();
             });
         } 
-        
+
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
                 if (user && !user.isAnonymous) {
                     // User is signed in, now check admin claims
-                    user.getIdTokenResult(true).then(idTokenResult => {
+                    
+                    // FIX: Removed 'true' flag to prevent forced token refresh race condition.
+                    user.getIdTokenResult().then(idTokenResult => { // <-- CORRECTED LINE 1210
                         if (idTokenResult.claims.admin === true) {
                             
                             // 1. SET THE GLOBAL userId VARIABLE FIRST
                             userId = user.uid;
-        
+                            
                             // 2. Start session/activity tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
                             document.addEventListener('touchstart', resetTimer); // Added touch listener
@@ -1116,19 +1118,18 @@
                             renderAdminPage(user.email || 'Admin');
                             
                             // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
-                            // This resolves the timing issue you were seeing.
                             if (window.module.fetchOrders) {
                                 window.module.fetchOrders();
                             }
-        
+                            
                         } else {
                             // Not an admin, sign out and redirect
                             signOut(auth);
                             window.location.href = '/?error=unauthorized';
                         }
                     }).catch(err => {
-                        // Token verification error
-                        console.error("Token error:", err);
+                        // Token verification error (still useful to catch but should no longer be hit)
+                        console.error("Token error: Authentication claims check failed.", err);
                         signOut(auth);
                         window.location.href = '/?error=auth_failed';
                     });
