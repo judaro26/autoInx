@@ -1094,45 +1094,72 @@
                 check();
             });
         } 
+
+        // Function to check claims with retry mechanism
+        function verifyAdminClaims(user, maxRetries = 3, delayMs = 1000) {
+            return new Promise(async (resolve, reject) => {
+                // If no user object, fail immediately
+                if (!user) return reject(new Error("No user object provided for claim verification."));
+                
+                for (let i = 0; i < maxRetries; i++) {
+                    try {
+                        // Only force refresh on the final attempt to reduce network traffic
+                        const forceRefresh = (i === maxRetries - 1);
+                        // We must call getIdTokenResult() again inside the loop for the update
+                        const idTokenResult = await user.getIdTokenResult(forceRefresh);
+                        
+                        if (idTokenResult.claims.admin === true) {
+                            console.log(`Admin claim verified on attempt ${i + 1}.`);
+                            resolve(true);
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn(`Attempt ${i + 1} failed (Claims missing/network error):`, e.message);
+                        // If the error is fatal (not just missing claims on the token), break early
+                        if (e.code && e.code.includes('auth/')) { 
+                            reject(new Error(`Fatal auth error: ${e.code}`));
+                            return;
+                        }
+                    }
+                    
+                    if (i < maxRetries - 1) {
+                        await new Promise(res => setTimeout(res, delayMs)); // Wait 1 second before retrying
+                    }
+                }
+                // If loop completes without success
+                reject(new Error("Admin claim verification failed after all retries."));
+            });
+        }
         
-        // --- AUTHENTICATION CHECK & REDIRECT ---
+          // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
                 if (user && !user.isAnonymous) {
-                    // User is signed in, now check admin claims
-                    
-                    // FIX: Removed 'true' flag to prevent forced token refresh race condition.
-                    // This relies on the freshly obtained token from the successful sign-in.
-                    user.getIdTokenResult().then(idTokenResult => { // <-- CORRECTED LINE
-                        if (idTokenResult.claims.admin === true) {
-                            
-                            // 1. SET THE GLOBAL userId VARIABLE FIRST
-                            userId = user.uid;
-                            
-                            // 2. Start session/activity tracking
-                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer);
-                            resetTimer();
-                            
-                            // 3. Setup listeners and render the main admin page HTML
-                            setupRealtimeListeners();
-                            renderAdminPage(user.email || 'Admin');
-                            
-                            // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
-                            if (window.module.fetchOrders) {
-                                window.module.fetchOrders();
-                            }
-                            
-                        } else {
-                            // FAILURE: User is authenticated but does NOT have admin claims
-                            console.warn("User authenticated but missing Admin claim. Redirecting.");
-                            signOut(auth);
-                            // Redirect without error param, letting the index.html handle display
-                            window.location.href = '/'; 
+                    // User is signed in, now verify admin claims with retry logic
+                    verifyAdminClaims(user).then(() => {
+                        
+                        // --- SUCCESS PATH (Admin Verified) ---
+                        
+                        // 1. SET THE GLOBAL userId VARIABLE FIRST
+                        userId = user.uid;
+                        
+                        // 2. Start session/activity tracking
+                        document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                        document.addEventListener('touchstart', resetTimer);
+                        resetTimer();
+                        
+                        // 3. Setup listeners and render the main admin page HTML
+                        setupRealtimeListeners();
+                        renderAdminPage(user.email || 'Admin');
+                        
+                        // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
+                        if (window.module.fetchOrders) {
+                            window.module.fetchOrders();
                         }
+                        
                     }).catch(err => {
-                        // CRITICAL FAILURE: Token is corrupted, expired, or claims retrieval failed entirely.
-                        console.error("Token Error: Authentication claims check failed.", err);
+                        // --- FAILURE PATH (Verification failed after all retries) ---
+                        console.error("FINAL ADMIN VERIFICATION FAILURE. Logging out.", err);
                         signOut(auth);
                         // Redirect to root, often displaying a generic login/session error
                         window.location.href = '/';
