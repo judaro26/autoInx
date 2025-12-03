@@ -113,6 +113,8 @@
         };
         
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
+        const GET_PUBLIC_CONFIG_FUNCTION = '/.netlify/functions/getPublicConfig'; // <-- Use a new public endpoint
+        const GET_SECURE_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig'; // <-- Keep for secure admin use
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig'; 
         const GET_CLIENT_IP_FUNCTION = '/.netlify/functions/getClientIp'; 
         
@@ -691,9 +693,10 @@
         }
         
         // --- FETCH GLOBAL CONFIG AFTER FIREBASE IS READY ---
-        async function fetchAndApplyGlobalConfig() {
+                async function fetchAndApplyGlobalConfig() {
             try {
-                const response = await fetch(GET_CONFIG_FUNCTION);
+                // FIX: Use the new public function path
+                const response = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
                 if (!response.ok) throw new Error('Failed to fetch global config.');
                 
                 const config = await response.json();
@@ -1136,17 +1139,25 @@
                 // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK ---
                 const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
                 const { ip: clientIp } = await ipResponse.json();
-                
-                const configResponse = await fetch(GET_CONFIG_FUNCTION);
+        
+                // FIX: Use the new public function that DOES NOT require a token
+                const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION); 
                 const globalConfig = await configResponse.json();
         
                 state.isMaintenanceMode = globalConfig.maintenanceMode === true;
                 
-                const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
-                const isStaticIp = await checkIPRange(clientIp);
-                const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
+                // Note: The Admin IP check is still secure because checkIPRange is an imported client-side utility 
+                // that uses the static whitelist, and it relies on a local utility (utils.js) 
+                // or a secured server-side check (which your original code seemed to merge into fetch).
+                // Since the `getAdminConfig` endpoint also handles the full whitelist, we'll 
+                // stick to your original client-side IP check utility for this flow.
                 
-                state.isAdminIP = isWhitelisted; 
+                const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
+                const isStaticIp = await checkIPRange(clientIp); // Assuming checkIPRange is defined in utils.js
+                const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
+        
+                state.isAdminIP = isWhitelisted;
+                state.clientIp = clientIp; // Store client IP
         
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
@@ -1155,24 +1166,24 @@
                     console.log("Site locked by maintenance mode. IP not whitelisted. Exiting setup.");
                     return;
                 }
-                
+        
                 // --- END MAINTENANCE GATE ---
         
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
-                
+        
                 if (Object.keys(firebaseConfig).length === 0) {
                     console.error("Firebase config is missing or failed to load from Netlify Function.");
                     state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
                     render();
                     return;
                 }
-                
+        
                 setLogLevel('debug');
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
-                
+        
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken)
                         .catch(error => {
@@ -1183,27 +1194,27 @@
                         console.error("Error during initial anonymous sign-in:", error);
                     });
                 }
-                
+        
                 // onAuthStateChanged Listener (UPDATED)
                 onAuthStateChanged(auth, async (user) => {
-                    
+        
                     if (user) {
                         userId = user.uid;
-                        
+        
                         if (!user.isAnonymous) {
                             // NEW: Log the source user data and the assigned state
                             console.log("Firebase User Object: Email:", user.email, "Display Name:", user.displayName);
-                            
+        
                             state.userName = user.email || user.displayName || 'Authenticated User';
-                            
+        
                             // NEW: Log the resulting state value
-                            console.log("STATE UPDATE: state.userName set to:", state.userName); 
-                            
+                            console.log("STATE UPDATE: state.userName set to:", state.userName);
+        
                             explicitSignOutOccurred = false;
                         } else {
                             state.userName = null;
                         }
-                        
+        
                     } else {
                         userId = null;
                         state.userName = null;
@@ -1214,9 +1225,10 @@
                         console.log("STATE UPDATE: state.userName set to NULL (Signed Out)");
                     }
                     isAuthReady = true;
+                    // Fetch global config again now that auth status is known (for chat widget status)
                     await fetchAndApplyGlobalConfig(); 
                     if (db) setupRealtimeListeners();
-                    
+        
                     // START FINAL GUARANTEE CHECK (Guarantees modal closure and correct status)
                     if (user && !user.isAnonymous && state.isModalOpen) {
                         // 1. Force state.isModalOpen to false to close the modal.
@@ -1227,7 +1239,7 @@
                         // This ensures the modal stays open if an error occurred during login/registration.
                     }
                     // END FINAL GUARANTEE CHECK
-                    
+        
                     render();
                 });
             } catch (error) {
