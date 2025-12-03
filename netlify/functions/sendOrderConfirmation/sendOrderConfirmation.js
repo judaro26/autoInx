@@ -219,19 +219,25 @@ exports.handler = async function (event) {
 
 
     const orderData = JSON.parse(event.body);
-    const { orderId, buyerEmail, items, totalCents, requesterEmail, newStatus, language } = orderData; 
-    
+    // FIX 1: The client sends 'communicationLang', not 'language'. We map it to 'customerLang'.
+    // We also use 'communicationLang' for the template call which expects the property name 'language'.
+    const { orderId, buyerEmail, items, totalCents, requesterEmail, newStatus, communicationLang } = orderData; // Destructure the correct property name
+
     // Basic Validation Check
     if (!orderId || !buyerEmail || !items || items.length === 0 || totalCents === undefined) {
         return { statusCode: 400, body: JSON.stringify({ error: "Missing required order data for email processing." }) };
     }
 
     try {
-        // --- 1. Customer Email (Pass language and status) ---
-        const customerEmailData = await populateTemplate({ ...orderData, newStatus, language }, 'customer'); 
+        // Prepare a reusable payload for the language, which the template function expects as 'language' property.
+        const langPayload = { language: communicationLang };
+
+        // --- 1. Customer Email (Use customer's selected language) ---
+        // Pass the new language property for the template generation
+        const customerEmailData = await populateTemplate({ ...orderData, newStatus, ...langPayload }, 'customer');
 
         const customerMailOptions = {
-            from: "noreply@autoinx.com", 
+            from: "noreply@autoinx.com",
             to: buyerEmail,
             subject: customerEmailData.subject,
             html: customerEmailData.html,
@@ -239,34 +245,38 @@ exports.handler = async function (event) {
         
         try {
             await transporter.sendMail(customerMailOptions);
-            console.log(`Successfully sent email to customer: ${buyerEmail}`);
+            console.log(`Successfully sent email to customer: ${buyerEmail} in ${communicationLang}.`);
         } catch (customerSendError) {
             console.error(`CRITICAL FAILURE: Failed to send email to customer ${buyerEmail}.`, customerSendError);
         }
 
-        // --- 2. Admin Notification Email (Force English for Admin Copy) ---
-        const adminEmailData = await populateTemplate({ ...orderData, newStatus, language: 'en' }, 'admin'); 
+        // --- 2. Admin Notification Email (FIX: Use customer's selected language) ---
+        // Pass the same language property (communicationLang) so the admin gets the same version.
+        const adminEmailData = await populateTemplate({ ...orderData, newStatus, ...langPayload }, 'admin');
 
         const adminMailOptions = {
-            from: "noreply@autoinx.com", 
+            from: "noreply@autoinx.com",
             to: "orders@autoinx.com", // Dedicated orders email
             subject: adminEmailData.subject,
             html: adminEmailData.html,
         };
         await transporter.sendMail(adminMailOptions);
+        console.log(`Successfully sent admin email in ${communicationLang}.`);
         
-        // --- 3. Requester/Sales Agent Notification Email ---
+        // --- 3. Requester/Sales Agent Notification Email (FIX: Use customer's selected language) ---
         if (requesterEmail && requesterEmail !== buyerEmail && requesterEmail !== "orders@autoinx.com") {
-            const requesterEmailData = await populateTemplate({ ...orderData, newStatus, language: 'en' }, 'admin'); 
+            // We can reuse the adminEmailData here since the payload is the same, but we call populateTemplate 
+            // separately for robustness in case we need different subjects later.
+            const requesterEmailData = await populateTemplate({ ...orderData, newStatus, ...langPayload }, 'admin');
             
             const requesterMailOptions = {
-                from: "noreply@autoinx.com", 
+                from: "noreply@autoinx.com",
                 to: requesterEmail,
                 subject: `[COPY] ${adminEmailData.subject}`,
-                html: adminEmailData.html,
+                html: requesterEmailData.html, // Use the content generated in the requested language
             };
             await transporter.sendMail(requesterMailOptions);
-            console.log(`Sent order copy to requester: ${requesterEmail}`);
+            console.log(`Sent order copy to requester: ${requesterEmail} in ${communicationLang}.`);
         }
 
         return {
