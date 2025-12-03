@@ -267,7 +267,7 @@
             if (!container || !ordersContainerEl) return; 
             
             // --- 1. Render Logic (Empty State) ---
-            if (orders.length === 0) {
+            if (!orders || orders.length === 0) {
                 container.innerHTML = `
                     <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
                         <div class="w-24 h-24 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
@@ -294,6 +294,12 @@
                     };
         
                     const badge = statusColors[order.status] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+                    // Safe dynamic class for payment badge
+                    const paymentBadgeClass = order.isPaid ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white';
+        
+                    // Ensure items is an array
+                    const items = Array.isArray(order.items) ? order.items : [];
         
                     return `
                         <div class="order-card bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-indigo-600 opacity-0" style="animation: slide-up 0.6s ease-out ${idx * 0.1}s forwards">
@@ -301,16 +307,17 @@
                                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                     <div>
                                         <h3 class="text-2xl font-extrabold text-gray-800">
-                                            Pedido <span class="font-mono text-indigo-600">#${order.id.slice(0, 10)}</span>
+                                            Pedido <span class="font-mono text-indigo-600">#${(order.id || '').slice(0, 10)}</span>
                                         </h3>
                                         <p class="text-sm text-gray-600 mt-1">${formatTime(order.createdAt || order.timestamp)}</p>
                                     </div>
                                     <div class="flex items-center gap-4">
-                                    <span class="px-4 py-2 rounded-full text-xs font-bold shadow-lg ${order.isPaid ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}">
+                                        <span class="px-4 py-2 rounded-full text-xs font-bold shadow-lg ${paymentBadgeClass}">
                                             ${order.isPaid ? 'PAGADO' : 'PENDIENTE'}
                                         </span>
+
                                         <span class="px-5 py-2 rounded-full text-sm font-bold border-2 ${badge}">
-                                            ${order.status}
+                                            ${order.status || 'Sin estado'}
                                         </span>
                                     </div>
                                 </div>
@@ -320,7 +327,7 @@
                                     <div>
                                         <p class="text-sm font-semibold text-gray-600">Total Pagado</p>
                                         <p class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
-                                            ${formatPrice(order.totalCents)}
+                                            ${formatPrice(order.totalCents || 0)}
                                         </p>
                                     </div>
                                     <div>
@@ -329,16 +336,16 @@
                                     </div>
                                     <div>
                                         <p class="text-sm font-semibold text-gray-600">Artículos</p>
-                                        <p class="text-2xl font-bold text-indigo-600">${order.items.length}</p>
+                                        <p class="text-2xl font-bold text-indigo-600">${items.length}</p>
                                     </div>
                                 </div>
                                 <div class="border-t pt-6">
                                     <p class="font-bold text-gray-700 mb-3">Productos comprados:</p>
                                     <ul class="space-y-3 custom-scrollbar max-h-48 overflow-y-auto">
-                                        ${order.items.map(item => `
+                                        ${items.map(item => `
                                             <li class="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
-                                                <span class="font-medium text-gray-800">${item.quantity}x ${item.name}</span>
-                                                <span class="font-mono text-indigo-600 font-bold">${formatPrice(item.price * item.quantity)}</span>
+                                                <span class="font-medium text-gray-800">${item.quantity || 1}x ${item.name || 'Artículo'}</span>
+                                                <span class="font-mono text-indigo-600 font-bold">${formatPrice((item.price || 0) * (item.quantity || 1))}</span>
                                             </li>
                                         `).join('')}
                                     </ul>
@@ -349,7 +356,7 @@
                 }).join('');
             }
             
-            // --- 3. CRITICAL FIX: Properly manage CSS classes ---
+            // --- 3. Properly manage CSS classes / animation trigger ---
             console.log("Before - ordersContainer classes:", ordersContainerEl.className);
             
             // Remove the 'hidden' class (if present)
