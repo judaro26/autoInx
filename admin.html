@@ -1094,7 +1094,7 @@
                 check();
             });
         } 
-
+        
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
@@ -1102,7 +1102,8 @@
                     // User is signed in, now check admin claims
                     
                     // FIX: Removed 'true' flag to prevent forced token refresh race condition.
-                    user.getIdTokenResult().then(idTokenResult => { // <-- CORRECTED LINE 1210
+                    // This relies on the freshly obtained token from the successful sign-in.
+                    user.getIdTokenResult().then(idTokenResult => { // <-- CORRECTED LINE
                         if (idTokenResult.claims.admin === true) {
                             
                             // 1. SET THE GLOBAL userId VARIABLE FIRST
@@ -1110,7 +1111,7 @@
                             
                             // 2. Start session/activity tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer); // Added touch listener
+                            document.addEventListener('touchstart', resetTimer);
                             resetTimer();
                             
                             // 3. Setup listeners and render the main admin page HTML
@@ -1123,18 +1124,22 @@
                             }
                             
                         } else {
-                            // Not an admin, sign out and redirect
+                            // FAILURE: User is authenticated but does NOT have admin claims
+                            console.warn("User authenticated but missing Admin claim. Redirecting.");
                             signOut(auth);
-                            window.location.href = '/?error=unauthorized';
+                            // Redirect without error param, letting the index.html handle display
+                            window.location.href = '/'; 
                         }
                     }).catch(err => {
-                        // Token verification error (still useful to catch but should no longer be hit)
-                        console.error("Token error: Authentication claims check failed.", err);
+                        // CRITICAL FAILURE: Token is corrupted, expired, or claims retrieval failed entirely.
+                        console.error("Token Error: Authentication claims check failed.", err);
                         signOut(auth);
-                        window.location.href = '/?error=auth_failed';
+                        // Redirect to root, often displaying a generic login/session error
+                        window.location.href = '/';
                     });
                 } else {
-                    // User not signed in, redirect to login page
+                    // FAILURE: User is not signed in
+                    // Redirect to the login page (root page)
                     window.location.href = '/';
                 }
             });
