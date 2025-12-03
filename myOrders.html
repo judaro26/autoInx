@@ -14,14 +14,6 @@
                     colors: {
                         primary: '#6366f1',
                         accent: '#a78bfa'
-                    },
-                    animation: {
-                        'fade-in': 'fadeIn 0.6s ease-out forwards',
-                        'slide-up': 'slideUp 0.5s ease-out forwards'
-                    },
-                    keyframes: {
-                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
-                        slideUp: { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } }
                     }
                 }
             }
@@ -44,6 +36,16 @@
         }
         .order-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         .order-card:hover { transform: translateY(-8px); box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+
+        /* Animaciones definidas manualmente para mayor control */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body class="antialiased text-gray-800">
@@ -64,6 +66,7 @@
                 </div>
             </header>
 
+            <!-- Loading State -->
             <div id="loadingState" class="min-h-[60vh] flex items-center justify-center">
                 <div class="text-center">
                     <div class="w-16 h-16 mx-auto mb-6 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
@@ -72,14 +75,14 @@
                 </div>
             </div>
 
-            <div id="ordersContainer" class="hidden space-y-8 opacity-0" style="animation: fade-in 0.8s ease-out forwards">
+            <!-- Orders Container (inicia oculto) -->
+            <div id="ordersContainer" class="hidden space-y-8">
                 <div class="text-center mb-10">
                     <h2 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
                         Historial de Compras
                     </h2>
                     <p class="text-gray-600 mt-3 text-lg">Aquí tienes todos tus pedidos realizados en autoInx</p>
                 </div>
-
                 <div id="ordersList" class="grid gap-8 md:grid-cols-1 lg:grid-cols-1"></div>
             </div>
 
@@ -87,28 +90,25 @@
         </div>
 
         <footer class="bg-gradient-to-t from-gray-900 to-gray-800 text-white py-16 mt-20">
-            <!-- Footer content remains the same -->
+            <!-- Footer content -->
         </footer>
     </div>
 
     <script type="module">
-        // FIXED: Added 'where' to imports
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { 
-            getFirestore, 
-            collection, 
-            onSnapshot, 
-            query, 
+        import {
+            getFirestore,
+            collection,
+            onSnapshot,
+            query,
             orderBy,
             where,
-            getDocs  // Added for diagnosis
+            getDocs
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         let db, auth, userId;
-        
         const appId = window.__app_id || 'default-app-id';
-        
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
         const ORDERS_COLLECTION = (uid) => `artifacts/${appId}/users/${uid}/orders`;
 
@@ -117,7 +117,7 @@
             if (!ts) return 'N/A';
             const date = ts.toDate ? ts.toDate() : new Date(ts);
             return date.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) +
-                            ' • ' + date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+                   ' • ' + date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
         };
 
         function showMessage(type, text) {
@@ -126,36 +126,31 @@
             el.innerHTML = `<div class="p-6 rounded-2xl text-lg font-bold text-center ${type === 'error' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'} shadow-lg">${text}</div>`;
         }
 
-        // NEW: Diagnostic function
         async function diagnoseFirestoreIssue(uid) {
             console.log("=== FIRESTORE DIAGNOSIS ===");
             console.log("User UID:", uid);
-            
-            // Try multiple paths
+
             const possiblePaths = [
                 `artifacts/${appId}/users/${uid}/orders`,
                 `users/${uid}/orders`,
-                `orders`  // Single collection approach
+                `orders`
             ];
-            
+
             for (let i = 0; i < possiblePaths.length; i++) {
                 const path = possiblePaths[i];
                 console.log(`\nTrying path ${i+1}: "${path}"`);
-                
                 try {
                     const ref = collection(db, path);
                     const snapshot = await getDocs(ref);
-                    console.log(`✓ Path exists! Found ${snapshot.docs.length} documents`);
-                    
+                    console.log(`Path exists! Found ${snapshot.docs.length} documents`);
                     if (snapshot.docs.length > 0) {
                         console.log("Sample document:", snapshot.docs[0].id, snapshot.docs[0].data());
                         return { success: true, path: path, count: snapshot.docs.length };
                     }
                 } catch (error) {
-                    console.log(`✗ Error: ${error.code} - ${error.message}`);
+                    console.log(`Error: ${error.code} - ${error.message}`);
                 }
             }
-            
             return { success: false, path: null, count: 0 };
         }
 
@@ -164,40 +159,31 @@
                 const res = await fetch(CONFIG_CLIENT_FUNCTION);
                 if (!res.ok) throw new Error("No se pudo cargar la configuración");
                 const cfg = await res.json();
-                
+
                 if (!cfg.apiKey || !cfg.projectId) {
                     throw new Error("Firebase config incompleta.");
                 }
-                
+
                 const appInstance = initializeApp(cfg);
                 auth = getAuth(appInstance);
                 db = getFirestore(appInstance);
 
                 onAuthStateChanged(auth, async (user) => {
                     const loadingStateEl = document.getElementById('loadingState');
-                    const ordersContainerEl = document.getElementById('ordersContainer');
-                    
-                    if (loadingStateEl) {
-                        loadingStateEl.classList.add('hidden');
-                    }
-                        
+                    if (loadingStateEl) loadingStateEl.classList.add('hidden');
+
                     if (user && !user.isAnonymous) {
                         userId = user.uid;
                         console.log("Authenticated. User UID:", userId);
-                        
-                        // NEW: Run diagnosis first
+
                         const diagnosis = await diagnoseFirestoreIssue(userId);
                         console.log("Diagnosis result:", diagnosis);
-                        
+
                         if (diagnosis.success) {
-                            console.log("Using path:", diagnosis.path);
                             fetchUserOrders(userId, diagnosis.path);
                         } else {
-                            // Try alternative approach
-                            console.log("Trying single collection with where clause...");
                             fetchUserOrdersAlternative(userId);
                         }
-                        
                     } else {
                         showMessage('error', 'Inicia sesión para ver tus pedidos. Redirigiendo...');
                         setTimeout(() => window.location.href = '/index.html', 3000);
@@ -205,30 +191,17 @@
                 });
             } catch (e) {
                 console.error(e);
-                
-                const loadingStateEl = document.getElementById('loadingState');
-                if (loadingStateEl) {
-                    loadingStateEl.classList.add('hidden');
-                }
-                
-                let errorMessage = `Error: ${e.message}`;
-                if (e.message.includes('timeout') || e.message.includes('No se pudo cargar la configuración')) {
-                    errorMessage = "Error de red: No se pudo conectar con el servidor de autenticación. Por favor, revisa tu conexión a internet o intenta de nuevo más tarde.";
-                }
-                
-                showMessage('error', errorMessage);
+                document.getElementById('loadingState')?.classList.add('hidden');
+                showMessage('error', 'Error de conexión. Revisa tu internet e intenta de nuevo.');
             }
         }
 
         function fetchUserOrders(uid, path = null) {
-            // Use provided path or default
             const ordersPath = path || ORDERS_COLLECTION(uid);
             const q = query(collection(db, ordersPath), orderBy('createdAt', 'desc'));
-            
-            console.log("Final query path:", ordersPath);
 
+            console.log("Final query path:", ordersPath);
             onSnapshot(q, (snapshot) => {
-                console.log("Orders received:", snapshot.docs.length);
                 const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderOrders(orders);
             }, (error) => {
@@ -237,36 +210,27 @@
             });
         }
 
-        // NEW: Alternative function for single orders collection
         function fetchUserOrdersAlternative(uid) {
             const q = query(
-                collection(db, "orders"), 
-                where("userId", "==", uid), 
+                collection(db, "orders"),
+                where("userId", "==", uid),
                 orderBy('createdAt', 'desc')
             );
-            
-            console.log("Using alternative query: orders collection with userId filter");
-
             onSnapshot(q, (snapshot) => {
-                console.log("Alternative query results:", snapshot.docs.length);
                 const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 renderOrders(orders);
             }, (error) => {
                 console.error("Alternative query error:", error);
-                showMessage('error', `No se encontraron pedidos: ${error.message}`);
+                showMessage('error', `Error: ${error.message}`);
             });
         }
 
         function renderOrders(orders) {
-            console.log("=== RENDER ORDERS DEBUG ===");
-            console.log("Number of orders:", orders.length);
-            
             const container = document.getElementById('ordersList');
             const ordersContainerEl = document.getElementById('ordersContainer');
-            
-            if (!container || !ordersContainerEl) return; 
-            
-            // --- 1. Render Logic (Empty State) ---
+
+            if (!container || !ordersContainerEl) return;
+
             if (!orders || orders.length === 0) {
                 container.innerHTML = `
                     <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
@@ -279,112 +243,83 @@
                             Ir a la Tienda
                         </a>
                     </div>`;
-            } 
-            
-            // --- 2. Render Logic (Orders List) ---
-            else {
-                container.innerHTML = orders.map((order, idx) => {
-                    const statusColors = {
-                        'Delivered': 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                        'Shipped': 'bg-blue-100 text-blue-800 border-blue-200',
-                        'Processing': 'bg-indigo-100 text-indigo-800 border-indigo-200',
-                        'Cancelled': 'bg-red-100 text-red-800 border-red-200',
-                        'Pending': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-                        'Manually Created': 'bg-purple-100 text-purple-800 border-purple-200',
-                    };
-        
-                    const badge = statusColors[order.status] || 'bg-gray-100 text-gray-800 border-gray-200';
+                ordersContainerEl.classList.remove('hidden');
+                return;
+            }
 
-                    // Safe dynamic class for payment badge
-                    const paymentBadgeClass = order.isPaid ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white';
-        
-                    // Ensure items is an array
-                    const items = Array.isArray(order.items) ? order.items : [];
-        
-                    return `
-                        <div class="order-card bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-indigo-600 opacity-0" style="animation: slide-up 0.6s ease-out ${idx * 0.1}s forwards">
-                            <div class="bg-gradient-to-r from-indigo-50 to-purple-50 px-8 py-5 border-b border-gray-100">
-                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                    <div>
-                                        <h3 class="text-2xl font-extrabold text-gray-800">
-                                            Pedido <span class="font-mono text-indigo-600">#${(order.id || '').slice(0, 10)}</span>
-                                        </h3>
-                                        <p class="text-sm text-gray-600 mt-1">${formatTime(order.createdAt || order.timestamp)}</p>
-                                    </div>
-                                    <div class="flex items-center gap-4">
-                                        <span class="px-4 py-2 rounded-full text-xs font-bold shadow-lg ${paymentBadgeClass}">
-                                            ${order.isPaid ? 'PAGADO' : 'PENDIENTE'}
-                                        </span>
+            container.innerHTML = orders.map((order, idx) => {
+                const statusColors = {
+                    'Delivered': 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                    'Shipped': 'bg-blue-100 text-blue-800 border-blue-200',
+                    'Processing': 'bg-indigo-100 text-indigo-800 border-indigo-200',
+                    'Cancelled': 'bg-red-100 text-red-800 border-red-200',
+                    'Pending': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+                    'Manually Created': 'bg-purple-100 text-purple-800 border-purple-200',
+                };
+                const badge = statusColors[order.status] || 'bg-gray-100 text-gray-800 border-gray-200';
+                const paymentBadgeClass = order.isPaid ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white';
+                const items = Array.isArray(order.items) ? order.items : [];
 
-                                        <span class="px-5 py-2 rounded-full text-sm font-bold border-2 ${badge}">
-                                            ${order.status || 'Sin estado'}
-                                        </span>
-                                    </div>
+                return `
+                    <div class="order-card bg-white rounded-3xl shadow-xl overflow-hidden border-t-8 border-indigo-600" style="opacity: 0; animation: slideUp 0.7s ease-out forwards; animation-delay: ${idx * 0.15}s;">
+                        <div class="bg-gradient-to-r from-indigo-50 to-purple-50 px-8 py-5 border-b border-gray-100">
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                <div>
+                                    <h3 class="text-2xl font-extrabold text-gray-800">
+                                        Pedido <span class="font-mono text-indigo-600">#${(order.id || '').slice(0, 10)}</span>
+                                    </h3>
+                                    <p class="text-sm text-gray-600 mt-1">${formatTime(order.createdAt || order.timestamp)}</p>
                                 </div>
-                            </div>
-                            <div class="p-8">
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                                    <div>
-                                        <p class="text-sm font-semibold text-gray-600">Total Pagado</p>
-                                        <p class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
-                                            ${formatPrice(order.totalCents || 0)}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-semibold text-gray-600">Dirección de Envío</p>
-                                        <p class="text-gray-800 font-medium">${order.deliveryAddress || 'No especificada'}</p>
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-semibold text-gray-600">Artículos</p>
-                                        <p class="text-2xl font-bold text-indigo-600">${items.length}</p>
-                                    </div>
-                                </div>
-                                <div class="border-t pt-6">
-                                    <p class="font-bold text-gray-700 mb-3">Productos comprados:</p>
-                                    <ul class="space-y-3 custom-scrollbar max-h-48 overflow-y-auto">
-                                        ${items.map(item => `
-                                            <li class="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
-                                                <span class="font-medium text-gray-800">${item.quantity || 1}x ${item.name || 'Artículo'}</span>
-                                                <span class="font-mono text-indigo-600 font-bold">${formatPrice((item.price || 0) * (item.quantity || 1))}</span>
-                                            </li>
-                                        `).join('')}
-                                    </ul>
+                                <div class="flex items-center gap-4">
+                                    <span class="px-4 py-2 rounded-full text-xs font-bold shadow-lg ${paymentBadgeClass}">
+                                        ${order.isPaid ? 'PAGADO' : 'PENDIENTE'}
+                                    </span>
+                                    <span class="px-5 py-2 rounded-full text-sm font-bold border-2 ${badge}">
+                                        ${order.status || 'Sin estado'}
+                                    </span>
                                 </div>
                             </div>
                         </div>
-                    `;
-                }).join('');
-            }
-            
-            // --- 3. Properly manage CSS classes / animation trigger ---
-            console.log("Before - ordersContainer classes:", ordersContainerEl.className);
-            
-            // Remove the 'hidden' class (if present)
+                        <div class="p-8">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                                <div>
+                                    <p class="text-sm font-semibold text-gray-600">Total Pagado</p>
+                                    <p class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">
+                                        ${formatPrice(order.totalCents || 0)}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-semibold text-gray-600">Dirección de Envío</p>
+                                    <p class="text-gray-800 font-medium">${order.deliveryAddress || 'No especificada'}</p>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-semibold text-gray-600">Artículos</p>
+                                    <p class="text-2xl font-bold text-indigo-600">${items.length}</p>
+                                </div>
+                            </div>
+                            <div class="border-t pt-6">
+                                <p class="font-bold text-gray-700 mb-3">Productos comprados:</p>
+                                <ul class="space-y-3 custom-scrollbar max-h-48 overflow-y-auto">
+                                    ${items.map(item => `
+                                        <li class="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
+                                            <span class="font-medium text-gray-800">${item.quantity || 1}x ${item.name || 'Artículo'}</span>
+                                            <span class="font-mono text-indigo-600 font-bold">${formatPrice((item.price || 0) * (item.quantity || 1))}</span>
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Mostrar contenedor y activar fade-in
             ordersContainerEl.classList.remove('hidden');
-            
-            // Add 'opacity-0' to start the fade-in animation
-            ordersContainerEl.classList.add('opacity-0');
-            
-            // Add the fade-in animation class
-            ordersContainerEl.style.animation = 'fade-in 0.8s ease-out forwards';
-            
-            console.log("After - ordersContainer classes:", ordersContainerEl.className);
-            console.log("After - ordersContainer style:", ordersContainerEl.style.cssText);
-            
-            // Force a reflow to trigger the animation
-            void ordersContainerEl.offsetWidth;
-            
-            // Alternative: Use a timeout to ensure animation triggers
-            setTimeout(() => {
-                ordersContainerEl.classList.remove('opacity-0');
-                console.log("Animation should be playing...");
-                
-                // Check computed styles
-                const computedStyle = window.getComputedStyle(ordersContainerEl);
-                console.log("Computed opacity:", computedStyle.opacity);
-                console.log("Computed display:", computedStyle.display);
-            }, 10);
+            void ordersContainerEl.offsetWidth; // Forzar reflow
+            ordersContainerEl.style.opacity = '0';
+            ordersContainerEl.style.animation = 'fadeIn 0.9s ease-out forwards';
         }
+
         document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
