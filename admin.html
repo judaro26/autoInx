@@ -1133,14 +1133,17 @@
         
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
-            onAuthStateChanged(auth, user => {
+            // Note: The onAuthStateChanged callback must be async to use 'await' internally
+            onAuthStateChanged(auth, async user => { 
                 if (user && !user.isAnonymous) {
-                    // User is signed in, now check admin claims
+                    // User is signed in, now check admin claims using the robust retry function
                     
-                    // CORRECTED FIX: Pass 'true' to force a token refresh, guaranteeing
-                    // that the freshly set 'admin' custom claim is available immediately.
-                    user.getIdTokenResult(true).then(idTokenResult => { // <-- THE CRITICAL CHANGE IS HERE
-                        if (idTokenResult.claims.admin === true) {
+                    try {
+                        // Wait up to 3 seconds for the admin claim to appear in the token
+                        const isAdmin = await verifyAdminClaims(user); 
+        
+                        if (isAdmin) {
+                            // SUCCESS PATH: Admin claim verified after potential retries
                             
                             // 1. SET THE GLOBAL userId VARIABLE FIRST
                             userId = user.uid;
@@ -1160,19 +1163,19 @@
                             }
                             
                         } else {
-                            // FAILURE: User is authenticated but does NOT have admin claims
-                            console.warn("User authenticated but missing Admin claim. Redirecting.");
+                            // This block should theoretically not be reached due to verifyAdminClaims's rejection
+                            console.warn("User authenticated but failed final check. Redirecting.");
                             signOut(auth);
-                            // Redirect without error param, letting the index.html handle display
                             window.location.href = '/'; 
                         }
-                    }).catch(err => {
-                        // CRITICAL FAILURE: Token is corrupted, expired, or claims retrieval failed entirely.
-                        console.error("Token Error: Authentication claims check failed.", err);
+                    } catch (err) {
+                        // FAILURE PATH: Catches the rejection from verifyAdminClaims (claim failed after all retries)
+                        console.error("Authentication check failed (Claims verification failed or timed out):", err.message);
                         signOut(auth);
-                        // Redirect to root, often displaying a generic login/session error
+                        // Redirect to root
                         window.location.href = '/';
-                    });
+                    }
+                    
                 } else {
                     // FAILURE: User is not signed in
                     // Redirect to the login page (root page)
