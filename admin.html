@@ -1062,17 +1062,23 @@
             // Get the application ID (or use default)
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             
-            // 1. Check for Admin Email or Admin-Created Order Indicator (OR NEW FALLBACK)
-            if (targetIdOrIndicator.includes('@autoinx.com') || 
-                targetIdOrIndicator === 'ADMIN_ORDER_SOURCE' ||
-                targetIdOrIndicator === 'PUBLIC_ORDER_SOURCE' // <--- NEW FALLBACK CHECK
-            ) {
+            // 1. Check for Admin Email or Admin-Created Order Indicator
+            // Orders created by adminCreateOrder.js are stored in the public path.
+            if (targetIdOrIndicator.includes('@autoinx.com') || targetIdOrIndicator === 'ADMIN_ORDER_SOURCE') {
                 // Use the public order collection path: /artifacts/{appId}/public/data/orders
                 return `artifacts/${appId}/public/data/orders`; 
             }
         
             // 2. Default to Client Order Path: /artifacts/{appId}/users/{userId}/orders
+            // This is for regular user checkouts.
             return `artifacts/${appId}/users/${targetIdOrIndicator}/orders`; 
+        }
+    
+        function resetTimer() {
+            clearTimeout(idleTimer);
+            if (auth?.currentUser && !auth.currentUser.isAnonymous) {
+                idleTimer = setTimeout(autoLogout, IDLE_TIMEOUT_MS);
+            }
         }
 
         function waitForUserId(timeout = 5000) {
@@ -1094,68 +1100,21 @@
                 check();
             });
         } 
-
-        // Function to check claims with retry mechanism (CRITICALLY MODIFIED)
-        function verifyAdminClaims(user, maxRetries = 3, delayMs = 1000) {
-            return new Promise(async (resolve, reject) => {
-                // If no user object, fail immediately
-                if (!user) return reject(new Error("No user object provided for claim verification."));
-                
-                for (let i = 0; i < maxRetries; i++) {
-                    try {
-                        // *** CRITICAL FIX: ALWAYS force refresh here. ***
-                        // This ensures the client immediately requests the claim from the server.
-                        const forceRefresh = true; 
-                        
-                        // Call getIdTokenResult(true) on every attempt
-                        const idTokenResult = await user.getIdTokenResult(forceRefresh);
-                        
-                        if (idTokenResult.claims.admin === true) {
-                            console.log(`Admin claim verified on attempt ${i + 1}.`);
-                            resolve(true); // Success!
-                            return;
-                        }
-                        
-                        // If claims are not found, we wait before retrying
-                    } catch (e) {
-                        console.warn(`Attempt ${i + 1} failed (Claims missing/network error):`, e.message);
-                        // If the error is fatal (not just missing claims on the token), break early
-                        if (e.code && e.code.includes('auth/')) { 
-                            reject(new Error(`Fatal auth error: ${e.code}`));
-                            return;
-                        }
-                    }
-                    
-                    if (i < maxRetries - 1) {
-                        // Wait 1 second before retrying
-                        await new Promise(res => setTimeout(res, delayMs)); 
-                    }
-                }
-                // If loop completes without success
-                reject(new Error("Admin claim verification failed after all retries."));
-            });
-        }
         
-        // --- AUTHENTICATION CHECK & REDIRECT (Leveraging async/await for claims retry) ---
+        // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
-            // Note: The onAuthStateChanged callback must be async to use 'await' internally
-            onAuthStateChanged(auth, async user => { 
+            onAuthStateChanged(auth, user => {
                 if (user && !user.isAnonymous) {
-                    // User is signed in, now check admin claims using the robust retry function
-                    
-                    try {
-                        // The verifyAdminClaims function handles the required retries and forceRefresh internally.
-                        const isAdmin = await verifyAdminClaims(user); 
-                        
-                        if (isAdmin) {
-                            // SUCCESS PATH: Admin claim verified after potential retries
+                    // User is signed in, now check admin claims
+                    user.getIdTokenResult(true).then(idTokenResult => {
+                        if (idTokenResult.claims.admin === true) {
                             
                             // 1. SET THE GLOBAL userId VARIABLE FIRST
                             userId = user.uid;
-                            
+        
                             // 2. Start session/activity tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer);
+                            document.addEventListener('touchstart', resetTimer); // Added touch listener
                             resetTimer();
                             
                             // 3. Setup listeners and render the main admin page HTML
@@ -1163,26 +1122,24 @@
                             renderAdminPage(user.email || 'Admin');
                             
                             // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
+                            // This resolves the timing issue you were seeing.
                             if (window.module.fetchOrders) {
                                 window.module.fetchOrders();
                             }
-                            
+        
                         } else {
-                            // Should be caught by the catch block below, but here for redundancy
+                            // Not an admin, sign out and redirect
                             signOut(auth);
-                            window.location.href = '/'; 
+                            window.location.href = '/?error=unauthorized';
                         }
-                    } catch (err) {
-                        // FAILURE PATH: Catches the rejection from verifyAdminClaims
-                        console.error("Authentication check failed (Claims verification failed or timed out):", err.message);
+                    }).catch(err => {
+                        // Token verification error
+                        console.error("Token error:", err);
                         signOut(auth);
-                        // Redirect to root
-                        window.location.href = '/';
-                    }
-                    
+                        window.location.href = '/?error=auth_failed';
+                    });
                 } else {
-                    // FAILURE: User is not signed in
-                    // Redirect to the login page (root page)
+                    // User not signed in, redirect to login page
                     window.location.href = '/';
                 }
             });
@@ -3011,84 +2968,83 @@
         }
     
             // --- ORDERS TRACKING FUNCTIONS (Render) ---
+        function renderOrdersList() {
+            // This logic filters the orders based on state.orderStatusFilter
+            const orders = getFilteredOrders();
             
-            function renderOrdersList() {
-                // This logic filters the orders based on state.orderStatusFilter
-                const orders = getFilteredOrders();
-            
-                const tableRows = orders.map(order => {
-            
-                    // 🔑 1. Determine the necessary ID for the Firestore path
-                    // FIX: Fallback to 'PUBLIC_ORDER_SOURCE' if specific user/admin creator ID exists.
-                    const targetId = order.uid || order.createdByAdmin || 'PUBLIC_ORDER_SOURCE'; // <-- FIXED
-            
-                    // 2. Set status classes and delivery button logic
-                    const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
-                        order.status === 'Pending' ? 'text-red-600 font-bold' :
-                        order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
-            
-                    let deliveryButton = '';
-                    if (order.status === 'Pending') {
-                        deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
-                    } else if (order.status === 'Processing') {
-                        deliveryButton = `<button disabled class="px-3 py-1 w-full bg-gray-400 text-white text-xs rounded">Delivery In Progress</button>`;
-                    }
-            
-                    const itemListHtml = order.items.map(item => `<p>${item.quantity}x ${item.name.substring(0, 20)}${item.name.length > 20 ? '...' : ''}</p>`).join('');
-                    const isPaid = order.isPaid || false;
-                    const paymentStatusBadge = isPaid
-                        ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
-                        : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
-            
-                    // The editButton logic now always uses targetId, which is guaranteed to be set.
-                    const editButton = `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit Order</button>`;
-            
-                    // The status update dropdown remains for manual updates
-                    const statusUpdateDropdown = `
-                        <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="p-1 border rounded-lg text-xs bg-gray-50 mt-1 w-full">
-                            <option value="${order.status}" selected>${order.status}</option>
-                            <option value="Pending">Pending</option>
-                            <option value="Processing">Processing</option>
-                            <option value="Shipped">Shipped</option>
-                            <option value="Delivered">Delivered</option>
-                            <option value="Cancelled">Cancelled</option>
-                        </select>
-                    `;
-            
-                    return `
-                        <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
-                            <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
-                                <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
-                                <p class="text-xs text-gray-500 font-mono">${order.id}</p>
-                            </div>
-                            <div class="col-span-2 text-sm">
-                                <p class="font-semibold">${order.buyerName}</p>
-                                <p class="text-xs text-gray-500 truncate">${order.buyerEmail}</p>
-                                <p class="text-xs text-gray-500 truncate">${order.deliveryAddress}</p>
-                            </div>
-                            <div class="col-span-3 flex flex-col items-center justify-center space-y-1">    
-                                <div class="flex items-center">
-                                    <span class="text-lg font-bold text-pink-700">${formatPriceDisplay(order.totalCents)}</span>
-                                    ${paymentStatusBadge}    
-                                </div>
-                                <span class="text-sm font-bold ${statusClass} flex-shrink-0">${order.status}</span>
-                            </div>
-                            <div class="col-span-1"></div>
-                            <div class="col-span-2 text-xs text-gray-700">
-                                ${itemListHtml}    
-                            </div>
-                            <div class="col-span-2 space-y-1">    
-                                <div class="text-xs text-gray-500 font-semibold mb-2">
-                                    ${formatTime(order.createdAt)}    
-                                </div>
-                                ${editButton}
-                                ${deliveryButton}
-                                ${statusUpdateDropdown}
-                            </div>
+            const tableRows = orders.map(order => {
+                
+                // 🔑 1. Determine the necessary ID for the Firestore path
+                const targetId = order.uid || order.createdByAdmin;
+                
+                // 2. Set status classes and delivery button logic
+                const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
+                                            order.status === 'Pending' ? 'text-red-600 font-bold' :
+                                            order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
+                
+                let deliveryButton = '';
+                if (order.status === 'Pending') {
+                     deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
+                } else if (order.status === 'Processing') {
+                     deliveryButton = `<button disabled class="px-3 py-1 w-full bg-gray-400 text-white text-xs rounded">Delivery In Progress</button>`;
+                }
+                
+                const itemListHtml = order.items.map(item => `<p>${item.quantity}x ${item.name.substring(0,20)}${item.name.length > 20 ? '...' : ''}</p>`).join('');
+                const isPaid = order.isPaid || false;
+                const paymentStatusBadge = isPaid
+                    ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
+                    : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
+                
+                const editButton = targetId
+                    ? `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit Order</button>`
+                    : `<span class="text-xs text-red-500 p-1">No Edit Source</span>`;
+        
+                // The status update dropdown remains for manual updates
+                const statusUpdateDropdown = `
+                    <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="p-1 border rounded-lg text-xs bg-gray-50 mt-1 w-full">
+                        <option value="${order.status}" selected>${order.status}</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Processing">Processing</option>
+                        <option value="Shipped">Shipped</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                `;
+                
+                return `
+                    <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
+                        <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
+                            <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
+                            <p class="text-xs text-gray-500 font-mono">${order.id}</p>
                         </div>
-                    `;
-                }).join('');
-                const contentEl = document.getElementById('ordersListContent');
+                        <div class="col-span-2 text-sm">
+                            <p class="font-semibold">${order.buyerName}</p>
+                            <p class="text-xs text-gray-500 truncate">${order.buyerEmail}</p>
+                            <p class="text-xs text-gray-500 truncate">${order.deliveryAddress}</p>
+                        </div>
+                        <div class="col-span-3 flex flex-col items-center justify-center space-y-1">    
+                            <div class="flex items-center">
+                                <span class="text-lg font-bold text-pink-700">${formatPriceDisplay(order.totalCents)}</span>
+                                ${paymentStatusBadge}    
+                            </div>
+                            <span class="text-sm font-bold ${statusClass} flex-shrink-0">${order.status}</span>
+                        </div>
+                        <div class="col-span-1"></div>
+                        <div class="col-span-2 text-xs text-gray-700">
+                            ${itemListHtml}    
+                        </div>
+                        <div class="col-span-2 space-y-1">    
+                            <div class="text-xs text-gray-500 font-semibold mb-2">
+                                ${formatTime(order.createdAt)}    
+                            </div>
+                            ${editButton} 
+                            ${deliveryButton}
+                            ${statusUpdateDropdown}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            const contentEl = document.getElementById('ordersListContent');
                 if (contentEl) {
                     contentEl.innerHTML = tableRows || '<p class="text-center p-6 text-gray-500">No orders found matching this filter.</p>';
                 }
@@ -3097,7 +3053,7 @@
                     statsEl.innerHTML = window.module.getOrdersStatsHtml();
                     window.module.renderSalesCharts(); // Call the renderer after injecting the HTML
                 }
-            
+                
                 // Clear the loading message after rendering
                 const ordersMsgElClear = document.getElementById('ordersMessage');
                 if (ordersMsgElClear) ordersMsgElClear.textContent = '';
