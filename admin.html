@@ -1095,7 +1095,7 @@
             });
         } 
 
-        // Function to check claims with retry mechanism
+        // Function to check claims with retry mechanism (CRITICALLY MODIFIED)
         function verifyAdminClaims(user, maxRetries = 3, delayMs = 1000) {
             return new Promise(async (resolve, reject) => {
                 // If no user object, fail immediately
@@ -1103,16 +1103,20 @@
                 
                 for (let i = 0; i < maxRetries; i++) {
                     try {
-                        // Only force refresh on the final attempt to reduce network traffic
-                        const forceRefresh = (i === maxRetries - 1);
-                        // We must call getIdTokenResult() again inside the loop for the update
+                        // *** CRITICAL FIX: ALWAYS force refresh here. ***
+                        // This ensures the client immediately requests the claim from the server.
+                        const forceRefresh = true; 
+                        
+                        // Call getIdTokenResult(true) on every attempt
                         const idTokenResult = await user.getIdTokenResult(forceRefresh);
                         
                         if (idTokenResult.claims.admin === true) {
                             console.log(`Admin claim verified on attempt ${i + 1}.`);
-                            resolve(true);
+                            resolve(true); // Success!
                             return;
                         }
+                        
+                        // If claims are not found, we wait before retrying
                     } catch (e) {
                         console.warn(`Attempt ${i + 1} failed (Claims missing/network error):`, e.message);
                         // If the error is fatal (not just missing claims on the token), break early
@@ -1123,7 +1127,8 @@
                     }
                     
                     if (i < maxRetries - 1) {
-                        await new Promise(res => setTimeout(res, delayMs)); // Wait 1 second before retrying
+                        // Wait 1 second before retrying
+                        await new Promise(res => setTimeout(res, delayMs)); 
                     }
                 }
                 // If loop completes without success
@@ -1139,8 +1144,7 @@
                     // User is signed in, now check admin claims using the robust retry function
                     
                     try {
-                        // Wait up to 3 seconds for the admin claim to appear in the token
-                        // The verifyAdminClaims function is designed to handle the required forceRefresh internally.
+                        // The verifyAdminClaims function handles the required retries and forceRefresh internally.
                         const isAdmin = await verifyAdminClaims(user); 
                         
                         if (isAdmin) {
@@ -1164,13 +1168,12 @@
                             }
                             
                         } else {
-                            // This block should theoretically not be reached due to verifyAdminClaims's rejection
-                            console.warn("User authenticated but failed final check. Redirecting.");
+                            // Should be caught by the catch block below, but here for redundancy
                             signOut(auth);
                             window.location.href = '/'; 
                         }
                     } catch (err) {
-                        // FAILURE PATH: Catches the rejection from verifyAdminClaims (claim failed after all retries)
+                        // FAILURE PATH: Catches the rejection from verifyAdminClaims
                         console.error("Authentication check failed (Claims verification failed or timed out):", err.message);
                         signOut(auth);
                         // Redirect to root
