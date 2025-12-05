@@ -1094,69 +1094,21 @@
                 check();
             });
         } 
-
-        // Function to check claims with retry mechanism (MODIFIED)
-        function verifyAdminClaims(user, maxRetries = 3, delayMs = 1000) {
-            return new Promise(async (resolve, reject) => {
-                // If no user object, fail immediately
-                if (!user) return reject(new Error("No user object provided for claim verification."));
-                
-                for (let i = 0; i < maxRetries; i++) {
-                    try {
-                        // *** CRITICAL FIX: ALWAYS force refresh here. ***
-                        // This ensures the client immediately requests the claim from the server.
-                        const forceRefresh = true; 
-                        
-                        // Call getIdTokenResult(true) on every attempt
-                        const idTokenResult = await user.getIdTokenResult(forceRefresh);
-                        
-                        if (idTokenResult.claims.admin === true) {
-                            console.log(`Admin claim verified on attempt ${i + 1}.`);
-                            resolve(true); // Success!
-                            return;
-                        }
-                        
-                        // If claims are not found, we fall through to the delay (unless it's the last attempt)
-                        
-                    } catch (e) {
-                        console.warn(`Attempt ${i + 1} failed (Claims missing/network error):`, e.message);
-                        // If the error is fatal (not just missing claims on the token), break early
-                        if (e.code && e.code.includes('auth/')) { 
-                            reject(new Error(`Fatal auth error: ${e.code}`));
-                            return;
-                        }
-                    }
-                    
-                    if (i < maxRetries - 1) {
-                        // Wait 1 second before retrying
-                        await new Promise(res => setTimeout(res, delayMs)); 
-                    }
-                }
-                // If loop completes without success
-                reject(new Error("Admin claim verification failed after all retries."));
-            });
-        }
         
-        // --- AUTHENTICATION CHECK & REDIRECT (Leveraging async/await for claims retry) ---
+        // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
-            // Note: The onAuthStateChanged callback must be async to use 'await' internally
-            onAuthStateChanged(auth, async user => { 
+            onAuthStateChanged(auth, user => {
                 if (user && !user.isAnonymous) {
-                    // User is signed in, now check admin claims using the robust retry function
-                    
-                    try {
-                        // Wait up to 3 seconds for the admin claim to appear in the token
-                        const isAdmin = await verifyAdminClaims(user); 
-        
-                        if (isAdmin) {
-                            // SUCCESS PATH: Admin claim verified after potential retries
+                    // User is signed in, now check admin claims
+                    user.getIdTokenResult(true).then(idTokenResult => {
+                        if (idTokenResult.claims.admin === true) {
                             
                             // 1. SET THE GLOBAL userId VARIABLE FIRST
                             userId = user.uid;
-                            
+        
                             // 2. Start session/activity tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer);
+                            document.addEventListener('touchstart', resetTimer); // Added touch listener
                             resetTimer();
                             
                             // 3. Setup listeners and render the main admin page HTML
@@ -1164,27 +1116,24 @@
                             renderAdminPage(user.email || 'Admin');
                             
                             // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
+                            // This resolves the timing issue you were seeing.
                             if (window.module.fetchOrders) {
                                 window.module.fetchOrders();
                             }
-                            
+        
                         } else {
-                            // This block should theoretically not be reached due to verifyAdminClaims's rejection
-                            console.warn("User authenticated but failed final check. Redirecting.");
+                            // Not an admin, sign out and redirect
                             signOut(auth);
-                            window.location.href = '/'; 
+                            window.location.href = '/?error=unauthorized';
                         }
-                    } catch (err) {
-                        // FAILURE PATH: Catches the rejection from verifyAdminClaims (claim failed after all retries)
-                        console.error("Authentication check failed (Claims verification failed or timed out):", err.message);
+                    }).catch(err => {
+                        // Token verification error
+                        console.error("Token error:", err);
                         signOut(auth);
-                        // Redirect to root
-                        window.location.href = '/';
-                    }
-                    
+                        window.location.href = '/?error=auth_failed';
+                    });
                 } else {
-                    // FAILURE: User is not signed in
-                    // Redirect to the login page (root page)
+                    // User not signed in, redirect to login page
                     window.location.href = '/';
                 }
             });
