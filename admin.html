@@ -1131,35 +1131,44 @@
             });
         }
         
-          // --- AUTHENTICATION CHECK & REDIRECT ---
+        // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
                 if (user && !user.isAnonymous) {
-                    // User is signed in, now verify admin claims with retry logic
-                    verifyAdminClaims(user).then(() => {
-                        
-                        // --- SUCCESS PATH (Admin Verified) ---
-                        
-                        // 1. SET THE GLOBAL userId VARIABLE FIRST
-                        userId = user.uid;
-                        
-                        // 2. Start session/activity tracking
-                        document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                        document.addEventListener('touchstart', resetTimer);
-                        resetTimer();
-                        
-                        // 3. Setup listeners and render the main admin page HTML
-                        setupRealtimeListeners();
-                        renderAdminPage(user.email || 'Admin');
-                        
-                        // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
-                        if (window.module.fetchOrders) {
-                            window.module.fetchOrders();
+                    // User is signed in, now check admin claims
+                    
+                    // CORRECTED FIX: Pass 'true' to force a token refresh, guaranteeing
+                    // that the freshly set 'admin' custom claim is available immediately.
+                    user.getIdTokenResult(true).then(idTokenResult => { // <-- THE CRITICAL CHANGE IS HERE
+                        if (idTokenResult.claims.admin === true) {
+                            
+                            // 1. SET THE GLOBAL userId VARIABLE FIRST
+                            userId = user.uid;
+                            
+                            // 2. Start session/activity tracking
+                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                            document.addEventListener('touchstart', resetTimer);
+                            resetTimer();
+                            
+                            // 3. Setup listeners and render the main admin page HTML
+                            setupRealtimeListeners();
+                            renderAdminPage(user.email || 'Admin');
+                            
+                            // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
+                            if (window.module.fetchOrders) {
+                                window.module.fetchOrders();
+                            }
+                            
+                        } else {
+                            // FAILURE: User is authenticated but does NOT have admin claims
+                            console.warn("User authenticated but missing Admin claim. Redirecting.");
+                            signOut(auth);
+                            // Redirect without error param, letting the index.html handle display
+                            window.location.href = '/'; 
                         }
-                        
                     }).catch(err => {
-                        // --- FAILURE PATH (Verification failed after all retries) ---
-                        console.error("FINAL ADMIN VERIFICATION FAILURE. Logging out.", err);
+                        // CRITICAL FAILURE: Token is corrupted, expired, or claims retrieval failed entirely.
+                        console.error("Token Error: Authentication claims check failed.", err);
                         signOut(auth);
                         // Redirect to root, often displaying a generic login/session error
                         window.location.href = '/';
