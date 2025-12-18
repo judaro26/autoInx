@@ -126,6 +126,63 @@
         let idleTimer;
         let orders = [];
         let lastCategorySalesData = { tableData: [] };
+
+
+        const TEXT = {
+            es: {
+                dashboardTitle: 'Panel de Control Admin',
+                welcome: 'Bienvenido,',
+                exitPreview: 'Salir de Vista Previa',
+                previewSite: 'Previsualizar Sitio',
+                signOut: 'Cerrar Sesión',
+                tabCatalog: 'Categorías y Productos',
+                tabInventory: 'Inventario',
+                tabOrders: 'Pedidos',
+                tabUsers: 'Usuarios Registrados',
+                tabConfig: 'Configuración',
+                searchPlaceholder: 'Buscar productos, SKUs...',
+                manageCategories: 'Gestionar Categorías',
+                addNewProduct: 'Agregar Nuevo Producto',
+                status: 'Estado',
+                actions: 'Acciones',
+                saveChanges: 'Guardar Cambios',
+                cancel: 'Cancelar',
+                // Orders specific
+                orderTracking: 'Seguimiento de Ventas y Entregas',
+                manualOrder: 'Creación Manual de Pedido',
+                recentOrders: 'Lista de Pedidos Recientes',
+                createOrder: 'Crear Pedido Manual',
+                backToTracking: '← Volver a Seguimiento'
+            },
+            en: {
+                dashboardTitle: 'Admin Dashboard',
+                welcome: 'Welcome,',
+                exitPreview: 'Exit Preview',
+                previewSite: 'Preview Site',
+                signOut: 'Sign Out',
+                tabCatalog: 'Category & Products',
+                tabInventory: 'Inventory',
+                tabOrders: 'Orders',
+                tabUsers: 'Registered Users',
+                tabConfig: 'Configuration',
+                searchPlaceholder: 'Search products, SKUs...',
+                manageCategories: 'Manage Categories',
+                addNewProduct: 'Add New Product',
+                status: 'Status',
+                actions: 'Actions',
+                saveChanges: 'Save Changes',
+                cancel: 'Cancel',
+                // Orders specific
+                orderTracking: 'Sales and Delivery Tracking',
+                manualOrder: 'Manual Order Creation',
+                recentOrders: 'Recent Orders List',
+                createOrder: 'Create Manual Order',
+                backToTracking: '← Back to Tracking'
+            }
+        };
+        
+        let currentLang = localStorage.getItem('adminLang') || 'en';
+        const t = key => TEXT[currentLang][key] || TEXT['en'][key];
     
         const state = {
             activeTab: 'catalog',
@@ -3520,58 +3577,90 @@
                 }
             }
     
-        function renderAdminPage(userName) {
-            document.getElementById('app').innerHTML = `
+            function renderAdminPage(userName) {
+                document.getElementById('app').innerHTML = `
                     <header class="flex justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600">
-                        <h1 class="text-4xl font-extrabold text-indigo-700">Admin Dashboard</h1>
+                        <h1 class="text-4xl font-extrabold text-indigo-700">${t('dashboardTitle')}</h1>
                         <div class="flex items-center space-x-4">
-                            <span class="text-gray-600 font-medium text-sm hidden sm:inline">Welcome, ${userName}</span>
+                            <span class="text-gray-600 font-medium text-sm hidden sm:inline">${t('welcome')} ${userName}</span>
+                            
+                            <button onclick="window.module.toggleLanguage()" 
+                                    class="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-bold hover:bg-gray-50 transition shadow-sm">
+                                ${currentLang === 'en' ? '🇪🇸 ES' : '🇺🇸 EN'}
+                            </button>
+            
                             ${state.previewMode
-                                ? `<button onclick="window.module.togglePreviewMode(false)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600">Exit Preview</button>`
-                                : `<button onclick="window.module.togglePreviewMode(true)" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-500 hover:bg-green-600">Preview Site</button>`
+                                ? `<button onclick="window.module.togglePreviewMode(false)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 shadow-md transition">${t('exitPreview')}</button>`
+                                : `<button onclick="window.module.togglePreviewMode(true)" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-500 hover:bg-green-600 shadow-md transition">${t('previewSite')}</button>`
                             }
-                            <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600">Sign Out</button>
+                            
+                            <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 shadow-md transition">
+                                ${t('signOut')}
+                            </button>
                         </div>
                     </header>
+            
                     <div class="md:flex md:space-x-8">
                         <nav class="w-full md:w-1/4 mb-6 md:mb-0">
                             <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4 ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
-                                <button onclick="window.module.switchAdminTab('catalog')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Category & Products</button>
-                                <button onclick="window.module.switchAdminTab('inventory')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'inventory' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Inventory</button>
-                                <button onclick="window.module.switchAdminTab('orders')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Orders</button>
-                                <button onclick="window.module.switchAdminTab('users')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Registered Users</button>
-                                <button onclick="window.module.switchAdminTab('config')" class="tab-button w-full text-left p-3 rounded-lg font-semibold ${state.activeTab === 'config' ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-100'}">Configuration</button>
+                                <button onclick="window.module.switchAdminTab('catalog')" 
+                                        class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                    ${t('tabCatalog')}
+                                </button>
+                                <button onclick="window.module.switchAdminTab('inventory')" 
+                                        class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'inventory' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                    ${t('tabInventory')}
+                                </button>
+                                <button onclick="window.module.switchAdminTab('orders')" 
+                                        class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                    ${t('tabOrders')}
+                                </button>
+                                <button onclick="window.module.switchAdminTab('users')" 
+                                        class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                    ${t('tabUsers')}
+                                </button>
+                                <button onclick="window.module.switchAdminTab('config')" 
+                                        class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                                    ${t('tabConfig')}
+                                </button>
                             </div>
                         </nav>
+            
                         <main class="w-full md:w-3/4 space-y-12">
                             ${state.previewMode ? renderPreviewSite() : renderAdminTabs()}
                         </main>
                     </div>
                 `;
-    
-            document.getElementById('signOutButton')?.addEventListener('click', () => {
-                clearTimeout(idleTimer);
-                signOut(auth).then(() => location.href = '/');
-            });
-    
-            // Initial render logic after DOM is updated
-            if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-            if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
-            if (state.activeTab === 'users' && !state.previewMode) { 
-                const grid = document.getElementById('usersGrid');
-                // Only fetch users if the list is empty
-                if (grid && state.allUsers.length === 0) window.module.fetchUsers();
+            
+                // Re-attach the sign out event listener
+                document.getElementById('signOutButton')?.addEventListener('click', () => {
+                    clearTimeout(idleTimer);
+                    signOut(auth).then(() => location.href = '/');
+                });
+            
+                // Re-render sub-sections based on active tab
+                if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+                if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
+                if (state.activeTab === 'users' && !state.previewMode) { 
+                    if (state.allUsers.length === 0) window.module.fetchUsers();
+                    else renderUserList();
+                }
+                if (state.activeTab === 'orders' && !state.previewMode) {
+                     if (state.orderPage === 'list') window.module.fetchOrders();
+                     else window.module.updateAdminCartDisplay();
+                }
+                if (state.activeTab === 'inventory' && !state.previewMode) window.module.renderInventorySection();
             }
-            if (state.activeTab === 'orders' && !state.previewMode) {
-                 if (state.orderPage === 'list') {
-                     window.module.fetchOrders();
-                 } else {
-                     window.module.updateAdminCartDisplay();
-                 }
-            }
-            if (state.activeTab === 'inventory' && !state.previewMode) window.module.renderInventorySection(); // NEW
+
+        function toggleLanguage() {
+            currentLang = (currentLang === 'en') ? 'es' : 'en';
+            localStorage.setItem('adminLang', currentLang);
+            
+            // Get the current user email to pass back to the render function
+            const userEmail = auth.currentUser ? auth.currentUser.email : 'Admin';
+            renderAdminPage(userEmail);
         }
-    
+        
         // --- EXPOSE TO WINDOW (ONLY ONCE!) ---
         window.module = {
                     globalNextPageToken,
