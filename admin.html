@@ -2849,6 +2849,25 @@
                 };
         
                 await updateDoc(orderRef, updatePayload);
+
+                if (paidCents > 0) {
+                    const receiptPayload = {
+                        orderId,
+                        buyerEmail: originalOrder.buyerEmail,
+                        buyerName: originalOrder.buyerName,
+                        items: newItemsList,
+                        totalCents: newTotalCents,
+                        paidCents: paidCents,
+                        paymentMethod: newMethod,
+                        language: newLanguage // 'en' or 'es'
+                    };
+                
+                    fetch('/.netlify/functions/send-receipt', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(receiptPayload)
+                    }).then(() => console.log("Receipt triggered"));
+                }
         
                 // 5. INVENTORY LOGIC (Restored full complexity)
                 // Part A: Adjust stock for items still in the order
