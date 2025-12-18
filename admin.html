@@ -2602,60 +2602,129 @@
             grid.insertAdjacentHTML('beforeend', userRows);
             renderUserControls();
         }
-    
-        /**
-         * Updates the state of the Load More Users button and displays user count.
-         */
-        // Ensure you have 'getDoc' imported: import { getFirestore, doc, getDoc, ... }
-        async function showOrderEditForm(orderId, clientUid) {
-            if (!orderId || !clientUid) return console.error("Missing IDs.");
+
+        function renderOrderEditModal(order, mode = 'edit') {
+            const isPaymentOnly = mode === 'payment';
+            
+            // Common Data
+            const statuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
+            const statusOptions = statuses.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
+            const methods = ['Cash', 'Bank Transfer', 'Credit Card', 'Zelle', 'Wompi', 'Other'];
+            const methodOptions = methods.map(m => `<option value="${m}">${m}</option>`).join('');
         
+            const totalCents = order.totalCents || 0;
+            const paidCents = order.paidCents || 0;
+            const balanceCents = totalCents - paidCents;
+        
+            // --- HTML FOR PAYMENT MODE ---
+            if (isPaymentOnly) {
+                const historyHtml = (order.paymentHistory || []).map(p => `
+                    <div class="flex justify-between text-xs py-1 border-b italic text-gray-500">
+                        <span>${new Date(p.date).toLocaleDateString()} (${p.method})</span>
+                        <span class="font-bold text-gray-700">${formatPriceDisplay(p.amountCents)}</span>
+                    </div>
+                `).join('') || '<p class="text-xs text-gray-400">No payment history.</p>';
+        
+                return `
+                    <div id="editModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center" onclick="window.module.closeEditModal()">
+                        <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md" onclick="event.stopPropagation()">
+                            <h3 class="text-2xl font-black text-indigo-700 mb-6">Log Payment</h3>
+                            <div class="mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                                <div class="flex justify-between text-sm"><span>Total:</span><b>${formatPriceDisplay(totalCents)}</b></div>
+                                <div class="flex justify-between text-lg border-t mt-2 pt-2 text-rose-600 font-black">
+                                    <span>Balance Due:</span><span>${formatPriceDisplay(balanceCents)}</span>
+                                </div>
+                            </div>
+                            <form onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}', 'payment')">
+                                <div class="space-y-4">
+                                    <label class="block text-xs font-bold text-gray-500 uppercase">Amount to Add (USD)</label>
+                                    <input type="number" id="edit-paid-amount" step="0.01" value="${(balanceCents > 0 ? balanceCents/100 : 0).toFixed(2)}" 
+                                           class="w-full p-3 border-2 border-indigo-100 rounded-xl text-xl font-black">
+                                    
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <select id="edit-payment-method" class="p-2 border rounded-lg bg-white">${methodOptions}</select>
+                                        <select id="edit-status" class="p-2 border rounded-lg bg-white">${statusOptions}</select>
+                                    </div>
+                                    <div class="mt-4">
+                                        <p class="text-[10px] font-bold text-gray-400 uppercase mb-2">History</p>
+                                        <div class="max-h-24 overflow-y-auto custom-scrollbar">${historyHtml}</div>
+                                    </div>
+                                </div>
+                                <button type="submit" id="saveOrderBtn" class="w-full mt-6 bg-indigo-600 text-white py-4 rounded-xl font-black">RECORD PAYMENT</button>
+                            </form>
+                        </div>
+                    </div>`;
+            }
+        
+            // --- HTML FOR FULL EDIT MODE ---
+            return `
+                <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onclick="window.module.closeEditModal()">
+                    <div class="relative top-5 mx-auto p-8 border w-11/12 md:w-3/4 lg:w-2/3 shadow-2xl rounded-xl bg-white" onclick="event.stopPropagation()">
+                        <h3 class="text-2xl font-bold text-indigo-700 mb-6">Full Order Editor</h3>
+                        <form onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}', 'edit')">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div class="space-y-4">
+                                    <label class="block text-xs font-bold text-gray-500 uppercase">Address</label>
+                                    <input type="text" id="edit-address" value="${order.deliveryAddress || ''}" class="w-full p-2 border rounded-lg">
+                                    <label class="block text-xs font-bold text-gray-500 uppercase">Status</label>
+                                    <select id="edit-status" class="w-full p-2 border rounded-lg">${statusOptions}</select>
+                                    <label class="block text-xs font-bold text-gray-500 uppercase">Notes</label>
+                                    <textarea id="edit-notes" class="w-full p-2 border rounded-lg">${order.adminNotes || ''}</textarea>
+                                </div>
+                                <div class="bg-gray-50 p-4 rounded-xl">
+                                    <h4 class="font-bold text-pink-700 mb-4">Edit Items</h4>
+                                    <div class="flex gap-2 mb-4">
+                                        <select id="editItemSelector" class="flex-grow p-1 border rounded text-xs"></select>
+                                        <button type="button" onclick="window.module.addDraftCartItem()" class="bg-pink-600 text-white px-2 rounded">+</button>
+                                    </div>
+                                    <div id="editOrderItemsDisplay" class="max-h-40 overflow-y-auto mb-4"></div>
+                                    <div class="border-t pt-2 font-bold flex justify-between">
+                                        <span>Total:</span><span id="editOrderTotal">$0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-4 mt-8">
+                                <button type="button" onclick="window.module.closeEditModal()" class="px-6 py-2 bg-gray-200 rounded-lg">Cancel</button>
+                                <button type="submit" id="saveOrderBtn" class="px-6 py-2 bg-indigo-600 text-white rounded-lg">Save Changes</button>
+                            </div>
+                            <input type="hidden" id="edit-paid-amount" value="${(paidCents/100).toFixed(2)}">
+                            <input type="hidden" id="edit-payment-method" value="${order.paymentMethod || 'Other'}">
+                        </form>
+                    </div>
+                </div>`;
+        }
+    
+        async function showOrderEditForm(orderId, clientUid, mode = 'edit') {
+            if (!orderId || !clientUid) return console.error("Missing IDs.");
             try {
-                const adminUserId = await waitForUserId();
-                const collectionPathFn = window.module.getOrdersCollectionPath;
-                const path = collectionPathFn(clientUid);
+                const path = window.module.getOrdersCollectionPath(clientUid);
                 const orderRef = doc(db, path, orderId);
                 const orderSnap = await getDoc(orderRef);
         
-                if (!orderSnap.exists()) {
-                    document.getElementById('editModalContainer').innerHTML = `<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"><div class="bg-white p-8 rounded-lg">Order Not Found</div></div>`;
-                    return;
-                }
-        
+                if (!orderSnap.exists()) return;
                 const orderData = { id: orderSnap.id, ...orderSnap.data() };
         
-                // 1. Initialize the draft state with current items AND current paid amount
+                // 1. Initialize State (Pass current items and paid amount)
                 window.module.initializeDraftCart(orderData.items || [], orderData.paidCents || 0);
         
-                // 2. Generate the HTML using the modal renderer
-                const modalHtml = window.module.renderOrderEditModal(orderData);
+                // 2. Inject HTML (Pass the mode 'edit' or 'payment')
+                document.getElementById('editModalContainer').innerHTML = window.module.renderOrderEditModal(orderData, mode);
         
-                // 3. CRITICAL FIX: Inject the HTML into the container
-                const container = document.getElementById('editModalContainer');
-                if (container) {
-                    container.innerHTML = modalHtml;
+                // 3. Setup UI based on mode
+                if (mode === 'edit') {
+                    window.module.updateDraftCartDisplay();
+                    // Populate the "Add Product" dropdown
+                    const selectorEl = document.getElementById('editItemSelector');
+                    if (selectorEl) {
+                        selectorEl.innerHTML = '<option value="" disabled selected>-- Add Product --</option>' + 
+                            state.items.map(item => `<option value="${item.id}">${item.name} - ${formatPriceDisplay(item.price)}</option>`).join('');
+                    }
                 } else {
-                    console.error("editModalContainer element not found in DOM");
-                    return;
+                    // In payment mode, just do a quick billing refresh
+                    window.module.recalculateBilling();
                 }
-        
-                // 4. Populate visual items and calculate initial billing
-                window.module.updateDraftCartDisplay();
-        
-                // 5. Populate product selector for adding new items
-                const selectorEl = document.getElementById('editItemSelector');
-                if (selectorEl) {
-                    let optionsHtml = '<option value="" disabled selected>-- Add Product --</option>';
-                    optionsHtml += state.items.map(item => {
-                        const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                        return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
-                    }).join('');
-                    selectorEl.innerHTML = optionsHtml;
-                }
-        
             } catch (error) {
-                console.error("Error fetching order for edit:", error);
-                alert("Failed to fetch order details.");
+                console.error("Modal Error:", error);
             }
         }
         function renderDayCheckboxes(activeDays = [1, 2, 3, 4, 5]) {
@@ -2677,98 +2746,40 @@
             }).join('');
         }
                 
-        function renderOrderEditModal(order) {
-            const statuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
-            const statusOptions = statuses.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
-            
-            // Payment Methods
-            const methods = ['Cash', 'Bank Transfer', 'Credit Card', 'Zelle', 'Wompi', 'Other'];
-            const methodOptions = methods.map(m => `<option value="${m}" ${order.paymentMethod === m ? 'selected' : ''}>${m}</option>`).join('');
+          async function showOrderEditForm(orderId, clientUid, mode = 'edit') { // Added 'mode'
+            if (!orderId || !clientUid) return console.error("Missing IDs.");
         
-            // Pre-calculate initial balance display
-            const totalCents = order.totalCents || 0;
-            const paidCents = order.paidCents || 0;
-            const balanceCents = totalCents - paidCents;
+            try {
+                const path = window.module.getOrdersCollectionPath(clientUid);
+                const orderRef = doc(db, path, orderId);
+                const orderSnap = await getDoc(orderRef);
         
-            return `
-                <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onclick="window.module.closeEditModal()">
-                    <div class="relative top-5 mx-auto p-6 border w-11/12 md:w-5/6 lg:w-4/5 shadow-2xl rounded-xl bg-white" onclick="event.stopPropagation()">
-                        <div class="flex justify-between items-center border-b pb-4 mb-6">
-                            <h3 class="text-2xl font-bold text-indigo-700">Order Management: ${order.id.slice(0, 8)}</h3>
-                            <button onclick="window.module.closeEditModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-                        </div>
+                if (!orderSnap.exists()) return;
         
-                        <form id="orderEditForm" onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}')">
-                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                
-                                <div class="space-y-4 bg-gray-50 p-4 rounded-lg border">
-                                    <h4 class="font-bold text-gray-700 uppercase text-xs tracking-wider">Logistics</h4>
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-500 mb-1">Order Status</label>
-                                        <select id="edit-status" class="w-full p-2 border rounded-lg">${statusOptions}</select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-500 mb-1">Delivery Address</label>
-                                        <input type="text" id="edit-address" value="${order.deliveryAddress || ''}" class="w-full p-2 border rounded-lg text-sm">
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-500 mb-1">Internal Admin Notes</label>
-                                        <textarea id="edit-notes" rows="3" class="w-full p-2 border rounded-lg text-sm">${order.adminNotes || ''}</textarea>
-                                    </div>
-                                </div>
+                const orderData = { id: orderSnap.id, ...orderSnap.data() };
         
-                                <div class="space-y-4 bg-white p-4 rounded-lg border border-pink-100">
-                                    <h4 class="font-bold text-pink-700 uppercase text-xs tracking-wider">Items in Order</h4>
-                                    <div class="flex gap-2">
-                                        <select id="editItemSelector" class="flex-grow p-2 border rounded-lg text-xs"></select>
-                                        <button type="button" onclick="window.module.addDraftCartItem()" class="bg-pink-600 text-white px-3 rounded-lg text-xs font-bold">+</button>
-                                    </div>
-                                    <div id="editOrderItemsDisplay" class="max-h-48 overflow-y-auto custom-scrollbar pr-2 space-y-1"></div>
-                                </div>
+                // Initialize state
+                window.module.initializeDraftCart(orderData.items || [], orderData.paidCents || 0);
         
-                                <div class="space-y-4 bg-indigo-50 p-4 rounded-lg border border-indigo-100">
-                                    <h4 class="font-bold text-indigo-700 uppercase text-xs tracking-wider">Billing & Finance</h4>
-                                    
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label class="block text-xs font-bold text-gray-500 mb-1">Payment Method</label>
-                                            <select id="edit-payment-method" class="w-full p-2 border rounded-lg text-sm bg-white">
-                                                ${methodOptions}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs font-bold text-gray-500 mb-1">Amount Paid (USD)</label>
-                                            <input type="number" id="edit-paid-amount" step="0.01" value="${(paidCents / 100).toFixed(2)}" 
-                                                   oninput="window.module.recalculateBilling()"
-                                                   class="w-full p-2 border rounded-lg text-sm font-bold text-green-700">
-                                        </div>
-                                    </div>
+                // Pass 'mode' to the renderer
+                document.getElementById('editModalContainer').innerHTML = window.module.renderOrderEditModal(orderData, mode);
         
-                                    <div class="pt-4 mt-2 border-t border-indigo-200 space-y-2">
-                                        <div class="flex justify-between text-sm">
-                                            <span class="text-gray-600">Subtotal:</span>
-                                            <span id="editOrderTotal" class="font-semibold">$0.00</span>
-                                        </div>
-                                        <div class="flex justify-between text-sm">
-                                            <span class="text-gray-600">Total Paid:</span>
-                                            <span id="display-paid-amount" class="font-semibold text-green-600">$0.00</span>
-                                        </div>
-                                        <div class="flex justify-between text-xl font-black border-t pt-2">
-                                            <span class="text-indigo-800">BALANCE:</span>
-                                            <span id="edit-remaining-balance" class="text-red-600">$0.00</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-        
-                            <div class="flex justify-end space-x-4 mt-8 pt-4 border-t">
-                                <button type="button" onclick="window.module.closeEditModal()" class="bg-gray-200 px-6 py-2 rounded-lg font-bold">Cancel</button>
-                                <button type="submit" id="saveOrderBtn" class="bg-indigo-600 text-white px-8 py-2 rounded-lg font-bold shadow-lg hover:bg-indigo-700">Update Order & Billing</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            `;
+                // If in 'edit' mode, we need to populate the product selectors
+                if (mode === 'edit') {
+                    window.module.updateDraftCartDisplay();
+                    const selectorEl = document.getElementById('editItemSelector');
+                    if (selectorEl) {
+                        let optionsHtml = '<option value="" disabled selected>-- Add Product --</option>';
+                        optionsHtml += state.items.map(item => {
+                            const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                            return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
+                        }).join('');
+                        selectorEl.innerHTML = optionsHtml;
+                    }
+                }
+            } catch (error) {
+                console.error("Error opening modal:", error);
+            }
         }
         
         function closeEditModal() {
@@ -2776,148 +2787,107 @@
             document.getElementById('editModalContainer').innerHTML = '';
         }
         
-        async function updateOrder(e, orderId, sourceId) {
+        async function updateOrder(e, orderId, sourceId, mode = 'edit') {
             e.preventDefault();
-            
-            // 1. UI Safety Check
             const saveBtn = document.getElementById('saveOrderBtn');
-            if (!saveBtn) return;
             const originalText = saveBtn.innerHTML;
-        
-            // Helper to prevent the "Cannot read properties of null" error
-            const getSafeVal = (id) => {
-                const el = document.getElementById(id);
-                if (!el) { console.warn(`ID ${id} not found in modal.`); return null; }
-                return el.value;
-            };
-        
-            // 2. Data Capture
-            const newStatus = getSafeVal('edit-status');
-            const newLanguage = getSafeVal('edit-language');
-            const newAddress = getSafeVal('edit-address');
-            const newNotes = getSafeVal('edit-notes');
-            const newMethod = getSafeVal('edit-payment-method');
-            const paidVal = getSafeVal('edit-paid-amount');
-        
-            if (newStatus === null) {
-                console.error("Critical modal fields missing. Aborting save.");
-                return;
-            }
+            const isPaymentOnly = mode === 'payment';
+            
+            // Safety check for inputs
+            const getVal = (id) => document.getElementById(id)?.value || '';
         
             saveBtn.disabled = true;
             saveBtn.innerHTML = `Saving...`;
-            
-            const paidCents = Math.round(parseFloat(paidVal || 0) * 100);
-            const newItemsDraft = Object.values(state.editingOrderDraftCart);
-            const newTotalCents = newItemsDraft.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
-            const isActuallyPaid = paidCents >= newTotalCents;
         
-            if (newItemsDraft.length === 0) {
-                alert("Cannot save an empty order.");
-                saveBtn.disabled = false;
-                saveBtn.innerHTML = originalText;
-                return;
-            }
+            const originalOrder = state.orders.find(o => o.id === orderId);
+            if (!originalOrder) return;
         
-            // 3. Sync Prep
-            const collectionPath = window.module.getOrdersCollectionPath(sourceId);
-            const orderRef = doc(db, collectionPath, orderId);
-            const originalOrder = state.orders.find(o => o.id === orderId); 
-            const originalStatus = originalOrder ? originalOrder.status : '';
-            const originalItemsMap = originalOrder ? originalOrder.items.reduce((map, item) => { map[item.id] = item.quantity; return map; }, {}) : {};
+            let finalUpdatePayload = { 
+                status: getVal('edit-status'),
+                updatedAt: serverTimestamp() 
+            };
         
             try {
-                // 4. Update Main Order
-                const updatePayload = {
-                    status: newStatus,
-                    isPaid: isActuallyPaid,
-                    paidCents: paidCents,
-                    paymentMethod: newMethod,
-                    deliveryAddress: newAddress,
-                    adminNotes: newNotes,
-                    language: newLanguage,
-                    communicationLang: newLanguage,
-                    items: newItemsDraft.map(entry => ({
-                        id: entry.item.id,
-                        name: entry.item.name,
-                        sku: entry.item.sku || null,
-                        price: entry.item.price,
-                        quantity: entry.quantity
-                    })),
-                    totalCents: newTotalCents,
-                    updatedAt: serverTimestamp()
-                };
-        
-                await updateDoc(orderRef, updatePayload);
-
-                if (paidCents > 0) {
-                    const receiptPayload = {
-                        orderId,
-                        buyerEmail: originalOrder.buyerEmail,
-                        buyerName: originalOrder.buyerName,
-                        items: newItemsList,
-                        totalCents: newTotalCents,
-                        paidCents: paidCents,
-                        paymentMethod: newMethod,
-                        language: newLanguage // 'en' or 'es'
+                if (isPaymentOnly) {
+                    // --- LOGIC FOR FINANCIALS TAB ---
+                    const newAmt = parseFloat(getVal('edit-paid-amount')) || 0;
+                    const method = getVal('edit-payment-method');
+                    const newPaymentCents = Math.round(newAmt * 100);
+                    
+                    const history = [...(originalOrder.paymentHistory || []), {
+                        amountCents: newPaymentCents,
+                        method: method,
+                        date: new Date().toISOString()
+                    }];
+                    
+                    const totalPaid = history.reduce((sum, p) => sum + p.amountCents, 0);
+                    
+                    finalUpdatePayload = {
+                        ...finalUpdatePayload,
+                        paymentHistory: history,
+                        paidCents: totalPaid,
+                        isPaid: totalPaid >= originalOrder.totalCents,
+                        lastPaymentMethod: method
                     };
-                
+        
+                    // Trigger Receipt (Send the NEW payment amount for the receipt)
                     fetch('/.netlify/functions/send-receipt', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(receiptPayload)
-                    }).then(() => console.log("Receipt triggered"));
-                }
+                        body: JSON.stringify({ 
+                            ...originalOrder, orderId, paidCents: newPaymentCents, paymentMethod: method 
+                        })
+                    });
         
-                // 5. INVENTORY LOGIC (Restored full complexity)
-                // Part A: Adjust stock for items still in the order
-                const inventoryPromises = newItemsDraft.map(async newItem => {
-                    const originalQty = originalItemsMap[newItem.id] || 0;
-                    const change = newItem.quantity - originalQty;
-                    if (change !== 0) {
-                        const currentItem = state.items.find(i => i.id === newItem.id);
-                        if (currentItem) {
-                            const newStock = Math.max(0, (currentItem.stock || 0) - change);
-                            await updateDoc(doc(db, ITEMS_COLLECTION, newItem.id), { stock: newStock });
-                            await logAdminAction('INVENTORY_ADJUSTED_VIA_EDIT', { itemId: newItem.id, change, newStock }, newItem.id);
+                } else {
+                    // --- LOGIC FOR ORDERS TAB (FULL EDIT) ---
+                    const newItemsDraft = Object.values(state.editingOrderDraftCart);
+                    const newTotalCents = newItemsDraft.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+                    const newItemsList = newItemsDraft.map(entry => ({
+                        id: entry.item.id, name: entry.item.name, sku: entry.item.sku || null,
+                        price: entry.item.price, quantity: entry.quantity
+                    }));
+        
+                    finalUpdatePayload = {
+                        ...finalUpdatePayload,
+                        deliveryAddress: getVal('edit-address'),
+                        adminNotes: getVal('edit-notes'),
+                        language: getVal('edit-language'),
+                        items: newItemsList,
+                        totalCents: newTotalCents
+                    };
+        
+                    // INVENTORY ADJUSTMENT LOGIC
+                    const originalItemsMap = originalOrder.items.reduce((map, item) => { map[item.id] = item.quantity; return map; }, {});
+                    
+                    // A: Update items still in order
+                    const p1 = newItemsList.map(async newItem => {
+                        const diff = newItem.quantity - (originalItemsMap[newItem.id] || 0);
+                        if (diff !== 0) {
+                            const itemRef = doc(db, ITEMS_COLLECTION, newItem.id);
+                            const currentItem = state.items.find(i => i.id === newItem.id);
+                            if (currentItem) await updateDoc(itemRef, { stock: Math.max(0, (currentItem.stock || 0) - diff) });
                         }
-                    }
-                });
-        
-                // Part B: Return stock for items COMPLETELY REMOVED (The logic previously missing)
-                const removedItemIds = Object.keys(originalItemsMap).filter(id => !newItemsDraft.some(item => item.id === id));
-                const removedPromises = removedItemIds.map(async removedId => {
-                    const qtyToReturn = originalItemsMap[removedId];
-                    const currentItem = state.items.find(i => i.id === removedId);
-                    if (currentItem) {
-                        const newStock = (currentItem.stock || 0) + qtyToReturn;
-                        await updateDoc(doc(db, ITEMS_COLLECTION, removedId), { stock: newStock });
-                        await logAdminAction('INVENTORY_RETURNED_VIA_EDIT', { itemId: removedId, qtyToReturn, newStock }, removedId);
-                    }
-                });
-        
-                await Promise.all([...inventoryPromises, ...removedPromises]);
-        
-                // 6. LOGGING & EMAILS
-                await logAdminAction('ORDER_EDITED_FULL', { orderId, newStatus, paidCents }, orderId);
-        
-                if (newStatus !== originalStatus && originalOrder) {
-                     const majorStatuses = ['Processing', 'Shipped', 'Pending' , 'Delivered', 'Cancelled'];
-                     if (majorStatuses.includes(newStatus)) {
-                        await fetch(EMAIL_CONFIRMATION_FUNCTION, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ...updatePayload, orderId, buyerEmail: originalOrder.buyerEmail, buyerName: originalOrder.buyerName })
-                        });
-                     }
+                    });
+                    // B: Return stock for deleted items
+                    const p2 = Object.keys(originalItemsMap).filter(id => !newItemsList.some(i => i.id === id)).map(async delId => {
+                        const itemRef = doc(db, ITEMS_COLLECTION, delId);
+                        const currentItem = state.items.find(i => i.id === delId);
+                        if (currentItem) await updateDoc(itemRef, { stock: (currentItem.stock || 0) + originalItemsMap[delId] });
+                    });
+                    await Promise.all([...p1, ...p2]);
                 }
+        
+                // EXECUTE FIRESTORE UPDATE
+                const orderRef = doc(db, window.module.getOrdersCollectionPath(sourceId), orderId);
+                await updateDoc(orderRef, finalUpdatePayload);
                 
-                showMessage('success', `Order #${orderId.substring(0,5)} updated. Inventory synced.`, 5000, 'orders');
+                showMessage('success', 'Update Successful', 3000, 'orders');
                 closeEditModal();
-                
-            } catch (error) {
-                console.error("Update failed:", error);
-                alert("Error: " + error.message);
+        
+            } catch (err) {
+                console.error(err);
+                alert("Error: " + err.message);
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalText;
@@ -3793,9 +3763,9 @@
                         </td>
                         
                         <td class="p-4 text-center">
-                            <button onclick="window.module.showOrderEditForm('${o.id}', '${targetId}')" 
-                                    class="px-3 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white rounded-md font-bold text-[11px] uppercase tracking-tighter transition-all border border-indigo-200">
-                                Log Payment
+                             <button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}', 'edit')" 
+                                    class="...">
+                                Edit Order
                             </button>
                         </td>
                     </tr>
@@ -3843,84 +3813,39 @@
         }
         
         
-        // --- EXPOSE TO WINDOW ---
+                // --- EXPOSE TO WINDOW ---
         window.module = {
             // --- AUTH & USERS ---
-            globalNextPageToken,
-            fetchUsers,
-            renderUserList,
-            handleUserSearchInput,
-            handleBulkUserAction,
-            handleUserAction,
-            toggleUserSelection,
-            toggleAllUsers,
-            promptForPasswordReset,
-            deleteUser,
-            disableUser,
-            handleClearAnonymousUsers,
+            globalNextPageToken, fetchUsers, renderUserList, handleUserSearchInput,
+            handleBulkUserAction, handleUserAction, toggleUserSelection, toggleAllUsers,
+            promptForPasswordReset, deleteUser, disableUser, handleClearAnonymousUsers,
         
             // --- CONFIG & SYSTEM ---
-            globalConfig,
-            fetchAdminConfig,
-            displayStaticIps,
-            handleUpdateConfig,
-            togglePreviewMode,
-            toggleLanguage,
-            logAdminAction,
-            loadGoogleMapsScript,
+            globalConfig, fetchAdminConfig, displayStaticIps, handleUpdateConfig,
+            togglePreviewMode, toggleLanguage, logAdminAction, loadGoogleMapsScript,
         
             // --- CATALOG & INVENTORY ---
-            switchAdminTab,
-            handleAddCatalog,
-            handleDeleteCatalog,
-            handleAddProduct,
-            handleDeleteProduct,
-            handleEditProduct,
-            handleSearchInput,
-            showEditForm,
-            cancelEdit,
-            renderProductListSection,
-            renderInventorySection,
-            handleUpdateStock,
-            showPurchaseOrderForm,
+            switchAdminTab, handleAddCatalog, handleDeleteCatalog, handleAddProduct,
+            handleDeleteProduct, handleEditProduct, handleSearchInput, showEditForm,
+            cancelEdit, renderProductListSection, renderInventorySection,
+            handleUpdateStock, showPurchaseOrderForm,
         
             // --- ORDER TRACKING ---
-            orders,
-            userId,
-            fetchOrders,
-            switchOrderPage,
-            getOrdersCollectionPath,
-            handleOrderSearchInput,
-            handleOrderListSearchInput,
-            handleStatusFilterChange,
-            handleDeliveryFilterChange,
-            handleOrderStatusUpdate,
-            handleRequestDelivery,
-            renderOrdersList,
-            renderOrderCreateForm,
-            renderOrdersStats,
-            getOrdersStatsHtml,
-            renderSalesCharts,
-            handleSalesTimeFilterChange,
-            renderCategorySalesTable,
-            downloadCategorySalesCsv,
-            downloadIndividualItemSalesCsv,
+            orders, userId, fetchOrders, switchOrderPage, getOrdersCollectionPath,
+            handleOrderSearchInput, handleOrderListSearchInput, handleStatusFilterChange,
+            handleDeliveryFilterChange, handleOrderStatusUpdate, handleRequestDelivery,
+            renderOrdersList, renderOrderCreateForm, renderOrdersStats, getOrdersStatsHtml,
+            renderSalesCharts, handleSalesTimeFilterChange, renderCategorySalesTable,
+            downloadCategorySalesCsv, downloadIndividualItemSalesCsv,
         
             // --- MANUAL ORDER CREATION (ADMIN CART) ---
-            handleAdminOrderSubmit,
-            addAdminCartItem,
-            removeAdminCartItem,
-            updateAdminCartDisplay,
-            updateItemSelector,
+            handleAdminOrderSubmit, addAdminCartItem, removeAdminCartItem,
+            updateAdminCartDisplay, updateItemSelector,
         
             // --- ORDER EDITING & DRAFT CART ---
-            showOrderEditForm,
-            closeEditModal,
-            updateOrder,
-            renderOrderEditModal,
+            showOrderEditForm, closeEditModal, updateOrder, renderOrderEditModal,
             initializeDraftCart,
             
-            // Updated to trigger billing recalc whenever items change
             updateDraftCartDisplay: function() {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
                 const totalEl = document.getElementById('editOrderTotal');
@@ -3929,64 +3854,47 @@
         
                 const itemsInCart = Object.values(state.editingOrderDraftCart);
                 if (itemsInCart.length === 0) {
-                    cartEl.innerHTML = '<p class="text-gray-500 italic">No items currently in order.</p>';
+                    cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">Empty</p>';
                 } else {
                     cartEl.innerHTML = itemsInCart.map(entry => {
                         const subtotal = entry.item.price * entry.quantity;
                         totalCents += subtotal;
                         return `
-                            <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                                <div class="flex-1 min-w-0 pr-2">
-                                    <p class="text-sm font-semibold text-gray-900 truncate">${entry.item.name}</p>
-                                    <p class="text-xs text-gray-500">${formatPriceDisplay(entry.item.price)}</p>
-                                </div>
-                                <div class="flex items-center space-x-2 flex-shrink-0">
+                            <div class="flex justify-between items-center py-1 border-b text-xs">
+                                <span class="truncate pr-2">${entry.item.name}</span>
+                                <div class="flex items-center space-x-2">
                                     <input type="number" value="${entry.quantity}" min="1" 
                                            onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
-                                           class="w-12 p-1 border rounded text-xs text-center">
-                                    <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500 text-xs ml-1">❌</button>
+                                           class="w-10 border rounded text-center">
+                                    <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500">×</button>
                                 </div>
                             </div>`;
                     }).join('');
                 }
                 totalEl.textContent = formatPriceDisplay(totalCents);
-                // CRITICAL: Refresh balance calculation whenever items are added/removed/changed
                 this.recalculateBilling();
             },
             
-            addDraftCartItem,
-            removeDraftCartItem,
-            updateDraftItemQuantity,
+            addDraftCartItem, removeDraftCartItem, updateDraftItemQuantity,
         
             // --- FINANCIALS & BILLING ---
-            renderFinancialsSection,
-            renderFinancialRows,
-            downloadPaymentLedgerCsv,
+            renderFinancialsSection, renderFinancialRows, downloadPaymentLedgerCsv,
             
             recalculateBilling: function() { 
-                // 1. Calculate the New Total based on items currently in the draft cart
                 const totalCents = Object.values(state.editingOrderDraftCart).reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
-                
-                // 2. Get the value currently typed into the "Amount Paid" input
                 const paidInput = document.getElementById('edit-paid-amount');
+                const displayPaid = document.getElementById('display-paid-amount');
+                const balanceEl = document.getElementById('edit-remaining-balance');
+        
                 const paidDollars = parseFloat(paidInput?.value) || 0;
                 const paidCents = Math.round(paidDollars * 100);
-                
-                // 3. Calculate Balance
                 const balanceCents = totalCents - paidCents;
         
-                // 4. Update UI Elements
-                if (document.getElementById('editOrderTotal')) 
-                    document.getElementById('editOrderTotal').textContent = formatPriceDisplay(totalCents);
-                    
-                if (document.getElementById('display-paid-amount')) 
-                    document.getElementById('display-paid-amount').textContent = formatPriceDisplay(paidCents);
-                    
-                if (document.getElementById('edit-remaining-balance')) {
-                    const balEl = document.getElementById('edit-remaining-balance');
-                    balEl.textContent = formatPriceDisplay(balanceCents);
-                    // Visual feedback: Green for settled (0 or overpaid), Rose for outstanding
-                    balEl.className = balanceCents <= 0 ? 'text-green-600 font-black' : 'text-rose-600 font-black';
+                if (document.getElementById('editOrderTotal')) document.getElementById('editOrderTotal').textContent = formatPriceDisplay(totalCents);
+                if (displayPaid) displayPaid.textContent = formatPriceDisplay(paidCents);
+                if (balanceEl) {
+                    balanceEl.textContent = formatPriceDisplay(balanceCents);
+                    balanceEl.className = balanceCents <= 0 ? 'text-green-600 font-black' : 'text-rose-600 font-black';
                 }
             }
         };
