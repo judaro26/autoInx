@@ -3814,174 +3814,176 @@
         }
         
         
-          // --- EXPOSE TO WINDOW ---
-        window.module = {
-            // --- AUTH & USERS ---
-            globalNextPageToken,
-            fetchUsers,
-            renderUserList,
-            handleUserSearchInput,
-            handleBulkUserAction,
-            handleUserAction,
-            toggleUserSelection,
-            toggleAllUsers,
-            promptForPasswordReset,
-            deleteUser,
-            disableUser,
-            handleClearAnonymousUsers,
-        
-            // --- CONFIG & SYSTEM ---
-            globalConfig,
-            fetchAdminConfig,
-            displayStaticIps,
-            handleUpdateConfig,
-            togglePreviewMode,
-            toggleLanguage,
-            logAdminAction,
-            loadGoogleMapsScript,
-        
-            // --- CATALOG & INVENTORY ---
-            switchAdminTab,
-            handleAddCatalog,
-            handleDeleteCatalog,
-            handleAddProduct,
-            handleDeleteProduct,
-            handleEditProduct,
-            handleSearchInput,
-            showEditForm,
-            cancelEdit,
-            renderProductListSection,
-            renderInventorySection,
-            handleUpdateStock,
-            showPurchaseOrderForm,
-        
-            // --- ORDER TRACKING ---
-            orders,
-            userId,
-            fetchOrders,
-            switchOrderPage,
-            getOrdersCollectionPath,
-            handleOrderSearchInput,
-            handleOrderListSearchInput,
-            handleStatusFilterChange,
-            handleDeliveryFilterChange,
-            handleOrderStatusUpdate,
-            handleRequestDelivery,
-            renderOrdersList,
-            renderOrderCreateForm,
-            renderOrdersStats,
-            getOrdersStatsHtml,
-            renderSalesCharts,
-            handleSalesTimeFilterChange,
-            renderCategorySalesTable,
-            downloadCategorySalesCsv,
-            downloadIndividualItemSalesCsv,
-        
-            // --- MANUAL ORDER CREATION (ADMIN CART) ---
-            handleAdminOrderSubmit,
-            addAdminCartItem,
-            removeAdminCartItem,
-            updateAdminCartDisplay,
-            updateItemSelector,
-        
-            // --- ORDER EDITING & DRAFT CART ---
-            showOrderEditForm,
-            closeEditModal,
-            updateOrder,
-            renderOrderEditModal,
-            initializeDraftCart,
-            
-            // Updated to trigger billing recalc whenever items change
-            updateDraftCartDisplay: function() {
-                const cartEl = document.getElementById('editOrderItemsDisplay');
-                const totalEl = document.getElementById('editOrderTotal');
-                let totalCents = 0;
-                if (!cartEl || !totalEl) return;
-        
-                const itemsInCart = Object.values(state.editingOrderDraftCart);
-                if (itemsInCart.length === 0) {
-                    cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">Empty</p>';
-                } else {
-                    cartEl.innerHTML = itemsInCart.map(entry => {
-                        const subtotal = entry.item.price * entry.quantity;
-                        totalCents += subtotal;
-                        return `
-                            <div class="flex justify-between items-center py-1 border-b text-xs">
-                                <span class="truncate pr-2">${entry.item.name}</span>
-                                <div class="flex items-center space-x-2">
-                                    <input type="number" value="${entry.quantity}" min="1" 
-                                           onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
-                                           class="w-10 border rounded text-center">
-                                    <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500">×</button>
-                                </div>
-                            </div>`;
-                    }).join('');
-                }
-                if (totalEl) totalEl.textContent = formatPriceDisplay(totalCents);
-                this.recalculateBilling();
-            },
-            
-            addDraftCartItem,
-            removeDraftCartItem,
-            updateDraftItemQuantity,
-        
-            // --- FINANCIALS & PAYMENT LEDGER ---
-            renderFinancialsSection,
-            renderFinancialRows,
-            downloadPaymentLedgerCsv,
-            
-            // New Payment History Helpers
-            updateExistingPaymentState: function(index, value) {
-                const cents = Math.round(parseFloat(value || 0) * 100);
-                if (state.editingPaymentHistory && state.editingPaymentHistory[index]) {
-                    state.editingPaymentHistory[index].amountCents = cents;
-                    this.recalculateBilling();
-                }
-            },
-        
-            updateExistingPaymentMethod: function(index, method) {
-                if (state.editingPaymentHistory && state.editingPaymentHistory[index]) {
-                    state.editingPaymentHistory[index].method = method;
-                }
-            },
-        
-            removePaymentFromHistory: function(index) {
-                if (!confirm("Delete this transaction record?")) return;
-                state.editingPaymentHistory.splice(index, 1);
-                // Refresh the modal view by calling recalculate (or you could re-render the whole modal)
-                // For best UX, we update the balance and hide the element
-                this.recalculateBilling();
-                // Force a re-render of the modal to clear the deleted row visually
-                const order = state.orders.find(o => o.id === state.currentEditingOrderId);
-                if (order) document.getElementById('editModalContainer').innerHTML = this.renderOrderEditModal(order, 'payment');
-            },
-        
-            recalculateBilling: function() { 
-                // 1. Calculate the New Order Total from Items
-                const totalCents = Object.values(state.editingOrderDraftCart).reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+         // --- EXPOSE TO WINDOW ---
+                window.module = {
+                    // --- AUTH & USERS ---
+                    globalNextPageToken,
+                    fetchUsers,
+                    renderUserList,
+                    handleUserSearchInput,
+                    handleBulkUserAction,
+                    handleUserAction,
+                    toggleUserSelection,
+                    toggleAllUsers,
+                    promptForPasswordReset,
+                    deleteUser,
+                    disableUser,
+                    handleClearAnonymousUsers,
                 
-                // 2. Calculate sum of existing (potentially edited) history
-                const historyPaidCents = (state.editingPaymentHistory || []).reduce((sum, p) => sum + p.amountCents, 0);
-        
-                // 3. Get value from the "Add New Payment" input
-                const newPaidInput = document.getElementById('new-payment-amount');
-                const newPaidCents = Math.round((parseFloat(newPaidInput?.value) || 0) * 100);
+                    // --- CONFIG & SYSTEM ---
+                    globalConfig,
+                    fetchAdminConfig,
+                    displayStaticIps,
+                    handleUpdateConfig,
+                    togglePreviewMode,
+                    toggleLanguage,
+                    logAdminAction,
+                    loadGoogleMapsScript,
                 
-                const combinedPaidCents = historyPaidCents + newPaidCents;
-                const balanceCents = totalCents - combinedPaidCents;
-        
-                // 4. Update UI Elements
-                if (document.getElementById('editOrderTotal')) 
-                    document.getElementById('editOrderTotal').textContent = formatPriceDisplay(totalCents);
+                    // --- CATALOG & INVENTORY ---
+                    switchAdminTab,
+                    handleAddCatalog,
+                    handleDeleteCatalog,
+                    handleAddProduct,
+                    handleDeleteProduct,
+                    handleEditProduct,
+                    handleSearchInput,
+                    showEditForm,
+                    cancelEdit,
+                    renderProductListSection,
+                    renderInventorySection,
+                    handleUpdateStock,
+                    showPurchaseOrderForm,
+                
+                    // --- ORDER TRACKING ---
+                    orders,
+                    userId,
+                    fetchOrders,
+                    switchOrderPage,
+                    getOrdersCollectionPath,
+                    handleOrderSearchInput,
+                    handleOrderListSearchInput,
+                    handleStatusFilterChange,
+                    handleDeliveryFilterChange,
+                    handleOrderStatusUpdate,
+                    handleRequestDelivery,
+                    renderOrdersList,
+                    renderOrderCreateForm,
+                    renderOrdersStats,
+                    getOrdersStatsHtml,
+                    renderSalesCharts,
+                    handleSalesTimeFilterChange,
+                    renderCategorySalesTable,
+                    downloadCategorySalesCsv,
+                    downloadIndividualItemSalesCsv,
+                
+                    // --- MANUAL ORDER CREATION (ADMIN CART) ---
+                    handleAdminOrderSubmit,
+                    addAdminCartItem,
+                    removeAdminCartItem,
+                    updateAdminCartDisplay,
+                    updateItemSelector,
+                
+                    // --- ORDER EDITING & DRAFT CART ---
+                    showOrderEditForm,
+                    closeEditModal,
+                    updateOrder,
+                    renderOrderEditModal,
+                    initializeDraftCart,
                     
-                if (document.getElementById('modal-balance-display')) {
-                    const balEl = document.getElementById('modal-balance-display');
-                    balEl.textContent = formatPriceDisplay(balanceCents);
-                    balEl.className = balanceCents <= 0 ? 'text-lg font-black text-green-600' : 'text-lg font-black text-rose-600';
+                    updateDraftCartDisplay: function() {
+                        const cartEl = document.getElementById('editOrderItemsDisplay');
+                        const totalEl = document.getElementById('editOrderTotal');
+                        let totalCents = 0;
+                        if (!cartEl || !totalEl) return;
+                
+                        const itemsInCart = Object.values(state.editingOrderDraftCart);
+                        if (itemsInCart.length === 0) {
+                            cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">Empty</p>';
+                        } else {
+                            cartEl.innerHTML = itemsInCart.map(entry => {
+                                const subtotal = entry.item.price * entry.quantity;
+                                totalCents += subtotal;
+                                return `
+                                    <div class="flex justify-between items-center py-1 border-b text-xs">
+                                        <span class="truncate pr-2">${entry.item.name}</span>
+                                        <div class="flex items-center space-x-2">
+                                            <input type="number" value="${entry.quantity}" min="1" 
+                                                   onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
+                                                   class="w-10 border rounded text-center">
+                                            <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500">×</button>
+                                        </div>
+                                    </div>`;
+                            }).join('');
+                        }
+                        if (totalEl) totalEl.textContent = formatPriceDisplay(totalCents);
+                        this.recalculateBilling();
+                    },
+                    
+                    addDraftCartItem,
+                    removeDraftCartItem,
+                    updateDraftItemQuantity,
+                
+                    // --- FINANCIALS & PAYMENT LEDGER ---
+                    renderFinancialsSection,
+                    renderFinancialRows,
+                    downloadPaymentLedgerCsv,
+                    
+                    updateExistingPaymentState: function(index, value) {
+                        const cents = Math.round(parseFloat(value || 0) * 100);
+                        if (state.editingPaymentHistory && state.editingPaymentHistory[index]) {
+                            state.editingPaymentHistory[index].amountCents = cents;
+                            this.recalculateBilling();
+                        }
+                    },
+                
+                    updateExistingPaymentMethod: function(index, method) {
+                        if (state.editingPaymentHistory && state.editingPaymentHistory[index]) {
+                            state.editingPaymentHistory[index].method = method;
+                        }
+                    },
+                
+                    removePaymentFromHistory: function(index) {
+                        if (!confirm("Delete this transaction record?")) return;
+                        state.editingPaymentHistory.splice(index, 1);
+                        this.recalculateBilling();
+                        // Force modal re-render to update the list
+                        const order = state.orders.find(o => o.id === state.currentEditingOrderId);
+                        if (order) document.getElementById('editModalContainer').innerHTML = this.renderOrderEditModal(order, 'payment');
+                    },
+                
+                    recalculateBilling: function() { 
+                        // 1. Calculate New Total
+                        const totalCents = Object.values(state.editingOrderDraftCart).reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+                        
+                        // 2. Calculate History Total
+                        const historyPaidCents = (state.editingPaymentHistory || []).reduce((sum, p) => sum + p.amountCents, 0);
+                
+                        // 3. Current Input Total
+                        const newPaidInput = document.getElementById('new-payment-amount');
+                        const newPaidCents = Math.round((parseFloat(newPaidInput?.value) || 0) * 100);
+                        
+                        const combinedPaidCents = historyPaidCents + newPaidCents;
+                        const balanceCents = totalCents - combinedPaidCents;
+                
+                        // 4. Update UI
+                        if (document.getElementById('editOrderTotal')) 
+                            document.getElementById('editOrderTotal').textContent = formatPriceDisplay(totalCents);
+                            
+                        if (document.getElementById('modal-balance-display')) {
+                            const balEl = document.getElementById('modal-balance-display');
+                            balEl.textContent = formatPriceDisplay(balanceCents);
+                            balEl.className = balanceCents <= 0 ? 'text-lg font-black text-green-600' : 'text-lg font-black text-rose-600';
+                        }
+                    }
+                };
+        
+        // --- BOOTSTRAP ---
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', setupFirebase);
+                } else {
+                    setupFirebase();
                 }
-            }
-        };
-        document.addEventListener('DOMContentLoaded', setupFirebase);
-    </script>
-</html></body>
+            </script>
+</body>
 </html>
