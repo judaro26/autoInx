@@ -1162,48 +1162,44 @@
         } 
         
         // --- AUTHENTICATION CHECK & REDIRECT ---
-        function checkAuthAndRender() {
-            onAuthStateChanged(auth, user => {
-                if (user && !user.isAnonymous) {
-                    // User is signed in, now check admin claims
-                    user.getIdTokenResult(true).then(idTokenResult => {
-                        if (idTokenResult.claims.admin === true) {
-                            
-                            // 1. SET THE GLOBAL userId VARIABLE FIRST
-                            userId = user.uid;
-        
-                            // 2. Start session/activity tracking
-                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer); // Added touch listener
-                            resetTimer();
-                            
-                            // 3. Setup listeners and render the main admin page HTML
-                            setupRealtimeListeners();
-                            renderAdminPage(user.email || 'Admin');
-                            
-                            // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
-                            // This resolves the timing issue you were seeing.
-                            if (window.module.fetchOrders) {
-                                window.module.fetchOrders();
-                            }
-        
+                function checkAuthAndRender() {
+                    onAuthStateChanged(auth, user => {
+                        if (user && !user.isAnonymous) {
+                            // User is signed in, now check admin claims
+                            user.getIdTokenResult(true).then(idTokenResult => {
+                                if (idTokenResult.claims.admin === true) {
+                                    
+                                    // 1. SET THE GLOBAL userId VARIABLE FIRST
+                                    userId = user.uid;
+                
+                                    // 2. Start session/activity tracking
+                                    document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                                    document.addEventListener('touchstart', resetTimer); 
+                                    resetTimer();
+                                    
+                                    // 3. Setup listeners and render the main admin page HTML
+                                    setupRealtimeListeners();
+                                    renderAdminPage(user.email || 'Admin');
+                                    
+                                    // 4. EXPLICITLY load the orders
+                                    if (window.module.fetchOrders) {
+                                        window.module.fetchOrders();
+                                    }
+                
+                                } else {
+                                    signOut(auth);
+                                    window.location.href = '/?error=unauthorized';
+                                }
+                            }).catch(err => {
+                                console.error("Token error:", err);
+                                signOut(auth);
+                                window.location.href = '/?error=auth_failed';
+                            });
                         } else {
-                            // Not an admin, sign out and redirect
-                            signOut(auth);
-                            window.location.href = '/?error=unauthorized';
+                            window.location.href = '/';
                         }
-                    }).catch(err => {
-                        // Token verification error
-                        console.error("Token error:", err);
-                        signOut(auth);
-                        window.location.href = '/?error=auth_failed';
                     });
-                } else {
-                    // User not signed in, redirect to login page
-                    window.location.href = '/';
                 }
-            });
-        }
     
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
