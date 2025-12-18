@@ -1,22 +1,8 @@
-/**
- * Netlify Function (Admin Only) to get or initialize Admin configuration from Firestore.
- * This includes the dynamic IP Whitelist and Maintenance Mode status.
- */
 const admin = require('firebase-admin');
 
-// Ensure Firebase Admin is initialized once
 if (!admin.apps.length) {
-    
     const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
-    let cleanedPrivateKey = undefined;
-
-    if (privateKeyString) {
-        // Handle escaped newlines from environment variables
-        cleanedPrivateKey = privateKeyString
-                                .replace(/\\n/g, '\n')
-                                .replace(/\n/g, '\n')
-                                .trim(); 
-    }
+    let cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
 
     admin.initializeApp({
         credential: admin.credential.cert({
@@ -28,70 +14,55 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-// Path: Collection 'admin', Document 'config'
-const CONFIG_DOC_PATH = 'admin/config';
+
+function ipInSubnet(ip, subnet) {
+    if (!subnet || !ip) return false;
+    const cleanSubnet = subnet.trim();
+    if (!cleanSubnet.includes('/')) return ip.trim() === cleanSubnet;
+    
+    try {
+        const [range, bits] = cleanSubnet.split('/');
+        const mask = ~(Math.pow(2, 32 - parseInt(bits)) - 1);
+        const ipInt = ip.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+        const rangeInt = range.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+        return (ipInt & mask) === (rangeInt & mask);
+    } catch (e) {
+        return false;
+    }
+}
 
 exports.handler = async function (event) {
-    
-    // --- START SECURITY CHECK: Validate Admin Token ---
-    // This blocks public access to the IP Whitelist and other settings.
-    const authHeader = event.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        // Return 401 if no token is present
-        return { statusCode: 401, body: JSON.stringify({ error: 'Authorization token required for admin configuration access.' }) };
-    }
-
-    const idToken = authHeader.split('Bearer ')[1];
     try {
-        const decodedToken = await admin.auth().verifyIdToken(idToken);
-        if (decodedToken.admin !== true) {
-            // Return 403 if token is present but lacks admin claim
-            return { statusCode: 403, body: JSON.stringify({ error: 'Access denied: Admin privileges required.' }) };
-        }
-    } catch (e) {
-        // Return 401 if token is invalid or expired
-        return { statusCode: 401, body: JSON.stringify({ error: 'Invalid or expired token.' }) };
-    }
-    // --- END SECURITY CHECK ---
-
-    try {
-        const configRef = db.doc(CONFIG_DOC_PATH);
-        const configDoc = await configRef.get();
-
-        if (!configDoc.exists) {
-            // Initialize config if it doesn't exist
-            const initialConfig = {
-                ipWhitelist: ["127.0.0.1"], // Default IP
-                maintenanceMode: false,
-                chatWidgetEnabled: true, 
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            };
-            await configRef.set(initialConfig);
-            console.log('Admin config initialized.');
-            return {
-                statusCode: 200,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(initialConfig),
-            };
-        }
+        const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || "";
         
-        const configData = configDoc.data();
-        if (configData.chatWidgetEnabled === undefined) {
-             configData.chatWidgetEnabled = true;
-        }
+        // Fetch config once from Firestore
+        const configDoc = await db.doc('admin/config').get();
+        const configData = configDoc.exists ? configDoc.data() : {};
+        
+        // Use the Firestore-based whitelist exclusively
+        const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
+
+        const isWhitelisted = whitelist.some(range => ipInSubnet(clientIp, range));
 
         return {
             statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(configData),
+            headers: { 
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache'
+            },
+            body: JSON.stringify({
+                maintenanceMode: configData.maintenanceMode === true,
+                chatWidgetEnabled: configData.chatWidgetEnabled !== false,
+                isRequesterAdmin: isWhitelisted, 
+                clientIp: clientIp 
+            }),
         };
 
     } catch (error) {
-        console.error('Error fetching admin config:', error);
+        console.error('getPublicConfig Error:', error);
         return {
-            statusCode: 500, // Return 500 on server error
-            body: JSON.stringify({ error: 'Failed to fetch admin configuration', details: error.message }),
+            statusCode: 500,
+            body: JSON.stringify({ error: 'Internal Server Error' }),
         };
     }
 };
