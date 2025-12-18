@@ -73,11 +73,6 @@ exports.handler = async function(event, context) {
         const config = configDoc.exists ? configDoc.data() : {};
         const schedule = config.chatSchedule;
 
-        // Check for existing manual override on the general toggle
-        if (config.chatWidgetEnabled === false) {
-             console.log("Skipping scheduled change: Chat is manually disabled by Admin toggle.");
-             return { statusCode: 200, body: 'Skipping scheduled change: Manual global disable detected.' };
-        }
 
         const defaultSchedule = { enableTime: '08:00', disableTime: '20:00', activeDays: [1, 2, 3, 4, 5] };
         const finalSchedule = schedule || defaultSchedule;
