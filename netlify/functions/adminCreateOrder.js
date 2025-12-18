@@ -150,7 +150,9 @@ exports.handler = async function (event) {
         const emailPayload = { 
             ...orderDetails, 
             orderId: orderId,
-            timestamp: orderData.timestamp
+            timestamp: orderData.timestamp,
+            // Explicitly ensure 'communicationLang' is set for the emailer
+            communicationLang: orderDetails.language || orderDetails.communicationLang || 'en'
         };
         
         const emailResponse = await fetch(`${SITE_URL}/.netlify/functions/sendOrderConfirmation`, {
