@@ -105,7 +105,7 @@ exports.handler = async function (event) {
             htmlContent = htmlContent.split(key).join(value);
         }
 
-        // 5. GENERATE PDF VIA DOPPIO (Updated for Latest API)
+        // 5. GENERATE PDF VIA DOPPIO (Puppeteer-style Syntax)
                 const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
                     method: 'POST',
                     headers: {
@@ -114,12 +114,21 @@ exports.handler = async function (event) {
                     },
                     body: JSON.stringify({
                         page: {
-                            content: htmlContent, // Formerly "html"
-                        },
-                        pdf: {
-                            format: 'A4',
-                            printBackground: true,
-                            margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
+                            // Use setContent for raw HTML strings
+                            setContent: {
+                                html: htmlContent
+                            },
+                            // PDF options go here, following Puppeteer naming
+                            pdf: {
+                                format: 'A4',
+                                printBackground: true,
+                                margin: { 
+                                    top: '1cm', 
+                                    bottom: '1cm', 
+                                    left: '1cm', 
+                                    right: '1cm' 
+                                }
+                            }
                         }
                     })
                 });
