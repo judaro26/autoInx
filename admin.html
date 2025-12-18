@@ -2607,68 +2607,46 @@
          * Updates the state of the Load More Users button and displays user count.
          */
         // Ensure you have 'getDoc' imported: import { getFirestore, doc, getDoc, ... }
+        async function showOrderEditForm(orderId, clientUid) {
+            if (!orderId || !clientUid) return console.error("Missing IDs.");
         
-        async function showOrderEditForm(orderId, clientUid) { // 🔑 Accepts both IDs
-            if (!orderId || !clientUid) return console.error("Missing Order ID or Client UID for editing.");
-            
-            let orderRef;
-            let orderSnap;
-            let path;
-            
             try {
-                const adminUserId = await waitForUserId(); // Ensures admin user ID is available
+                const adminUserId = await waitForUserId();
                 const collectionPathFn = window.module.getOrdersCollectionPath;
-                
-                if (typeof collectionPathFn !== 'function') {
-                     throw new Error("Collection path helper is missing or not a function.");
-                }
-                
-                path = collectionPathFn(clientUid);
-                
-                orderRef = doc(db, path, orderId);
-                
-                // 4. Fetch the document data directly from Firebase
-                orderSnap = await getDoc(orderRef);
-                
-                // --- DEBUG LOGGING: CHECK THIS IN YOUR CONSOLE ---
-                console.log(`[DEBUG] Attempted path: ${path}/${orderId}`);
-                console.log(`[DEBUG] Document Exists: ${orderSnap.exists()}`);
-                // --- END DEBUG LOGGING ---
-                
-                if (!orderSnap.exists()) {
-                    // FIX: Show a clear error message instead of returning silently
-                    document.getElementById('editModalContainer').innerHTML = `
-                        <div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onclick="window.module.closeEditModal()">
-                            <div class="relative top-20 mx-auto p-8 border w-3/4 md:w-1/2 shadow-2xl rounded-xl bg-white transform transition-all duration-300 scale-100" onclick="event.stopPropagation()">
-                                <h3 class="text-3xl font-bold text-red-700 mb-6">Error: Order Not Found</h3>
-                                <p class="text-lg text-gray-700">The order <b>${orderId.slice(0, 8)}...</b> could not be found at the path: <code>${path}</code>. Check the console for permissions errors.</p>
-                                <div class="flex justify-end mt-6"><button onclick="window.module.closeEditModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition shadow-md">Close</button></div>
-                            </div>
-                        </div>
-                    `;
-                    return; // Exit after showing error
-                }
-                
-                // 5. Construct the orderData object from the fetched snapshot
-                const orderData = { id: orderSnap.id, ...orderSnap.data() };
-                
-                // **NEW CRITICAL STEP: Initialize the draft cart state**
-                window.module.initializeDraftCart(orderData.items || []); // Use helper from window.module
-                
-                // 6. Render the modal using the fetched data
-                const modalHtml = window.module.renderOrderEditModal(orderData);
-                
-                document.getElementById('editModalContainer').innerHTML = modalHtml;
-                
-                // **NEW CRITICAL STEP: Populate the modal's item list immediately after injection**
-                window.module.updateDraftCartDisplay(); 
+                const path = collectionPathFn(clientUid);
+                const orderRef = doc(db, path, orderId);
+                const orderSnap = await getDoc(orderRef);
         
-                // RENDER ITEM SELECTOR OPTIONS (Uses existing state.items and state.catalogs)
+                if (!orderSnap.exists()) {
+                    document.getElementById('editModalContainer').innerHTML = `<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"><div class="bg-white p-8 rounded-lg">Order Not Found</div></div>`;
+                    return;
+                }
+        
+                const orderData = { id: orderSnap.id, ...orderSnap.data() };
+        
+                // 1. Initialize the draft state with current items AND current paid amount
+                window.module.initializeDraftCart(orderData.items || [], orderData.paidCents || 0);
+        
+                // 2. Generate the HTML using the modal renderer
+                const modalHtml = window.module.renderOrderEditModal(orderData);
+        
+                // 3. CRITICAL FIX: Inject the HTML into the container
+                const container = document.getElementById('editModalContainer');
+                if (container) {
+                    container.innerHTML = modalHtml;
+                } else {
+                    console.error("editModalContainer element not found in DOM");
+                    return;
+                }
+        
+                // 4. Populate visual items and calculate initial billing
+                window.module.updateDraftCartDisplay();
+        
+                // 5. Populate product selector for adding new items
                 const selectorEl = document.getElementById('editItemSelector');
-                if(selectorEl) {
-                    const items = state.items; 
+                if (selectorEl) {
                     let optionsHtml = '<option value="" disabled selected>-- Add Product --</option>';
-                    optionsHtml += items.map(item => {
+                    optionsHtml += state.items.map(item => {
                         const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
                         return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
                     }).join('');
@@ -2677,14 +2655,7 @@
         
             } catch (error) {
                 console.error("Error fetching order for edit:", error);
-                
-                if (error.message.includes("Timeout")) {
-                    alert("Authorization error: Admin user ID was not detected. Please refresh the page.");
-                } else if (error.message.includes("Target User ID is missing")) {
-                    alert("Error: Client User ID is missing from the order list data. Check HTML generation.");
-                } else {
-                    alert("Failed to fetch order details. See console.");
-                }
+                alert("Failed to fetch order details.");
             }
         }
         function renderDayCheckboxes(activeDays = [1, 2, 3, 4, 5]) {
@@ -2808,46 +2779,47 @@
         async function updateOrder(e, orderId, sourceId) {
             e.preventDefault();
             
-            // 1. UI Feedback: Start Loading State
+            // 1. UI Safety Check
             const saveBtn = document.getElementById('saveOrderBtn');
+            if (!saveBtn) return;
             const originalText = saveBtn.innerHTML;
+        
+            // Helper to prevent the "Cannot read properties of null" error
+            const getSafeVal = (id) => {
+                const el = document.getElementById(id);
+                if (!el) { console.warn(`ID ${id} not found in modal.`); return null; }
+                return el.value;
+            };
+        
+            // 2. Data Capture
+            const newStatus = getSafeVal('edit-status');
+            const newLanguage = getSafeVal('edit-language');
+            const newAddress = getSafeVal('edit-address');
+            const newNotes = getSafeVal('edit-notes');
+            const newMethod = getSafeVal('edit-payment-method');
+            const paidVal = getSafeVal('edit-paid-amount');
+        
+            if (newStatus === null) {
+                console.error("Critical modal fields missing. Aborting save.");
+                return;
+            }
+        
             saveBtn.disabled = true;
-            saveBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white inline" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving...`;
+            saveBtn.innerHTML = `Saving...`;
             
-            // 2. Capture Form Data
-            const newStatus = document.getElementById('edit-status').value;
-            const newLanguage = document.getElementById('edit-language').value;
-            const newAddress = document.getElementById('edit-address').value;
-            const newNotes = document.getElementById('edit-notes').value;
-            
-            // 3. Capture Financial Data
-            const newMethod = document.getElementById('edit-payment-method').value;
-            const paidDollars = parseFloat(document.getElementById('edit-paid-amount').value) || 0;
-            const paidCents = Math.round(paidDollars * 100);
-            
-            // 4. Recalculate Totals from Draft Cart
+            const paidCents = Math.round(parseFloat(paidVal || 0) * 100);
             const newItemsDraft = Object.values(state.editingOrderDraftCart);
-            const newItemsList = newItemsDraft.map(entry => ({
-                id: entry.item.id,
-                name: entry.item.name,
-                sku: entry.item.sku || null,
-                price: entry.item.price, // Price in cents
-                quantity: entry.quantity
-            }));
             const newTotalCents = newItemsDraft.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
-            
-            // Logic: If Paid Amount >= Total, set isPaid to true
             const isActuallyPaid = paidCents >= newTotalCents;
         
-            // 5. Validation
-            if (newItemsList.length === 0) {
-                alert("Cannot save an empty order. Please add at least one item or cancel.");
+            if (newItemsDraft.length === 0) {
+                alert("Cannot save an empty order.");
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalText;
                 return;
             }
         
-            // 6. Firestore References & Original Data Check
+            // 3. Sync Prep
             const collectionPath = window.module.getOrdersCollectionPath(sourceId);
             const orderRef = doc(db, collectionPath, orderId);
             const originalOrder = state.orders.find(o => o.id === orderId); 
@@ -2855,8 +2827,8 @@
             const originalItemsMap = originalOrder ? originalOrder.items.reduce((map, item) => { map[item.id] = item.quantity; return map; }, {}) : {};
         
             try {
-                // 7. Perform Firestore Update (Main Order Document)
-                await updateDoc(orderRef, {
+                // 4. Update Main Order
+                const updatePayload = {
                     status: newStatus,
                     isPaid: isActuallyPaid,
                     paidCents: paidCents,
@@ -2865,92 +2837,68 @@
                     adminNotes: newNotes,
                     language: newLanguage,
                     communicationLang: newLanguage,
-                    items: newItemsList,
+                    items: newItemsDraft.map(entry => ({
+                        id: entry.item.id,
+                        name: entry.item.name,
+                        sku: entry.item.sku || null,
+                        price: entry.item.price,
+                        quantity: entry.quantity
+                    })),
                     totalCents: newTotalCents,
                     updatedAt: serverTimestamp()
-                });
+                };
         
-                // 8. Handle Inventory Adjustments
-                // A: Update existing or new items
-                const inventoryUpdatePromises = newItemsList.map(async newItem => {
+                await updateDoc(orderRef, updatePayload);
+        
+                // 5. INVENTORY LOGIC (Restored full complexity)
+                // Part A: Adjust stock for items still in the order
+                const inventoryPromises = newItemsDraft.map(async newItem => {
                     const originalQty = originalItemsMap[newItem.id] || 0;
-                    const change = newItem.quantity - originalQty; // Positive if admin added more, negative if removed some
-        
+                    const change = newItem.quantity - originalQty;
                     if (change !== 0) {
                         const currentItem = state.items.find(i => i.id === newItem.id);
                         if (currentItem) {
                             const newStock = Math.max(0, (currentItem.stock || 0) - change);
-                            const itemRef = doc(db, ITEMS_COLLECTION, newItem.id);
-                            await updateDoc(itemRef, { stock: newStock });
-                            
-                            await logAdminAction('INVENTORY_ADJUSTED_VIA_EDIT', {
-                                itemId: newItem.id,
-                                item: currentItem.name,
-                                orderId,
-                                qtyChange: change,
-                                oldStock: currentItem.stock,
-                                newStock
-                            }, newItem.id);
+                            await updateDoc(doc(db, ITEMS_COLLECTION, newItem.id), { stock: newStock });
+                            await logAdminAction('INVENTORY_ADJUSTED_VIA_EDIT', { itemId: newItem.id, change, newStock }, newItem.id);
                         }
                     }
                 });
         
-                // B: Return inventory for items completely removed from the order
-                const removedItemIds = Object.keys(originalItemsMap).filter(id => !newItemsList.some(item => item.id === id));
-                const removedItemPromises = removedItemIds.map(async removedItemId => {
-                    const removedQty = originalItemsMap[removedItemId];
-                    const currentItem = state.items.find(i => i.id === removedItemId);
+                // Part B: Return stock for items COMPLETELY REMOVED (The logic previously missing)
+                const removedItemIds = Object.keys(originalItemsMap).filter(id => !newItemsDraft.some(item => item.id === id));
+                const removedPromises = removedItemIds.map(async removedId => {
+                    const qtyToReturn = originalItemsMap[removedId];
+                    const currentItem = state.items.find(i => i.id === removedId);
                     if (currentItem) {
-                        const newStock = (currentItem.stock || 0) + removedQty;
-                        const itemRef = doc(db, ITEMS_COLLECTION, removedItemId);
-                        await updateDoc(itemRef, { stock: newStock });
-        
-                        await logAdminAction('INVENTORY_RETURNED_VIA_EDIT', {
-                            itemId: removedItemId,
-                            item: currentItem.name,
-                            orderId,
-                            qtyReturned: removedQty,
-                            oldStock: currentItem.stock,
-                            newStock
-                        }, removedItemId);
+                        const newStock = (currentItem.stock || 0) + qtyToReturn;
+                        await updateDoc(doc(db, ITEMS_COLLECTION, removedId), { stock: newStock });
+                        await logAdminAction('INVENTORY_RETURNED_VIA_EDIT', { itemId: removedId, qtyToReturn, newStock }, removedId);
                     }
                 });
-                
-                await Promise.all([...inventoryUpdatePromises, ...removedItemPromises]);
         
-                // 9. Notification Trigger: Send email only if status actually changed to a major milestone
-                const majorStatuses = ['Processing', 'Shipped', 'Pending' , 'Delivered', 'Cancelled'];
-                const statusChanged = newStatus !== originalStatus;
-                const isMajorStatus = majorStatuses.includes(newStatus);
-                
-                if (statusChanged && isMajorStatus && originalOrder) {
-                    const emailPayload = {
-                        ...originalOrder,
-                        orderId: orderId,
-                        newStatus: newStatus,
-                        language: newLanguage,
-                        deliveryAddress: newAddress,
-                        items: newItemsList,
-                        totalCents: newTotalCents,
-                        paidCents: paidCents,
-                        isPaid: isActuallyPaid
-                    };
-                    
-                    await fetch(EMAIL_CONFIRMATION_FUNCTION, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(emailPayload)
-                    });
-                    console.log("Status change email notification sent.");
+                await Promise.all([...inventoryPromises, ...removedPromises]);
+        
+                // 6. LOGGING & EMAILS
+                await logAdminAction('ORDER_EDITED_FULL', { orderId, newStatus, paidCents }, orderId);
+        
+                if (newStatus !== originalStatus && originalOrder) {
+                     const majorStatuses = ['Processing', 'Shipped', 'Pending' , 'Delivered', 'Cancelled'];
+                     if (majorStatuses.includes(newStatus)) {
+                        await fetch(EMAIL_CONFIRMATION_FUNCTION, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ...updatePayload, orderId, buyerEmail: originalOrder.buyerEmail, buyerName: originalOrder.buyerName })
+                        });
+                     }
                 }
                 
-                // 10. Success cleanup
-                showMessage('success', `Order ${orderId.slice(0, 8)} updated successfully. Inventory and financials synced.`, 5000, 'orders');
+                showMessage('success', `Order #${orderId.substring(0,5)} updated. Inventory synced.`, 5000, 'orders');
                 closeEditModal();
                 
             } catch (error) {
-                console.error("Critical error during updateOrder:", error);
-                alert(`Error updating order: ${error.message}. Please check the logs.`);
+                console.error("Update failed:", error);
+                alert("Error: " + error.message);
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalText;
