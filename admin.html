@@ -210,6 +210,8 @@
             // --- BILLING STATE ---
             editingOrderDraftCart: {},
             editingOrderPaymentTotal: 0,
+            editingPaymentHistory: [],
+            currentEditingOrderId: null,
 
             
             // ✅ CRITICAL FIX: Initialize the sales time filter
@@ -2760,11 +2762,11 @@
                 if (!orderSnap.exists()) {
                     // Display a user-friendly error in the modal container if the document is missing
                     document.getElementById('editModalContainer').innerHTML = `
-                        <div class="fixed inset-0 bg-gray-600 bg-opacity-50 z-50 flex items-center justify-center">
+                        <div class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
                             <div class="bg-white p-8 rounded-xl shadow-2xl border-t-4 border-red-500 text-center">
                                 <h3 class="text-xl font-bold text-red-700 mb-2">Order Not Found</h3>
                                 <p class="text-gray-600 mb-4">The order record could not be retrieved from the database.</p>
-                                <button onclick="window.module.closeEditModal()" class="bg-gray-200 px-4 py-2 rounded-lg font-bold hover:bg-gray-300">Close</button>
+                                <button onclick="window.module.closeEditModal()" class="bg-gray-200 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition">Close</button>
                             </div>
                         </div>
                     `;
@@ -2773,13 +2775,17 @@
                 
                 const orderData = { id: orderSnap.id, ...orderSnap.data() };
                 
-                // 4. State Initialization
-                // CRITICAL: We pass the items array AND the current paid amount (cents) 
-                // to sync the internal 'Draft Cart' used for recalculating balances.
+                // --- CRITICAL FIXES FOR STATE ---
+                // 4. Initialize the Draft Cart (for item editing)
                 window.module.initializeDraftCart(orderData.items || [], orderData.paidCents || 0);
                 
-                // 5. Modal Injection
-                // We pass the 'mode' ('edit' or 'payment') to the renderer to determine which HTML to show
+                // 5. Initialize Payment History State (REQUIRED for the Ledger to function)
+                state.editingPaymentHistory = orderData.paymentHistory ? [...orderData.paymentHistory] : [];
+                state.currentEditingOrderId = orderId;
+                // --------------------------------
+                
+                // 6. Modal Injection
+                // Determine which HTML to show based on 'mode' ('edit' or 'payment')
                 const modalHtml = window.module.renderOrderEditModal(orderData, mode);
                 const container = document.getElementById('editModalContainer');
                 
@@ -2789,7 +2795,7 @@
                     throw new Error("Target container 'editModalContainer' not found in the DOM.");
                 }
                 
-                // 6. Mode-Specific Setup
+                // 7. Mode-Specific Setup
                 if (mode === 'edit') {
                     // Full Editor Mode: Sync the item list display and total price
                     window.module.updateDraftCartDisplay();
@@ -2809,6 +2815,9 @@
                     window.module.recalculateBilling();
                 }
                 
+                // Optional: Reset the idle timer when user opens a modal
+                resetTimer();
+        
             } catch (error) {
                 console.error("Critical Error in showOrderEditForm:", error);
                 alert(`Failed to open order form: ${error.message}`);
