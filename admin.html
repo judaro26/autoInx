@@ -202,6 +202,11 @@
             orderStatusFilter: 'All',
             deliveryStatusFilter: 'All', 
             orderPage: 'list', 
+
+            // --- BILLING STATE ---
+            editingOrderDraftCart: {},
+            editingOrderPaymentTotal: 0,
+
             
             // ✅ CRITICAL FIX: Initialize the sales time filter
             salesTimeFilter: 'last6months', 
@@ -2693,104 +2698,92 @@
         }
                 
         function renderOrderEditModal(order) {
-            // Basic status options (customize these to your business logic)
             const statuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
-            const statusOptions = statuses.map(s => 
-                `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`
-            ).join('');
+            const statusOptions = statuses.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
             
-            // ADDED PAYMENT STATUS OPTIONS
-            const isPaidOptions = `
-                <option value="false" ${!order.isPaid ? 'selected' : ''}>Unpaid</option>
-                <option value="true" ${order.isPaid ? 'selected' : ''}>Paid</option>
-            `;
+            // Payment Methods
+            const methods = ['Cash', 'Bank Transfer', 'Credit Card', 'Zelle', 'Wompi', 'Other'];
+            const methodOptions = methods.map(m => `<option value="${m}" ${order.paymentMethod === m ? 'selected' : ''}>${m}</option>`).join('');
         
-            // Determine the current language preference
-            const currentLang = order.language || order.communicationLang || 'en';
-            
-            const languageOptions = `
-                <option value="en" ${currentLang === 'en' ? 'selected' : ''}>🇺🇸 English</option>
-                <option value="es" ${currentLang === 'es' ? 'selected' : ''}>🇪🇸 Español</option>
-            `;
+            // Pre-calculate initial balance display
+            const totalCents = order.totalCents || 0;
+            const paidCents = order.paidCents || 0;
+            const balanceCents = totalCents - paidCents;
         
-            // Determine the ID needed for the update path: Use UID for user orders, Admin Email for others
-            const updateSourceId = order.uid || order.createdByAdmin || auth.currentUser.email;
-            
             return `
                 <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onclick="window.module.closeEditModal()">
-                    <div class="relative top-10 mx-auto p-8 border w-11/12 md:w-3/4 lg:w-2/3 shadow-2xl rounded-xl bg-white transform transition-all duration-300 scale-100" onclick="event.stopPropagation()">
-                        <h3 class="text-3xl font-bold text-indigo-700 mb-6">Edit Order: ${order.id.slice(0, 8)}...</h3>
-                        <form id="orderEditForm" onsubmit="window.module.updateOrder(event, '${order.id}', '${updateSourceId}')">
-                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="relative top-5 mx-auto p-6 border w-11/12 md:w-5/6 lg:w-4/5 shadow-2xl rounded-xl bg-white" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center border-b pb-4 mb-6">
+                            <h3 class="text-2xl font-bold text-indigo-700">Order Management: ${order.id.slice(0, 8)}</h3>
+                            <button onclick="window.module.closeEditModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                        </div>
+        
+                        <form id="orderEditForm" onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}')">
+                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                 
-                                <div class="lg:col-span-1 space-y-4">
-                                    <h4 class="text-xl font-bold text-gray-700 border-b pb-2">Details</h4>
-                                    <div class="mb-4">
-                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-status">Status</label>
-                                        <select id="edit-status" class="w-full p-2 border border-gray-300 rounded-lg text-base">
-                                            ${statusOptions}
-                                        </select>
+                                <div class="space-y-4 bg-gray-50 p-4 rounded-lg border">
+                                    <h4 class="font-bold text-gray-700 uppercase text-xs tracking-wider">Logistics</h4>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-500 mb-1">Order Status</label>
+                                        <select id="edit-status" class="w-full p-2 border rounded-lg">${statusOptions}</select>
                                     </div>
-                                    <div class="mb-4">
-                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-payment-status">Payment Status</label>
-                                        <select id="edit-payment-status" class="w-full p-2 border border-gray-300 rounded-lg text-base">
-                                            ${isPaidOptions}
-                                        </select>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-500 mb-1">Delivery Address</label>
+                                        <input type="text" id="edit-address" value="${order.deliveryAddress || ''}" class="w-full p-2 border rounded-lg text-sm">
                                     </div>
-                                    <div class="mb-4">
-                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-language">Customer Language</label>
-                                        <select id="edit-language" class="w-full p-2 border border-gray-300 rounded-lg text-base">
-                                            ${languageOptions}
-                                        </select>
-                                    </div>
-                                    <div class="mb-4">
-                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-address">Delivery Address</label>
-                                        <input type="text" id="edit-address" value="${order.deliveryAddress || ''}" required 
-                                               class="w-full p-2 border border-gray-300 rounded-lg text-base">
-                                    </div>
-                                    <div class="mb-4">
-                                        <label class="block text-gray-700 text-sm font-bold mb-2" for="edit-notes">Internal Notes (for Admin)</label>
-                                        <textarea id="edit-notes" rows="3" class="w-full p-2 border border-gray-300 rounded-lg text-base">${order.adminNotes || ''}</textarea>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-500 mb-1">Internal Admin Notes</label>
+                                        <textarea id="edit-notes" rows="3" class="w-full p-2 border rounded-lg text-sm">${order.adminNotes || ''}</textarea>
                                     </div>
                                 </div>
         
-                                <div class="lg:col-span-1 space-y-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                    <h4 class="text-xl font-bold text-pink-700 border-b pb-2">Items Ordered (Edit)</h4>
+                                <div class="space-y-4 bg-white p-4 rounded-lg border border-pink-100">
+                                    <h4 class="font-bold text-pink-700 uppercase text-xs tracking-wider">Items in Order</h4>
+                                    <div class="flex gap-2">
+                                        <select id="editItemSelector" class="flex-grow p-2 border rounded-lg text-xs"></select>
+                                        <button type="button" onclick="window.module.addDraftCartItem()" class="bg-pink-600 text-white px-3 rounded-lg text-xs font-bold">+</button>
+                                    </div>
+                                    <div id="editOrderItemsDisplay" class="max-h-48 overflow-y-auto custom-scrollbar pr-2 space-y-1"></div>
+                                </div>
         
-                                    <div class="space-y-3 p-3 border border-pink-200 rounded-lg bg-white">
-                                        <p class="text-sm font-semibold text-pink-600">Add Product:</p>
-                                        <div class="flex space-x-2 items-center">
-                                            <select id="editItemSelector" class="flex-grow p-2 border rounded-lg text-sm">
-                                                </select>
-                                            <input type="number" id="editItemQuantity" value="1" min="1" class="w-14 p-2 border rounded-lg text-center flex-shrink-0 text-sm">
+                                <div class="space-y-4 bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                                    <h4 class="font-bold text-indigo-700 uppercase text-xs tracking-wider">Billing & Finance</h4>
+                                    
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-500 mb-1">Payment Method</label>
+                                            <select id="edit-payment-method" class="w-full p-2 border rounded-lg text-sm bg-white">
+                                                ${methodOptions}
+                                            </select>
                                         </div>
-                                        <button type="button" onclick="window.module.addDraftCartItem()" class="w-full bg-pink-600 text-white py-2 rounded-lg text-sm hover:bg-pink-700">Add to Order</button>
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-500 mb-1">Amount Paid (USD)</label>
+                                            <input type="number" id="edit-paid-amount" step="0.01" value="${(paidCents / 100).toFixed(2)}" 
+                                                   oninput="window.module.recalculateBilling()"
+                                                   class="w-full p-2 border rounded-lg text-sm font-bold text-green-700">
+                                        </div>
                                     </div>
         
-                                    <div class="max-h-60 custom-scrollbar overflow-y-auto pr-2 border-t pt-2">
-                                        <div id="editOrderItemsDisplay" class="space-y-1">
-                                            </div>
-                                    </div>
-        
-                                    <div class="pt-4 mt-4 border-t border-gray-300">
-                                        <div class="flex justify-between font-bold text-xl text-gray-800">
-                                            <span>New Total:</span>
-                                            <span id="editOrderTotal">$0.00</span>
+                                    <div class="pt-4 mt-2 border-t border-indigo-200 space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Subtotal:</span>
+                                            <span id="editOrderTotal" class="font-semibold">$0.00</span>
                                         </div>
-                                        <p class="text-xs text-gray-500 mt-1 italic">The final total will be recalculated upon saving.</p>
+                                        <div class="flex justify-between text-sm">
+                                            <span class="text-gray-600">Total Paid:</span>
+                                            <span id="display-paid-amount" class="font-semibold text-green-600">$0.00</span>
+                                        </div>
+                                        <div class="flex justify-between text-xl font-black border-t pt-2">
+                                            <span class="text-indigo-800">BALANCE:</span>
+                                            <span id="edit-remaining-balance" class="text-red-600">$0.00</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                            
-                            <div class="flex justify-end space-x-4 mt-8 pt-4 border-t border-gray-200">
-                                <button type="button" onclick="window.module.closeEditModal()" 
-                                        class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 px-6 rounded-lg transition shadow-md">
-                                    Cancel
-                                </button>
-                                <button type="submit" id="saveOrderBtn"
-                                        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition shadow-lg">
-                                    Save Changes
-                                </button>
+        
+                            <div class="flex justify-end space-x-4 mt-8 pt-4 border-t">
+                                <button type="button" onclick="window.module.closeEditModal()" class="bg-gray-200 px-6 py-2 rounded-lg font-bold">Cancel</button>
+                                <button type="submit" id="saveOrderBtn" class="bg-indigo-600 text-white px-8 py-2 rounded-lg font-bold shadow-lg hover:bg-indigo-700">Update Order & Billing</button>
                             </div>
                         </form>
                     </div>
@@ -2806,19 +2799,24 @@
         async function updateOrder(e, orderId, sourceId) {
             e.preventDefault();
             
+            // 1. UI Feedback: Start Loading State
             const saveBtn = document.getElementById('saveOrderBtn');
             const originalText = saveBtn.innerHTML;
             saveBtn.disabled = true;
             saveBtn.innerHTML = `<svg class="animate-spin h-5 w-5 mr-3 text-white inline" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving...`;
             
+            // 2. Capture Form Data
             const newStatus = document.getElementById('edit-status').value;
             const newLanguage = document.getElementById('edit-language').value;
             const newAddress = document.getElementById('edit-address').value;
             const newNotes = document.getElementById('edit-notes').value;
-            const newIsPaidString = document.getElementById('edit-payment-status').value;
-            const newIsPaid = newIsPaidString === 'true';
             
-            // **NEW: Get the draft items and calculate the new total**
+            // 3. Capture Financial Data
+            const newMethod = document.getElementById('edit-payment-method').value;
+            const paidDollars = parseFloat(document.getElementById('edit-paid-amount').value) || 0;
+            const paidCents = Math.round(paidDollars * 100);
+            
+            // 4. Recalculate Totals from Draft Cart
             const newItemsDraft = Object.values(state.editingOrderDraftCart);
             const newItemsList = newItemsDraft.map(entry => ({
                 id: entry.item.id,
@@ -2828,42 +2826,46 @@
                 quantity: entry.quantity
             }));
             const newTotalCents = newItemsDraft.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+            
+            // Logic: If Paid Amount >= Total, set isPaid to true
+            const isActuallyPaid = paidCents >= newTotalCents;
         
-            // Validate if the cart is empty after editing
+            // 5. Validation
             if (newItemsList.length === 0) {
                 alert("Cannot save an empty order. Please add at least one item or cancel.");
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalText;
                 return;
             }
-            // ----------------------------------------------------
         
+            // 6. Firestore References & Original Data Check
             const collectionPath = window.module.getOrdersCollectionPath(sourceId);
             const orderRef = doc(db, collectionPath, orderId);
-            
-            // 1. Get the original order object from local state
             const originalOrder = state.orders.find(o => o.id === orderId); 
             const originalStatus = originalOrder ? originalOrder.status : '';
             const originalItemsMap = originalOrder ? originalOrder.items.reduce((map, item) => { map[item.id] = item.quantity; return map; }, {}) : {};
         
             try {
-                // 2. Perform Firestore Update with all fields, INCLUDING ITEMS AND TOTAL
+                // 7. Perform Firestore Update (Main Order Document)
                 await updateDoc(orderRef, {
                     status: newStatus,
-                    isPaid: newIsPaid,
+                    isPaid: isActuallyPaid,
+                    paidCents: paidCents,
+                    paymentMethod: newMethod,
                     deliveryAddress: newAddress,
                     adminNotes: newNotes,
                     language: newLanguage,
                     communicationLang: newLanguage,
-                    items: newItemsList,          // <-- NEW
-                    totalCents: newTotalCents,    // <-- NEW
+                    items: newItemsList,
+                    totalCents: newTotalCents,
                     updatedAt: serverTimestamp()
                 });
         
-                // 3. **CRITICAL: Handle Inventory Adjustment**
+                // 8. Handle Inventory Adjustments
+                // A: Update existing or new items
                 const inventoryUpdatePromises = newItemsList.map(async newItem => {
                     const originalQty = originalItemsMap[newItem.id] || 0;
-                    const change = newItem.quantity - originalQty; // +ve for added, -ve for removed
+                    const change = newItem.quantity - originalQty; // Positive if admin added more, negative if removed some
         
                     if (change !== 0) {
                         const currentItem = state.items.find(i => i.id === newItem.id);
@@ -2884,8 +2886,9 @@
                     }
                 });
         
-                // Handle items that were completely removed from the order (inventory must be returned)
-                const removedItemPromises = Object.keys(originalItemsMap).filter(id => !newItemsList.some(item => item.id === id)).map(async removedItemId => {
+                // B: Return inventory for items completely removed from the order
+                const removedItemIds = Object.keys(originalItemsMap).filter(id => !newItemsList.some(item => item.id === id));
+                const removedItemPromises = removedItemIds.map(async removedItemId => {
                     const removedQty = originalItemsMap[removedItemId];
                     const currentItem = state.items.find(i => i.id === removedItemId);
                     if (currentItem) {
@@ -2905,22 +2908,23 @@
                 });
                 
                 await Promise.all([...inventoryUpdatePromises, ...removedItemPromises]);
-                // ------------------------------------------
         
-                // 4. Notification Trigger Check (status change is separate from item change)
-                const requiresNotification = ['Processing', 'Shipped', 'Pending' , 'Delivered', 'Cancelled'].includes(newStatus) && newStatus !== originalStatus;
+                // 9. Notification Trigger: Send email only if status actually changed to a major milestone
+                const majorStatuses = ['Processing', 'Shipped', 'Pending' , 'Delivered', 'Cancelled'];
+                const statusChanged = newStatus !== originalStatus;
+                const isMajorStatus = majorStatuses.includes(newStatus);
                 
-                if (requiresNotification && originalOrder) {
-                    
+                if (statusChanged && isMajorStatus && originalOrder) {
                     const emailPayload = {
                         ...originalOrder,
                         orderId: orderId,
                         newStatus: newStatus,
                         language: newLanguage,
                         deliveryAddress: newAddress,
-                        adminNotes: newNotes,
-                        items: newItemsList, // Pass the NEW list of items to the email template
-                        totalCents: newTotalCents, // Pass the NEW total to the email template
+                        items: newItemsList,
+                        totalCents: newTotalCents,
+                        paidCents: paidCents,
+                        isPaid: isActuallyPaid
                     };
                     
                     await fetch(EMAIL_CONFIRMATION_FUNCTION, {
@@ -2928,18 +2932,16 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(emailPayload)
                     });
-                    alert(`Order ${orderId.slice(0, 8)} updated to: ${newStatus}. Notification email triggered.`);
-                } else {
-                    alert(`Order ${orderId.slice(0, 8)} updated. No status notification sent.`);
+                    console.log("Status change email notification sent.");
                 }
                 
+                // 10. Success cleanup
+                showMessage('success', `Order ${orderId.slice(0, 8)} updated successfully. Inventory and financials synced.`, 5000, 'orders');
                 closeEditModal();
-                // Reload order list which triggers the listener to update the display
-                window.module.fetchOrders();
                 
             } catch (error) {
-                console.error("Error updating document or adjusting inventory/sending email: ", error);
-                alert(`Error updating order: ${error.message}. Check console for details.`);
+                console.error("Critical error during updateOrder:", error);
+                alert(`Error updating order: ${error.message}. Please check the logs.`);
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalText;
@@ -3653,6 +3655,31 @@
             const userEmail = auth.currentUser ? auth.currentUser.email : 'Admin';
             renderAdminPage(userEmail);
         }
+
+        function recalculateBilling() {
+            const totalEl = document.getElementById('editOrderTotal'); // This is updated by updateDraftCartDisplay
+            const paidInput = document.getElementById('edit-paid-amount');
+            const displayPaid = document.getElementById('display-paid-amount');
+            const balanceEl = document.getElementById('edit-remaining-balance');
+        
+            // Get Total from the draft cart (Items price sum)
+            const totalCents = Object.values(state.editingOrderDraftCart).reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+            
+            // Get Paid Amount from input
+            const paidDollars = parseFloat(paidInput.value) || 0;
+            const paidCents = Math.round(paidDollars * 100);
+        
+            const balanceCents = totalCents - paidCents;
+        
+            // Update displays
+            if (displayPaid) displayPaid.textContent = formatPriceDisplay(paidCents);
+            if (balanceEl) {
+                balanceEl.textContent = formatPriceDisplay(balanceCents);
+                // Visual cue: Red for owing, Green for paid in full
+                balanceEl.className = balanceCents <= 0 ? 'text-green-600' : 'text-red-600';
+            }
+        }
+                
         
         // --- EXPOSE TO WINDOW (ONLY ONCE!) ---
         window.module = {
@@ -3736,7 +3763,10 @@
                     renderInventorySection,
                     handleUpdateStock,
                     showPurchaseOrderForm,
-                    toggleLanguage
+                    toggleLanguage,
+                    recalculateBilling
+
+            
                 };
     
         document.addEventListener('DOMContentLoaded', setupFirebase);
