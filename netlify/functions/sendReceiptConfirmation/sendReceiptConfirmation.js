@@ -105,7 +105,7 @@ exports.handler = async function (event) {
             htmlContent = htmlContent.split(key).join(value);
         }
 
-        // 5. GENERATE PDF VIA DOPPIO (Puppeteer-style Syntax)
+        // 5. GENERATE PDF VIA DOPPIO
                 const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
                     method: 'POST',
                     headers: {
@@ -114,9 +114,7 @@ exports.handler = async function (event) {
                     },
                     body: JSON.stringify({
                         page: {
-                            setContent: {
-                                html: htmlContent
-                            },
+                            setContent: { html: htmlContent },
                             pdf: {
                                 format: 'A4',
                                 printBackground: true,
@@ -131,11 +129,11 @@ exports.handler = async function (event) {
                     throw new Error(`Doppio API Failed: ${errBody}`);
                 }
         
-                // CRITICAL FIX 1: Get the response as an ArrayBuffer/Buffer for binary safety
+                // CORRECT BINARY HANDLING:
                 const pdfArrayBuffer = await doppioRes.arrayBuffer();
                 const pdfBuffer = Buffer.from(pdfArrayBuffer);
         
-                // 6. Send Email
+                // 6. Send Email with specific attachment encoding
                 await transporter.sendMail({
                     from: '"autoInx Payments" <noreply@autoinx.com>',
                     to: buyerEmail,
@@ -144,27 +142,12 @@ exports.handler = async function (event) {
                     attachments: [
                         {
                             filename: t.filename,
-                            content: pdfBuffer, // Passing the Buffer directly
+                            content: pdfBuffer, 
                             contentType: 'application/pdf',
-                            encoding: 'base64' // CRITICAL FIX 2: Force base64 encoding for the attachment
+                            encoding: 'base64' // Force base64 to prevent gibberish text
                         }
                     ]
                 });
-
-        // 6. Send Email
-        await transporter.sendMail({
-            from: '"autoInx Payments" <noreply@autoinx.com>',
-            to: buyerEmail,
-            subject: t.subject,
-            html: htmlContent,
-            attachments: [
-                {
-                    filename: t.filename,
-                    content: pdfBuffer,
-                    contentType: 'application/pdf'
-                }
-            ]
-        });
 
         return {
             statusCode: 200,
