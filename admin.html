@@ -3774,33 +3774,60 @@
         }
         
         function renderFinancialRows() {
-            const sortedOrders = [...state.orders].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            // 1. Sort orders by date (Newest first)
+            const sortedOrders = [...state.orders].sort((a, b) => {
+                const dateA = getJsDate(a.timestamp || a.createdAt) || new Date(0);
+                const dateB = getJsDate(b.timestamp || b.createdAt) || new Date(0);
+                return dateB - dateA;
+            });
             
+            // 2. Map through orders to create table rows
             return sortedOrders.map(o => {
-                const balance = (o.totalCents || 0) - (o.paidCents || 0);
+                const total = o.totalCents || 0;
+                const paid = o.paidCents || 0;
+                const balance = total - paid;
                 const isOwed = balance > 0;
+                const orderDate = getJsDate(o.timestamp || o.createdAt);
+                
+                // Determine the ID needed for the edit modal path
+                const targetId = o.uid || o.userId || o.createdByAdmin || 'guest';
                 
                 return `
-                    <tr class="hover:bg-indigo-50/30 transition-colors text-sm">
-                        <td class="p-4 text-gray-500 whitespace-nowrap">${new Date(o.timestamp).toLocaleDateString()}</td>
-                        <td class="p-4 font-mono font-bold text-indigo-600">#${o.id.substring(0, 5)}</td>
-                        <td class="p-4">
-                            <p class="font-bold text-gray-800">${o.buyerName || 'Guest'}</p>
-                            <p class="text-[10px] text-gray-400">${o.buyerEmail || ''}</p>
+                    <tr class="hover:bg-indigo-50/30 transition-colors text-sm border-b border-gray-100">
+                        <td class="p-4 text-gray-500 whitespace-nowrap">
+                            ${orderDate ? orderDate.toLocaleDateString() : 'N/A'}
                         </td>
+                        
+                        <td class="p-4 font-mono font-bold text-indigo-600">
+                            <span title="${o.id}">#${o.id.substring(0, 5)}</span>
+                        </td>
+                        
                         <td class="p-4">
-                            <span class="px-2 py-1 bg-gray-100 rounded text-xs font-semibold text-gray-600 border italic">
-                                ${o.paymentMethod || 'Not Selected'}
+                            <p class="font-bold text-gray-800">${escapeHtml(o.buyerName || 'Guest')}</p>
+                            <p class="text-[10px] text-gray-400 truncate max-w-[150px]">${o.buyerEmail || ''}</p>
+                        </td>
+                        
+                        <td class="p-4">
+                            <span class="px-2 py-1 bg-white rounded text-[11px] font-semibold text-gray-600 border border-gray-200 shadow-sm italic">
+                                ${o.paymentMethod || 'Unset'}
                             </span>
                         </td>
-                        <td class="p-4 text-right font-medium">${formatPriceDisplay(o.totalCents || 0)}</td>
-                        <td class="p-4 text-right font-bold text-emerald-600">${formatPriceDisplay(o.paidCents || 0)}</td>
-                        <td class="p-4 text-right font-black ${isOwed ? 'text-rose-600 bg-rose-50/50' : 'text-gray-300'}">
+                        
+                        <td class="p-4 text-right font-medium text-gray-900">
+                            ${formatPriceDisplay(total)}
+                        </td>
+                        
+                        <td class="p-4 text-right font-bold text-emerald-600">
+                            ${formatPriceDisplay(paid)}
+                        </td>
+                        
+                        <td class="p-4 text-right font-black ${isOwed ? 'text-rose-600 bg-rose-50/30' : 'text-gray-300'}">
                             ${formatPriceDisplay(balance)}
                         </td>
+                        
                         <td class="p-4 text-center">
-                            <button onclick="window.module.showOrderEditForm('${o.id}', '${o.uid || o.createdByAdmin || 'guest'}')" 
-                                    class="text-indigo-600 hover:text-indigo-900 font-black text-xs uppercase tracking-tighter">
+                            <button onclick="window.module.showOrderEditForm('${o.id}', '${targetId}')" 
+                                    class="px-3 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white rounded-md font-bold text-[11px] uppercase tracking-tighter transition-all border border-indigo-200">
                                 Log Payment
                             </button>
                         </td>
@@ -3848,48 +3875,6 @@
             showMessage('success', 'Financial ledger exported successfully.', 5000, 'orders');
         }
         
-        // Helper to render rows for the Financial Section
-        function renderFinancialRows() {
-            const sortedOrders = [...state.orders].sort((a, b) => {
-                const dateA = a.timestamp ? new Date(a.timestamp) : new Date();
-                const dateB = b.timestamp ? new Date(b.timestamp) : new Date();
-                return dateB - dateA;
-            });
-            
-            return sortedOrders.map(o => {
-                const total = o.totalCents || 0;
-                const paid = o.paidCents || 0;
-                const balance = total - paid;
-                const isOwed = balance > 0;
-                
-                return `
-                    <tr class="hover:bg-indigo-50/30 transition-colors text-sm border-b">
-                        <td class="p-4 text-gray-500 whitespace-nowrap">${new Date(o.timestamp || o.createdAt).toLocaleDateString()}</td>
-                        <td class="p-4 font-mono font-bold text-indigo-600">#${o.id.substring(0, 5)}</td>
-                        <td class="p-4">
-                            <p class="font-bold text-gray-800">${o.buyerName || 'Guest'}</p>
-                            <p class="text-[10px] text-gray-400">${o.buyerEmail || ''}</p>
-                        </td>
-                        <td class="p-4">
-                            <span class="px-2 py-1 bg-gray-100 rounded text-xs font-semibold text-gray-600 border italic">
-                                ${o.paymentMethod || 'Not Selected'}
-                            </span>
-                        </td>
-                        <td class="p-4 text-right font-medium">${formatPriceDisplay(total)}</td>
-                        <td class="p-4 text-right font-bold text-emerald-600">${formatPriceDisplay(paid)}</td>
-                        <td class="p-4 text-right font-black ${isOwed ? 'text-rose-600 bg-rose-50/50' : 'text-gray-300'}">
-                            ${formatPriceDisplay(balance)}
-                        </td>
-                        <td class="p-4 text-center">
-                            <button onclick="window.module.showOrderEditForm('${o.id}', '${o.uid || o.createdByAdmin || 'guest'}')" 
-                                    class="text-indigo-600 hover:text-indigo-900 font-black text-xs uppercase tracking-tighter">
-                                Log Payment
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
         
         // --- EXPOSE TO WINDOW ---
         window.module = {
