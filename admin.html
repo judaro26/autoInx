@@ -1487,11 +1487,29 @@
             resetTimer();
         }
     
-        // Placeholder for Delete Product
-        function handleDeleteProduct(id, name) {
-            if (!confirm(`Are you sure you want to delete product: ${name}?`)) return;
-            showMessage('error', `Deleting product ${name} is not implemented in this version.`, 5000, 'catalog');
+        // Delete Product function
+        async function handleDeleteProduct(id, name) {
+            if (!confirm(`WARNING: Are you sure you want to PERMANENTLY delete product: ${name}?\n\nThis action cannot be undone.`)) return;
+            
             resetTimer();
+        
+            try {
+                // 1. Create a reference to the specific product document
+                const itemRef = doc(db, ITEMS_COLLECTION, id);
+        
+                // 2. Perform the deletion in Firestore
+                await deleteDoc(itemRef);
+        
+                // 3. Log the action for administrative records
+                await logAdminAction('ITEM_DELETED', { name, id }, id);
+        
+                // 4. Provide visual feedback to the admin
+                showMessage('success', `Product "${name}" has been permanently deleted.`, 5000, 'catalog');
+        
+            } catch (error) {
+                console.error('Error deleting product:', error);
+                showMessage('error', `Failed to delete product: ${error.message}`, 5000, 'catalog');
+            }
         }
         
         // Edit product function
