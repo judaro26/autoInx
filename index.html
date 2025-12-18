@@ -25,6 +25,13 @@
         .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
         /* Modal background */
         .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;  
+            overflow: hidden;
+        }
+        
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -305,42 +312,44 @@
             console.log("reCAPTCHA script injected.");
         }
         // function to display the product
-        function renderProductCard(item) {
-            const itemJson = JSON.stringify(item).replace(/'/g, "\\'").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); 
+         function renderProductCard(item) {
+            // Clean JSON for data attributes to prevent syntax breaks
+            const itemJson = JSON.stringify(item).replace(/'/g, "&apos;").replace(/"/g, '&quot;');
             
-            // Pick the first image from array, or fallback to the single imageUrl
             const displayImg = (item.imageUrls && item.imageUrls.length > 0) 
                 ? item.imageUrls[0] 
                 : (item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing');
         
             return `
-                <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:scale-[1.02] transition duration-300 border border-gray-100 flex flex-col">
-                    <div class="relative cursor-pointer group" onclick="window.module.openItemDetailModal(JSON.parse(this.parentElement.querySelector('h4').dataset.item))">
-                        <img src="${displayImg}" alt="${item.name}" class="w-full h-40 object-cover ...">
-                             onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                <div class="bg-white rounded-xl shadow-md overflow-hidden transform hover:shadow-lg transition duration-300 border border-gray-100 flex flex-col h-full">
+                    <div class="relative cursor-pointer group h-40 overflow-hidden bg-gray-50" onclick='window.module.openItemDetailModal(${itemJson})'>
+                        <img src="${displayImg}" 
+                             alt="${item.name}" 
+                             class="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
+                             onerror="this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image'">
                         ${item.imageUrls && item.imageUrls.length > 1 ? `
                             <div class="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded-md backdrop-blur-sm">
                                 +${item.imageUrls.length - 1} fotos
                             </div>
                         ` : ''}
                     </div>
+        
                     <div class="p-4 flex flex-col flex-grow">
-                        <h4 onclick="window.module.openItemDetailModal(JSON.parse(this.dataset.item))"
-                            class="text-xl font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition"
-                            data-item='${itemJson}'>
-                            ${item.name}
-                        </h4>
-                        
-                        <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
-                        
-                        <div class="mt-auto pt-3">
-                            <button onclick="window.module.addToCart(JSON.parse(this.dataset.item))"
-                                     data-item='${itemJson}'
-                                     class="w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
-                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                ${t('addToCart')}
-                            </button>
+                        <div class="flex-grow">
+                            <h4 class="text-sm font-bold text-gray-800 line-clamp-2 hover:text-indigo-600 transition cursor-pointer mb-1"
+                                onclick='window.module.openItemDetailModal(${itemJson})'>
+                                ${item.name}
+                            </h4>
+                            <p class="text-lg text-indigo-600 font-extrabold mb-3">${formatPrice(item.price)}</p>
                         </div>
+                        
+                        <button onclick='window.module.addToCart(${itemJson})'
+                                class="w-full bg-pink-500 text-white py-2 px-1 rounded-lg text-xs font-bold hover:bg-pink-600 transition duration-150 shadow-sm flex items-center justify-center uppercase tracking-tighter">
+                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            </svg>
+                            ${t('addToCart')}
+                        </button>
                     </div>
                 </div>
             `;
