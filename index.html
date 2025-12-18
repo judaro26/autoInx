@@ -809,10 +809,16 @@
             }
             const currentEntry = state.cart[item.id];
             const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
+            
+            // 1. Update local state
             state.cart = {
                 ...state.cart,
                 [item.id]: { item, quantity: newQuantity }
             };
+        
+            // 2. IMMEDIATE PERSISTENCE: Save to sessionStorage right now
+            sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
+        
             showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
             render();
         }
@@ -822,17 +828,18 @@
             const currentEntry = state.cart[itemId];
             if (!currentEntry) return;
             const newQuantity = currentEntry.quantity + change;
+            
+            const newCart = { ...state.cart };
             if (newQuantity <= 0) {
-                const newCart = { ...state.cart };
                 delete newCart[itemId];
-                state.cart = newCart;
-                showMessage('info', `${currentEntry.item.name} removed from cart.`, 2000);
             } else {
-                state.cart = {
-                    ...state.cart,
-                    [itemId]: { item: currentEntry.item, quantity: newQuantity }
-                };
+                newCart[itemId] = { item: currentEntry.item, quantity: newQuantity };
             }
+            
+            state.cart = newCart;
+            // Save the updated cart to session storage
+            sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
+            
             render();
         }
         function continueToCheckout() {
