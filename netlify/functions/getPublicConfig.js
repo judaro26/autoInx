@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 
+// Initialize Firebase Admin
 if (!admin.apps.length) {
     const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
     let cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
@@ -15,41 +16,64 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+/**
+ * CIDR-aware IP matching with aggressive trimming
+ */
 function ipInSubnet(ip, subnet) {
     if (!subnet || !ip) return false;
-    const cleanIp = String(ip).trim();
-    const cleanSubnet = String(subnet).trim();
-
-    if (!cleanSubnet.includes('/')) return cleanIp === cleanSubnet;
     
-    try {
-        const [range, bits] = cleanSubnet.split('/');
-        const mask = ~(Math.pow(2, 32 - parseInt(bits)) - 1);
-        const ipInt = cleanIp.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
-        const rangeInt = range.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
-        return (ipInt & mask) === (rangeInt & mask);
-    } catch (e) {
-        return false;
+    // Force to strings and strip all whitespace/hidden characters
+    const cleanIp = String(ip).replace(/\s/g, '');
+    const cleanSubnet = String(subnet).replace(/\s/g, '');
+
+    // 1. Direct Match Check
+    if (cleanIp === cleanSubnet) return true;
+
+    // 2. Subnet Range Check
+    if (cleanSubnet.includes('/')) {
+        try {
+            const [range, bits] = cleanSubnet.split('/');
+            const mask = ~(Math.pow(2, 32 - parseInt(bits)) - 1);
+            
+            const ipInt = cleanIp.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+            const rangeInt = range.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+            
+            return (ipInt & mask) === (rangeInt & mask);
+        } catch (e) {
+            console.error("Subnet calculation error:", e);
+            return false;
+        }
     }
+    return false;
 }
 
 exports.handler = async function (event) {
     try {
-        // Priority 1: client-ip (Standard Netlify User IP)
-        // Priority 2: x-forwarded-for (First IP in the chain)
+        // Capture User IP from Netlify headers
         const clientIp = event.headers['client-ip'] || 
                          (event.headers['x-forwarded-for'] || "").split(',')[0].trim() ||
                          event.headers['x-nf-client-connection-ip'] || 
                          "";
 
+        // Fetch Dynamic Config from Firestore
         const configDoc = await db.doc('admin/config').get();
         const configData = configDoc.exists ? configDoc.data() : {};
+        
         const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
 
-        // DEBUG: Check your Netlify Function logs to see if this matches your home IP
-        console.log(`Matching User: [${clientIp}] against list of ${whitelist.length} IPs`);
-
-        const isWhitelisted = whitelist.some(range => ipInSubnet(clientIp, range));
+        // --- DEBUG LOGGING ---
+        console.log("--- DEBUG START ---");
+        console.log("Raw Client IP Header:", clientIp);
+        console.log("Cleaned Client IP:", clientIp.trim());
+        console.log("Firestore Whitelist:", JSON.stringify(whitelist));
+        
+        const isWhitelisted = whitelist.some(range => {
+            const match = ipInSubnet(clientIp, range);
+            console.log(`Comparing [${clientIp.trim()}] to [${String(range).trim()}] -> Match: ${match}`);
+            return match;
+        });
+        console.log("Final Authorization Result:", isWhitelisted);
+        console.log("--- DEBUG END ---");
 
         return {
             statusCode: 200,
@@ -61,7 +85,7 @@ exports.handler = async function (event) {
                 maintenanceMode: configData.maintenanceMode === true,
                 chatWidgetEnabled: configData.chatWidgetEnabled !== false,
                 isRequesterAdmin: isWhitelisted, 
-                clientIp: clientIp 
+                clientIp: clientIp.trim() 
             }),
         };
 
