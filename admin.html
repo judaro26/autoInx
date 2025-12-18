@@ -104,6 +104,8 @@
     <div id="editModalContainer"></div> 
 
     <script type="module">
+        // 2. ADDED: Global object to hold Chart.js instances
+        let salesCharts = { category: null, month: null };
         // import modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -124,8 +126,7 @@
         let idleTimer;
         let orders = [];
         let lastCategorySalesData = { tableData: [] };
-        // 2. ADDED: Global object to hold Chart.js instances
-        let salesCharts = { category: null, month: null };
+
 
         const TEXT = {
             es: {
@@ -1162,44 +1163,48 @@
         } 
         
         // --- AUTHENTICATION CHECK & REDIRECT ---
-                function checkAuthAndRender() {
-                    onAuthStateChanged(auth, user => {
-                        if (user && !user.isAnonymous) {
-                            // User is signed in, now check admin claims
-                            user.getIdTokenResult(true).then(idTokenResult => {
-                                if (idTokenResult.claims.admin === true) {
-                                    
-                                    // 1. SET THE GLOBAL userId VARIABLE FIRST
-                                    userId = user.uid;
-                
-                                    // 2. Start session/activity tracking
-                                    document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                                    document.addEventListener('touchstart', resetTimer); 
-                                    resetTimer();
-                                    
-                                    // 3. Setup listeners and render the main admin page HTML
-                                    setupRealtimeListeners();
-                                    renderAdminPage(user.email || 'Admin');
-                                    
-                                    // 4. EXPLICITLY load the orders
-                                    if (window.module.fetchOrders) {
-                                        window.module.fetchOrders();
-                                    }
-                
-                                } else {
-                                    signOut(auth);
-                                    window.location.href = '/?error=unauthorized';
-                                }
-                            }).catch(err => {
-                                console.error("Token error:", err);
-                                signOut(auth);
-                                window.location.href = '/?error=auth_failed';
-                            });
+        function checkAuthAndRender() {
+            onAuthStateChanged(auth, user => {
+                if (user && !user.isAnonymous) {
+                    // User is signed in, now check admin claims
+                    user.getIdTokenResult(true).then(idTokenResult => {
+                        if (idTokenResult.claims.admin === true) {
+                            
+                            // 1. SET THE GLOBAL userId VARIABLE FIRST
+                            userId = user.uid;
+        
+                            // 2. Start session/activity tracking
+                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                            document.addEventListener('touchstart', resetTimer); // Added touch listener
+                            resetTimer();
+                            
+                            // 3. Setup listeners and render the main admin page HTML
+                            setupRealtimeListeners();
+                            renderAdminPage(user.email || 'Admin');
+                            
+                            // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
+                            // This resolves the timing issue you were seeing.
+                            if (window.module.fetchOrders) {
+                                window.module.fetchOrders();
+                            }
+        
                         } else {
-                            window.location.href = '/';
+                            // Not an admin, sign out and redirect
+                            signOut(auth);
+                            window.location.href = '/?error=unauthorized';
                         }
+                    }).catch(err => {
+                        // Token verification error
+                        console.error("Token error:", err);
+                        signOut(auth);
+                        window.location.href = '/?error=auth_failed';
                     });
+                } else {
+                    // User not signed in, redirect to login page
+                    window.location.href = '/';
                 }
+            });
+        }
     
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
@@ -3644,7 +3649,7 @@
                 // Visual cue: Red for owing, Green for paid in full
                 balanceEl.className = balanceCents <= 0 ? 'text-green-600' : 'text-red-600';
             }
-          };
+        }
 
         function renderFinancialsSection() {
             const netOrders = state.orders.filter(o => o.status !== 'Cancelled');
@@ -3808,156 +3813,177 @@
             showMessage('success', 'Financial ledger exported successfully.', 5000, 'orders');
         }
         
-            
-     // --- EXPOSE TO WINDOW ---
-    window.module = {
-        globalNextPageToken,
-        fetchUsers,
-        renderUserList,
-        handleUserSearchInput,
-        handleBulkUserAction,
-        handleUserAction,
-        toggleUserSelection,
-        toggleAllUsers,
-        promptForPasswordReset,
-        deleteUser,
-        disableUser,
-        handleClearAnonymousUsers,
-        globalConfig,
-        fetchAdminConfig,
-        displayStaticIps,
-        handleUpdateConfig,
-        togglePreviewMode,
-        toggleLanguage,
-        logAdminAction,
-        loadGoogleMapsScript,
-        switchAdminTab,
-        handleAddCatalog,
-        handleDeleteCatalog,
-        handleAddProduct,
-        handleDeleteProduct,
-        handleEditProduct,
-        handleSearchInput,
-        showEditForm,
-        cancelEdit,
-        renderProductListSection,
-        renderInventorySection,
-        handleUpdateStock,
-        showPurchaseOrderForm,
-        orders,
-        userId,
-        fetchOrders,
-        switchOrderPage,
-        getOrdersCollectionPath,
-        handleOrderSearchInput,
-        handleOrderListSearchInput,
-        handleStatusFilterChange,
-        handleDeliveryFilterChange,
-        handleOrderStatusUpdate,
-        handleRequestDelivery,
-        renderOrdersList,
-        renderOrderCreateForm,
-        renderOrdersStats,
-        getOrdersStatsHtml,
-        renderSalesCharts,
-        handleSalesTimeFilterChange,
-        renderCategorySalesTable,
-        downloadCategorySalesCsv,
-        downloadIndividualItemSalesCsv,
-        handleAdminOrderSubmit,
-        addAdminCartItem,
-        removeAdminCartItem,
-        updateAdminCartDisplay,
-        updateItemSelector,
-        showOrderEditForm,
-        closeEditModal,
-        updateOrder,
-        renderOrderEditModal,
-        initializeDraftCart,
         
-        updateDraftCartDisplay: function() {
-            const cartEl = document.getElementById('editOrderItemsDisplay');
-            const totalEl = document.getElementById('editOrderTotal');
-            let totalCents = 0;
-            if (!cartEl || !totalEl) return;
-    
-            const itemsInCart = Object.values(state.editingOrderDraftCart);
-            if (itemsInCart.length === 0) {
-                cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">Empty</p>';
-            } else {
-                cartEl.innerHTML = itemsInCart.map(entry => {
-                    const subtotal = entry.item.price * entry.quantity;
-                    totalCents += subtotal;
-                    return `
-                        <div class="flex justify-between items-center py-1 border-b text-xs">
-                            <span class="truncate pr-2">${entry.item.name}</span>
-                            <div class="flex items-center space-x-2">
-                                <input type="number" value="${entry.quantity}" min="1" 
-                                       onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
-                                       class="w-10 border rounded text-center">
-                                <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500">×</button>
-                            </div>
-                        </div>`;
-                }).join('');
-            }
-            if (totalEl) totalEl.textContent = formatPriceDisplay(totalCents);
-            this.recalculateBilling();
-        },
-        
-        addDraftCartItem,
-        removeDraftCartItem,
-        updateDraftItemQuantity,
-        renderFinancialsSection,
-        renderFinancialRows,
-        downloadPaymentLedgerCsv,
-        
-        updateExistingPaymentState: function(index, value) {
-            const cents = Math.round(parseFloat(value || 0) * 100);
-            if (state.editingPaymentHistory && state.editingPaymentHistory[index]) {
-                state.editingPaymentHistory[index].amountCents = cents;
-                this.recalculateBilling();
-            }
-        },
-    
-        updateExistingPaymentMethod: function(index, method) {
-            if (state.editingPaymentHistory && state.editingPaymentHistory[index]) {
-                state.editingPaymentHistory[index].method = method;
-            }
-        },
-    
-        removePaymentFromHistory: function(index) {
-            if (!confirm("Delete this transaction record?")) return;
-            state.editingPaymentHistory.splice(index, 1);
-            this.recalculateBilling();
-            const order = state.orders.find(o => o.id === state.currentEditingOrderId);
-            if (order) document.getElementById('editModalContainer').innerHTML = this.renderOrderEditModal(order, 'payment');
-        },
-    
-        recalculateBilling: function() { 
-            const totalCents = Object.values(state.editingOrderDraftCart).reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
-            const historyPaidCents = (state.editingPaymentHistory || []).reduce((sum, p) => sum + p.amountCents, 0);
-            const newPaidInput = document.getElementById('new-payment-amount');
-            const newPaidCents = Math.round((parseFloat(newPaidInput?.value) || 0) * 100);
-            const combinedPaidCents = historyPaidCents + newPaidCents;
-            const balanceCents = totalCents - combinedPaidCents;
-    
-            if (document.getElementById('editOrderTotal')) 
-                document.getElementById('editOrderTotal').textContent = formatPriceDisplay(totalCents);
+         // --- EXPOSE TO WINDOW ---
+                window.module = {
+                    // --- AUTH & USERS ---
+                    globalNextPageToken,
+                    fetchUsers,
+                    renderUserList,
+                    handleUserSearchInput,
+                    handleBulkUserAction,
+                    handleUserAction,
+                    toggleUserSelection,
+                    toggleAllUsers,
+                    promptForPasswordReset,
+                    deleteUser,
+                    disableUser,
+                    handleClearAnonymousUsers,
+                
+                    // --- CONFIG & SYSTEM ---
+                    globalConfig,
+                    fetchAdminConfig,
+                    displayStaticIps,
+                    handleUpdateConfig,
+                    togglePreviewMode,
+                    toggleLanguage,
+                    logAdminAction,
+                    loadGoogleMapsScript,
+                
+                    // --- CATALOG & INVENTORY ---
+                    switchAdminTab,
+                    handleAddCatalog,
+                    handleDeleteCatalog,
+                    handleAddProduct,
+                    handleDeleteProduct,
+                    handleEditProduct,
+                    handleSearchInput,
+                    showEditForm,
+                    cancelEdit,
+                    renderProductListSection,
+                    renderInventorySection,
+                    handleUpdateStock,
+                    showPurchaseOrderForm,
+                
+                    // --- ORDER TRACKING ---
+                    orders,
+                    userId,
+                    fetchOrders,
+                    switchOrderPage,
+                    getOrdersCollectionPath,
+                    handleOrderSearchInput,
+                    handleOrderListSearchInput,
+                    handleStatusFilterChange,
+                    handleDeliveryFilterChange,
+                    handleOrderStatusUpdate,
+                    handleRequestDelivery,
+                    renderOrdersList,
+                    renderOrderCreateForm,
+                    renderOrdersStats,
+                    getOrdersStatsHtml,
+                    renderSalesCharts,
+                    handleSalesTimeFilterChange,
+                    renderCategorySalesTable,
+                    downloadCategorySalesCsv,
+                    downloadIndividualItemSalesCsv,
+                
+                    // --- MANUAL ORDER CREATION (ADMIN CART) ---
+                    handleAdminOrderSubmit,
+                    addAdminCartItem,
+                    removeAdminCartItem,
+                    updateAdminCartDisplay,
+                    updateItemSelector,
+                
+                    // --- ORDER EDITING & DRAFT CART ---
+                    showOrderEditForm,
+                    closeEditModal,
+                    updateOrder,
+                    renderOrderEditModal,
+                    initializeDraftCart,
+                    
+                    updateDraftCartDisplay: function() {
+                        const cartEl = document.getElementById('editOrderItemsDisplay');
+                        const totalEl = document.getElementById('editOrderTotal');
+                        let totalCents = 0;
+                        if (!cartEl || !totalEl) return;
+                
+                        const itemsInCart = Object.values(state.editingOrderDraftCart);
+                        if (itemsInCart.length === 0) {
+                            cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">Empty</p>';
+                        } else {
+                            cartEl.innerHTML = itemsInCart.map(entry => {
+                                const subtotal = entry.item.price * entry.quantity;
+                                totalCents += subtotal;
+                                return `
+                                    <div class="flex justify-between items-center py-1 border-b text-xs">
+                                        <span class="truncate pr-2">${entry.item.name}</span>
+                                        <div class="flex items-center space-x-2">
+                                            <input type="number" value="${entry.quantity}" min="1" 
+                                                   onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
+                                                   class="w-10 border rounded text-center">
+                                            <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500">×</button>
+                                        </div>
+                                    </div>`;
+                            }).join('');
+                        }
+                        if (totalEl) totalEl.textContent = formatPriceDisplay(totalCents);
+                        this.recalculateBilling();
+                    },
+                    
+                    addDraftCartItem,
+                    removeDraftCartItem,
+                    updateDraftItemQuantity,
+                
+                    // --- FINANCIALS & PAYMENT LEDGER ---
+                    renderFinancialsSection,
+                    renderFinancialRows,
+                    downloadPaymentLedgerCsv,
+                    
+                    updateExistingPaymentState: function(index, value) {
+                        const cents = Math.round(parseFloat(value || 0) * 100);
+                        if (state.editingPaymentHistory && state.editingPaymentHistory[index]) {
+                            state.editingPaymentHistory[index].amountCents = cents;
+                            this.recalculateBilling();
+                        }
+                    },
+                
+                    updateExistingPaymentMethod: function(index, method) {
+                        if (state.editingPaymentHistory && state.editingPaymentHistory[index]) {
+                            state.editingPaymentHistory[index].method = method;
+                        }
+                    },
+                
+                    removePaymentFromHistory: function(index) {
+                        if (!confirm("Delete this transaction record?")) return;
+                        state.editingPaymentHistory.splice(index, 1);
+                        this.recalculateBilling();
+                        // Force modal re-render to update the list
+                        const order = state.orders.find(o => o.id === state.currentEditingOrderId);
+                        if (order) document.getElementById('editModalContainer').innerHTML = this.renderOrderEditModal(order, 'payment');
+                    },
+                
+                    recalculateBilling: function() { 
+                        // 1. Calculate New Total
+                        const totalCents = Object.values(state.editingOrderDraftCart).reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+                        
+                        // 2. Calculate History Total
+                        const historyPaidCents = (state.editingPaymentHistory || []).reduce((sum, p) => sum + p.amountCents, 0);
+                
+                        // 3. Current Input Total
+                        const newPaidInput = document.getElementById('new-payment-amount');
+                        const newPaidCents = Math.round((parseFloat(newPaidInput?.value) || 0) * 100);
+                        
+                        const combinedPaidCents = historyPaidCents + newPaidCents;
+                        const balanceCents = totalCents - combinedPaidCents;
+                
+                        // 4. Update UI
+                        if (document.getElementById('editOrderTotal')) 
+                            document.getElementById('editOrderTotal').textContent = formatPriceDisplay(totalCents);
                             
-            if (document.getElementById('modal-balance-display')) {
-                const balEl = document.getElementById('modal-balance-display');
-                balEl.textContent = formatPriceDisplay(balanceCents);
-                balEl.className = balanceCents <= 0 ? 'text-lg font-black text-green-600' : 'text-lg font-black text-rose-600';
-            }
-        }
-    };
-    
-    // --- BOOTSTRAP ---
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', setupFirebase);
-    } else {
-        setupFirebase();
-    }
-</script>
+                        if (document.getElementById('modal-balance-display')) {
+                            const balEl = document.getElementById('modal-balance-display');
+                            balEl.textContent = formatPriceDisplay(balanceCents);
+                            balEl.className = balanceCents <= 0 ? 'text-lg font-black text-green-600' : 'text-lg font-black text-rose-600';
+                        }
+                    }
+                };
+        
+        // --- BOOTSTRAP ---
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', setupFirebase);
+                } else {
+                    setupFirebase();
+                }
+            </script>
 </body>
 </html>
