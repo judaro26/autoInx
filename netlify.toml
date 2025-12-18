@@ -1,32 +1,28 @@
 # netlify.toml
 
 [functions]
-  directory = "netlify/functions" # This line is mandatory
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
 
-# Existing Schedule (Runs at 3:00 AM UTC, assuming this is correct for your user cleanup)
+# Existing Schedule for user cleanup
 [functions.anonymousUserCron]
   schedule = "0 3 * * *"
 
-[functions.deleteOrder] # Target your delete function
+[functions.deleteOrder]
   included_files = ["./netlify/functions/ip-data.json"]
 
-# --- DYNAMIC CHAT WIDGET SCHEDULE (Runs every hour UTC) ---
-# This single schedule replaces the old two-time triggers.
+# Dynamic Chat Widget Schedule
 [functions.toggleChatWidget]
   function = "toggleChatWidget"
   schedule = "0 * * * *" 
 
-# Public function remains the same
+# Public function for Google Maps
 [functions.getGoogleMapsKey]
   access = "public"
 
-[functions.send-receipt]
+# --- NEW: Receipt Confirmation & PDF Generation ---
+[functions."sendReceiptConfirmation"]
   # This ensures the HTML templates are uploaded with the javascript code
   included_files = ["netlify/functions/sendReceiptConfirmation/emailTemplates/*.html"]
-
-[functions."sendReceiptConfirmation"]
-  included_files = ["netlify/functions/sendReceiptConfirmation/emailTemplates/*.html"]
-  external_node_modules = ["@sparticuz/chromium"]
-  node_bundler = "esbuild"
-  timeout = 26
-  memory = 1024
+  # Increased timeout for the external API call (Doppio)
+  timeout = 25
