@@ -2,11 +2,29 @@ const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
 
-// ... (Firebase initialization code remains the same) ...
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
+    let cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
 
-// NEW HELPER: Checks if an IP address belongs to a CIDR subnet
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: cleanedPrivateKey,
+        }),
+    });
+}
+
+const db = admin.firestore();
+
+/**
+ * Helper: Checks if an IP address belongs to a CIDR subnet
+ * Works for exact IPs (1.2.3.4) and ranges (1.2.3.0/24)
+ */
 function ipInSubnet(ip, subnet) {
-    if (!subnet.includes('/')) return ip === subnet;
+    if (!subnet || !ip) return false;
+    if (!subnet.includes('/')) return ip === subnet.trim();
     
     try {
         const [range, bits] = subnet.split('/');
@@ -17,16 +35,21 @@ function ipInSubnet(ip, subnet) {
         
         return (ipInt & mask) === (rangeInt & mask);
     } catch (e) {
+        console.error("Error calculating subnet match:", e);
         return false;
     }
 }
 
+/**
+ * Reads your existing frontend utility file as text and extracts IPs/Ranges
+ */
 function getHardcodedWhitelist() {
     try {
+        // Path should point to your web folder's utility file
         const filePath = path.resolve(__dirname, '../../js/utilities/ipWhitelist.js');
         const fileContent = fs.readFileSync(filePath, 'utf8');
         
-        // Flexible Regex to catch single quotes, double quotes, and ranges
+        // Regex to find IPs or CIDR ranges inside quotes
         const ipRegex = /['"]\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)\s*['"]/g;
         const matches = [];
         let match;
@@ -35,36 +58,46 @@ function getHardcodedWhitelist() {
         }
         return matches;
     } catch (err) {
-        console.error("Whitelist read error:", err);
+        console.error("Could not read ipWhitelist.js file:", err);
         return [];
     }
 }
 
 exports.handler = async function (event) {
     try {
+        // Detect Client IP from Netlify headers
         const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || "";
+        
+        // 1. Load lists
         const staticWhitelist = getHardcodedWhitelist();
-
         const configDoc = await db.doc('admin/config').get();
         const configData = configDoc.exists ? configDoc.data() : {};
         const dynamicWhitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
 
-        // REVISED CHECK: Uses the CIDR helper for both lists
+        // 2. Perform CIDR-aware check
         const isWhitelisted = 
             dynamicWhitelist.some(range => ipInSubnet(clientIp, range)) || 
             staticWhitelist.some(range => ipInSubnet(clientIp, range));
 
         return {
             statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache'
+            },
             body: JSON.stringify({
                 maintenanceMode: configData.maintenanceMode === true,
                 chatWidgetEnabled: configData.chatWidgetEnabled !== false,
-                isRequesterAdmin: isWhitelisted, // This will now be TRUE for your IP
-                clientIp: clientIp
+                isRequesterAdmin: isWhitelisted, 
+                clientIp: clientIp 
             }),
         };
+
     } catch (error) {
-        return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+        console.error('getPublicConfig Error:', error);
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ error: 'Internal Server Error' }),
+        };
     }
 };
