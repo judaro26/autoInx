@@ -1,22 +1,11 @@
-/**
- * Netlify Function (Public Access) to safely serve non-sensitive Admin configuration.
- * Exposes: maintenanceMode and chatWidgetEnabled.
- */
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
 
-// Ensure Firebase Admin is initialized once
+// --- FIREBASE INIT (Same as before) ---
 if (!admin.apps.length) {
-    
     const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
-    let cleanedPrivateKey = undefined;
-
-    if (privateKeyString) {
-        cleanedPrivateKey = privateKeyString
-                                .replace(/\\n/g, '\n')
-                                .replace(/\n/g, '\n')
-                                .trim(); 
-    }
-
+    let cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
     admin.initializeApp({
         credential: admin.credential.cert({
             projectId: process.env.FIREBASE_PROJECT_ID,
@@ -27,41 +16,55 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-const CONFIG_DOC_PATH = 'admin/config';
+
+// --- SECURE IP EXTRACTION ---
+// We read your existing file as text to avoid "Export/Require" format conflicts
+function getHardcodedWhitelist() {
+    try {
+        // Adjust the path to where your frontend ipWhitelist.js is located relative to this function
+        const filePath = path.resolve(__dirname, '../../js/utilities/ipWhitelist.js');
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        
+        // This regex finds strings inside the brackets of your ipWhitelist array
+        const ipRegex = /'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)'/g;
+        const matches = [];
+        let match;
+        while ((match = ipRegex.exec(fileContent)) !== null) {
+            matches.push(match[1]);
+        }
+        return matches;
+    } catch (err) {
+        console.error("Could not read hardcoded whitelist file:", err);
+        return [];
+    }
+}
 
 exports.handler = async function (event) {
     try {
-        const configRef = db.doc(CONFIG_DOC_PATH);
-        const configDoc = await configRef.get();
+        const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || "";
+        
+        // 1. Get the list from your existing frontend file (processed on server)
+        const staticWhitelist = getHardcodedWhitelist();
 
-        if (!configDoc.exists) {
-            // If config is missing, return a safe default
-            return {
-                statusCode: 200,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ maintenanceMode: true, chatWidgetEnabled: false }),
-            };
-        }
-        
-        const configData = configDoc.data();
-        
-        // CRITICAL: ONLY return non-sensitive fields
-        const publicConfig = {
-            maintenanceMode: configData.maintenanceMode === true,
-            chatWidgetEnabled: configData.chatWidgetEnabled !== false,
-        };
+        // 2. Get the dynamic list from Firestore
+        const configDoc = await db.doc('admin/config').get();
+        const configData = configDoc.exists ? configDoc.data() : {};
+        const dynamicWhitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
+
+        // 3. Perform the check
+        const isWhitelisted = dynamicWhitelist.includes(clientIp) || staticWhitelist.includes(clientIp);
 
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(publicConfig),
+            body: JSON.stringify({
+                maintenanceMode: configData.maintenanceMode === true,
+                chatWidgetEnabled: configData.chatWidgetEnabled !== false,
+                isRequesterAdmin: isWhitelisted,
+                clientIp: clientIp
+            }),
         };
-
     } catch (error) {
-        console.error('Error fetching public config:', error);
-        return {
-            statusCode: 500, 
-            body: JSON.stringify({ error: 'Failed to fetch public configuration' }),
-        };
+        return { statusCode: 500, body: JSON.stringify({ error: 'Internal Error' }) };
     }
 };
