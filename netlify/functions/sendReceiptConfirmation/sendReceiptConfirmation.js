@@ -114,20 +114,13 @@ exports.handler = async function (event) {
                     },
                     body: JSON.stringify({
                         page: {
-                            // Use setContent for raw HTML strings
                             setContent: {
                                 html: htmlContent
                             },
-                            // PDF options go here, following Puppeteer naming
                             pdf: {
                                 format: 'A4',
                                 printBackground: true,
-                                margin: { 
-                                    top: '1cm', 
-                                    bottom: '1cm', 
-                                    left: '1cm', 
-                                    right: '1cm' 
-                                }
+                                margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
                             }
                         }
                     })
@@ -138,7 +131,25 @@ exports.handler = async function (event) {
                     throw new Error(`Doppio API Failed: ${errBody}`);
                 }
         
-                const pdfBuffer = await doppioRes.buffer();
+                // CRITICAL FIX 1: Get the response as an ArrayBuffer/Buffer for binary safety
+                const pdfArrayBuffer = await doppioRes.arrayBuffer();
+                const pdfBuffer = Buffer.from(pdfArrayBuffer);
+        
+                // 6. Send Email
+                await transporter.sendMail({
+                    from: '"autoInx Payments" <noreply@autoinx.com>',
+                    to: buyerEmail,
+                    subject: t.subject,
+                    html: htmlContent,
+                    attachments: [
+                        {
+                            filename: t.filename,
+                            content: pdfBuffer, // Passing the Buffer directly
+                            contentType: 'application/pdf',
+                            encoding: 'base64' // CRITICAL FIX 2: Force base64 encoding for the attachment
+                        }
+                    ]
+                });
 
         // 6. Send Email
         await transporter.sendMail({
