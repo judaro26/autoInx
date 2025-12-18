@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 
+// Initialize Firebase Admin
 if (!admin.apps.length) {
     const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
     let cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
@@ -15,6 +16,9 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+/**
+ * CIDR-aware IP matching
+ */
 function ipInSubnet(ip, subnet) {
     if (!subnet || !ip) return false;
     const cleanSubnet = subnet.trim();
@@ -33,15 +37,17 @@ function ipInSubnet(ip, subnet) {
 
 exports.handler = async function (event) {
     try {
+        // Get IP from Netlify headers
         const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || "";
         
-        // Fetch config once from Firestore
+        // 1. Fetch Dynamic Config from Firestore document: admin/config
         const configDoc = await db.doc('admin/config').get();
         const configData = configDoc.exists ? configDoc.data() : {};
         
-        // Use the Firestore-based whitelist exclusively
+        // 2. Extract Whitelist from Firestore array
         const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
 
+        // 3. Match current IP against the list
         const isWhitelisted = whitelist.some(range => ipInSubnet(clientIp, range));
 
         return {
