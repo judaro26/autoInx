@@ -1480,11 +1480,36 @@
              }
         }
     
-        // Placeholder for Delete Category
-        function handleDeleteCatalog(id, name) {
-            if (!confirm(`Are you sure you want to delete category: ${name}?`)) return;
-            showMessage('error', `Deleting category ${name} is not implemented in this version.`, 5000, 'catalog');
+        // Delete Category
+        async function handleDeleteCatalog(id, name) {
             resetTimer();
+        
+            // 1. Safety Check: Verify if any items are assigned to this category
+            const associatedItems = state.items.filter(item => item.catalogId === id);
+            
+            if (associatedItems.length > 0) {
+                showMessage('error', `Cannot delete "${name}": ${associatedItems.length} products are still assigned to it. Move or delete those products first.`, 7000, 'catalog');
+                return;
+            }
+        
+            // 2. Final Confirmation
+            if (!confirm(`Are you sure you want to PERMANENTLY delete the category: "${name}"?`)) return;
+        
+            try {
+                // 3. Reference and Delete the document
+                const catalogRef = doc(db, CATALOGS_COLLECTION, id);
+                await deleteDoc(catalogRef);
+        
+                // 4. Log the action
+                await logAdminAction('CATEGORY_DELETED', { name, id }, id);
+        
+                // 5. Success Feedback
+                showMessage('success', `Category "${name}" deleted successfully.`, 5000, 'catalog');
+        
+            } catch (error) {
+                console.error('Error deleting category:', error);
+                showMessage('error', `Failed to delete category: ${error.message}`, 5000, 'catalog');
+            }
         }
     
         // Delete Product function
