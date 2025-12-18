@@ -228,38 +228,63 @@
             }
         }       
         
-        
         function renderItemDetailModal() {
             if (!state.selectedItem) return '';
             
             const item = state.selectedItem;
             const catalog = state.catalogs.find(c => c.id === item.catalogId);
             const categoryName = catalog ? catalog.name : 'Uncategorized';
+            
+            // Ensure we have an array to work with
+            const images = item.imageUrls && item.imageUrls.length > 0 
+                ? item.imageUrls 
+                : [item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing'];
+        
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeItemDetailModal()">
-                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
                         
-                        <button onclick="window.module.closeItemDetailModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                        <button onclick="window.module.closeItemDetailModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
-                        <div class="flex flex-col md:flex-row gap-6">
-                            <img src="${item.imageUrl}" alt="${item.name}"
-                                class="w-full md:w-1/2 h-48 object-cover rounded-lg shadow-md flex-shrink-0"
-                                onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+        
+                        <div class="flex flex-col lg:flex-row gap-8">
+                            <div class="w-full lg:w-1/2 space-y-4">
+                                <div class="relative aspect-square overflow-hidden rounded-lg shadow-inner bg-gray-100">
+                                    <img id="main-modal-image" src="${images[0]}" alt="${item.name}"
+                                         class="w-full h-full object-contain transition-opacity duration-300">
+                                </div>
+                                
+                                ${images.length > 1 ? `
+                                <div class="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                                    ${images.map((img, idx) => `
+                                        <img src="${img}" 
+                                             onclick="document.getElementById('main-modal-image').src='${img}'"
+                                             class="h-16 w-16 object-cover rounded border-2 border-transparent hover:border-indigo-500 cursor-pointer transition-all flex-shrink-0"
+                                             onerror="this.style.display='none'">
+                                    `).join('')}
+                                </div>
+                                ` : ''}
+                            </div>
                             
                             <div class="flex-grow">
                                 <h2 class="text-3xl font-extrabold text-indigo-700 mb-2">${item.name}</h2>
-                                <p class="text-xl font-bold text-pink-600 mb-4">${formatPrice(item.price)}</p>
+                                <p class="text-2xl font-bold text-pink-600 mb-4">${formatPrice(item.price)}</p>
                                 
                                 <div class="mb-4 text-sm text-gray-500">
                                     <span class="font-semibold">${t('categoriesHeader')}:</span> ${categoryName}
                                 </div>
-                                <h3 class="text-lg font-bold text-gray-800 mb-2 border-t pt-4">Description</h3>
-                                <p class="text-gray-600 leading-relaxed text-sm">${item.description}</p>
-                                <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot')})"
-                                        class="mt-6 w-full bg-pink-500 text-white py-3 rounded-lg font-semibold hover:bg-pink-600 transition shadow-md flex items-center justify-center">
+                                
+                                <div class="border-t pt-4">
+                                    <h3 class="text-lg font-bold text-gray-800 mb-2">Description</h3>
+                                    <p class="text-gray-600 leading-relaxed text-sm">${item.description}</p>
+                                </div>
+        
+                                <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
+                                        class="mt-8 w-full bg-pink-500 text-white py-4 rounded-lg font-bold hover:bg-pink-600 transition shadow-lg flex items-center justify-center uppercase tracking-wider">
                                     <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                    ${t('addToCart')} </button>
+                                    ${t('addToCart')}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -279,27 +304,43 @@
             document.head.appendChild(script);
             console.log("reCAPTCHA script injected.");
         }
-
+        // function to display the product
         function renderProductCard(item) {
             const itemJson = JSON.stringify(item).replace(/'/g, "\\'").replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); 
             
+            // Pick the first image from array, or fallback to the single imageUrl
+            const displayImg = (item.imageUrls && item.imageUrls.length > 0) 
+                ? item.imageUrls[0] 
+                : (item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing');
+        
             return `
-                <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:shadow-xl transition duration-300 border border-gray-100">
-                    <img src="${item.imageUrl}" alt="${item.name}" class="w-full h-48 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
-                    <div class="p-4">
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden transform hover:scale-[1.02] transition duration-300 border border-gray-100 flex flex-col">
+                    <div class="relative cursor-pointer group" onclick="window.module.openItemDetailModal(JSON.parse(this.parentElement.querySelector('h4').dataset.item))">
+                        <img src="${displayImg}" alt="${item.name}" class="w-full h-48 object-cover transition-transform duration-500 group-hover:scale-110" 
+                             onerror="this.onerror=null;this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing';">
+                        ${item.imageUrls && item.imageUrls.length > 1 ? `
+                            <div class="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded-md backdrop-blur-sm">
+                                +${item.imageUrls.length - 1} fotos
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="p-4 flex flex-col flex-grow">
                         <h4 onclick="window.module.openItemDetailModal(JSON.parse(this.dataset.item))"
                             class="text-xl font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition"
-                            data-item='${itemJson}'
-                        >
+                            data-item='${itemJson}'>
                             ${item.name}
                         </h4>
                         
                         <p class="text-2xl text-indigo-600 font-extrabold mt-1">${formatPrice(item.price)}</p>
-                        <button onclick="window.module.addToCart(JSON.parse(this.dataset.item))"
-                                 data-item='${itemJson}'
-                                 class="mt-3 w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
-                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                            ${t('addToCart')} </button>
+                        
+                        <div class="mt-auto pt-3">
+                            <button onclick="window.module.addToCart(JSON.parse(this.dataset.item))"
+                                     data-item='${itemJson}'
+                                     class="w-full bg-pink-500 text-white py-2 rounded-lg font-semibold hover:bg-pink-600 transition duration-150 shadow-md flex items-center justify-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                ${t('addToCart')}
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
