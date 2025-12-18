@@ -1180,96 +1180,87 @@
 
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
-        try {
-            // 1. Load Language Preference from LocalStorage
-            const storedLang = localStorage.getItem('siteLang');
-            if (storedLang && TEXT[storedLang]) {
-                currentLang = storedLang;
-            }
-    
-            // 2. Fetch Public Config (Server-side IP check happens here)
-            // We call the public function which now handles the logic of reading 
-            // your ipWhitelist.js file and checking the Firestore whitelist.
-            const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
-            if (!configResponse.ok) throw new Error("Could not fetch site configuration.");
-            
-            const globalConfig = await configResponse.json();
-    
-            // 3. Set State from Server Response
-            // The server-side logic determines if the user is an admin based on their IP
-            state.isAdminIP = globalConfig.isRequesterAdmin === true;
-            state.isMaintenanceMode = globalConfig.maintenanceMode === true;
-            state.clientIp = globalConfig.clientIp;
-    
-            // 4. Maintenance Gate
-            // If maintenance is ON and the user is NOT an admin IP, stop execution and show maintenance screen
-            if (state.isMaintenanceMode && !state.isAdminIP) {
+            try {
+                // 1. Set language from storage
+                const storedLang = localStorage.getItem('siteLang');
+                if (storedLang && TEXT[storedLang]) {
+                    currentLang = storedLang;
+                }
+        
+                // 2. Fetch secure configuration from Netlify
+                // This call performs the IP check on the server
+                const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
+                if (!configResponse.ok) throw new Error("Failed to load site config.");
+                
+                const globalConfig = await configResponse.json();
+        
+                // 3. Update global state with server results
+                state.isAdminIP = globalConfig.isRequesterAdmin === true;
+                state.isMaintenanceMode = globalConfig.maintenanceMode === true;
+                state.clientIp = globalConfig.clientIp;
+        
+                // 4. Handle Maintenance Mode Restriction
+                if (state.isMaintenanceMode && !state.isAdminIP) {
+                    state.configLoaded = true;
+                    isAuthReady = true;
+                    render(); // Renders the maintenance screen
+                    return;
+                }
+        
+                // 5. Load Firebase Client Config (API Keys, etc)
+                const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
-                isAuthReady = true;
-                render();
-                console.log("Access restricted: Maintenance Mode is active.");
-                return;
-            }
-    
-            // 5. Initialize Firebase App
-            const firebaseConfig = await loadFirebaseConfig();
-            state.configLoaded = true;
-    
-            if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-                throw new Error("Firebase configuration is missing or invalid.");
-            }
-    
-            // Initialize Firebase services
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-    
-            // 6. Set up Authentication Listener
-            onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    userId = user.uid;
-                    
-                    if (!user.isAnonymous) {
-                        // User is logged in (Email/Google)
-                        state.userName = user.email || user.displayName || 'Authenticated User';
+        
+                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Firebase configuration could not be loaded.");
+                }
+        
+                // Initialize Firebase services
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+        
+                // 6. Set up Authentication Listener
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
                         
-                        // Close login modal automatically if it was open
-                        if (state.isModalOpen) {
-                            state.isModalOpen = false;
+                        if (!user.isAnonymous) {
+                            // Logged in user
+                            state.userName = user.email || user.displayName || 'Authenticated User';
+                            
+                            // Close auth modal if login was successful
+                            if (state.isModalOpen) state.isModalOpen = false;
+                        } else {
+                            // Anonymous session
+                            state.userName = null;
                         }
                     } else {
-                        // User is in an anonymous session
+                        // No session, trigger anonymous sign-in to allow Firestore reads
+                        userId = null;
                         state.userName = null;
+                        await signInAnonymously(auth).catch(e => console.error("Anon login failed:", e));
                     }
-                } else {
-                    // No user session, sign in anonymously to allow public data reading
-                    userId = null;
-                    state.userName = null;
-                    await signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
-                }
-                
-                isAuthReady = true;
-    
-                // 7. Re-apply Global Config Logic
-                // Maintenance mode turns off the chat widget for non-admins
-                state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
-                
-                // 8. Start Realtime Data Listeners and Initial Render
-                setupRealtimeListeners();
+                    
+                    isAuthReady = true;
+        
+                    // Apply chat widget logic based on maintenance/admin status
+                    state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
+                    
+                    // 7. Start live data sync and render page
+                    setupRealtimeListeners();
+                    render();
+                });
+        
+            } catch (error) {
+                console.error("Critical Setup Error:", error);
+                state.message = { 
+                    type: 'error', 
+                    text: currentLang === 'es' ? 'Error al cargar el portal. Reintente.' : 'Error loading portal. Please retry.' 
+                };
                 render();
-            });
-    
-        } catch (error) {
-            console.error("Firebase setup failed:", error);
-            state.message = { 
-                type: 'error', 
-                text: currentLang === 'es' 
-                    ? 'Error crítico al cargar el sistema. Por favor recarga la página.' 
-                    : 'Critical error loading the system. Please refresh the page.' 
-            };
-            render();
+            }
         }
-    }
         // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
         function toggleView(type = 'standard') {
             if (state.view === 'user') {
