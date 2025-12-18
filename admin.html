@@ -2376,60 +2376,53 @@
         }
     
         // --- ADMIN CONFIG FUNCTIONS ---
-        
         async function fetchAdminConfig() {
             try {
-                // 1. Get the Admin User's JWT token
                 if (!auth.currentUser) throw new Error("User not authenticated.");
-                
-                // This forces a refresh if the token is near expiration
                 const idToken = await auth.currentUser.getIdToken(true); 
         
-                // CRITICAL: Attach the Authorization header for the secure Netlify function
                 const res = await fetch(CONFIG_FUNCTION, {
                     method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${idToken}` 
-                    }
+                    headers: { 'Authorization': `Bearer ${idToken}` }
                 });
         
                 if (!res.ok) throw new Error('Config fetch failed.');
                 const config = await res.json();
-                
-                // Update global config state (this object now includes the chatSchedule)
                 globalConfig = config;
-                
-                // Update UI elements
+        
+                // --- ADD SAFETY CHECKS (if element exists) ---
                 const maintenanceToggle = document.getElementById('maintenanceToggle');
                 const chatWidgetToggle = document.getElementById('chatWidgetToggle');
                 const dynamicIpList = document.getElementById('dynamicIpList');
+                const lastUpdatedEl = document.getElementById('configLastUpdated');
         
                 if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
                 if (chatWidgetToggle) chatWidgetToggle.checked = config.chatWidgetEnabled;
+                if (dynamicIpList) dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
                 
-                if (dynamicIpList) {
-                    dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
+                // This is where your error was likely happening:
+                if (lastUpdatedEl) {
+                    lastUpdatedEl.textContent = config.lastUpdated ? 
+                        `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
                 }
-                document.getElementById('configLastUpdated').textContent = config.lastUpdated ? 
-                    `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
+                // ----------------------------------------------
         
-                // --- START: Attach listeners that update globalConfig state immediately ---
-                if (chatWidgetToggle && chatWidgetToggle.type === 'checkbox') {
-                    // Remove existing listener to prevent stacking if the function is called multiple times
+                // Re-attach listeners only if the toggles exist
+                if (chatWidgetToggle) {
                     chatWidgetToggle.removeEventListener('change', chatToggleHandler);
                     chatWidgetToggle.addEventListener('change', chatToggleHandler);
                 }
-                
-                if (maintenanceToggle && maintenanceToggle.type === 'checkbox') {
-                    // Remove existing listener to prevent stacking if the function is called multiple times
+                if (maintenanceToggle) {
                     maintenanceToggle.removeEventListener('change', maintenanceToggleHandler);
                     maintenanceToggle.addEventListener('change', maintenanceToggleHandler);
                 }
-                // --- END ---
         
             } catch (error) {
                 console.error("Error fetching admin config:", error);
-                showMessage('error', `Failed to load configuration: ${error.message}`, 8000, 'config');
+                // Only show message if the catalogMessage or configMessage element exists
+                if (document.getElementById('configMessage')) {
+                    showMessage('error', `Failed to load configuration: ${error.message}`, 8000, 'config');
+                }
             }
         }
                 
