@@ -80,4 +80,17 @@ exports.handler = async function (event) {
             body: JSON.stringify({ error: 'Internal Server Error' }),
         };
     }
+
+     const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
+    
+    // ADD THESE LOGS:
+    console.log("Checking IP:", `[${clientIp}]`); // Brackets help see hidden spaces
+    console.log("Against Whitelist:", whitelist);
+    
+    const isWhitelisted = whitelist.some(range => {
+        const match = ipInSubnet(clientIp, range);
+        console.log(`Comparing ${clientIp} to ${range}: Result ${match}`);
+        return match;
+    });   
+    
 };
