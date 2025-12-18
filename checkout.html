@@ -174,7 +174,47 @@
         currentLang = lang;
         loadCheckout();
     }
-
+    // Checkout function
+    function loadCheckout() {
+        const app = $('app');
+        if (!app) return;
+    
+        // 1. Get cart from session storage
+        const storedCart = sessionStorage.getItem('autoInxCart');
+        cartData = storedCart ? JSON.parse(storedCart) : {};
+    
+        // 2. Calculate Total
+        cartTotalCents = Object.values(cartData).reduce((sum, entry) => 
+            sum + (entry.item.price * entry.quantity), 0);
+    
+        // 3. Check if cart is empty
+        if (Object.keys(cartData).length === 0) {
+            app.innerHTML = `
+                ${renderHeader()}
+                <div class="max-w-4xl mx-auto mt-20 p-12 bg-white rounded-3xl shadow-xl text-center">
+                    <p class="text-2xl text-gray-600 mb-8">${t('cartEmpty')}</p>
+                    <a href="/" class="inline-block bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-700 transition">
+                        ${t('return')}
+                    </a>
+                </div>`;
+            return;
+        }
+    
+        // 4. Render Content
+        app.innerHTML = `
+            ${renderHeader()}
+            <div class="mt-8">
+                ${renderCheckoutContent()}
+            </div>`;
+    
+        // 5. Re-initialize Google Maps if available
+        if (typeof google !== 'undefined' && google.maps) {
+            initPlaces();
+        } else {
+            loadGoogleMaps();
+        }
+    }
+    
     async function fetchAdminConfig() {
         try {
             const res = await fetch(GET_ADMIN_CONFIG_URL);
