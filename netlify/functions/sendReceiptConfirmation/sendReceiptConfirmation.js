@@ -7,7 +7,7 @@ const transporter = nodemailer.createTransport({
     port: process.env.BREVO_SMTP_PORT,
     secure: false,
     auth: {
-        user: process.env.BREVO_SMTP_USER, 
+        user: process.env.BREVO_SMTP_USER,
         pass: process.env.BREVO_SMTP_PASSWORD,
     },
 });
@@ -24,51 +24,68 @@ function generateTableRows(items) {
         const subtotal = item.price * item.quantity;
         return `
             <tr>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px;">${item.name}</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; font-size: 14px;">${item.quantity}</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px;">${formatPrice(item.price)}</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px;">${formatPrice(subtotal)}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; color: #334155;">${item.name}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; font-size: 14px; color: #334155;">${item.quantity}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px; color: #334155;">${formatPrice(item.price)}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px; font-weight: 600; color: #1e293b;">${formatPrice(subtotal)}</td>
             </tr>
         `;
     }).join('');
 }
 
 exports.handler = async function (event) {
+    // Basic CORS handling and Method Check
+    if (event.httpMethod === "OPTIONS") {
+        return { statusCode: 200, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "Content-Type" } };
+    }
+
     if (event.httpMethod !== "POST") {
         return { statusCode: 405, body: "Method Not Allowed" };
     }
 
     try {
         const data = JSON.parse(event.body);
-        const { orderId, buyerEmail, buyerName, items, totalCents, paidCents, paymentMethod, language } = data;
+        const { orderId, buyerEmail, buyerName, items, paidCents, paymentMethod, language } = data;
         const lang = language === 'es' ? 'es' : 'en';
 
-        // 1. Load the Template
+        // 1. Calculate Financials
+        // totalCents is the total value of the items in the order
+        const orderTotalCents = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        
+        // remainingBalance uses the order total minus what has been paid to date
+        // Note: data.paidCents from your admin.html updateOrder() represents total paid after this transaction
+        const balanceCents = orderTotalCents - paidCents;
+        const balanceColor = balanceCents <= 0 ? "#16a34a" : "#e11d48"; // Green if paid, Red if balance remains
+
+        // 2. Load the Template
+        // IMPORTANT: Ensure netlify.toml includes this folder in 'included_files'
         const templateName = lang === 'es' ? "paymentReceiptSpanish.html" : "paymentReceipt.html";
         const templatePath = path.join(__dirname, "emailTemplates", templateName);
         let html = await fs.readFile(templatePath, "utf8");
 
-        // 2. Define Translations
+        // 3. Define Translations for Dynamic Parts
         const strings = {
             en: {
                 subject: `Payment Receipt for Order #${orderId.substring(0, 5)}`,
                 badge: "Payment Received",
                 title: "Payment Confirmation",
                 intro: `Hi ${buyerName}, we have successfully processed your payment for order #${orderId.substring(0, 5)}.`,
-                close: "Thank you for your business! Your order status will be updated shortly."
+                close: "Thank you for your business! Your order status will be updated shortly.",
+                balanceLabel: balanceCents <= 0 ? "PAID IN FULL" : "REMAINING BALANCE"
             },
             es: {
                 subject: `Recibo de Pago - Pedido #${orderId.substring(0, 5)}`,
                 badge: "Pago Recibido",
                 title: "Confirmación de Pago",
                 intro: `Hola ${buyerName}, hemos procesado exitosamente su pago para el pedido #${orderId.substring(0, 5)}.`,
-                close: "¡Gracias por su compra! El estado de su pedido se actualizará pronto."
+                close: "¡Gracias por su compra! El estado de su pedido se actualizará pronto.",
+                balanceLabel: balanceCents <= 0 ? "PAGADO TOTALMENTE" : "SALDO PENDIENTE"
             }
         };
 
         const t = strings[lang];
 
-        // 3. Perform Replacements
+        // 4. Perform Replacements
         const replacements = {
             "{{params.badgeColor}}": "#10b981",
             "{{params.badgeText}}": t.badge,
@@ -78,7 +95,10 @@ exports.handler = async function (event) {
             "{{params.paymentDate}}": new Date().toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US'),
             "{{params.transactionId}}": `TXN-${Math.random().toString(36).toUpperCase().substring(2, 10)}`,
             "{{params.paymentMethod}}": paymentMethod || "Credit Card",
-            "{{params.amountPaid}}": formatPrice(paidCents),
+            "{{params.orderTotal}}": formatPrice(orderTotalCents),
+            "{{params.amountPaid}}": formatPrice(paidCents), 
+            "{{params.remainingBalance}}": balanceCents <= 0 ? t.balanceLabel : formatPrice(balanceCents),
+            "{{params.balanceColor}}": balanceColor,
             "{{params.orderTableRows}}": generateTableRows(items),
             "{{params.totalPaid}}": formatPrice(paidCents),
             "{{params.closeMessage}}": t.close,
@@ -89,7 +109,7 @@ exports.handler = async function (event) {
             html = html.split(key).join(value);
         }
 
-        // 4. Send Email
+        // 5. Send Email
         await transporter.sendMail({
             from: '"autoInx Payments" <noreply@autoinx.com>',
             to: buyerEmail,
@@ -99,11 +119,16 @@ exports.handler = async function (event) {
 
         return {
             statusCode: 200,
+            headers: { "Access-Control-Allow-Origin": "*" },
             body: JSON.stringify({ message: "Receipt sent successfully" }),
         };
 
     } catch (error) {
         console.error("Receipt error:", error);
-        return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+        return { 
+            statusCode: 500, 
+            headers: { "Access-Control-Allow-Origin": "*" },
+            body: JSON.stringify({ error: error.message }) 
+        };
     }
 };
