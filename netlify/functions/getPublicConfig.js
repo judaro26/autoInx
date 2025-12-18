@@ -21,16 +21,25 @@ const db = admin.firestore();
  */
 function ipInSubnet(ip, subnet) {
     if (!subnet || !ip) return false;
-    const cleanSubnet = subnet.trim();
-    if (!cleanSubnet.includes('/')) return ip.trim() === cleanSubnet;
+    
+    // Force both to strings and trim whitespace/newlines
+    const cleanIp = String(ip).trim();
+    const cleanSubnet = String(subnet).trim();
+
+    if (!cleanSubnet.includes('/')) {
+        return cleanIp === cleanSubnet;
+    }
     
     try {
         const [range, bits] = cleanSubnet.split('/');
         const mask = ~(Math.pow(2, 32 - parseInt(bits)) - 1);
-        const ipInt = ip.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+        
+        const ipInt = cleanIp.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
         const rangeInt = range.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+        
         return (ipInt & mask) === (rangeInt & mask);
     } catch (e) {
+        console.error("Subnet calculation error:", e);
         return false;
     }
 }
