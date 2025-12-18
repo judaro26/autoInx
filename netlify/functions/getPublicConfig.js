@@ -1,6 +1,5 @@
 const admin = require('firebase-admin');
 
-// Initialize Firebase Admin
 if (!admin.apps.length) {
     const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
     let cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
@@ -16,53 +15,41 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-/**
- * CIDR-aware IP matching
- */
 function ipInSubnet(ip, subnet) {
     if (!subnet || !ip) return false;
-    
-    // Force both to strings and trim whitespace/newlines
     const cleanIp = String(ip).trim();
     const cleanSubnet = String(subnet).trim();
 
-    if (!cleanSubnet.includes('/')) {
-        return cleanIp === cleanSubnet;
-    }
+    if (!cleanSubnet.includes('/')) return cleanIp === cleanSubnet;
     
     try {
         const [range, bits] = cleanSubnet.split('/');
         const mask = ~(Math.pow(2, 32 - parseInt(bits)) - 1);
-        
         const ipInt = cleanIp.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
         const rangeInt = range.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
-        
         return (ipInt & mask) === (rangeInt & mask);
     } catch (e) {
-        console.error("Subnet calculation error:", e);
         return false;
     }
 }
 
 exports.handler = async function (event) {
     try {
-        const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || "";
-        
+        // Priority 1: client-ip (Standard Netlify User IP)
+        // Priority 2: x-forwarded-for (First IP in the chain)
+        const clientIp = event.headers['client-ip'] || 
+                         (event.headers['x-forwarded-for'] || "").split(',')[0].trim() ||
+                         event.headers['x-nf-client-connection-ip'] || 
+                         "";
+
         const configDoc = await db.doc('admin/config').get();
         const configData = configDoc.exists ? configDoc.data() : {};
-        
         const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
 
-        // --- DEBUG LOGS START ---
-        console.log("Checking IP:", `[${clientIp}]`); 
-        console.log("Against Whitelist:", whitelist);
-        
-        const isWhitelisted = whitelist.some(range => {
-            const match = ipInSubnet(clientIp, range);
-            console.log(`Comparing ${clientIp} to ${range}: Result ${match}`);
-            return match;
-        });
-        // --- DEBUG LOGS END ---
+        // DEBUG: Check your Netlify Function logs to see if this matches your home IP
+        console.log(`Matching User: [${clientIp}] against list of ${whitelist.length} IPs`);
+
+        const isWhitelisted = whitelist.some(range => ipInSubnet(clientIp, range));
 
         return {
             statusCode: 200,
@@ -85,5 +72,4 @@ exports.handler = async function (event) {
             body: JSON.stringify({ error: 'Internal Server Error' }),
         };
     }
-    
 };
