@@ -105,29 +105,31 @@ exports.handler = async function (event) {
             htmlContent = htmlContent.split(key).join(value);
         }
 
-        // 5. GENERATE PDF VIA DOPPIO (Direct Method)
-        const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${process.env.DOPPIO_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                html: htmlContent,
-                options: {
-                    format: 'A4',
-                    printBackground: true,
-                    margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
+        // 5. GENERATE PDF VIA DOPPIO (Updated for Latest API)
+                const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${process.env.DOPPIO_API_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        page: {
+                            content: htmlContent, // Formerly "html"
+                        },
+                        pdf: {
+                            format: 'A4',
+                            printBackground: true,
+                            margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
+                        }
+                    })
+                });
+        
+                if (!doppioRes.ok) {
+                    const errBody = await doppioRes.text();
+                    throw new Error(`Doppio API Failed: ${errBody}`);
                 }
-            })
-        });
-
-        if (!doppioRes.ok) {
-            const errBody = await doppioRes.text();
-            throw new Error(`Doppio API Failed: ${errBody}`);
-        }
-
-        const pdfBuffer = await doppioRes.buffer();
+        
+                const pdfBuffer = await doppioRes.buffer();
 
         // 6. Send Email
         await transporter.sendMail({
