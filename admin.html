@@ -703,11 +703,10 @@
                 tableData: tableData.sort((a, b) => b.totalRevenueCents - a.totalRevenueCents), // Sort by cents descending
             };
         }
-// --- NEW HELPER FUNCTIONS FOR DRAFT CART MANAGEMENT (Add around line 1300) ---
-        function initializeDraftCart(orderItems) {
+        // --- NEW HELPER FUNCTIONS FOR DRAFT CART MANAGEMENT (Add around line 1300) ---
+        function initializeDraftCart(orderItems, currentPaidCents = 0) {
             state.editingOrderDraftCart = {};
             orderItems.forEach(orderItem => {
-                // Find the full product details from the global item list
                 const fullItem = state.items.find(i => i.id === orderItem.id);
                 if (fullItem) {
                     state.editingOrderDraftCart[orderItem.id] = {
@@ -715,7 +714,6 @@
                         quantity: orderItem.quantity,
                     };
                 } else {
-                    // Handle deleted or missing item gracefully by using its name/price from the order
                     state.editingOrderDraftCart[orderItem.id] = {
                         item: { 
                             id: orderItem.id, 
@@ -727,6 +725,8 @@
                     };
                 }
             });
+            // Store the paid amount so recalculateBilling can see it immediately
+            state.editingOrderPaymentTotal = currentPaidCents;
         }
         
         // Re-use the updateAdminCartDisplay logic, renamed for the modal
@@ -3808,98 +3808,236 @@
                 `;
             }).join('');
         }
-        
-        // --- EXPOSE TO WINDOW (ONLY ONCE!) ---
-        window.module = {
-                    globalNextPageToken,
-                    globalConfig,
-                    fetchUsers,
-                    renderUserList, 
-                    orders,
-                    userId,
-                    getOrdersCollectionPath,
-            
-                    fetchAdminConfig,
-                    displayStaticIps,
-                    handleUpdateConfig, 
-            
-                    switchAdminTab,
-                    switchOrderPage, 
-                    handleAddCatalog,
-                    handleDeleteCatalog,
-                    handleAddProduct,
-                    handleDeleteProduct,
-                    handleSearchInput, 
-                    handleUserSearchInput, 
-                    handleOrderSearchInput, 
-                    handleOrderListSearchInput, 
-                    showEditForm,
-                    cancelEdit,
-                    handleEditProduct,
-                    renderProductListSection,
-                    togglePreviewMode,
-                    logAdminAction,
-            
-                    handleBulkUserAction, 
-                    handleUserAction, 
-                    toggleUserSelection, 
-                    toggleAllUsers, 
-                    
-                    promptForPasswordReset,
-                    deleteUser,
-                    disableUser,
-                    handleClearAnonymousUsers,
-                    loadGoogleMapsScript,
-            
-                    handleAdminOrderSubmit, 
-                    addAdminCartItem,
-                    removeAdminCartItem,
-                    updateAdminCartDisplay, 
-                    updateItemSelector, 
-                    
-                    // NEW Orders Tracking Functions
-                    fetchOrders,
-                    handleStatusFilterChange,
-                    handleOrderStatusUpdate,
-                    handleRequestDelivery,
-                    renderOrdersList,
-                    renderOrderCreateForm,
-                    renderOrdersStats,
-                    getOrdersStatsHtml,
-                    renderSalesCharts,
-                    handleSalesTimeFilterChange,
-                    renderCategorySalesTable,
-                    downloadCategorySalesCsv,
-                    handleDeliveryFilterChange, 
-                    downloadIndividualItemSalesCsv,
-            
-                    // <<< NEW ORDER EDIT FUNCTIONS
-                    showOrderEditForm,
-                    closeEditModal,
-                    updateOrder,
-                    renderOrderEditModal,
-                    // NEW ORDER EDIT FUNCTIONS >>>
 
-                    // NEW DRAFT CART FUNCTIONS
-                    initializeDraftCart,      
-                    updateDraftCartDisplay,    
-                    addDraftCartItem,         
-                    removeDraftCartItem,      
-                    updateDraftItemQuantity,   
-                    
-                    // NEW Inventory Functions
-                    renderInventorySection,
-                    handleUpdateStock,
-                    showPurchaseOrderForm,
-                    toggleLanguage,
-                    
-                    // NEW BILLING Functions
-                    recalculateBilling,
-                    renderFinancialsSection,
-                    downloadPaymentLedgerCsv,
-
+        function downloadPaymentLedgerCsv() {
+            resetTimer();
+            const headers = ["Order Date", "Order ID", "Customer Name", "Customer Email", "Payment Method", "Total (USD)", "Paid (USD)", "Balance (USD)", "Status"];
             
-                };
+            // Use the global state.orders which is already being synced
+            const rows = state.orders.map(o => {
+                const total = ((o.totalCents || 0) / 100).toFixed(2);
+                const paid = ((o.paidCents || 0) / 100).toFixed(2);
+                const balance = (((o.totalCents || 0) - (o.paidCents || 0)) / 100).toFixed(2);
+                const status = ((o.totalCents || 0) - (o.paidCents || 0)) <= 0 ? "PAID" : "OUTSTANDING";
+                
+                return [
+                    new Date(o.timestamp || o.createdAt).toLocaleDateString(),
+                    o.id,
+                    `"${o.buyerName || 'Guest'}"`,
+                    o.buyerEmail || 'N/A',
+                    o.paymentMethod || "N/A",
+                    total,
+                    paid,
+                    balance,
+                    status
+                ].join(",");
+            });
+        
+            const csvContent = [headers.join(","), ...rows].join("\n");
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute("href", url);
+            link.setAttribute("download", `AutoInx_Financial_Ledger_${new Date().toISOString().slice(0,10)}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showMessage('success', 'Financial ledger exported successfully.', 5000, 'orders');
+        }
+        
+        // Helper to render rows for the Financial Section
+        function renderFinancialRows() {
+            const sortedOrders = [...state.orders].sort((a, b) => {
+                const dateA = a.timestamp ? new Date(a.timestamp) : new Date();
+                const dateB = b.timestamp ? new Date(b.timestamp) : new Date();
+                return dateB - dateA;
+            });
+            
+            return sortedOrders.map(o => {
+                const total = o.totalCents || 0;
+                const paid = o.paidCents || 0;
+                const balance = total - paid;
+                const isOwed = balance > 0;
+                
+                return `
+                    <tr class="hover:bg-indigo-50/30 transition-colors text-sm border-b">
+                        <td class="p-4 text-gray-500 whitespace-nowrap">${new Date(o.timestamp || o.createdAt).toLocaleDateString()}</td>
+                        <td class="p-4 font-mono font-bold text-indigo-600">#${o.id.substring(0, 5)}</td>
+                        <td class="p-4">
+                            <p class="font-bold text-gray-800">${o.buyerName || 'Guest'}</p>
+                            <p class="text-[10px] text-gray-400">${o.buyerEmail || ''}</p>
+                        </td>
+                        <td class="p-4">
+                            <span class="px-2 py-1 bg-gray-100 rounded text-xs font-semibold text-gray-600 border italic">
+                                ${o.paymentMethod || 'Not Selected'}
+                            </span>
+                        </td>
+                        <td class="p-4 text-right font-medium">${formatPriceDisplay(total)}</td>
+                        <td class="p-4 text-right font-bold text-emerald-600">${formatPriceDisplay(paid)}</td>
+                        <td class="p-4 text-right font-black ${isOwed ? 'text-rose-600 bg-rose-50/50' : 'text-gray-300'}">
+                            ${formatPriceDisplay(balance)}
+                        </td>
+                        <td class="p-4 text-center">
+                            <button onclick="window.module.showOrderEditForm('${o.id}', '${o.uid || o.createdByAdmin || 'guest'}')" 
+                                    class="text-indigo-600 hover:text-indigo-900 font-black text-xs uppercase tracking-tighter">
+                                Log Payment
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        // --- EXPOSE TO WINDOW ---
+        window.module = {
+            // --- AUTH & USERS ---
+            globalNextPageToken,
+            fetchUsers,
+            renderUserList,
+            handleUserSearchInput,
+            handleBulkUserAction,
+            handleUserAction,
+            toggleUserSelection,
+            toggleAllUsers,
+            promptForPasswordReset,
+            deleteUser,
+            disableUser,
+            handleClearAnonymousUsers,
+        
+            // --- CONFIG & SYSTEM ---
+            globalConfig,
+            fetchAdminConfig,
+            displayStaticIps,
+            handleUpdateConfig,
+            togglePreviewMode,
+            toggleLanguage,
+            logAdminAction,
+            loadGoogleMapsScript,
+        
+            // --- CATALOG & INVENTORY ---
+            switchAdminTab,
+            handleAddCatalog,
+            handleDeleteCatalog,
+            handleAddProduct,
+            handleDeleteProduct,
+            handleEditProduct,
+            handleSearchInput,
+            showEditForm,
+            cancelEdit,
+            renderProductListSection,
+            renderInventorySection,
+            handleUpdateStock,
+            showPurchaseOrderForm,
+        
+            // --- ORDER TRACKING ---
+            orders,
+            userId,
+            fetchOrders,
+            switchOrderPage,
+            getOrdersCollectionPath,
+            handleOrderSearchInput,
+            handleOrderListSearchInput,
+            handleStatusFilterChange,
+            handleDeliveryFilterChange,
+            handleOrderStatusUpdate,
+            handleRequestDelivery,
+            renderOrdersList,
+            renderOrderCreateForm,
+            renderOrdersStats,
+            getOrdersStatsHtml,
+            renderSalesCharts,
+            handleSalesTimeFilterChange,
+            renderCategorySalesTable,
+            downloadCategorySalesCsv,
+            downloadIndividualItemSalesCsv,
+        
+            // --- MANUAL ORDER CREATION (ADMIN CART) ---
+            handleAdminOrderSubmit,
+            addAdminCartItem,
+            removeAdminCartItem,
+            updateAdminCartDisplay,
+            updateItemSelector,
+        
+            // --- ORDER EDITING & DRAFT CART ---
+            showOrderEditForm,
+            closeEditModal,
+            updateOrder,
+            renderOrderEditModal,
+            initializeDraftCart,
+            
+            // Updated to trigger billing recalc whenever items change
+            updateDraftCartDisplay: function() {
+                const cartEl = document.getElementById('editOrderItemsDisplay');
+                const totalEl = document.getElementById('editOrderTotal');
+                let totalCents = 0;
+                if (!cartEl || !totalEl) return;
+        
+                const itemsInCart = Object.values(state.editingOrderDraftCart);
+                if (itemsInCart.length === 0) {
+                    cartEl.innerHTML = '<p class="text-gray-500 italic">No items currently in order.</p>';
+                } else {
+                    cartEl.innerHTML = itemsInCart.map(entry => {
+                        const subtotal = entry.item.price * entry.quantity;
+                        totalCents += subtotal;
+                        return `
+                            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                <div class="flex-1 min-w-0 pr-2">
+                                    <p class="text-sm font-semibold text-gray-900 truncate">${entry.item.name}</p>
+                                    <p class="text-xs text-gray-500">${formatPriceDisplay(entry.item.price)}</p>
+                                </div>
+                                <div class="flex items-center space-x-2 flex-shrink-0">
+                                    <input type="number" value="${entry.quantity}" min="1" 
+                                           onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
+                                           class="w-12 p-1 border rounded text-xs text-center">
+                                    <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500 text-xs ml-1">❌</button>
+                                </div>
+                            </div>`;
+                    }).join('');
+                }
+                totalEl.textContent = formatPriceDisplay(totalCents);
+                // CRITICAL: Refresh balance calculation whenever items are added/removed/changed
+                this.recalculateBilling();
+            },
+            
+            addDraftCartItem,
+            removeDraftCartItem,
+            updateDraftItemQuantity,
+        
+            // --- FINANCIALS & BILLING ---
+            renderFinancialsSection,
+            renderFinancialRows,
+            downloadPaymentLedgerCsv,
+            
+            recalculateBilling: function() { 
+                // 1. Calculate the New Total based on items currently in the draft cart
+                const totalCents = Object.values(state.editingOrderDraftCart).reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+                
+                // 2. Get the value currently typed into the "Amount Paid" input
+                const paidInput = document.getElementById('edit-paid-amount');
+                const paidDollars = parseFloat(paidInput?.value) || 0;
+                const paidCents = Math.round(paidDollars * 100);
+                
+                // 3. Calculate Balance
+                const balanceCents = totalCents - paidCents;
+        
+                // 4. Update UI Elements
+                if (document.getElementById('editOrderTotal')) 
+                    document.getElementById('editOrderTotal').textContent = formatPriceDisplay(totalCents);
+                    
+                if (document.getElementById('display-paid-amount')) 
+                    document.getElementById('display-paid-amount').textContent = formatPriceDisplay(paidCents);
+                    
+                if (document.getElementById('edit-remaining-balance')) {
+                    const balEl = document.getElementById('edit-remaining-balance');
+                    balEl.textContent = formatPriceDisplay(balanceCents);
+                    // Visual feedback: Green for settled (0 or overpaid), Rose for outstanding
+                    balEl.className = balanceCents <= 0 ? 'text-green-600 font-black' : 'text-rose-600 font-black';
+                }
+            }
+        };
     
         document.addEventListener('DOMContentLoaded', setupFirebase);
     </script>
