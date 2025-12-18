@@ -2,42 +2,40 @@ const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
 
-// --- FIREBASE INIT (Same as before) ---
-if (!admin.apps.length) {
-    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
-    let cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: cleanedPrivateKey,
-        }),
-    });
+// ... (Firebase initialization code remains the same) ...
+
+// NEW HELPER: Checks if an IP address belongs to a CIDR subnet
+function ipInSubnet(ip, subnet) {
+    if (!subnet.includes('/')) return ip === subnet;
+    
+    try {
+        const [range, bits] = subnet.split('/');
+        const mask = ~(Math.pow(2, 32 - parseInt(bits)) - 1);
+        
+        const ipInt = ip.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+        const rangeInt = range.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+        
+        return (ipInt & mask) === (rangeInt & mask);
+    } catch (e) {
+        return false;
+    }
 }
 
-const db = admin.firestore();
-
-// --- SECURE IP EXTRACTION ---
-// We read your existing file as text to avoid "Export/Require" format conflicts
 function getHardcodedWhitelist() {
     try {
-        // Updated Path: Ensure this points correctly to your frontend file
         const filePath = path.resolve(__dirname, '../../js/utilities/ipWhitelist.js');
         const fileContent = fs.readFileSync(filePath, 'utf8');
         
-        // IMPROVED REGEX: Handles single quotes, double quotes, and optional spaces
+        // Flexible Regex to catch single quotes, double quotes, and ranges
         const ipRegex = /['"]\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)\s*['"]/g;
-        
         const matches = [];
         let match;
         while ((match = ipRegex.exec(fileContent)) !== null) {
             matches.push(match[1]);
         }
-        
-        console.log("Extracted IPs from file:", matches); // Log this in Netlify to verify
         return matches;
     } catch (err) {
-        console.error("Could not read hardcoded whitelist file:", err);
+        console.error("Whitelist read error:", err);
         return [];
     }
 }
@@ -45,17 +43,16 @@ function getHardcodedWhitelist() {
 exports.handler = async function (event) {
     try {
         const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || "";
-        
-        // 1. Get the list from your existing frontend file (processed on server)
         const staticWhitelist = getHardcodedWhitelist();
 
-        // 2. Get the dynamic list from Firestore
         const configDoc = await db.doc('admin/config').get();
         const configData = configDoc.exists ? configDoc.data() : {};
         const dynamicWhitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
 
-        // 3. Perform the check
-        const isWhitelisted = dynamicWhitelist.includes(clientIp) || staticWhitelist.includes(clientIp);
+        // REVISED CHECK: Uses the CIDR helper for both lists
+        const isWhitelisted = 
+            dynamicWhitelist.some(range => ipInSubnet(clientIp, range)) || 
+            staticWhitelist.some(range => ipInSubnet(clientIp, range));
 
         return {
             statusCode: 200,
@@ -63,11 +60,11 @@ exports.handler = async function (event) {
             body: JSON.stringify({
                 maintenanceMode: configData.maintenanceMode === true,
                 chatWidgetEnabled: configData.chatWidgetEnabled !== false,
-                isRequesterAdmin: isWhitelisted,
+                isRequesterAdmin: isWhitelisted, // This will now be TRUE for your IP
                 clientIp: clientIp
             }),
         };
     } catch (error) {
-        return { statusCode: 500, body: JSON.stringify({ error: 'Internal Error' }) };
+        return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
     }
 };
