@@ -21,17 +21,20 @@ const db = admin.firestore();
 // We read your existing file as text to avoid "Export/Require" format conflicts
 function getHardcodedWhitelist() {
     try {
-        // Adjust the path to where your frontend ipWhitelist.js is located relative to this function
+        // Updated Path: Ensure this points correctly to your frontend file
         const filePath = path.resolve(__dirname, '../../js/utilities/ipWhitelist.js');
         const fileContent = fs.readFileSync(filePath, 'utf8');
         
-        // This regex finds strings inside the brackets of your ipWhitelist array
-        const ipRegex = /'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)'/g;
+        // IMPROVED REGEX: Handles single quotes, double quotes, and optional spaces
+        const ipRegex = /['"]\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)\s*['"]/g;
+        
         const matches = [];
         let match;
         while ((match = ipRegex.exec(fileContent)) !== null) {
             matches.push(match[1]);
         }
+        
+        console.log("Extracted IPs from file:", matches); // Log this in Netlify to verify
         return matches;
     } catch (err) {
         console.error("Could not read hardcoded whitelist file:", err);
