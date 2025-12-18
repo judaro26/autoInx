@@ -1187,17 +1187,20 @@
                     currentLang = storedLang;
                 }
         
-                // 2. Fetch secure configuration from Netlify
-                // This call performs the IP check on the server
+                // 2. Fetch the new public configuration
+                // This is where we get the IP whitelist status from the server
                 const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
                 if (!configResponse.ok) throw new Error("Failed to load site config.");
                 
                 const globalConfig = await configResponse.json();
         
-                // 3. Update global state with server results
+                // 3. Update global state with the server-verified admin status
                 state.isAdminIP = globalConfig.isRequesterAdmin === true;
                 state.isMaintenanceMode = globalConfig.maintenanceMode === true;
                 state.clientIp = globalConfig.clientIp;
+        
+                console.log("Connected from IP:", state.clientIp);
+                console.log("Admin Privileges Detected:", state.isAdminIP);
         
                 // 4. Handle Maintenance Mode Restriction
                 if (state.isMaintenanceMode && !state.isAdminIP) {
@@ -1224,27 +1227,22 @@
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
-                        
                         if (!user.isAnonymous) {
-                            // Logged in user
-                            state.userName = user.email || user.displayName || 'Authenticated User';
-                            
-                            // Close auth modal if login was successful
+                            state.userName = user.email || user.displayName || 'User';
                             if (state.isModalOpen) state.isModalOpen = false;
                         } else {
-                            // Anonymous session
                             state.userName = null;
                         }
                     } else {
-                        // No session, trigger anonymous sign-in to allow Firestore reads
                         userId = null;
                         state.userName = null;
+                        // Sign in anonymously to allow reading public data
                         await signInAnonymously(auth).catch(e => console.error("Anon login failed:", e));
                     }
                     
                     isAuthReady = true;
         
-                    // Apply chat widget logic based on maintenance/admin status
+                    // Apply chat widget logic
                     state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
                     
                     // 7. Start live data sync and render page
@@ -1256,7 +1254,7 @@
                 console.error("Critical Setup Error:", error);
                 state.message = { 
                     type: 'error', 
-                    text: currentLang === 'es' ? 'Error al cargar el portal. Reintente.' : 'Error loading portal. Please retry.' 
+                    text: currentLang === 'es' ? 'Error al cargar el portal.' : 'Error loading portal.' 
                 };
                 render();
             }
