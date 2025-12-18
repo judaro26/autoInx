@@ -459,21 +459,25 @@
             </div>`;
     }
 
-    function loadCheckout() {
-        const json = sessionStorage.getItem('autoInxCart');
-        if (!json || json === '{}') {
-            document.getElementById('app').innerHTML = `
-                <div class="text-center py-20 bg-white rounded-3xl shadow-2xl">
-                    <p class="text-3xl font-bold text-red-600 mb-6">${t('cartEmpty').split('<a')[0]}</p>
-                    <a href="/" class="text-indigo-600 underline text-2xl">${t('cartEmpty').split('</a>')[0].split('>')[1]}</a>
-                </div>`;
+    function addToCart(item) {
+        if (state.isMaintenanceMode) {
+            showMessage('warning', t('maintenanceMsg'), 4000);
             return;
         }
-        cartData = JSON.parse(json);
-        cartTotalCents = Object.values(cartData).reduce((s,e) => s + e.item.price * e.quantity, 0);
-        document.getElementById('app').innerHTML = renderHeader() + renderCheckoutContent();
-        renderChatWidget();
-        loadGoogleMaps();
+        const currentEntry = state.cart[item.id];
+        const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
+        
+        // Update the state object
+        state.cart = {
+            ...state.cart,
+            [item.id]: { item, quantity: newQuantity }
+        };
+    
+        // SAVE TO STORAGE IMMEDIATELY
+        sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
+    
+        showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
+        render();
     }
 
     async function initApp() {
