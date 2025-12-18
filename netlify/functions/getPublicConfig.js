@@ -1,6 +1,4 @@
 const admin = require('firebase-admin');
-const fs = require('fs');
-const path = require('path');
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -19,65 +17,38 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 /**
- * Helper: Checks if an IP address belongs to a CIDR subnet
- * Works for exact IPs (1.2.3.4) and ranges (1.2.3.0/24)
+ * CIDR-aware IP matching
  */
 function ipInSubnet(ip, subnet) {
     if (!subnet || !ip) return false;
-    if (!subnet.includes('/')) return ip === subnet.trim();
+    const cleanSubnet = subnet.trim();
+    if (!cleanSubnet.includes('/')) return ip.trim() === cleanSubnet;
     
     try {
-        const [range, bits] = subnet.split('/');
+        const [range, bits] = cleanSubnet.split('/');
         const mask = ~(Math.pow(2, 32 - parseInt(bits)) - 1);
-        
         const ipInt = ip.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
         const rangeInt = range.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
-        
         return (ipInt & mask) === (rangeInt & mask);
     } catch (e) {
-        console.error("Error calculating subnet match:", e);
         return false;
-    }
-}
-
-/**
- * Reads your existing frontend utility file as text and extracts IPs/Ranges
- */
-function getHardcodedWhitelist() {
-    try {
-        // Path should point to your web folder's utility file
-        const filePath = path.resolve(__dirname, '../../js/utilities/ipWhitelist.js');
-        const fileContent = fs.readFileSync(filePath, 'utf8');
-        
-        // Regex to find IPs or CIDR ranges inside quotes
-        const ipRegex = /['"]\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:\/\d{1,2})?)\s*['"]/g;
-        const matches = [];
-        let match;
-        while ((match = ipRegex.exec(fileContent)) !== null) {
-            matches.push(match[1]);
-        }
-        return matches;
-    } catch (err) {
-        console.error("Could not read ipWhitelist.js file:", err);
-        return [];
     }
 }
 
 exports.handler = async function (event) {
     try {
-        // Detect Client IP from Netlify headers
+        // Get IP from Netlify headers
         const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || "";
         
-        // 1. Load lists
-        const staticWhitelist = getHardcodedWhitelist();
+        // 1. Fetch Dynamic Config from Firestore document: admin/config
         const configDoc = await db.doc('admin/config').get();
         const configData = configDoc.exists ? configDoc.data() : {};
-        const dynamicWhitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
+        
+        // 2. Extract Whitelist from Firestore array
+        const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
 
-        // 2. Perform CIDR-aware check
-        const isWhitelisted = 
-            dynamicWhitelist.some(range => ipInSubnet(clientIp, range)) || 
-            staticWhitelist.some(range => ipInSubnet(clientIp, range));
+        // 3. Match current IP against the list
+        const isWhitelisted = whitelist.some(range => ipInSubnet(clientIp, range));
 
         return {
             statusCode: 200,
