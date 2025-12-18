@@ -32,8 +32,7 @@
         import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
-        // Import IP Check Utility for Admin Gate
-        import { checkIPRange } from './js/utilities/utils.js';
+
         
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -1181,125 +1180,96 @@
 
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
-            try {
-                // FIX: Load language preference
-                const storedLang = localStorage.getItem('siteLang');
-                if (storedLang && TEXT[storedLang]) {
-                    currentLang = storedLang;
-                }
-        
-                // --- 1. MAINTENANCE GATE & ADMIN BYPASS CHECK ---
-                const ipResponse = await fetch(GET_CLIENT_IP_FUNCTION);
-                const { ip: clientIp } = await ipResponse.json();
-        
-                // FIX: Use the new public function that DOES NOT require a token
-                const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION); 
-                const globalConfig = await configResponse.json();
-        
-                state.isMaintenanceMode = globalConfig.maintenanceMode === true;
-                
-                // Note: The Admin IP check is still secure because checkIPRange is an imported client-side utility 
-                // that uses the static whitelist, and it relies on a local utility (utils.js) 
-                // or a secured server-side check (which your original code seemed to merge into fetch).
-                // Since the `getAdminConfig` endpoint also handles the full whitelist, we'll 
-                // stick to your original client-side IP check utility for this flow.
-                
-                const firestoreWhitelist = Array.isArray(globalConfig.ipWhitelist) ? globalConfig.ipWhitelist : [];
-                const isStaticIp = await checkIPRange(clientIp); // Assuming checkIPRange is defined in utils.js
-                const isWhitelisted = firestoreWhitelist.includes(clientIp) || isStaticIp;
-        
-                state.isAdminIP = isWhitelisted;
-                state.clientIp = clientIp; // Store client IP
-        
-                if (state.isMaintenanceMode && !state.isAdminIP) {
-                    state.configLoaded = true;
-                    isAuthReady = true;
-                    render();
-                    console.log("Site locked by maintenance mode. IP not whitelisted. Exiting setup.");
-                    return;
-                }
-        
-                // --- END MAINTENANCE GATE ---
-        
-                const firebaseConfig = await loadFirebaseConfig();
-                state.configLoaded = true;
-        
-                if (Object.keys(firebaseConfig).length === 0) {
-                    console.error("Firebase config is missing or failed to load from Netlify Function.");
-                    state.message = { type: 'error', text: 'Firebase configuration is missing. Cannot save data.' };
-                    render();
-                    return;
-                }
-        
-                setLogLevel('debug');
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-        
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken)
-                        .catch(error => {
-                            console.error("Error signing in with custom token:", error);
-                        });
-                } else if (!auth.currentUser) {
-                    await signInAnonymously(auth).catch(error => {
-                        console.error("Error during initial anonymous sign-in:", error);
-                    });
-                }
-        
-                // onAuthStateChanged Listener (UPDATED)
-                onAuthStateChanged(auth, async (user) => {
-        
-                    if (user) {
-                        userId = user.uid;
-        
-                        if (!user.isAnonymous) {
-                            // NEW: Log the source user data and the assigned state
-                            console.log("Firebase User Object: Email:", user.email, "Display Name:", user.displayName);
-        
-                            state.userName = user.email || user.displayName || 'Authenticated User';
-        
-                            // NEW: Log the resulting state value
-                            console.log("STATE UPDATE: state.userName set to:", state.userName);
-        
-                            explicitSignOutOccurred = false;
-                        } else {
-                            state.userName = null;
-                        }
-        
-                    } else {
-                        userId = null;
-                        state.userName = null;
-                        if (explicitSignOutOccurred) {
-                            console.log("Explicit sign-out processed. Preventing anonymous re-sign-in on this loop.");
-                            explicitSignOutOccurred = false;
-                        }
-                        console.log("STATE UPDATE: state.userName set to NULL (Signed Out)");
-                    }
-                    isAuthReady = true;
-                    // Fetch global config again now that auth status is known (for chat widget status)
-                    await fetchAndApplyGlobalConfig(); 
-                    if (db) setupRealtimeListeners();
-        
-                    // START FINAL GUARANTEE CHECK (Guarantees modal closure and correct status)
-                    if (user && !user.isAnonymous && state.isModalOpen) {
-                        // 1. Force state.isModalOpen to false to close the modal.
-                        state.isModalOpen = false;
-                        console.log("Auth success detected. Forcing modal close and displaying user status.");
-                    } else if (state.isModalOpen) {
-                        // If modal is open, but we are not authenticated, keep state.isModalOpen as is.
-                        // This ensures the modal stays open if an error occurred during login/registration.
-                    }
-                    // END FINAL GUARANTEE CHECK
-        
-                    render();
-                });
-            } catch (error) {
-                console.error("Firebase setup failed:", error);
-                state.message = { type: 'error', text: 'Failed to initialize Firebase.' };
-                render();
+        try {
+            // 1. Load Language Preference from LocalStorage
+            const storedLang = localStorage.getItem('siteLang');
+            if (storedLang && TEXT[storedLang]) {
+                currentLang = storedLang;
             }
+    
+            // 2. Fetch Public Config (Server-side IP check happens here)
+            // We call the public function which now handles the logic of reading 
+            // your ipWhitelist.js file and checking the Firestore whitelist.
+            const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
+            if (!configResponse.ok) throw new Error("Could not fetch site configuration.");
+            
+            const globalConfig = await configResponse.json();
+    
+            // 3. Set State from Server Response
+            // The server-side logic determines if the user is an admin based on their IP
+            state.isAdminIP = globalConfig.isRequesterAdmin === true;
+            state.isMaintenanceMode = globalConfig.maintenanceMode === true;
+            state.clientIp = globalConfig.clientIp;
+    
+            // 4. Maintenance Gate
+            // If maintenance is ON and the user is NOT an admin IP, stop execution and show maintenance screen
+            if (state.isMaintenanceMode && !state.isAdminIP) {
+                state.configLoaded = true;
+                isAuthReady = true;
+                render();
+                console.log("Access restricted: Maintenance Mode is active.");
+                return;
+            }
+    
+            // 5. Initialize Firebase App
+            const firebaseConfig = await loadFirebaseConfig();
+            state.configLoaded = true;
+    
+            if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+                throw new Error("Firebase configuration is missing or invalid.");
+            }
+    
+            // Initialize Firebase services
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+    
+            // 6. Set up Authentication Listener
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    
+                    if (!user.isAnonymous) {
+                        // User is logged in (Email/Google)
+                        state.userName = user.email || user.displayName || 'Authenticated User';
+                        
+                        // Close login modal automatically if it was open
+                        if (state.isModalOpen) {
+                            state.isModalOpen = false;
+                        }
+                    } else {
+                        // User is in an anonymous session
+                        state.userName = null;
+                    }
+                } else {
+                    // No user session, sign in anonymously to allow public data reading
+                    userId = null;
+                    state.userName = null;
+                    await signInAnonymously(auth).catch(err => console.error("Anon sign-in failed:", err));
+                }
+                
+                isAuthReady = true;
+    
+                // 7. Re-apply Global Config Logic
+                // Maintenance mode turns off the chat widget for non-admins
+                state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
+                
+                // 8. Start Realtime Data Listeners and Initial Render
+                setupRealtimeListeners();
+                render();
+            });
+    
+        } catch (error) {
+            console.error("Firebase setup failed:", error);
+            state.message = { 
+                type: 'error', 
+                text: currentLang === 'es' 
+                    ? 'Error crítico al cargar el sistema. Por favor recarga la página.' 
+                    : 'Critical error loading the system. Please refresh the page.' 
+            };
+            render();
         }
+    }
         // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
         function toggleView(type = 'standard') {
             if (state.view === 'user') {
