@@ -2194,19 +2194,20 @@
         }
     
         // UPDATED: Makes a direct Firestore update
-         async function handleOrderStatusUpdate(orderId, newStatus) {
+          async function handleOrderStatusUpdate(orderId, newStatus) {
             if (!confirm(`Are you sure you want to change order ${orderId} status to ${newStatus}?`)) return;
             
             resetTimer();
         
-            // Define which statuses should trigger an email
+            // 1. Define statuses that trigger emails
             const NOTIFIABLE_STATUSES = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
             const requiresNotification = NOTIFIABLE_STATUSES.includes(newStatus);
             
-            let orderDetails = null;
+            // Show an immediate "Processing" status to give the Admin instant feedback
+            showMessage('info', `Updating Order #${orderId.substring(0,5)}...`, 2000, 'orders');
         
             try {
-                // 1. Perform Firestore Update
+                // 2. Perform Firestore Update
                 const orderRef = doc(db, ORDERS_COLLECTION, orderId);
                 await updateDoc(orderRef, { 
                     status: newStatus,
@@ -2215,9 +2216,9 @@
                 
                 await logAdminAction('ORDER_STATUS_UPDATE', { orderId, newStatus }, orderId);
         
-                // 2. Trigger Email Notification (if required)
+                // 3. Handle Email Trigger and UI Notification
                 if (requiresNotification) {
-                    orderDetails = state.orders.find(o => o.id === orderId);
+                    const orderDetails = state.orders.find(o => o.id === orderId);
         
                     if (orderDetails) {
                         const customerLang = orderDetails.language || orderDetails.communicationLang || 'en';
@@ -2228,9 +2229,6 @@
                             newStatus: newStatus, 
                             language: customerLang,
                         };
-                        
-                        // Show a "Processing" message so the user knows the email is being attempted
-                        showMessage('info', `Updating status to ${newStatus} and sending notification...`, 3000, 'orders');
         
                         const res = await fetch(EMAIL_CONFIRMATION_FUNCTION, {
                             method: 'POST',
@@ -2239,14 +2237,16 @@
                         });
         
                         if (res.ok) {
-                            showMessage('success', `✅ Order ${orderId.substring(0,5)} updated to ${newStatus}. Notification email sent to ${orderDetails.buyerEmail}.`, 6000, 'orders');
+                            // SUCCESS NOTIFICATION: status changed + email sent
+                            showMessage('success', `✅ Order #${orderId.substring(0,5)} updated to ${newStatus}. Notification sent to ${orderDetails.buyerEmail}.`, 6000, 'orders');
                         } else {
+                            // WARNING NOTIFICATION: status changed but email failed
                             showMessage('error', `⚠️ Status updated to ${newStatus}, but notification email failed to send.`, 6000, 'orders');
                         }
                     }
                 } else {
-                    // Handle case where status is changed to something not in your list
-                    showMessage('success', `Order ${orderId.substring(0,5)} updated to ${newStatus}. (No notification sent for this status)`, 5000, 'orders');
+                    // SILENT UPDATE: status changed, but no email was required
+                    showMessage('success', `Order #${orderId.substring(0,5)} updated to ${newStatus}. (No notification required)`, 5000, 'orders');
                 }
         
             } catch (error) {
@@ -2254,7 +2254,7 @@
                 showMessage('error', `Failed to update status: ${error.message}`, 5000, 'orders');
             }
         }
-    
+        
         function handleRequestDelivery(orderId) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
