@@ -11,7 +11,7 @@ const path = require("path");
 
 // ADDED: Global Rate Limiting Variables (to prevent DoS/Email Flooding)
 const rateLimitStore = {}; 
-const MAX_REQUESTS_PER_HOUR = 5;
+const MAX_REQUESTS_PER_HOUR = 20;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 // 1. Configure Nodemailer Transporter
