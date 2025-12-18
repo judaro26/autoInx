@@ -46,18 +46,23 @@ function ipInSubnet(ip, subnet) {
 
 exports.handler = async function (event) {
     try {
-        // Get IP from Netlify headers
         const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || "";
         
-        // 1. Fetch Dynamic Config from Firestore document: admin/config
         const configDoc = await db.doc('admin/config').get();
         const configData = configDoc.exists ? configDoc.data() : {};
         
-        // 2. Extract Whitelist from Firestore array
         const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
 
-        // 3. Match current IP against the list
-        const isWhitelisted = whitelist.some(range => ipInSubnet(clientIp, range));
+        // --- DEBUG LOGS START ---
+        console.log("Checking IP:", `[${clientIp}]`); 
+        console.log("Against Whitelist:", whitelist);
+        
+        const isWhitelisted = whitelist.some(range => {
+            const match = ipInSubnet(clientIp, range);
+            console.log(`Comparing ${clientIp} to ${range}: Result ${match}`);
+            return match;
+        });
+        // --- DEBUG LOGS END ---
 
         return {
             statusCode: 200,
@@ -80,17 +85,5 @@ exports.handler = async function (event) {
             body: JSON.stringify({ error: 'Internal Server Error' }),
         };
     }
-
-     const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
-    
-    // ADD THESE LOGS:
-    console.log("Checking IP:", `[${clientIp}]`); // Brackets help see hidden spaces
-    console.log("Against Whitelist:", whitelist);
-    
-    const isWhitelisted = whitelist.some(range => {
-        const match = ipInSubnet(clientIp, range);
-        console.log(`Comparing ${clientIp} to ${range}: Result ${match}`);
-        return match;
-    });   
     
 };
