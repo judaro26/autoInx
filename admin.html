@@ -1494,12 +1494,53 @@
             resetTimer();
         }
         
-        // Placeholder for Edit Product
-        function handleEditProduct(e) {
+        // Edit product function
+        async function handleEditProduct(e) {
             e.preventDefault();
-            showMessage('info', 'Product editing not implemented in this version.', 5000, 'catalog');
-            cancelEdit();
             resetTimer();
+        
+            const form = e.target;
+            const itemId = form.itemId.value;
+            const itemName = form.itemName.value.trim();
+            const itemDescription = form.itemDescription.value.trim();
+            const price = form.itemPrice.value;
+            const catalogId = form.catalogId.value;
+            const itemImageUrl = form.itemImageUrl.value.trim();
+        
+            if (!itemId || !itemName || !price || !catalogId) {
+                showMessage('error', 'Please fill in all required fields.', 5000, 'catalog');
+                return;
+            }
+        
+            try {
+                // 1. Prepare the update data
+                const priceCents = Math.round(parseFloat(price) * 100);
+                const updatedProduct = {
+                    name: itemName,
+                    description: itemDescription,
+                    price: priceCents,
+                    catalogId: catalogId,
+                    imageUrl: itemImageUrl || `https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`,
+                    updatedAt: serverTimestamp() // Tracks when the edit happened
+                };
+        
+                // 2. Reference the specific document in Firestore
+                const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+        
+                // 3. Execute the update
+                await updateDoc(itemRef, updatedProduct);
+        
+                // 4. Log the action and provide feedback
+                await logAdminAction('ITEM_UPDATED', updatedProduct, itemId);
+                showMessage('success', `Product "${itemName}" updated successfully!`, 5000, 'catalog');
+                
+                // 5. Close the edit form (State change triggers re-render via onSnapshot)
+                cancelEdit();
+        
+            } catch (error) {
+                console.error('Error updating product:', error);
+                showMessage('error', `Failed to update product: ${error.message}`, 5000, 'catalog');
+            }
         }
     
         // --- INVENTORY MANAGEMENT FUNCTIONS (NEW) ---
