@@ -1,8 +1,7 @@
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
 const path = require("path");
-const puppeteer = require("puppeteer-core");
-const chromium = require("@sparticuz/chromium");
+const fetch = require("node-fetch"); // Already in your package.json
 
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
@@ -36,7 +35,6 @@ function generateTableRows(items) {
 }
 
 exports.handler = async function (event) {
-    // 1. Setup & Checks
     if (event.httpMethod === "OPTIONS") {
         return { statusCode: 200, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "Content-Type" } };
     }
@@ -45,17 +43,20 @@ exports.handler = async function (event) {
         return { statusCode: 405, body: "Method Not Allowed" };
     }
 
-    let browser = null;
-
     try {
         const data = JSON.parse(event.body);
         const { orderId, buyerEmail, buyerName, items, paidCents, paymentMethod, language } = data;
         const lang = language === 'es' ? 'es' : 'en';
 
-        // 2. Financial Calculations
+        // 1. Calculations
         const orderTotalCents = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const balanceCents = orderTotalCents - paidCents;
-        const balanceColor = balanceCents <= 0 ? "#16a34a" : "#e11d48"; // Green if paid, Red if balance remains
+        const balanceColor = balanceCents <= 0 ? "#16a34a" : "#e11d48";
+
+        // 2. Load Template
+        const templateName = lang === 'es' ? "paymentReceiptSpanish.html" : "paymentReceipt.html";
+        const templatePath = path.join(__dirname, "emailTemplates", templateName);
+        let htmlContent = await fs.readFile(templatePath, "utf8");
 
         // 3. Translations
         const strings = {
@@ -80,11 +81,7 @@ exports.handler = async function (event) {
         };
         const t = strings[lang];
 
-        // 4. Load & Populate Template
-        const templateName = lang === 'es' ? "paymentReceiptSpanish.html" : "paymentReceipt.html";
-        const templatePath = path.join(__dirname, "emailTemplates", templateName);
-        let htmlContent = await fs.readFile(templatePath, "utf8");
-
+        // 4. Replacements
         const replacements = {
             "{{params.badgeColor}}": "#10b981",
             "{{params.badgeText}}": t.badge,
@@ -95,7 +92,7 @@ exports.handler = async function (event) {
             "{{params.transactionId}}": `TXN-${Math.random().toString(36).toUpperCase().substring(2, 10)}`,
             "{{params.paymentMethod}}": paymentMethod || "Other",
             "{{params.orderTotal}}": formatPrice(orderTotalCents),
-            "{{params.amountPaid}}": formatPrice(paidCents), 
+            "{{params.amountPaid}}": formatPrice(paidCents),
             "{{params.remainingBalance}}": balanceCents <= 0 ? t.balanceLabel : formatPrice(balanceCents),
             "{{params.balanceColor}}": balanceColor,
             "{{params.orderTableRows}}": generateTableRows(items),
@@ -108,27 +105,31 @@ exports.handler = async function (event) {
             htmlContent = htmlContent.split(key).join(value);
         }
 
-        // 5. PDF Generation (Cloud-Optimized)
-        browser = await puppeteer.launch({
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
+        // 5. GENERATE PDF VIA DOPPIO (Direct Method)
+        const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.DOPPIO_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                html: htmlContent,
+                options: {
+                    format: 'A4',
+                    printBackground: true,
+                    margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
+                }
+            })
         });
 
-        const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-        
-        const pdfBuffer = await page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
-        });
+        if (!doppioRes.ok) {
+            const errBody = await doppioRes.text();
+            throw new Error(`Doppio API Failed: ${errBody}`);
+        }
 
-        await browser.close();
-        browser = null;
+        const pdfBuffer = await doppioRes.buffer();
 
-        // 6. Send Email with Attachment
+        // 6. Send Email
         await transporter.sendMail({
             from: '"autoInx Payments" <noreply@autoinx.com>',
             to: buyerEmail,
@@ -146,19 +147,11 @@ exports.handler = async function (event) {
         return {
             statusCode: 200,
             headers: { "Access-Control-Allow-Origin": "*" },
-            body: JSON.stringify({ message: "Receipt and PDF sent successfully" }),
+            body: JSON.stringify({ message: "Receipt sent successfully" }),
         };
 
     } catch (error) {
-        console.error("Critical Receipt Error:", error);
-        return { 
-            statusCode: 500, 
-            headers: { "Access-Control-Allow-Origin": "*" },
-            body: JSON.stringify({ error: error.message }) 
-        };
-    } finally {
-        if (browser !== null) {
-            await browser.close();
-        }
+        console.error("Receipt error:", error);
+        return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
     }
 };
