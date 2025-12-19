@@ -1,139 +1,86 @@
 /**
- * Netlify Function (CRON/Admin Manual) to update the chat widget visibility based on a dynamic schedule.
- * Runs hourly via cron.
+ * Netlify Function (CRON/Admin Manual) to update chat widget visibility.
+ * Fixed: Resolved Intl.DateTimeFormat RangeError for weekday.
  */
 const admin = require('firebase-admin');
 
-// Ensure Firebase Admin is initialized once using explicit credentials
 if (!admin.apps.length) {
     const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
-    let cleanedPrivateKey = undefined;
+    const cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
 
-    if (privateKeyString) {
-        // Handle escaped newlines from environment variables
-        cleanedPrivateKey = privateKeyString.replace(/\\n/g, '\n').trim();
-    }
-
-    try {
-        admin.initializeApp({
-            credential: admin.credential.cert({
-                projectId: process.env.FIREBASE_PROJECT_ID,
-                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-                privateKey: cleanedPrivateKey,
-            }),
-        });
-    } catch (e) {
-        console.error("Firebase Admin initialization failed in cron job:", e);
-    }
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: cleanedPrivateKey,
+        }),
+    });
 }
 
 const db = admin.firestore();
 const CONFIG_DOC_REF = db.doc('admin/config');
 
 exports.handler = async function(event, context) {
-    
-    const manualMode = event.queryStringParameters?.mode; // 'on' or 'off'
+    const manualMode = event.queryStringParameters?.mode;
     let chatWidgetEnabled;
     let action;
 
-    // --- 1. Security Check & Handle Manual Override ---
     if (manualMode) {
+        // --- Security Check ---
         const authHeader = event.headers.authorization;
-        
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return { statusCode: 401, body: JSON.stringify({ error: 'Authorization token required for manual override.' }) };
+            return { statusCode: 401, body: JSON.stringify({ error: 'Auth required' }) };
         }
-        
         const idToken = authHeader.split('Bearer ')[1];
         try {
             const decodedToken = await admin.auth().verifyIdToken(idToken);
-            if (decodedToken.admin !== true) {
-                return { statusCode: 403, body: JSON.stringify({ error: 'Access denied: Admin privileges required.' }) };
-            }
+            if (decodedToken.admin !== true) throw new Error('Not Admin');
+            
+            chatWidgetEnabled = manualMode === 'on';
+            action = `Manual: ${chatWidgetEnabled ? 'ON' : 'OFF'} by ${decodedToken.email}`;
         } catch (e) {
-            console.error('Token verification failed during manual override:', e.message);
-            return { statusCode: 401, body: JSON.stringify({ error: 'Invalid or expired token.' }) };
+            return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) };
         }
-        
-        chatWidgetEnabled = manualMode === 'on';
-        action = `Manually set to ${chatWidgetEnabled ? 'ON' : 'OFF'} by Admin ${decodedToken.email}`;
-
-    } 
-    // --- 2. CRON JOB LOGIC (Dynamic Schedule) ---
-    else {
-        // A. Fetch the latest configuration from Firestore
-        let configDoc;
-        try {
-            configDoc = await CONFIG_DOC_REF.get();
-        } catch (error) {
-            console.error('Error fetching config for CRON job:', error);
-            return { statusCode: 500, body: JSON.stringify({ error: 'Failed to fetch schedule config.' }) };
-        }
-
+    } else {
+        // --- CRON Logic ---
+        const configDoc = await CONFIG_DOC_REF.get();
         const config = configDoc.exists ? configDoc.data() : {};
-        const schedule = config.chatSchedule;
+        const schedule = config.chatSchedule || { enableTime: '08:00', disableTime: '20:00', activeDays: [1,2,3,4,5] };
 
-
-        const defaultSchedule = { enableTime: '08:00', disableTime: '20:00', activeDays: [1, 2, 3, 4, 5] };
-        const finalSchedule = schedule || defaultSchedule;
-        
-        if (!finalSchedule.enableTime || !finalSchedule.disableTime || !finalSchedule.activeDays || finalSchedule.activeDays.length === 0) {
-            console.warn("Dynamic chat schedule is incomplete or missing. Defaulting to OFF.");
-            chatWidgetEnabled = false;
-            action = 'Disabled Chat Widget (Missing Schedule)';
-        } else {
-            // B. Determine current time and day in UTC-5 (Colombia Time)
-            const DATE_OPTIONS = { 
-                timeZone: 'America/Bogota', 
-                weekday: 'numeric', // 1 (Mon) - 7 (Sun)
-                hour: '2-digit', 
-                minute: '2-digit', 
-                hour12: false 
-            };
-            
-            // Get date/time components as strings in Bogota timezone
-            const bogotaDate = new Date().toLocaleDateString('en-US', DATE_OPTIONS); 
-            const [dayStr, timeStr] = bogotaDate.split(', ')[1].split(' '); 
-            
-            const currentDay = parseInt(dayStr); // Day of week (1=Mon, 7=Sun, where 7 must be converted to 0)
-            const currentTimeStr = timeStr.replace(':', ''); // HHMM format
-            const enableTimeStr = finalSchedule.enableTime.replace(':', ''); 
-            const disableTimeStr = finalSchedule.disableTime.replace(':', ''); 
-
-            // Convert 7 (Sunday) to 0 for consistency with the checkbox values
-            const activeDayValues = finalSchedule.activeDays.map(d => parseInt(d) === 7 ? 0 : parseInt(d));
-            const isDayActive = activeDayValues.includes(currentDay === 7 ? 0 : currentDay);
-            
-            // C. Determine state based on schedule
-            if (isDayActive && currentTimeStr >= enableTimeStr && currentTimeStr < disableTimeStr) {
-                chatWidgetEnabled = true;
-                action = `Enabled Chat Widget (Scheduled ON ${finalSchedule.enableTime} UTC-5 on Day ${currentDay})`;
-            } else {
-                chatWidgetEnabled = false;
-                action = `Disabled Chat Widget (Scheduled OFF)`;
-            }
-        }
-    }
-    
-    // --- 3. DATABASE UPDATE (Unified update logic) ---
-    try {
-        await CONFIG_DOC_REF.update({
-            chatWidgetEnabled: chatWidgetEnabled,
-            lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-            lastUpdateAction: action 
+        // Safe Timezone Calculation (America/Bogota)
+        const now = new Date();
+        const fmt = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Bogota',
+            hour12: false,
+            weekday: 'long', // Use 'long' then map to number
+            hour: '2-digit',
+            minute: '2-digit'
         });
 
-        console.log(`${action}: Chat widget set to ${chatWidgetEnabled}.`);
+        const parts = fmt.formatToParts(now).reduce((acc, part) => {
+            acc[part.type] = part.value;
+            return acc;
+        }, {});
 
-        return {
-            statusCode: 200,
-            body: JSON.stringify({ status: 'success', message: action })
-        };
-    } catch (error) {
-        console.error('CRON/Manual Error updating chat widget configuration:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Failed to update chat widget visibility.' })
-        };
+        // Map Weekday to 0-6 (Sun-Sat)
+        const daysMap = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
+        const currentDay = daysMap[parts.weekday];
+        const currentTimeStr = `${parts.hour}${parts.minute}`;
+        
+        const enableTimeStr = schedule.enableTime.replace(':', '');
+        const disableTimeStr = schedule.disableTime.replace(':', '');
+        const activeDayValues = schedule.activeDays.map(d => parseInt(d) === 7 ? 0 : parseInt(d));
+
+        const isDayActive = activeDayValues.includes(currentDay);
+        chatWidgetEnabled = isDayActive && currentTimeStr >= enableTimeStr && currentTimeStr < disableTimeStr;
+        action = `Scheduled ${chatWidgetEnabled ? 'ON' : 'OFF'} (Bogota: ${parts.weekday} ${parts.hour}:${parts.minute})`;
     }
+
+    await CONFIG_DOC_REF.update({
+        chatWidgetEnabled,
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        lastUpdateAction: action 
+    });
+
+    return { statusCode: 200, body: JSON.stringify({ status: 'success', message: action }) };
 };
