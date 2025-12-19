@@ -87,28 +87,28 @@ exports.handler = async function (event) {
         // 3. Language-specific strings
         const strings = {
             en: {
-                subject: `Payment Receipt for Order #${orderId.substring(0, 8)}`,
+                subject: `Payment Receipt - Order #${orderId}`,
+                financeSubject: `[INTERNAL] Payment Received - Order #${orderId}`,
                 badge: "Payment Received",
                 title: "Payment Confirmation",
                 intro: `Hi ${buyerName}, your payment for order #${orderId} has been successfully processed.`,
                 close: "Thank you for your business!",
-                balanceLabel: balanceCents <= 0 ? "PAID IN FULL" : "REMAINING BALANCE",
                 filename: `Receipt_${orderId}.pdf`
             },
             es: {
-                subject: `Recibo de Pago - Pedido #${orderId.substring(0, 8)}`,
+                subject: `Recibo de Pago - Pedido #${orderId}`,
+                financeSubject: `[INTERNO] Pago Recibido - Pedido #${orderId}`,
                 badge: "Pago Recibido",
                 title: "Confirmación de Pago",
                 intro: `Hola ${buyerName}, se ha procesado exitosamente su pago para el pedido #${orderId}.`,
                 close: "¡Gracias por su compra!",
-                balanceLabel: balanceCents <= 0 ? "PAGADO TOTALMENTE" : "SALDO PENDIENTE",
                 filename: `Recibo_${orderId}.pdf`
             }
         };
 
         const t = strings[lang];
 
-        // 4. Replacements for template
+        // 4. Template replacements
         const replacements = {
             "{{params.badgeColor}}": "#10b981",
             "{{params.badgeText}}": t.badge,
@@ -120,7 +120,7 @@ exports.handler = async function (event) {
             "{{params.paymentMethod}}": paymentMethod || "Other",
             "{{params.orderTotal}}": formatPrice(orderTotalCents),
             "{{params.totalPaid}}": formatPrice(paidCents),
-            "{{params.remainingBalance}}": balanceCents <= 0 ? "Paid in Full" : formatPrice(balanceCents),
+            "{{params.remainingBalance}}": balanceCents <= 0 ? (lang === 'es' ? "Pagado totalmente" : "Paid in Full") : formatPrice(balanceCents),
             "{{params.balanceColor}}": balanceColor,
             "{{params.orderTableRows}}": generateTableRows(items),
             "{{params.closeMessage}}": t.close,
@@ -131,8 +131,7 @@ exports.handler = async function (event) {
             htmlContent = htmlContent.split(key).join(value);
         }
 
-        // 5. Generate PDF via Doppio – FIXED VERSION
-        // Doppio requires the HTML to be base64-encoded
+        // 5. Generate PDF via Doppio (fixed version)
         const htmlBase64 = Buffer.from(htmlContent, 'utf8').toString('base64');
 
         const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
@@ -158,18 +157,15 @@ exports.handler = async function (event) {
             throw new Error(`Doppio API Failed: ${doppioRes.status} - ${errText}`);
         }
 
-        // Use modern arrayBuffer() → Buffer (more reliable than deprecated .buffer())
         const pdfArrayBuffer = await doppioRes.arrayBuffer();
         const pdfBuffer = Buffer.from(pdfArrayBuffer);
 
-        // Optional: debug save (remove in production)
-        // await fs.writeFile('/tmp/debug-receipt.pdf', pdfBuffer);
-
-        // 6. Send email with HTML body + PDF attachment
+        // 6. Send email to buyer AND CC finance
         await transporter.sendMail({
             from: '"autoInx Payments" <noreply@autoinx.com>',
-            to: buyerEmail,
-            subject: t.subject,
+            to: buyerEmail,                    // Buyer receives as main recipient
+            cc: "finance@autoinx.com",         // Finance gets a copy
+            subject: t.subject,                // Customer-friendly subject
             html: htmlContent,
             attachments: [
                 {
@@ -180,9 +176,21 @@ exports.handler = async function (event) {
             ]
         });
 
+        // Optional: Send a separate internal-only email if you want a different subject
+        // (uncomment if desired)
+        /*
+        await transporter.sendMail({
+            from: '"autoInx System" <noreply@autoinx.com>',
+            to: "finance@autoinx.com",
+            subject: t.financeSubject,
+            html: `<p>New payment recorded:</p>${htmlContent}`,
+            attachments: [{ filename: t.filename, content: pdfBuffer, contentType: 'application/pdf' }]
+        });
+        */
+
         return {
             statusCode: 200,
-            body: JSON.stringify({ message: "Receipt sent successfully" })
+            body: JSON.stringify({ message: "Receipt sent successfully to buyer and finance team" })
         };
 
     } catch (error) {
