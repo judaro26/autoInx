@@ -135,37 +135,52 @@ exports.handler = async function (event) {
                 // If node-fetch v2, use .buffer(). If node-fetch v3, use the arrayBuffer path below.
                 const pdfBuffer = await doppioRes.buffer(); 
         
-                // 5. Send Email with Base64 Encoding
+        // 5. GENERATE PDF VIA DOPPIO (Binary Safe)
+                const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${process.env.DOPPIO_API_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        page: {
+                            setContent: { html: htmlContent },
+                            pdf: {
+                                format: 'A4',
+                                printBackground: true,
+                                margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
+                            }
+                        }
+                    })
+                });
+        
+                if (!doppioRes.ok) {
+                    const errBody = await doppioRes.text();
+                    throw new Error(`Doppio API Failed: ${errBody}`);
+                }
+        
+                // --- THE CRITICAL FIX ---
+                // We use .buffer() which returns the raw binary data. 
+                // DO NOT use .text() or .json() here or it will turn back into gibberish.
+                const pdfBuffer = await doppioRes.buffer(); 
+                
+                console.log(`PDF successfully captured. Size: ${pdfBuffer.length} bytes.`);
+        
+                // 6. Send Email
                 await transporter.sendMail({
                     from: '"autoInx Payments" <noreply@autoinx.com>',
                     to: buyerEmail,
                     subject: t.subject,
-                    html: htmlContent, // This is the email body
+                    html: htmlContent, // This is the nice-looking email body
                     attachments: [
                         {
                             filename: t.filename,
-                            content: pdfBuffer,
+                            content: pdfBuffer, // Passing the raw Buffer directly
                             contentType: 'application/pdf',
-                            encoding: 'base64' // Tells Nodemailer this is binary, not text
+                            encoding: 'base64' // Tells Nodemailer to keep it as binary
                         }
                     ]
                 });
-
-        // 5. Send Email
-        await transporter.sendMail({
-            from: '"autoInx Payments" <noreply@autoinx.com>',
-            to: buyerEmail,
-            subject: t.subject,
-            html: htmlContent,
-            attachments: [
-                {
-                    filename: t.filename,
-                    content: pdfBuffer,
-                    contentType: 'application/pdf',
-                    encoding: 'base64'
-                }
-            ]
-        });
 
         return { statusCode: 200, body: JSON.stringify({ message: "Success" }) };
 
