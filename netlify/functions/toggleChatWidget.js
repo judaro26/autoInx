@@ -45,7 +45,7 @@ exports.handler = async function(event, context) {
         // --- CRON Logic ---
         const configDoc = await CONFIG_DOC_REF.get();
         const config = configDoc.exists ? configDoc.data() : {};
-        const schedule = config.chatSchedule || { enableTime: '08:00', disableTime: '20:10', activeDays: [1,2,3,4,5] };
+        const schedule = config.chatSchedule || { enableTime: '08:00', disableTime: '20:00', activeDays: [1,2,3,4,5] };
 
         // Safe Timezone Calculation (America/Bogota)
         const now = new Date();
