@@ -5,7 +5,7 @@ const fetch = require("node-fetch");
 
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
-    port: process.env.BREVO_SMTP_PORT,
+    port: parseInt(process.env.BREVO_SMTP_PORT || "587"),
     secure: false,
     auth: {
         user: process.env.BREVO_SMTP_USER,
@@ -37,23 +37,21 @@ exports.handler = async function (event) {
     if (event.httpMethod === "OPTIONS") {
         return { statusCode: 200, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "Content-Type" } };
     }
-
     if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
     try {
         const data = JSON.parse(event.body);
-        const { orderId, buyerEmail, buyerName, items, paidCents, paymentMethod, language } = data;
+        const { orderId, buyerEmail, buyerName, items, paidCents, paymentMethod, language, transactionId } = data;
         const lang = language === 'es' ? 'es' : 'en';
 
-        // 1. Calculations & Timestamps
+        // 1. Logic for Totals and Timestamps
         const orderTotalCents = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const balanceCents = orderTotalCents - paidCents;
         const balanceColor = balanceCents <= 0 ? "#16a34a" : "#e11d48";
+        const finalTxnId = transactionId || `TXN-${Math.random().toString(36).toUpperCase().substring(2, 10)}`;
         
         const transactionTimestamp = new Date().toLocaleString(lang === 'es' ? 'es-ES' : 'en-US', {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-            timeZone: 'America/Bogota'
+            dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Bogota'
         });
 
         // 2. Load Template
@@ -61,7 +59,7 @@ exports.handler = async function (event) {
         const templatePath = path.join(__dirname, "emailTemplates", templateName);
         let htmlContent = await fs.readFile(templatePath, "utf8");
 
-        // 3. Translations
+        // 3. Set Strings
         const strings = {
             en: {
                 subject: `Payment Receipt for Order #${orderId.substring(0, 5)}`,
@@ -91,7 +89,7 @@ exports.handler = async function (event) {
             "{{params.mainIntro}}": t.intro,
             "{{params.orderId}}": orderId,
             "{{params.transactionTimestamp}}": transactionTimestamp,
-            "{{params.transactionId}}": `TXN-${Math.random().toString(36).toUpperCase().substring(2, 10)}`,
+            "{{params.transactionId}}": finalTxnId,
             "{{params.paymentMethod}}": paymentMethod || "Other",
             "{{params.orderTotal}}": formatPrice(orderTotalCents),
             "{{params.amountPaid}}": formatPrice(paidCents),
@@ -107,80 +105,49 @@ exports.handler = async function (event) {
             htmlContent = htmlContent.split(key).join(value);
         }
 
-        // 4. GENERATE PDF VIA DOPPIO (Binary Safe Version)
-                const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${process.env.DOPPIO_API_KEY}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        page: {
-                            setContent: { html: htmlContent },
-                            pdf: {
-                                format: 'A4',
-                                printBackground: true,
-                                margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
-                            }
-                        }
-                    })
-                });
-        
-                if (!doppioRes.ok) {
-                    const errBody = await doppioRes.text();
-                    throw new Error(`Doppio API Failed: ${errBody}`);
+        // 4. DOPPIO API CALL (Strict Binary Mode)
+        const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.DOPPIO_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                page: {
+                    setContent: { html: htmlContent },
+                    pdf: {
+                        format: 'A4',
+                        printBackground: true,
+                        margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
+                    }
                 }
-        
-                // CRITICAL: Get the response as a Buffer directly
-                // If node-fetch v2, use .buffer(). If node-fetch v3, use the arrayBuffer path below.
-                const pdfBuffer = await doppioRes.buffer(); 
-        
-        // 5. GENERATE PDF VIA DOPPIO (Binary Safe)
-                const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${process.env.DOPPIO_API_KEY}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        page: {
-                            setContent: { html: htmlContent },
-                            pdf: {
-                                format: 'A4',
-                                printBackground: true,
-                                margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
-                            }
-                        }
-                    })
-                });
-        
-                if (!doppioRes.ok) {
-                    const errBody = await doppioRes.text();
-                    throw new Error(`Doppio API Failed: ${errBody}`);
+            })
+        });
+
+        if (!doppioRes.ok) {
+            const errText = await doppioRes.text();
+            throw new Error(`Doppio API Failed: ${errText}`);
+        }
+
+        // --- THE ACTUAL FIX ---
+        // Using .buffer() is mandatory for node-fetch@2 to avoid gibberish text corruption
+        const pdfBuffer = await doppioRes.buffer(); 
+
+        // 5. Send Email
+        await transporter.sendMail({
+            from: '"autoInx Payments" <noreply@autoinx.com>',
+            to: buyerEmail,
+            subject: t.subject,
+            html: htmlContent,
+            attachments: [
+                {
+                    filename: t.filename,
+                    content: pdfBuffer,
+                    contentType: 'application/pdf'
+                    // Do NOT use encoding: 'base64' here; Nodemailer handles Buffers automatically
                 }
-        
-                // --- THE CRITICAL FIX ---
-                // We use .buffer() which returns the raw binary data. 
-                // DO NOT use .text() or .json() here or it will turn back into gibberish.
-                const pdfBuffer = await doppioRes.buffer(); 
-                
-                console.log(`PDF successfully captured. Size: ${pdfBuffer.length} bytes.`);
-        
-                // 6. Send Email
-                await transporter.sendMail({
-                    from: '"autoInx Payments" <noreply@autoinx.com>',
-                    to: buyerEmail,
-                    subject: t.subject,
-                    html: htmlContent, // This is the nice-looking email body
-                    attachments: [
-                        {
-                            filename: t.filename,
-                            content: pdfBuffer, // Passing the raw Buffer directly
-                            contentType: 'application/pdf',
-                            encoding: 'base64' // Tells Nodemailer to keep it as binary
-                        }
-                    ]
-                });
+            ]
+        });
 
         return { statusCode: 200, body: JSON.stringify({ message: "Success" }) };
 
