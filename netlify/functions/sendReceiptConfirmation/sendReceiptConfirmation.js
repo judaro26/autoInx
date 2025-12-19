@@ -15,7 +15,9 @@ const transporter = nodemailer.createTransport({
 
 function formatPrice(cents) {
     return new Intl.NumberFormat('en-US', {
-        style: 'currency', currency: 'USD', minimumFractionDigits: 2
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2
     }).format(cents / 100);
 }
 
@@ -24,64 +26,89 @@ function generateTableRows(items) {
         const subtotal = item.price * item.quantity;
         return `
             <tr>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; color: #334155;">${item.name}</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; font-size: 14px; color: #334155;">${item.quantity}</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px; color: #334155;">${formatPrice(item.price)}</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px; font-weight: 600; color: #1e293b;">${formatPrice(subtotal)}</td>
+                <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; text-align: left; font-size: 15px; color: #334155;">${item.name}</td>
+                <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 15px; color: #334155;">${item.quantity}</td>
+                <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 15px; color: #334155;">${formatPrice(item.price)}</td>
+                <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 15px; font-weight: 700; color: #1e293b;">${formatPrice(subtotal)}</td>
             </tr>
         `;
     }).join('');
 }
 
 exports.handler = async function (event) {
+    // Handle CORS preflight
     if (event.httpMethod === "OPTIONS") {
-        return { statusCode: 200, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "Content-Type" } };
+        return {
+            statusCode: 200,
+            headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST",
+                "Access-Control-Allow-Headers": "Content-Type"
+            }
+        };
     }
-    if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+
+    if (event.httpMethod !== "POST") {
+        return { statusCode: 405, body: "Method Not Allowed" };
+    }
 
     try {
         const data = JSON.parse(event.body);
-        const { orderId, buyerEmail, buyerName, items, paidCents, paymentMethod, language, transactionId } = data;
+        const {
+            orderId,
+            buyerEmail,
+            buyerName,
+            items,
+            paidCents,
+            paymentMethod,
+            language,
+            transactionId
+        } = data;
+
         const lang = language === 'es' ? 'es' : 'en';
 
-        // 1. Logic for Totals and Timestamps
+        // 1. Calculate totals and timestamp
         const orderTotalCents = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         const balanceCents = orderTotalCents - paidCents;
         const balanceColor = balanceCents <= 0 ? "#16a34a" : "#e11d48";
         const finalTxnId = transactionId || `TXN-${Math.random().toString(36).toUpperCase().substring(2, 10)}`;
-        
+
         const transactionTimestamp = new Date().toLocaleString(lang === 'es' ? 'es-ES' : 'en-US', {
-            dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Bogota'
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZone: 'America/Bogota'
         });
 
-        // 2. Load Template
+        // 2. Load correct template
         const templateName = lang === 'es' ? "paymentReceiptSpanish.html" : "paymentReceipt.html";
         const templatePath = path.join(__dirname, "emailTemplates", templateName);
         let htmlContent = await fs.readFile(templatePath, "utf8");
 
-        // 3. Set Strings
+        // 3. Language-specific strings
         const strings = {
             en: {
-                subject: `Payment Receipt for Order #${orderId.substring(0, 5)}`,
+                subject: `Payment Receipt for Order #${orderId.substring(0, 8)}`,
                 badge: "Payment Received",
                 title: "Payment Confirmation",
-                intro: `Hi ${buyerName}, your payment for order #${orderId.substring(0, 5)} has been processed.`,
+                intro: `Hi ${buyerName}, your payment for order #${orderId} has been successfully processed.`,
                 close: "Thank you for your business!",
                 balanceLabel: balanceCents <= 0 ? "PAID IN FULL" : "REMAINING BALANCE",
-                filename: `Receipt_${orderId.substring(0, 5)}.pdf`
+                filename: `Receipt_${orderId}.pdf`
             },
             es: {
-                subject: `Recibo de Pago - Pedido #${orderId.substring(0, 5)}`,
+                subject: `Recibo de Pago - Pedido #${orderId.substring(0, 8)}`,
                 badge: "Pago Recibido",
                 title: "Confirmación de Pago",
-                intro: `Hola ${buyerName}, se ha procesado su pago para el pedido #${orderId.substring(0, 5)}.`,
+                intro: `Hola ${buyerName}, se ha procesado exitosamente su pago para el pedido #${orderId}.`,
                 close: "¡Gracias por su compra!",
                 balanceLabel: balanceCents <= 0 ? "PAGADO TOTALMENTE" : "SALDO PENDIENTE",
-                filename: `Recibo_${orderId.substring(0, 5)}.pdf`
+                filename: `Recibo_${orderId}.pdf`
             }
         };
+
         const t = strings[lang];
 
+        // 4. Replacements for template
         const replacements = {
             "{{params.badgeColor}}": "#10b981",
             "{{params.badgeText}}": t.badge,
@@ -92,11 +119,10 @@ exports.handler = async function (event) {
             "{{params.transactionId}}": finalTxnId,
             "{{params.paymentMethod}}": paymentMethod || "Other",
             "{{params.orderTotal}}": formatPrice(orderTotalCents),
-            "{{params.amountPaid}}": formatPrice(paidCents),
-            "{{params.remainingBalance}}": balanceCents <= 0 ? t.balanceLabel : formatPrice(balanceCents),
+            "{{params.totalPaid}}": formatPrice(paidCents),
+            "{{params.remainingBalance}}": balanceCents <= 0 ? "Paid in Full" : formatPrice(balanceCents),
             "{{params.balanceColor}}": balanceColor,
             "{{params.orderTableRows}}": generateTableRows(items),
-            "{{params.totalPaid}}": formatPrice(paidCents),
             "{{params.closeMessage}}": t.close,
             "{{contact.EMAIL}}": buyerEmail
         };
@@ -105,7 +131,10 @@ exports.handler = async function (event) {
             htmlContent = htmlContent.split(key).join(value);
         }
 
-        // 4. DOPPIO API CALL (Strict Binary Mode)
+        // 5. Generate PDF via Doppio – FIXED VERSION
+        // Doppio requires the HTML to be base64-encoded
+        const htmlBase64 = Buffer.from(htmlContent, 'utf8').toString('base64');
+
         const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
             method: 'POST',
             headers: {
@@ -114,7 +143,7 @@ exports.handler = async function (event) {
             },
             body: JSON.stringify({
                 page: {
-                    setContent: { html: htmlContent },
+                    setContent: { html: htmlBase64 },
                     pdf: {
                         format: 'A4',
                         printBackground: true,
@@ -126,14 +155,17 @@ exports.handler = async function (event) {
 
         if (!doppioRes.ok) {
             const errText = await doppioRes.text();
-            throw new Error(`Doppio API Failed: ${errText}`);
+            throw new Error(`Doppio API Failed: ${doppioRes.status} - ${errText}`);
         }
 
-        // --- THE ACTUAL FIX ---
-        // Using .buffer() is mandatory for node-fetch@2 to avoid gibberish text corruption
-        const pdfBuffer = await doppioRes.buffer(); 
+        // Use modern arrayBuffer() → Buffer (more reliable than deprecated .buffer())
+        const pdfArrayBuffer = await doppioRes.arrayBuffer();
+        const pdfBuffer = Buffer.from(pdfArrayBuffer);
 
-        // 5. Send Email
+        // Optional: debug save (remove in production)
+        // await fs.writeFile('/tmp/debug-receipt.pdf', pdfBuffer);
+
+        // 6. Send email with HTML body + PDF attachment
         await transporter.sendMail({
             from: '"autoInx Payments" <noreply@autoinx.com>',
             to: buyerEmail,
@@ -144,15 +176,20 @@ exports.handler = async function (event) {
                     filename: t.filename,
                     content: pdfBuffer,
                     contentType: 'application/pdf'
-                    // Do NOT use encoding: 'base64' here; Nodemailer handles Buffers automatically
                 }
             ]
         });
 
-        return { statusCode: 200, body: JSON.stringify({ message: "Success" }) };
+        return {
+            statusCode: 200,
+            body: JSON.stringify({ message: "Receipt sent successfully" })
+        };
 
     } catch (error) {
         console.error("Critical Receipt Error:", error);
-        return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+        return {
+            statusCode: 500,
+            body: JSON.stringify({ error: error.message || "Internal server error" })
+        };
     }
 };
