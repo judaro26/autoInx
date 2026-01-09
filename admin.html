@@ -2864,90 +2864,113 @@
         }
         
         async function updateOrder(e, orderId, sourceId, mode = 'edit') {
-                    e.preventDefault();
-                    const saveBtn = document.getElementById('saveOrderBtn');
-                    const originalText = saveBtn.innerHTML;
-                    const isPaymentOnly = mode === 'payment';
+            e.preventDefault();
+            const saveBtn = document.getElementById('saveOrderBtn');
+            if (!saveBtn) return;
+            
+            const originalText = saveBtn.innerHTML;
+            const isPaymentOnly = mode === 'payment';
+            
+            // Helper to safely get value or null instead of undefined
+            const getVal = (id) => {
+                const el = document.getElementById(id);
+                return el ? el.value : null;
+            };
+        
+            const originalOrder = state.orders.find(o => o.id === orderId);
+            if (!originalOrder) {
+                alert("Order data lost. Please refresh.");
+                return;
+            }
+        
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = `Syncing...`;
+        
+            try {
+                // 1. Core Updates (Always apply these if they exist in the UI)
+                let finalUpdatePayload = { 
+                    updatedAt: serverTimestamp()
+                };
+        
+                // Capture language if the selector exists
+                const lang = getVal('edit-language');
+                if (lang) finalUpdatePayload.language = lang;
+        
+                // 2. Item/Total Sync (From the Draft Cart state)
+                const newItemsDraft = Object.values(state.editingOrderDraftCart);
+                const newTotalCents = newItemsDraft.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
+                
+                finalUpdatePayload.items = newItemsDraft.map(entry => ({
+                    id: entry.item.id, 
+                    name: entry.item.name, 
+                    sku: entry.item.sku || 'N/A',
+                    price: entry.item.price, 
+                    quantity: entry.quantity
+                }));
+                finalUpdatePayload.totalCents = newTotalCents;
+        
+                // 3. Mode-Specific Logic
+                if (isPaymentOnly) {
+                    const newAmt = parseFloat(getVal('edit-paid-amount')) || 0;
+                    const method = getVal('edit-payment-method') || 'Other';
+                    const newPaymentCents = Math.round(newAmt * 100);
                     
-                    const getVal = (id) => document.getElementById(id)?.value || '';
-                    const originalOrder = state.orders.find(o => o.id === orderId);
-                    if (!originalOrder) return;
-        
-                    saveBtn.disabled = true;
-                    saveBtn.innerHTML = `Syncing...`;
-        
-                    try {
-                        let finalUpdatePayload = { 
-                            updatedAt: serverTimestamp(),
-                            language: getVal('edit-language') 
-                        };
-        
-                        // Sync items regardless of mode if they were modified in the draft cart
-                        const newItemsDraft = Object.values(state.editingOrderDraftCart);
-                        const newTotalCents = newItemsDraft.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
-                        const newItemsList = newItemsDraft.map(entry => ({
-                            id: entry.item.id, name: entry.item.name, sku: entry.item.sku || null,
-                            price: entry.item.price, quantity: entry.quantity
-                        }));
-        
-                        finalUpdatePayload.items = newItemsList;
-                        finalUpdatePayload.totalCents = newTotalCents;
-        
-                        if (isPaymentOnly) {
-                            const newAmt = parseFloat(getVal('edit-paid-amount')) || 0;
-                            const method = getVal('edit-payment-method');
-                            const newPaymentCents = Math.round(newAmt * 100);
-                            
-                            if (newPaymentCents > 0) {
-                                const history = [...(originalOrder.paymentHistory || []), {
-                                    amountCents: newPaymentCents,
-                                    method: method,
-                                    date: new Date().toISOString()
-                                }];
-                                
-                                const totalPaid = history.reduce((sum, p) => sum + p.amountCents, 0);
-                                
-                                finalUpdatePayload.paymentHistory = history;
-                                finalUpdatePayload.paidCents = totalPaid;
-                                finalUpdatePayload.isPaid = totalPaid >= newTotalCents;
-                                finalUpdatePayload.lastPaymentMethod = method;
-        
-                                // Trigger Local Receipt via Language Preference
-                                fetch(RECEIPT_EMAIL_CONFIRMATION_FUNCTION, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ 
-                                        ...originalOrder, 
-                                        items: newItemsList,
-                                        orderId, 
-                                        paidCents: newPaymentCents, 
-                                        paymentMethod: method,
-                                        language: getVal('edit-language') 
-                                    })
-                                });
-                            }
-                        } else {
-                            finalUpdatePayload.deliveryAddress = getVal('edit-address');
-                            finalUpdatePayload.status = getVal('edit-status');
-                            finalUpdatePayload.adminNotes = getVal('edit-notes');
-                        }
-        
-                        // Execute Firestore Update
-                        const orderRef = doc(db, window.module.getOrdersCollectionPath(sourceId), orderId);
-                        await updateDoc(orderRef, finalUpdatePayload);
+                    if (newPaymentCents > 0) {
+                        const history = [...(originalOrder.paymentHistory || []), {
+                            amountCents: newPaymentCents,
+                            method: method,
+                            date: new Date().toISOString()
+                        }];
                         
-                        showMessage('success', 'Finance Record Updated', 3000, 'orders');
-                        closeEditModal();
+                        const totalPaid = history.reduce((sum, p) => sum + p.amountCents, 0);
+                        
+                        finalUpdatePayload.paymentHistory = history;
+                        finalUpdatePayload.paidCents = totalPaid;
+                        finalUpdatePayload.isPaid = totalPaid >= newTotalCents;
+                        finalUpdatePayload.lastPaymentMethod = method;
         
-                    } catch (err) {
-                        console.error(err);
-                        alert("Sync Error: " + err.message);
-                    } finally {
-                        saveBtn.disabled = false;
-                        saveBtn.innerHTML = originalText;
+                        // Fire-and-forget receipt email
+                        fetch(RECEIPT_EMAIL_CONFIRMATION_FUNCTION, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                ...originalOrder, 
+                                items: finalUpdatePayload.items,
+                                orderId, 
+                                paidCents: newPaymentCents, 
+                                paymentMethod: method,
+                                language: lang || originalOrder.language || 'en'
+                            })
+                        }).catch(err => console.warn("Email trigger failed:", err));
                     }
+                } else {
+                    // "Full Edit" mode fields
+                    const addr = getVal('edit-address');
+                    const stat = getVal('edit-status');
+                    const note = getVal('edit-notes');
+        
+                    if (addr !== null) finalUpdatePayload.deliveryAddress = addr;
+                    if (stat !== null) finalUpdatePayload.status = stat;
+                    if (note !== null) finalUpdatePayload.adminNotes = note;
                 }
-
+        
+                // 4. Firestore Execution
+                const path = window.module.getOrdersCollectionPath(sourceId);
+                const orderRef = doc(db, path, orderId);
+                
+                await updateDoc(orderRef, finalUpdatePayload);
+                
+                showMessage('success', 'Order updated successfully!', 3000, 'orders');
+                closeEditModal();
+        
+            } catch (err) {
+                console.error("Update Error:", err);
+                alert("Sync Error: " + err.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalText;
+            }
+        }
         async function handleResendReceipt(orderId) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
@@ -3929,6 +3952,7 @@
             showOrderEditForm, closeEditModal, updateOrder, renderOrderEditModal,
             initializeDraftCart,
             handleResendReceipt,
+            updateOrder,
             
             updateDraftCartDisplay: function() {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
