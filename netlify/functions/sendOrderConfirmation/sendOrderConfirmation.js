@@ -159,7 +159,7 @@ async function populateTemplate(orderData, recipientType) {
     template = template.replace(/{{params\.orderDate}}/g, new Date(orderData.timestamp).toLocaleDateString(languageCode === 'es' ? 'es-ES' : 'en-US', {
         year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     }));
-    template = template.replace(/{{params\.orderTableRows}}/g, generateTableRows(orderData.items));
+    template = template.replace(/{{params\.orderTableRows}}/g, generateTableRows(orderData.items, languageCode));
     template = template.replace(/{{params\.totalPrice}}/g, formatPrice(orderData.totalCents));
     template = template.replace(/{{params\.orderStatus}}/g, orderStatus);
     
