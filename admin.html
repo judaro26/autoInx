@@ -2306,64 +2306,50 @@
         }
     
         // UPDATED: Makes a direct Firestore update
-          async function handleOrderStatusUpdate(orderId, newStatus) {
-            if (!confirm(`Are you sure you want to change order ${orderId} status to ${newStatus}?`)) return;
+        async function handleOrderStatusUpdate(orderId, newStatus) {
+            if (!confirm(`Notify customer and change order ${orderId.substring(0,5)} to ${newStatus}?`)) return;
             
             resetTimer();
-        
-            // 1. Define statuses that trigger emails
-            const NOTIFIABLE_STATUSES = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'];
-            const requiresNotification = NOTIFIABLE_STATUSES.includes(newStatus);
-            
-            // Show an immediate "Processing" status to give the Admin instant feedback
-            showMessage('info', `Updating Order #${orderId.substring(0,5)}...`, 2000, 'orders');
+            showMessage('info', `Updating & Notifying...`, 3000, 'orders');
         
             try {
-                // 2. Perform Firestore Update
-                const orderRef = doc(db, ORDERS_COLLECTION, orderId);
+                // 1. Get original order details for the email
+                const order = state.orders.find(o => o.id === orderId);
+                if (!order) throw new Error("Order not found in local state.");
+        
+                // 2. Update Firestore Status
+                const orderRef = doc(db, window.module.getOrdersCollectionPath(order.uid || 'guest'), orderId);
                 await updateDoc(orderRef, { 
                     status: newStatus,
                     updatedAt: serverTimestamp() 
                 });
-                
-                await logAdminAction('ORDER_STATUS_UPDATE', { orderId, newStatus }, orderId);
         
-                // 3. Handle Email Trigger and UI Notification
-                if (requiresNotification) {
-                    const orderDetails = state.orders.find(o => o.id === orderId);
+                // 3. Call the Netlify Function (Trigger Email)
+                const emailPayload = {
+                    orderId: orderId,
+                    buyerEmail: order.buyerEmail,
+                    buyerName: order.buyerName,
+                    items: order.items,
+                    totalCents: order.totalCents,
+                    communicationLang: order.language || order.communicationLang || 'en',
+                    newStatus: newStatus, // This tells the Netlify function to use Update mode
+                    appId: appId
+                };
         
-                    if (orderDetails) {
-                        const customerLang = orderDetails.language || orderDetails.communicationLang || 'en';
-                        
-                        const emailPayload = {
-                            ...orderDetails,
-                            orderId: orderId,
-                            newStatus: newStatus, 
-                            language: customerLang,
-                        };
+                // Note: Using the EMAIL_CONFIRMATION_FUNCTION URL defined in your state
+                const res = await fetch(EMAIL_CONFIRMATION_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(emailPayload)
+                });
         
-                        const res = await fetch(EMAIL_CONFIRMATION_FUNCTION, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(emailPayload)
-                        });
+                if (!res.ok) throw new Error("Status updated, but email notification failed.");
         
-                        if (res.ok) {
-                            // SUCCESS NOTIFICATION: status changed + email sent
-                            showMessage('success', `✅ Order #${orderId.substring(0,5)} updated to ${newStatus}. Notification sent to ${orderDetails.buyerEmail}.`, 6000, 'orders');
-                        } else {
-                            // WARNING NOTIFICATION: status changed but email failed
-                            showMessage('error', `⚠️ Status updated to ${newStatus}, but notification email failed to send.`, 6000, 'orders');
-                        }
-                    }
-                } else {
-                    // SILENT UPDATE: status changed, but no email was required
-                    showMessage('success', `Order #${orderId.substring(0,5)} updated to ${newStatus}. (No notification required)`, 5000, 'orders');
-                }
+                showMessage('success', `Success: Order ${newStatus} and customer notified.`, 5000, 'orders');
         
             } catch (error) {
-                console.error('Error updating order status:', error);
-                showMessage('error', `Failed to update status: ${error.message}`, 5000, 'orders');
+                console.error('Update/Notify Error:', error);
+                showMessage('error', `Error: ${error.message}`, 5000, 'orders');
             }
         }
         
