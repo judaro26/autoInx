@@ -2691,7 +2691,58 @@
                     }
                     
                     // Full Edit Mode (Keep existing as fallback)
-                    return ``;
+                    return `
+                    <div id="editModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center" onclick="window.module.closeEditModal()">
+                        <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                            <div class="flex justify-between items-start mb-6">
+                                <h3 class="text-2xl font-black text-indigo-700">Edit Order Details</h3>
+                                <button onclick="window.module.closeEditModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                            </div>
+                    
+                            <form onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}', 'edit')" class="space-y-6">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Delivery Address</label>
+                                        <input id="edit-address" value="${order.deliveryAddress || ''}" class="w-full p-2 border rounded-lg text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Order Status</label>
+                                        <select id="edit-status" class="w-full p-2 border rounded-lg text-sm">
+                                            <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                                            <option value="Processing" ${order.status === 'Processing' ? 'selected' : ''}>Processing</option>
+                                            <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+                                            <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                                            <option value="Cancelled" ${order.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                                        </select>
+                                    </div>
+                                </div>
+                    
+                                <div>
+                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Modify Items</label>
+                                    <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                        <div class="flex gap-2 mb-3">
+                                            <select id="editItemSelector" class="flex-grow p-1 border rounded text-xs bg-white"></select>
+                                            <button type="button" onclick="window.module.addDraftCartItem()" class="bg-indigo-600 text-white px-3 rounded font-bold">+</button>
+                                        </div>
+                                        <div id="editOrderItemsDisplay" class="space-y-1"></div>
+                                        <div class="border-t mt-3 pt-2 flex justify-between font-black text-gray-800">
+                                            <span>New Total:</span>
+                                            <span id="editOrderTotal">$0.00</span>
+                                        </div>
+                                    </div>
+                                </div>
+                    
+                                <div>
+                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Admin Notes</label>
+                                    <textarea id="edit-notes" rows="2" class="w-full p-2 border rounded-lg text-sm">${order.adminNotes || ''}</textarea>
+                                </div>
+                    
+                                <button type="submit" id="saveOrderBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-xl font-black shadow-lg transition">
+                                    SAVE CHANGES
+                                </button>
+                            </form>
+                        </div>
+                    </div>`;
                 }
     
 
@@ -3139,11 +3190,8 @@
                 const paymentStatusBadge = isPaid
                     ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
                     : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
-                
-                const editButton = targetId
-                    ? `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit Order</button>`
-                    : `<span class="text-xs text-red-500 p-1">No Edit Source</span>`;
-        
+                const editButton = `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}', 'edit')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit Order</button>`;
+
                 // The status update dropdown remains for manual updates
                 const statusUpdateDropdown = `
                     <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="p-1 border rounded-lg text-xs bg-gray-50 mt-1 w-full">
