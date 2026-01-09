@@ -2605,145 +2605,156 @@
         }
 
         function renderOrderEditModal(order, mode = 'edit') {
-                    const isPaymentOnly = mode === 'payment';
-                    
-                    // Shared Data
-                    const methods = ['Cash', 'Bank Transfer', 'Credit Card', 'Zelle', 'Wompi', 'Other'];
-                    const methodOptions = methods.map(m => `<option value="${m}">${m}</option>`).join('');
-                    const languages = [{code: 'en', label: 'English'}, {code: 'es', label: 'Español'}];
-                    const langOptions = languages.map(l => `<option value="${l.code}" ${order.language === l.code ? 'selected' : ''}>${l.label}</option>`).join('');
+            const isPaymentOnly = mode === 'payment';
+            
+            // Shared Data for selectors
+            const methods = ['Cash', 'Bank Transfer', 'Credit Card', 'Zelle', 'Wompi', 'Other'];
+            const methodOptions = methods.map(m => `<option value="${m}" ${order.paymentMethod === m ? 'selected' : ''}>${m}</option>`).join('');
+            const languages = [{code: 'en', label: 'English'}, {code: 'es', label: 'Español'}];
+            const langOptions = languages.map(l => `<option value="${l.code}" ${order.language === l.code ? 'selected' : ''}>${l.label}</option>`).join('');
         
-                    // Payment Mode Logic
-                    if (isPaymentOnly) {
-                        const historyHtml = (order.paymentHistory || []).map(p => `
-                            <div class="flex justify-between text-xs py-1 border-b italic text-gray-500">
-                                <span>${new Date(p.date).toLocaleDateString()} (${p.method})</span>
-                                <span class="font-bold text-gray-700">${formatPriceDisplay(p.amountCents)}</span>
-                            </div>
-                        `).join('') || '<p class="text-xs text-gray-400 italic">No previous payments.</p>';
+            // --- MODE 1: PAYMENT ONLY (Accounting) ---
+            if (isPaymentOnly) {
+                const historyHtml = (order.paymentHistory || []).map(p => `
+                    <div class="flex justify-between text-xs py-1 border-b italic text-gray-500">
+                        <span>${new Date(p.date).toLocaleDateString()} (${p.method})</span>
+                        <span class="font-bold text-gray-700">${formatPriceDisplay(p.amountCents)}</span>
+                    </div>
+                `).join('') || '<p class="text-xs text-gray-400 italic">No previous payments.</p>';
         
-                        return `
-                            <div id="editModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center" onclick="window.module.closeEditModal()">
-                                <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
-                                    <div class="flex justify-between items-start mb-6">
-                                        <h3 class="text-2xl font-black text-indigo-700">Billing & Payments</h3>
-                                        <button onclick="window.module.closeEditModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
-                                    </div>
-        
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div class="space-y-4">
-                                            <h4 class="text-xs font-black text-gray-400 uppercase tracking-widest">Order Items</h4>
-                                            <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                                                <div class="flex gap-2 mb-3">
-                                                    <select id="editItemSelector" class="flex-grow p-1 border rounded text-xs bg-white"></select>
-                                                    <button type="button" onclick="window.module.addDraftCartItem()" class="bg-indigo-600 text-white px-3 rounded font-bold">+</button>
-                                                </div>
-                                                <div id="editOrderItemsDisplay" class="space-y-1 max-h-48 overflow-y-auto custom-scrollbar"></div>
-                                                <div class="border-t mt-3 pt-2 flex justify-between font-black text-gray-800">
-                                                    <span>Current Total:</span>
-                                                    <span id="editOrderTotal">$0.00</span>
-                                                </div>
-                                            </div>
-                                            
-                                            <div>
-                                                <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Receipt Language</label>
-                                                <select id="edit-language" class="w-full p-2 border rounded-lg bg-white text-sm font-semibold text-gray-700">
-                                                    ${langOptions}
-                                                </select>
-                                            </div>
-                                        </div>
-        
-                                        <div class="space-y-4 border-l pl-0 md:pl-8">
-                                            <div class="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-                                                <p class="text-[10px] font-black text-indigo-400 uppercase mb-2">Payment Summary</p>
-                                                <div class="flex justify-between text-sm text-indigo-900"><span>Paid to date:</span><b id="display-paid-amount">${formatPriceDisplay(order.paidCents || 0)}</b></div>
-                                                <div class="flex justify-between text-lg border-t border-indigo-200 mt-2 pt-2">
-                                                    <span class="font-bold text-gray-700">Remaining:</span>
-                                                    <span id="edit-remaining-balance" class="font-black">--</span>
-                                                </div>
-                                            </div>
-        
-                                            <form onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}', 'payment')" class="space-y-4">
-                                                <div>
-                                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">New Payment Amount (USD)</label>
-                                                    <input type="number" id="edit-paid-amount" step="0.01" oninput="window.module.recalculateBilling()"
-                                                           class="w-full p-3 border-2 border-indigo-100 rounded-xl text-xl font-black text-indigo-700 focus:border-indigo-500 outline-none transition">
-                                                </div>
-                                                
-                                                <div>
-                                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Method</label>
-                                                    <select id="edit-payment-method" class="w-full p-2 border rounded-lg bg-white text-sm">${methodOptions}</select>
-                                                </div>
-        
-                                                <button type="submit" id="saveOrderBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl font-black shadow-lg transition transform active:scale-95">
-                                                    PROCESS TRANSACTION
-                                                </button>
-                                            </form>
-        
-                                            <div class="pt-2">
-                                                <p class="text-[10px] font-black text-gray-400 uppercase mb-2">History</p>
-                                                <div class="max-h-24 overflow-y-auto custom-scrollbar border-t">${historyHtml}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>`;
-                    }
-                    
-                    // Full Edit Mode (Keep existing as fallback)
-                    return `
+                return `
                     <div id="editModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center" onclick="window.module.closeEditModal()">
                         <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
                             <div class="flex justify-between items-start mb-6">
-                                <h3 class="text-2xl font-black text-indigo-700">Edit Order Details</h3>
+                                <h3 class="text-2xl font-black text-indigo-700">Billing & Payments</h3>
                                 <button onclick="window.module.closeEditModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
                             </div>
-                    
-                            <form onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}', 'edit')" class="space-y-6">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Delivery Address</label>
-                                        <input id="edit-address" value="${order.deliveryAddress || ''}" class="w-full p-2 border rounded-lg text-sm">
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Order Status</label>
-                                        <select id="edit-status" class="w-full p-2 border rounded-lg text-sm">
-                                            <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
-                                            <option value="Processing" ${order.status === 'Processing' ? 'selected' : ''}>Processing</option>
-                                            <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
-                                            <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
-                                            <option value="Cancelled" ${order.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
-                                        </select>
-                                    </div>
-                                </div>
-                    
-                                <div>
-                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Modify Items</label>
+        
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div class="space-y-4">
+                                    <h4 class="text-xs font-black text-gray-400 uppercase tracking-widest">Order Items</h4>
                                     <div class="p-3 bg-gray-50 rounded-xl border border-gray-100">
                                         <div class="flex gap-2 mb-3">
                                             <select id="editItemSelector" class="flex-grow p-1 border rounded text-xs bg-white"></select>
                                             <button type="button" onclick="window.module.addDraftCartItem()" class="bg-indigo-600 text-white px-3 rounded font-bold">+</button>
                                         </div>
-                                        <div id="editOrderItemsDisplay" class="space-y-1"></div>
+                                        <div id="editOrderItemsDisplay" class="space-y-1 max-h-48 overflow-y-auto custom-scrollbar"></div>
                                         <div class="border-t mt-3 pt-2 flex justify-between font-black text-gray-800">
-                                            <span>New Total:</span>
+                                            <span>Current Total:</span>
                                             <span id="editOrderTotal">$0.00</span>
                                         </div>
                                     </div>
+                                    
+                                    <div>
+                                        <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Receipt Language</label>
+                                        <select id="edit-language" class="w-full p-2 border rounded-lg bg-white text-sm font-semibold text-gray-700">
+                                            ${langOptions}
+                                        </select>
+                                    </div>
                                 </div>
-                    
-                                <div>
-                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Admin Notes</label>
-                                    <textarea id="edit-notes" rows="2" class="w-full p-2 border rounded-lg text-sm">${order.adminNotes || ''}</textarea>
+        
+                                <div class="space-y-4 border-l pl-0 md:pl-8">
+                                    <div class="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                                        <p class="text-[10px] font-black text-indigo-400 uppercase mb-2">Payment Summary</p>
+                                        <div class="flex justify-between text-sm text-indigo-900"><span>Paid to date:</span><b id="display-paid-amount">${formatPriceDisplay(order.paidCents || 0)}</b></div>
+                                        <div class="flex justify-between text-lg border-t border-indigo-200 mt-2 pt-2">
+                                            <span class="font-bold text-gray-700">Remaining:</span>
+                                            <span id="edit-remaining-balance" class="font-black">--</span>
+                                        </div>
+                                    </div>
+        
+                                    <form onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}', 'payment')" class="space-y-4">
+                                        <div>
+                                            <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">New Payment Amount (USD)</label>
+                                            <input type="number" id="edit-paid-amount" step="0.01" oninput="window.module.recalculateBilling()"
+                                                   class="w-full p-3 border-2 border-indigo-100 rounded-xl text-xl font-black text-indigo-700 focus:border-indigo-500 outline-none transition">
+                                        </div>
+                                        
+                                        <div>
+                                            <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Method</label>
+                                            <select id="edit-payment-method" class="w-full p-2 border rounded-lg bg-white text-sm">${methodOptions}</select>
+                                        </div>
+        
+                                        <button type="submit" id="saveOrderBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl font-black shadow-lg transition transform active:scale-95">
+                                            PROCESS TRANSACTION
+                                        </button>
+                                    </form>
+        
+                                    <div class="pt-2">
+                                        <p class="text-[10px] font-black text-gray-400 uppercase mb-2">History</p>
+                                        <div class="max-h-24 overflow-y-auto custom-scrollbar border-t">${historyHtml}</div>
+                                    </div>
                                 </div>
-                    
-                                <button type="submit" id="saveOrderBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-xl font-black shadow-lg transition">
-                                    SAVE CHANGES
-                                </button>
-                            </form>
+                            </div>
                         </div>
                     </div>`;
-                }
+            }
+            
+            // --- MODE 2: FULL EDIT (Address, Status, Notes) ---
+            return `
+                <div id="editModal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center" onclick="window.module.closeEditModal()">
+                    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-start mb-6">
+                            <div>
+                                <h3 class="text-2xl font-black text-indigo-700">Modify Order</h3>
+                                <p class="text-xs text-gray-400 font-mono">ID: ${order.id}</p>
+                            </div>
+                            <button onclick="window.module.closeEditModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                        </div>
+        
+                        <form onsubmit="window.module.updateOrder(event, '${order.id}', '${order.uid || 'guest'}', 'edit')" class="space-y-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Delivery Address</label>
+                                    <input id="edit-address" value="${escapeHtml(order.deliveryAddress || '')}" class="w-full p-2 border rounded-lg text-sm font-semibold">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Current Status</label>
+                                    <select id="edit-status" class="w-full p-2 border rounded-lg text-sm font-semibold">
+                                        <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                                        <option value="Processing" ${order.status === 'Processing' ? 'selected' : ''}>Processing</option>
+                                        <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+                                        <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                                        <option value="Cancelled" ${order.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                                    </select>
+                                </div>
+                            </div>
+        
+                            <div>
+                                <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Items in Order</label>
+                                <div class="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                    <div class="flex gap-2 mb-4">
+                                        <select id="editItemSelector" class="flex-grow p-2 border rounded-lg text-xs bg-white"></select>
+                                        <button type="button" onclick="window.module.addDraftCartItem()" class="bg-indigo-600 text-white px-4 rounded-lg font-bold hover:bg-indigo-700">+</button>
+                                    </div>
+                                    <div id="editOrderItemsDisplay" class="space-y-2 mb-4"></div>
+                                    <div class="border-t pt-3 flex justify-between items-center">
+                                        <span class="font-black text-gray-500 text-xs uppercase">New Calculated Total:</span>
+                                        <span id="editOrderTotal" class="text-xl font-black text-indigo-700">$0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+        
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Communication Language</label>
+                                    <select id="edit-language" class="w-full p-2 border rounded-lg bg-white text-sm font-semibold">
+                                        ${langOptions}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Internal Admin Notes</label>
+                                    <textarea id="edit-notes" rows="2" class="w-full p-2 border rounded-lg text-sm">${order.adminNotes || ''}</textarea>
+                                </div>
+                            </div>
+        
+                            <button type="submit" id="saveOrderBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-xl font-black shadow-lg transition transform active:scale-95">
+                                SAVE ALL CHANGES
+                            </button>
+                        </form>
+                    </div>
+                </div>`;
+        }
     
 
         function renderDayCheckboxes(activeDays = [1, 2, 3, 4, 5]) {
