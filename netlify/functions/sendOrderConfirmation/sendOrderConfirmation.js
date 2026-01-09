@@ -1,20 +1,30 @@
 /**
  * Netlify Function: send-email.js
- * Handles order confirmation (initial) and status update notifications,
- * dynamically selecting the template based on the 'language' property.
+ * Handles Inventory Deduction via Deeply Nested Firestore Path and Email Notifications.
  */
+const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
 const path = require("path");
 
-// --- Configuration and Helpers ---
+// --- 1. Initialize Firebase Admin ---
+if (!admin.apps.length) {
+    try {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+        });
+    } catch (err) {
+        console.error("Firebase Admin initialization failed:", err);
+    }
+}
+const db = admin.firestore();
 
-// ADDED: Global Rate Limiting Variables (to prevent DoS/Email Flooding)
+// --- 2. Configuration & Rate Limiting ---
 const rateLimitStore = {}; 
 const MAX_REQUESTS_PER_HOUR = 20;
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
-// 1. Configure Nodemailer Transporter
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
     port: process.env.BREVO_SMTP_PORT,
@@ -25,272 +35,160 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-// Helper to format cents to currency string ($X,XXX.XX)
+// --- 3. Formatting Helpers ---
+
 function formatPrice(cents) {
     return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2
+        style: 'currency', currency: 'USD', minimumFractionDigits: 2
     }).format(cents / 100);
 }
 
-// MODIFIED: Load base HTML template based on language code
 async function getTemplateHtml(languageCode) {
-    let filename = (languageCode === 'es') 
+    const filename = (languageCode === 'es') 
         ? "orderConfirmationTemplateSpanish.html" 
         : "orderConfirmationTemplate.html";
-        
     try {
-        const templatePath = path.join(__dirname, "emailTemplates", filename);
+        const templatePath = path.resolve(__dirname, "emailTemplates", filename);
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
-        console.error(`Error reading email template for ${languageCode}: ${filename}`, error);
-        // Fallback gracefully to English if the localized template file is missing
-        if (languageCode !== 'en') {
-             console.warn("Falling back to English template.");
-             return getTemplateHtml('en'); 
-        }
+        if (languageCode !== 'en') return getTemplateHtml('en');
         throw new Error(`Failed to load email template: ${filename}`);
     }
 }
 
-// Generate HTML rows for the order items table
-function generateTableRows(items, languageCode) {
-    return items.map(item => {
-        const subtotal = item.price * item.quantity;
-        return `
-            <tr>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px;">${item.name} (${item.sku || 'N/A'})</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px;">${item.quantity}</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px;">${formatPrice(item.price)}</td>
-                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; font-size: 14px;">${formatPrice(subtotal)}</td>
-            </tr>
-        `;
-    }).join('');
+function generateTableRows(items) {
+    return items.map(item => `
+        <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #eee;">${item.name}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">${item.quantity}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">${formatPrice(item.price)}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">${formatPrice(item.price * item.quantity)}</td>
+        </tr>`).join('');
 }
 
-/**
- * Populates the order template with dynamic content.
- * @param {object} orderData - The complete order object, including 'newStatus' and 'language'.
- */
-async function populateTemplate(orderData, recipientType) {
-    const languageCode = orderData.language || 'en';
-    const orderStatus = orderData.newStatus || 'Confirmed'; 
-    const orderIdShort = orderData.orderId.substring(0, 5);
+// --- 4. Inventory Transaction Logic ---
 
-    let template = await getTemplateHtml(languageCode); 
 
-    let mainTitle;
-    let mainIntro;
-    let badgeText;
-    let badgeColor;
-    let closeMessage;
-    let subjectLine;
 
-    // --- Dynamic Content Calculation ---
-    if (languageCode === 'es') {
-        if (orderStatus === 'Confirmed') {
-            subjectLine = "Su pedido autoInx ha sido Confirmado";
-            mainTitle = "¡Gracias por su pedido!";
-            mainIntro = `Hola ${orderData.buyerName}, hemos recibido su pedido y estamos preparando sus artículos para el envío.`;
-            badgeText = "✓ Pedido Confirmado";
-            badgeColor = "#10b981"; // Green
-            closeMessage = `Recibirá otro correo cuando su pedido sea enviado. ¿Preguntas? Responda a este correo—¡estamos aquí para ayudar!`;
-        } else if (orderStatus === 'Cancelled') {
-            subjectLine = "Actualización: Su Pedido autoInx ha sido Cancelado";
-            mainTitle = "Pedido Cancelado";
-            mainIntro = `Su pedido #${orderIdShort} ha sido cancelado. Contacte a soporte si tiene preguntas.`;
-            badgeText = "✗ Pedido Cancelado";
-            badgeColor = "#ef4444"; // Red
-            closeMessage = `Si fue un error, responda inmediatamente o cree un nuevo pedido.`;
-        } else {
-             subjectLine = `Actualización: Su Pedido ahora es ${orderStatus}`;
-             mainTitle = `Estado: ${orderStatus}`;
-             mainIntro = `Hola ${orderData.buyerName}, el estado de su pedido #${orderIdShort} ahora es **${orderStatus}**.`;
-             badgeText = `Estado: ${orderStatus}`;
-             badgeColor = "#6366f1";
-        }
-    } else { // English (en)
-        if (orderStatus === 'Confirmed') {
-            subjectLine = "Your autoInx Order is Confirmed";
-            mainTitle = "Thank you for your order!";
-            mainIntro = `Hello ${orderData.buyerName}, we've received your order and are getting it ready to ship.`;
-            badgeText = "✓ Order Confirmed";
-            badgeColor = "#10b981"; 
-            closeMessage = `You’ll receive another email when your order ships. Questions? Reply to this email — we’re here to help!`;
-        } else if (orderStatus === 'Cancelled') {
-            subjectLine = "Update: Your autoInx Order Has Been Cancelled";
-            mainTitle = "Order Cancelled";
-            mainIntro = `Your order #${orderIdShort} has been cancelled per your request or due to an issue.`;
-            badgeText = "✗ Order Cancelled";
-            badgeColor = "#ef4444"; 
-            closeMessage = `If this was an error, please reply immediately or create a new order.`;
-        } else {
-             subjectLine = `Update: Your autoInx Order is Now ${orderStatus}`;
-             mainTitle = `Your Order is Now ${orderStatus}!`;
-             mainIntro = `Hello ${orderData.buyerName}, the status of your order #${orderIdShort} is now **${orderStatus}**.`;
-             badgeText = `Status: ${orderStatus}`;
-             badgeColor = "#6366f1";
-        }
-    }
-
-    // Admin subject logic override
-    let recipientEmailPlaceholder = orderData.buyerEmail;
-
-    if (recipientType !== 'customer') {
-        subjectLine = orderStatus === 'Confirmed' 
-            ? `NEW ORDER #${orderData.orderId.substring(0, 8).toUpperCase()} - ${orderData.buyerName}`
-            : `STATUS UPDATE [${orderStatus}]: Order #${orderIdShort} - ${orderData.buyerName}`;
-        mainTitle = subjectLine;
-        mainIntro = "Internal notification. Please process this order.";
-        closeMessage = 'Internal admin copy.';
-        recipientEmailPlaceholder = "orders@autoinx.com"; 
-    }
-
-    // 4. Perform replacements on the template
-    template = template.replace(/{{params\.badgeColor}}/g, badgeColor); 
-    template = template.replace(/{{params\.badgeText}}/g, badgeText); 
-    template = template.replace(/{{params\.mainTitle}}/g, mainTitle); 
-    template = template.replace(/{{params\.mainIntro}}/g, mainIntro); 
-    template = template.replace(/{{params\.closeMessage}}/g, closeMessage);
+async function decrementInventory(items, appId = 'default-app-id') {
+    // Exact path to your items subcollection
+    const collectionPath = `artifacts/${appId}/public/data/items`;
     
-    // Existing replacements:
-    template = template.replace(/{{params\.orderId}}/g, orderData.orderId);
-    template = template.replace(/{{params\.orderDate}}/g, new Date(orderData.timestamp).toLocaleDateString(languageCode === 'es' ? 'es-ES' : 'en-US', {
-        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    }));
-    template = template.replace(/{{params\.orderTableRows}}/g, generateTableRows(orderData.items, languageCode));
-    template = template.replace(/{{params\.totalPrice}}/g, formatPrice(orderData.totalCents));
-    template = template.replace(/{{params\.orderStatus}}/g, orderStatus);
-    
-    // Brevo email placeholder in footer 
-    template = template.replace(/{{contact\.EMAIL}}/g, recipientEmailPlaceholder);
+    try {
+        await db.runTransaction(async (transaction) => {
+            const itemRefs = items.map(item => {
+                // We use itemId (the Firestore Doc ID like 02pjNxSUvYM0OzSpJnw1)
+                const docId = item.itemId || item.id; 
+                if (!docId) throw new Error(`Missing Document ID for item: ${item.name}`);
+                return db.collection(collectionPath).doc(docId);
+            });
 
-    // Optional: Add Delivery/Shipping Info (for Admin/Requester)
-    if (recipientType !== 'customer') {
-        const adminDetails = `
-            <p style="margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px; font-size: 14px; color: #3b3f44;">
-                <strong>Order Status:</strong> ${orderStatus}<br>
-                <strong>Customer Name:</strong> ${orderData.buyerName}<br>
-                <strong>Delivery Address:</strong> ${orderData.deliveryAddress}<br>
-                <strong>Phone (WhatsApp Opt-in: ${orderData.prefersWhatsapp ? 'YES' : 'NO'}):</strong> ${orderData.buyerPhone}<br>
-                ${orderData.geolocation ? `<strong>Coordinates:</strong> Lat ${orderData.geolocation.lat}, Lng ${orderData.geolocation.lng}<br>` : ''}
-            </p>
-            <p style="margin-bottom: 20px; font-size: 14px; color: #3b3f44;">
-                Order created via: ${orderData.adminEmail || 'Public Checkout'}
-            </p>
-            <div style="border-top: 1px solid #ddd;"></div>
-        `;
-        template = template.replace(/<\/p>\s*/, `</p>${adminDetails}`);
+            const docs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
+
+            docs.forEach((doc, index) => {
+                if (!doc.exists) {
+                    throw new Error(`Item not found in database: ${items[index].name}`);
+                }
+
+                const currentStock = doc.data().stock || 0;
+                const requestedQty = items[index].quantity;
+
+                if (currentStock < requestedQty) {
+                    throw new Error(`Insufficient stock for ${doc.data().name}. Available: ${currentStock}, Requested: ${requestedQty}`);
+                }
+
+                // Execute the update
+                transaction.update(doc.ref, {
+                    stock: currentStock - requestedQty,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            });
+        });
+        return { success: true };
+    } catch (err) {
+        console.error("Inventory Deduction Error:", err.message);
+        return { success: false, error: err.message };
     }
-
-    return { html: template, subject: subjectLine };
 }
 
-// --- Netlify Handler ---
+// --- 5. Main Handler ---
 
 exports.handler = async function (event) {
     if (event.httpMethod !== "POST") {
         return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
     }
-    
-    // --- START RATE LIMITING CHECK ---
-    const clientIp = event.headers['client-ip'] || event.headers['x-nf-client-connection-ip'] || 'unknown';
+
+    // Rate Limiting
+    const clientIp = event.headers['client-ip'] || 'unknown';
     const now = Date.now();
-    
-    if (!rateLimitStore[clientIp]) {
-        rateLimitStore[clientIp] = [];
-    }
-    
-    // Remove requests older than the window
-    rateLimitStore[clientIp] = rateLimitStore[clientIp].filter(timestamp => timestamp > now - RATE_LIMIT_WINDOW_MS);
-    
+    if (!rateLimitStore[clientIp]) rateLimitStore[clientIp] = [];
+    rateLimitStore[clientIp] = rateLimitStore[clientIp].filter(t => t > now - RATE_LIMIT_WINDOW_MS);
     if (rateLimitStore[clientIp].length >= MAX_REQUESTS_PER_HOUR) {
-        console.warn(`Rate limit exceeded for IP: ${clientIp} on order confirmation.`);
-        return {
-            statusCode: 429, // Too Many Requests
-            body: JSON.stringify({ error: `Rate limit exceeded. Please wait one hour before trying another purchase.` }),
-        };
+        return { statusCode: 429, body: JSON.stringify({ error: "Rate limit exceeded." }) };
     }
-    
-    // Record the current request timestamp
     rateLimitStore[clientIp].push(now);
-    // --- END RATE LIMITING CHECK ---
-
-
-    const orderData = JSON.parse(event.body);
-    // FIX 1: The client sends 'communicationLang', not 'language'. We map it to 'customerLang'.
-    // We also use 'communicationLang' for the template call which expects the property name 'language'.
-    const { orderId, buyerEmail, items, totalCents, requesterEmail, newStatus, communicationLang } = orderData; // Destructure the correct property name
-
-    // Basic Validation Check
-    if (!orderId || !buyerEmail || !items || items.length === 0 || totalCents === undefined) {
-        return { statusCode: 400, body: JSON.stringify({ error: "Missing required order data for email processing." }) };
-    }
 
     try {
-        // Prepare a reusable payload for the language, which the template function expects as 'language' property.
-        const langPayload = { language: communicationLang };
+        const orderData = JSON.parse(event.body);
+        const { orderId, buyerEmail, items, totalCents, communicationLang, appId } = orderData;
 
-        // --- 1. Customer Email (Use customer's selected language) ---
-        // Pass the new language property for the template generation
-        const customerEmailData = await populateTemplate({ ...orderData, newStatus, ...langPayload }, 'customer');
+        // STEP 1: Deduct Inventory
+        // This blocks the email and confirmation if stock is unavailable
+        const inventoryResult = await decrementInventory(items, appId);
+        if (!inventoryResult.success) {
+            return {
+                statusCode: 409, 
+                body: JSON.stringify({ error: inventoryResult.error })
+            };
+        }
 
-        const customerMailOptions = {
+        // STEP 2: Generate Email Content
+        const languageCode = communicationLang || 'es';
+        let template = await getTemplateHtml(languageCode);
+        
+        // Dynamic Replacement Logic
+        const replacements = {
+            "{{params.orderId}}": orderId,
+            "{{params.orderTableRows}}": generateTableRows(items),
+            "{{params.totalPrice}}": formatPrice(totalCents),
+            "{{params.badgeText}}": languageCode === 'es' ? "✓ Pedido Confirmado" : "✓ Order Confirmed",
+            "{{params.badgeColor}}": "#10b981",
+            "{{params.mainTitle}}": languageCode === 'es' ? "¡Gracias por su pedido!" : "Thank you for your order!",
+            "{{contact.EMAIL}}": buyerEmail
+        };
+
+        Object.keys(replacements).forEach(key => {
+            const regex = new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+            template = template.replace(regex, replacements[key]);
+        });
+
+        // STEP 3: Send Emails
+        const mailOptions = {
             from: "noreply@autoinx.com",
             to: buyerEmail,
-            subject: customerEmailData.subject,
-            html: customerEmailData.html,
+            subject: languageCode === 'es' ? "Confirmación de Pedido - autoInx" : "Order Confirmation - autoInx",
+            html: template
         };
-        
-        try {
-            await transporter.sendMail(customerMailOptions);
-            console.log(`Successfully sent email to customer: ${buyerEmail} in ${communicationLang}.`);
-        } catch (customerSendError) {
-            console.error(`CRITICAL FAILURE: Failed to send email to customer ${buyerEmail}.`, customerSendError);
-        }
 
-        // --- 2. Admin Notification Email (FIX: Use customer's selected language) ---
-        // Pass the same language property (communicationLang) so the admin gets the same version.
-        const adminEmailData = await populateTemplate({ ...orderData, newStatus, ...langPayload }, 'admin');
-
-        const adminMailOptions = {
-            from: "noreply@autoinx.com",
-            to: "orders@autoinx.com", // Dedicated orders email
-            subject: adminEmailData.subject,
-            html: adminEmailData.html,
-        };
-        await transporter.sendMail(adminMailOptions);
-        console.log(`Successfully sent admin email in ${communicationLang}.`);
+        await transporter.sendMail(mailOptions);
         
-        // --- 3. Requester/Sales Agent Notification Email (FIX: Use customer's selected language) ---
-        if (requesterEmail && requesterEmail !== buyerEmail && requesterEmail !== "orders@autoinx.com") {
-            // We can reuse the adminEmailData here since the payload is the same, but we call populateTemplate 
-            // separately for robustness in case we need different subjects later.
-            const requesterEmailData = await populateTemplate({ ...orderData, newStatus, ...langPayload }, 'admin');
-            
-            const requesterMailOptions = {
-                from: "noreply@autoinx.com",
-                to: requesterEmail,
-                subject: `[COPY] ${adminEmailData.subject}`,
-                html: requesterEmailData.html, // Use the content generated in the requested language
-            };
-            await transporter.sendMail(requesterMailOptions);
-            console.log(`Sent order copy to requester: ${requesterEmail} in ${communicationLang}.`);
-        }
+        // Admin Copy
+        await transporter.sendMail({
+            ...mailOptions,
+            to: "orders@autoinx.com",
+            subject: `[NEW ORDER] #${orderId.substring(0,8)}`
+        });
 
         return {
             statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: "Emails sent successfully to admin(s) and potentially customer.", orderId }),
+            body: JSON.stringify({ message: "Success", orderId })
         };
 
     } catch (error) {
-        console.error(`Failed to execute email function for order ${orderId}:`, error);
+        console.error("Function Execution Failed:", error);
         return {
             statusCode: 500,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ error: "Failed to execute email function.", details: error.message }),
+            body: JSON.stringify({ error: "Failed to process order", details: error.message })
         };
     }
 };
