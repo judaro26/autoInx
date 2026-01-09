@@ -1,32 +1,37 @@
 /**
  * Netlify Function: send-email.js
  * Handles Inventory Deduction via Deeply Nested Firestore Path and Email Notifications.
- * Optimized with Lazy Firebase Initialization to prevent bundling errors.
+ * Optimized for existing individual Firebase environment variables.
  */
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
 const path = require("path");
 
-// --- 1. Global Rate Limiting State ---
+// --- 1. Global Rate Limiting ---
 const rateLimitStore = {}; 
 const MAX_REQUESTS_PER_HOUR = 20;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 // --- 2. Robust Firebase Initialization ---
-/**
- * Ensures Firebase is only initialized once and only when needed.
- * This prevents "Default app does not exist" errors during esbuild bundling.
- */
 function getDb() {
     if (admin.apps.length === 0) {
-        if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-            throw new Error("Missing FIREBASE_SERVICE_ACCOUNT environment variable.");
-        }
         try {
-            const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+            // Reconstruct the service account from your existing Netlify variables
+            const serviceAccount = {
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                // Fixes the common Netlify/esbuild private key newline issue
+                privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+            };
+
+            if (!serviceAccount.projectId || !serviceAccount.privateKey) {
+                throw new Error("Missing critical Firebase environment variables.");
+            }
+
             admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount)
+                credential: admin.credential.cert(serviceAccount),
+                databaseURL: process.env.FIREBASE_DATABASE_URL
             });
             console.log("Firebase Admin Initialized successfully.");
         } catch (error) {
@@ -37,7 +42,7 @@ function getDb() {
     return admin.firestore();
 }
 
-// --- 3. Configuration & Transporter ---
+// --- 3. Transporter Configuration ---
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
     port: process.env.BREVO_SMTP_PORT,
@@ -64,7 +69,6 @@ async function getTemplateHtml(languageCode) {
         const templatePath = path.resolve(__dirname, "emailTemplates", filename);
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
-        console.error(`Error reading template ${filename}:`, error);
         if (languageCode !== 'en') return getTemplateHtml('en');
         throw new Error(`Failed to load email template: ${filename}`);
     }
@@ -82,38 +86,31 @@ function generateTableRows(items) {
 
 // --- 5. Inventory Transaction Logic ---
 
-
-
 async function decrementInventory(items, appId = 'default-app-id') {
-    const db = getDb(); // Get initialized Firestore instance
+    const db = getDb();
+    // Your exact path: artifacts/{id}/public/data/items
     const collectionPath = `artifacts/${appId}/public/data/items`;
     
     try {
         await db.runTransaction(async (transaction) => {
-            // Step A: Prepare all document references
             const itemRefs = items.map(item => {
                 const docId = item.itemId || item.id; 
-                if (!docId) throw new Error(`Missing Document ID for item: ${item.name}`);
+                if (!docId) throw new Error(`Missing Document ID for: ${item.name}`);
                 return db.collection(collectionPath).doc(docId);
             });
 
-            // Step B: Read all documents (within the transaction)
             const docs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
 
-            // Step C: Validate and Update
             docs.forEach((doc, index) => {
-                if (!doc.exists) {
-                    throw new Error(`Item not found in database: ${items[index].name}`);
-                }
+                if (!doc.exists) throw new Error(`Product not found: ${items[index].name}`);
 
                 const currentStock = doc.data().stock || 0;
                 const requestedQty = items[index].quantity;
 
                 if (currentStock < requestedQty) {
-                    throw new Error(`Insufficient stock for ${doc.data().name}. Available: ${currentStock}, Requested: ${requestedQty}`);
+                    throw new Error(`Stock insuficiente para ${doc.data().name}. Disponible: ${currentStock}`);
                 }
 
-                // Execute the update inside the transaction
                 transaction.update(doc.ref, {
                     stock: currentStock - requestedQty,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -122,7 +119,7 @@ async function decrementInventory(items, appId = 'default-app-id') {
         });
         return { success: true };
     } catch (err) {
-        console.error("Inventory Deduction Error:", err.message);
+        console.error("Inventory Transaction Failed:", err.message);
         return { success: false, error: err.message };
     }
 }
@@ -134,16 +131,13 @@ exports.handler = async function (event) {
         return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
     }
 
-    // Rate Limiting Logic
-    const clientIp = event.headers['client-ip'] || event.headers['x-nf-client-connection-ip'] || 'unknown';
+    // Rate Limiting
+    const clientIp = event.headers['client-ip'] || 'unknown';
     const now = Date.now();
     if (!rateLimitStore[clientIp]) rateLimitStore[clientIp] = [];
     rateLimitStore[clientIp] = rateLimitStore[clientIp].filter(t => t > now - RATE_LIMIT_WINDOW_MS);
     if (rateLimitStore[clientIp].length >= MAX_REQUESTS_PER_HOUR) {
-        return { 
-            statusCode: 429, 
-            body: JSON.stringify({ error: "Rate limit exceeded. Please wait one hour." }) 
-        };
+        return { statusCode: 429, body: JSON.stringify({ error: "Rate limit exceeded." }) };
     }
     rateLimitStore[clientIp].push(now);
 
@@ -151,13 +145,10 @@ exports.handler = async function (event) {
         const orderData = JSON.parse(event.body);
         const { orderId, buyerEmail, buyerName, items, totalCents, communicationLang, appId } = orderData;
 
-        // Basic Validation
-        if (!orderId || !items || items.length === 0) {
-            return { statusCode: 400, body: JSON.stringify({ error: "Missing required order data." }) };
-        }
+        // Ensure DB is initialized
+        getDb();
 
         // STEP 1: Deduct Inventory
-        // This transaction blocks the email and confirmation if stock is unavailable.
         const inventoryResult = await decrementInventory(items, appId);
         if (!inventoryResult.success) {
             return {
@@ -166,58 +157,44 @@ exports.handler = async function (event) {
             };
         }
 
-        // STEP 2: Generate Email Content
+        // STEP 2: Prepare Email
         const languageCode = communicationLang || 'es';
         let template = await getTemplateHtml(languageCode);
         
-        // Define Dynamic Content
-        const badgeColor = "#10b981"; // Emerald Green
         const badgeText = languageCode === 'es' ? "✓ Pedido Confirmado" : "✓ Order Confirmed";
         const mainTitle = languageCode === 'es' ? "¡Gracias por su pedido!" : "Thank you for your order!";
         const mainIntro = languageCode === 'es' 
             ? `Hola ${buyerName}, hemos recibido su pedido #${orderId.substring(0, 8)}.` 
             : `Hello ${buyerName}, we've received your order #${orderId.substring(0, 8)}.`;
-        const closeMessage = languageCode === 'es'
-            ? "Recibirá otro correo cuando su pedido sea enviado."
-            : "You’ll receive another email when your order ships.";
 
-        // Perform Replacements
         template = template
-            .replace(/{{params\.badgeColor}}/g, badgeColor)
+            .replace(/{{params\.badgeColor}}/g, "#10b981")
             .replace(/{{params\.badgeText}}/g, badgeText)
             .replace(/{{params\.mainTitle}}/g, mainTitle)
             .replace(/{{params\.mainIntro}}/g, mainIntro)
-            .replace(/{{params\.closeMessage}}/g, closeMessage)
             .replace(/{{params\.orderId}}/g, orderId)
             .replace(/{{params\.orderTableRows}}/g, generateTableRows(items))
             .replace(/{{params\.totalPrice}}/g, formatPrice(totalCents))
             .replace(/{{contact\.EMAIL}}/g, buyerEmail);
 
-        // STEP 3: Send Emails
-        const customerMailOptions = {
+        // STEP 3: Send
+        const mailOptions = {
             from: "noreply@autoinx.com",
             to: buyerEmail,
             subject: languageCode === 'es' ? "Confirmación de Pedido - autoInx" : "Order Confirmation - autoInx",
             html: template
         };
 
-        // Send to Customer
-        await transporter.sendMail(customerMailOptions);
-        
-        // Send to Admin
-        await transporter.sendMail({
-            ...customerMailOptions,
-            to: "orders@autoinx.com",
-            subject: `[NEW ORDER] #${orderId.substring(0,8)} - ${buyerName}`
-        });
+        await transporter.sendMail(mailOptions);
+        await transporter.sendMail({ ...mailOptions, to: "orders@autoinx.com", subject: `[NEW ORDER] #${orderId.substring(0,8)}` });
 
         return {
             statusCode: 200,
-            body: JSON.stringify({ message: "Stock updated and emails sent successfully.", orderId })
+            body: JSON.stringify({ message: "Stock updated and emails sent.", orderId })
         };
 
     } catch (error) {
-        console.error("Function Execution Failed:", error);
+        console.error("Function Error:", error);
         return {
             statusCode: 500,
             body: JSON.stringify({ error: "Failed to process order", details: error.message })
