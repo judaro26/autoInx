@@ -1,8 +1,5 @@
 /**
  * Netlify Function: sendContactEmail.js
- * Receives contact form submissions with rate limiting, honeypot,
- * and sends templated emails via Brevo SMTP.
- * Enhanced with order number & preferred language support.
  */
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
@@ -48,17 +45,7 @@ async function getEmailHtml(lang = 'es') {
 /**
  * Loads template and replaces all dynamic placeholders
  */
-async function getContactTemplate(data, runtimeData) {
-    // Language priority:
-    // 1. Explicit user preference
-    // 2. Keywords in subject type (PEDIDO/ORDEN)
-    // 3. Default: Spanish
-    const isSpanish = 
-        data.preferredLang === 'es' ||
-        data.preferredLang === 'es-CO' ||
-        (data.subjectType || '').toUpperCase().includes("PEDIDO") ||
-        (data.subjectType || '').toUpperCase().includes("ORDEN");
-
+async function getContactTemplate(data, runtimeData, isSpanish) {
     const lang = isSpanish ? 'es' : 'en';
     let template = await getEmailHtml(lang);
 
@@ -77,15 +64,14 @@ async function getContactTemplate(data, runtimeData) {
     const formattedMessage = (data.message || '').replace(/\n/g, "<br>");
     template = template.replace(/{{message}}/g, formattedMessage);
 
-    // 3. Order number (NEW)
+    // 3. Order number
     const orderSection = data.orderNumber
         ? (isSpanish
-            ? `<p><strong>Número de Pedido:</strong> ${sanitizeString(data.orderNumber)}</p>`
-            : `<p><strong>Order Number:</strong> ${sanitizeString(data.orderNumber)}</p>`)
+            ? `<p><strong>Número de Pedido:</strong> ${data.orderNumber}</p>`
+            : `<p><strong>Order Number:</strong> ${data.orderNumber}</p>`)
         : '';
 
     template = template.replace(/{{orderNumber}}/g, orderSection);
-
     template = template.replace(/{{recipientEmail}}/g, runtimeData.recipientEmail);
     template = template.replace(/{{timestamp}}/g, runtimeData.timestamp);
     template = template.replace(/{{ip}}/g, runtimeData.ip || 'N/A');
@@ -116,7 +102,7 @@ async function getContactTemplate(data, runtimeData) {
     }
     template = template.replace(/{{responseTimeMessage}}/g, responseTimeMessage);
 
-    // Cleanup unused placeholders (order-related ones from other templates)
+    // Cleanup unused placeholders
     template = template
         .replace(/{{params\.orderId}}/g, "")
         .replace(/{{params\.orderDate}}/g, "")
@@ -137,7 +123,6 @@ exports.handler = async function (event) {
                     'unknown';
 
     const now = Date.now();
-
     if (!rateLimitStore[clientIp]) rateLimitStore[clientIp] = [];
     rateLimitStore[clientIp] = rateLimitStore[clientIp].filter(ts => ts > now - RATE_LIMIT_WINDOW_MS);
 
@@ -158,11 +143,10 @@ exports.handler = async function (event) {
             subjectType,
             message,
             urlCheck,
-            orderNumber,        // optional
-            preferredLang = 'es' // optional - default Spanish
+            orderNumber,
+            preferredLang = 'es'
         } = body;
 
-        // Honeypot trap
         if (urlCheck) {
             return { statusCode: 200, body: JSON.stringify({ message: "Success (bot detected)" }) };
         }
@@ -180,11 +164,16 @@ exports.handler = async function (event) {
             return { statusCode: 400, body: JSON.stringify({ error: "Missing required fields" }) };
         }
 
-        // Decide recipient
+        // --- KEY FIX: Define isSpanish and isOrderRelated in the handler scope ---
+        const isSpanish = 
+            sanitizedData.preferredLang.startsWith('es') ||
+            sanitizedData.subjectType.toUpperCase().includes("PEDIDO") ||
+            sanitizedData.subjectType.toUpperCase().includes("ORDEN");
+
         const isOrderRelated = 
-            sanitizedData.subjectType.toLowerCase().includes("order") ||
-            sanitizedData.subjectType.toLowerCase().includes("pedido") ||
-            sanitizedData.orderNumber;
+            sanitizedData.subjectType.toLowerCase().includes("order") || 
+            sanitizedData.subjectType.toLowerCase().includes("pedido") || 
+            (sanitizedData.orderNumber && sanitizedData.orderNumber.length > 0);
 
         const adminRecipient = isOrderRelated ? "orders@autoinx.com" : "support@autoinx.com";
 
@@ -195,13 +184,14 @@ exports.handler = async function (event) {
             ip: clientIp
         };
 
-        const htmlBody = await getContactTemplate(sanitizedData, runtimeData);
+        // Pass isSpanish as an argument to avoid scope errors
+        const htmlBody = await getContactTemplate(sanitizedData, runtimeData, isSpanish);
 
         const adminSubject = isOrderRelated
             ? `[Order Inquiry] New Question from ${sanitizedData.name}${sanitizedData.orderNumber ? ` (#${sanitizedData.orderNumber})` : ''}`
             : `[General Support] New Message from ${sanitizedData.name}`;
 
-        // 1. Send to Admin/Orders team
+        // 1. Send to Admin
         await transporter.sendMail({
             from: "noreply@autoinx.com",
             to: adminRecipient,
