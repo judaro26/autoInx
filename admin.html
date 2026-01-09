@@ -3922,29 +3922,31 @@
             updateDraftCartDisplay: function() {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
                 const totalEl = document.getElementById('editOrderTotal');
+                if (!cartEl || !totalEl) return; // Modal probably closed
+            
                 let totalCents = 0;
-                if (!cartEl || !totalEl) return;
-        
                 const itemsInCart = Object.values(state.editingOrderDraftCart);
+                
                 if (itemsInCart.length === 0) {
-                    cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">Empty</p>';
+                    cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">No items</p>';
                 } else {
                     cartEl.innerHTML = itemsInCart.map(entry => {
                         const subtotal = entry.item.price * entry.quantity;
                         totalCents += subtotal;
                         return `
-                            <div class="flex justify-between items-center py-1 border-b text-xs">
-                                <span class="truncate pr-2">${entry.item.name}</span>
+                            <div class="flex justify-between items-center py-2 border-b text-xs">
+                                <span class="truncate font-semibold">${entry.item.name}</span>
                                 <div class="flex items-center space-x-2">
                                     <input type="number" value="${entry.quantity}" min="1" 
                                            onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
                                            class="w-10 border rounded text-center">
+                                    <span class="font-bold">${(subtotal/100).toFixed(2)}</span>
                                     <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500">×</button>
                                 </div>
                             </div>`;
                     }).join('');
                 }
-                totalEl.textContent = formatPriceDisplay(totalCents);
+                totalEl.textContent = `$${(totalCents / 100).toFixed(2)}`;
                 this.recalculateBilling();
             },
             
