@@ -1,11 +1,33 @@
+/**
+ * Netlify Function: send-email.js
+ * Handles Inventory Deduction via Firestore Transaction and Email Notifications.
+ */
+const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 const fs = require("fs").promises;
 const path = require("path");
-const fetch = require("node-fetch");
+
+// --- 1. Initialize Firebase Admin ---
+if (!admin.apps.length) {
+    try {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+        });
+    } catch (err) {
+        console.error("Firebase Admin initialization failed. Check FIREBASE_SERVICE_ACCOUNT env var.");
+    }
+}
+const db = admin.firestore();
+
+// --- 2. Configuration and Rate Limiting ---
+const rateLimitStore = {}; 
+const MAX_REQUESTS_PER_HOUR = 20;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 const transporter = nodemailer.createTransport({
     host: process.env.BREVO_SMTP_HOST,
-    port: parseInt(process.env.BREVO_SMTP_PORT || "587"),
+    port: process.env.BREVO_SMTP_PORT,
     secure: false,
     auth: {
         user: process.env.BREVO_SMTP_USER,
@@ -13,12 +35,25 @@ const transporter = nodemailer.createTransport({
     },
 });
 
+// --- 3. Helper Functions ---
+
 function formatPrice(cents) {
     return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2
+        style: 'currency', currency: 'USD', minimumFractionDigits: 2
     }).format(cents / 100);
+}
+
+async function getTemplateHtml(languageCode) {
+    let filename = (languageCode === 'es') 
+        ? "orderConfirmationTemplateSpanish.html" 
+        : "orderConfirmationTemplate.html";
+    try {
+        const templatePath = path.resolve(__dirname, "emailTemplates", filename);
+        return await fs.readFile(templatePath, "utf8");
+    } catch (error) {
+        if (languageCode !== 'en') return getTemplateHtml('en');
+        throw new Error(`Failed to load email template: ${filename}`);
+    }
 }
 
 function generateTableRows(items) {
@@ -26,178 +61,157 @@ function generateTableRows(items) {
         const subtotal = item.price * item.quantity;
         return `
             <tr>
-                <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; text-align: left; font-size: 15px; color: #334155;">${item.name}</td>
-                <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 15px; color: #334155;">${item.quantity}</td>
-                <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 15px; color: #334155;">${formatPrice(item.price)}</td>
-                <td style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; text-align: right; font-size: 15px; font-weight: 700; color: #1e293b;">${formatPrice(subtotal)}</td>
-            </tr>
-        `;
+                <td style="padding: 12px; border-bottom: 1px solid #eee;">${item.name}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">${item.quantity}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">${formatPrice(item.price)}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">${formatPrice(subtotal)}</td>
+            </tr>`;
     }).join('');
 }
 
-exports.handler = async function (event) {
-    // Handle CORS preflight
-    if (event.httpMethod === "OPTIONS") {
-        return {
-            statusCode: 200,
-            headers: {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST",
-                "Access-Control-Allow-Headers": "Content-Type"
-            }
-        };
+async function populateTemplate(orderData, recipientType) {
+    const languageCode = orderData.language || 'en';
+    const orderStatus = orderData.newStatus || 'Confirmed'; 
+    const orderIdShort = orderData.orderId.substring(0, 5);
+    let template = await getTemplateHtml(languageCode); 
+
+    let mainTitle, mainIntro, badgeText, badgeColor, closeMessage, subjectLine;
+
+    if (languageCode === 'es') {
+        subjectLine = "Su pedido autoInx ha sido Confirmado";
+        mainTitle = "¡Gracias por su pedido!";
+        mainIntro = `Hola ${orderData.buyerName}, hemos recibido su pedido #${orderIdShort}.`;
+        badgeText = "✓ Pedido Confirmado";
+        badgeColor = "#10b981";
+        closeMessage = `Recibirá otro correo cuando su pedido sea enviado.`;
+    } else {
+        subjectLine = "Your autoInx Order is Confirmed";
+        mainTitle = "Thank you for your order!";
+        mainIntro = `Hello ${orderData.buyerName}, we've received your order #${orderIdShort}.`;
+        badgeText = "✓ Order Confirmed";
+        badgeColor = "#10b981"; 
+        closeMessage = `You’ll receive another email when your order ships.`;
     }
 
+    if (recipientType !== 'customer') {
+        subjectLine = `NEW ORDER #${orderData.orderId.substring(0, 8).toUpperCase()}`;
+        mainIntro = "Internal notification. Stock has been deducted.";
+        closeMessage = 'Internal admin copy.';
+    }
+
+    template = template.replace(/{{params\.badgeColor}}/g, badgeColor)
+                       .replace(/{{params\.badgeText}}/g, badgeText)
+                       .replace(/{{params\.mainTitle}}/g, mainTitle)
+                       .replace(/{{params\.mainIntro}}/g, mainIntro)
+                       .replace(/{{params\.closeMessage}}/g, closeMessage)
+                       .replace(/{{params\.orderId}}/g, orderData.orderId)
+                       .replace(/{{params\.orderTableRows}}/g, generateTableRows(orderData.items))
+                       .replace(/{{params\.totalPrice}}/g, formatPrice(orderData.totalCents))
+                       .replace(/{{contact\.EMAIL}}/g, orderData.buyerEmail);
+
+    return { html: template, subject: subjectLine };
+}
+
+// --- 4. Inventory Transaction Logic ---
+
+async function decrementInventory(items) {
+    try {
+        await db.runTransaction(async (transaction) => {
+            // Map each item to a read promise within the transaction
+            const itemReads = items.map(item => {
+                if (!item.catalogId) throw new Error(`Missing catalogId for ${item.name}`);
+                const ref = db.collection("items").doc(item.catalogId);
+                return transaction.get(ref);
+            });
+
+            const docs = await Promise.all(itemReads);
+
+            docs.forEach((doc, index) => {
+                const requestedQty = items[index].quantity;
+                if (!doc.exists) throw new Error(`Product ${items[index].name} not found in database.`);
+                
+                const currentStock = doc.data().stock || 0;
+                if (currentStock < requestedQty) {
+                    throw new Error(`Insufficient stock for ${doc.data().name}. Available: ${currentStock}, Requested: ${requestedQty}`);
+                }
+
+                transaction.update(doc.ref, {
+                    stock: currentStock - requestedQty,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            });
+        });
+        return { success: true };
+    } catch (err) {
+        console.error("Inventory Transaction Failed:", err.message);
+        return { success: false, error: err.message };
+    }
+}
+
+// --- 5. Main Handler ---
+
+exports.handler = async function (event) {
     if (event.httpMethod !== "POST") {
-        return { statusCode: 405, body: "Method Not Allowed" };
+        return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
+    }
+
+    const clientIp = event.headers['client-ip'] || 'unknown';
+    const now = Date.now();
+    if (!rateLimitStore[clientIp]) rateLimitStore[clientIp] = [];
+    rateLimitStore[clientIp] = rateLimitStore[clientIp].filter(t => t > now - RATE_LIMIT_WINDOW_MS);
+    
+    if (rateLimitStore[clientIp].length >= MAX_REQUESTS_PER_HOUR) {
+        return { statusCode: 429, body: JSON.stringify({ error: "Rate limit exceeded." }) };
+    }
+    rateLimitStore[clientIp].push(now);
+
+    const orderData = JSON.parse(event.body);
+    const { orderId, buyerEmail, items, totalCents, communicationLang } = orderData;
+
+    if (!orderId || !items || items.length === 0) {
+        return { statusCode: 400, body: JSON.stringify({ error: "Missing order data." }) };
     }
 
     try {
-        const data = JSON.parse(event.body);
-        const {
-            orderId,
-            buyerEmail,
-            buyerName,
-            items,
-            paidCents,
-            paymentMethod,
-            language,
-            transactionId
-        } = data;
-
-        const lang = language === 'es' ? 'es' : 'en';
-
-        // 1. Calculate totals and timestamp
-        const orderTotalCents = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const balanceCents = orderTotalCents - paidCents;
-        const balanceColor = balanceCents <= 0 ? "#16a34a" : "#e11d48";
-        const finalTxnId = transactionId || `TXN-${Math.random().toString(36).toUpperCase().substring(2, 10)}`;
-
-        const transactionTimestamp = new Date().toLocaleString(lang === 'es' ? 'es-ES' : 'en-US', {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-            timeZone: 'America/Bogota'
-        });
-
-        // 2. Load correct template
-        const templateName = lang === 'es' ? "paymentReceiptSpanish.html" : "paymentReceipt.html";
-        const templatePath = path.join(__dirname, "emailTemplates", templateName);
-        let htmlContent = await fs.readFile(templatePath, "utf8");
-
-        // 3. Language-specific strings
-        const strings = {
-            en: {
-                subject: `Payment Receipt - Order #${orderId}`,
-                financeSubject: `[INTERNAL] Payment Received - Order #${orderId}`,
-                badge: "Payment Received",
-                title: "Payment Confirmation",
-                intro: `Hi ${buyerName}, your payment for order #${orderId} has been successfully processed.`,
-                close: "Thank you for your business!",
-                filename: `Receipt_${orderId}.pdf`
-            },
-            es: {
-                subject: `Recibo de Pago - Pedido #${orderId}`,
-                financeSubject: `[INTERNO] Pago Recibido - Pedido #${orderId}`,
-                badge: "Pago Recibido",
-                title: "Confirmación de Pago",
-                intro: `Hola ${buyerName}, se ha procesado exitosamente su pago para el pedido #${orderId}.`,
-                close: "¡Gracias por su compra!",
-                filename: `Recibo_${orderId}.pdf`
-            }
-        };
-
-        const t = strings[lang];
-
-        // 4. Template replacements
-        const replacements = {
-            "{{params.badgeColor}}": "#10b981",
-            "{{params.badgeText}}": t.badge,
-            "{{params.mainTitle}}": t.title,
-            "{{params.mainIntro}}": t.intro,
-            "{{params.orderId}}": orderId,
-            "{{params.transactionTimestamp}}": transactionTimestamp,
-            "{{params.transactionId}}": finalTxnId,
-            "{{params.paymentMethod}}": paymentMethod || "Other",
-            "{{params.orderTotal}}": formatPrice(orderTotalCents),
-            "{{params.totalPaid}}": formatPrice(paidCents),
-            "{{params.remainingBalance}}": balanceCents <= 0 ? (lang === 'es' ? "Pagado totalmente" : "Paid in Full") : formatPrice(balanceCents),
-            "{{params.balanceColor}}": balanceColor,
-            "{{params.orderTableRows}}": generateTableRows(items),
-            "{{params.closeMessage}}": t.close,
-            "{{contact.EMAIL}}": buyerEmail
-        };
-
-        for (const [key, value] of Object.entries(replacements)) {
-            htmlContent = htmlContent.split(key).join(value);
+        // STEP 1: DECREASE STOCK
+        const inventoryResult = await decrementInventory(items);
+        if (!inventoryResult.success) {
+            return {
+                statusCode: 409, // Conflict / Stock Issue
+                body: JSON.stringify({ error: inventoryResult.error })
+            };
         }
 
-        // 5. Generate PDF via Doppio (fixed version)
-        const htmlBase64 = Buffer.from(htmlContent, 'utf8').toString('base64');
+        // STEP 2: PREPARE EMAILS
+        const langPayload = { language: communicationLang };
+        const customerData = await populateTemplate({ ...orderData, ...langPayload }, 'customer');
+        const adminData = await populateTemplate({ ...orderData, ...langPayload }, 'admin');
 
-        const doppioRes = await fetch('https://api.doppio.sh/v1/render/pdf/direct', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${process.env.DOPPIO_API_KEY}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                page: {
-                    setContent: { html: htmlBase64 },
-                    pdf: {
-                        format: 'A4',
-                        printBackground: true,
-                        margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' }
-                    }
-                }
-            })
-        });
-
-        if (!doppioRes.ok) {
-            const errText = await doppioRes.text();
-            throw new Error(`Doppio API Failed: ${doppioRes.status} - ${errText}`);
-        }
-
-        const pdfArrayBuffer = await doppioRes.arrayBuffer();
-        const pdfBuffer = Buffer.from(pdfArrayBuffer);
-
-        // 6. Send email to buyer AND CC finance
+        // STEP 3: SEND EMAILS
         await transporter.sendMail({
-            from: '"autoInx Payments" <noreply@autoinx.com>',
-            to: buyerEmail,                    // Buyer receives as main recipient
-            cc: "finance@autoinx.com",         // Finance gets a copy
-            subject: t.subject,                // Customer-friendly subject
-            html: htmlContent,
-            attachments: [
-                {
-                    filename: t.filename,
-                    content: pdfBuffer,
-                    contentType: 'application/pdf'
-                }
-            ]
+            from: "noreply@autoinx.com",
+            to: buyerEmail,
+            subject: customerData.subject,
+            html: customerData.html
         });
 
-        // Optional: Send a separate internal-only email if you want a different subject
-        // (uncomment if desired)
-        /*
         await transporter.sendMail({
-            from: '"autoInx System" <noreply@autoinx.com>',
-            to: "finance@autoinx.com",
-            subject: t.financeSubject,
-            html: `<p>New payment recorded:</p>${htmlContent}`,
-            attachments: [{ filename: t.filename, content: pdfBuffer, contentType: 'application/pdf' }]
+            from: "noreply@autoinx.com",
+            to: "orders@autoinx.com",
+            subject: adminData.subject,
+            html: adminData.html
         });
-        */
 
         return {
             statusCode: 200,
-            body: JSON.stringify({ message: "Receipt sent successfully to buyer and finance team" })
+            body: JSON.stringify({ message: "Stock updated and emails sent.", orderId })
         };
 
     } catch (error) {
-        console.error("Critical Receipt Error:", error);
+        console.error("Function Error:", error);
         return {
             statusCode: 500,
-            body: JSON.stringify({ error: error.message || "Internal server error" })
+            body: JSON.stringify({ error: "Server Error", details: error.message })
         };
     }
 };
