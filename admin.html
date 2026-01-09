@@ -2863,7 +2863,7 @@
             document.getElementById('editModalContainer').innerHTML = '';
         }
         
-        async function updateOrder(e, orderId, sourceId, mode = 'edit') {
+         async function updateOrder(e, orderId, sourceId, mode = 'edit') {
             e.preventDefault();
             const saveBtn = document.getElementById('saveOrderBtn');
             if (!saveBtn) return;
@@ -2871,7 +2871,7 @@
             const originalText = saveBtn.innerHTML;
             const isPaymentOnly = mode === 'payment';
             
-            // Helper to safely get value or null instead of undefined
+            // Helper to safely get value. Returns null if missing to avoid 'undefined'
             const getVal = (id) => {
                 const el = document.getElementById(id);
                 return el ? el.value : null;
@@ -2887,29 +2887,30 @@
             saveBtn.innerHTML = `Syncing...`;
         
             try {
-                // 1. Core Updates (Always apply these if they exist in the UI)
-                let finalUpdatePayload = { 
-                    updatedAt: serverTimestamp()
+                // 1. Build the list of items from the draft cart
+                // We ensure every single property has a fallback to avoid 'undefined'
+                const newItemsDraft = Object.values(state.editingOrderDraftCart || {});
+                const processedItems = newItemsDraft.map(entry => ({
+                    id: entry.item.id || 'unknown-id', 
+                    name: entry.item.name || 'Unknown Product', 
+                    sku: entry.item.sku || 'N/A',
+                    price: Number(entry.item.price) || 0, 
+                    quantity: Number(entry.quantity) || 1
+                }));
+        
+                const newTotalCents = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        
+                // 2. Construct the update payload
+                let updatePayload = { 
+                    updatedAt: serverTimestamp(),
+                    items: processedItems,
+                    totalCents: newTotalCents
                 };
         
-                // Capture language if the selector exists
+                // Capture Language
                 const lang = getVal('edit-language');
-                if (lang) finalUpdatePayload.language = lang;
+                if (lang) updatePayload.language = lang;
         
-                // 2. Item/Total Sync (From the Draft Cart state)
-                const newItemsDraft = Object.values(state.editingOrderDraftCart);
-                const newTotalCents = newItemsDraft.reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
-                
-                finalUpdatePayload.items = newItemsDraft.map(entry => ({
-                    id: entry.item.id, 
-                    name: entry.item.name, 
-                    sku: entry.item.sku || 'N/A',
-                    price: entry.item.price, 
-                    quantity: entry.quantity
-                }));
-                finalUpdatePayload.totalCents = newTotalCents;
-        
-                // 3. Mode-Specific Logic
                 if (isPaymentOnly) {
                     const newAmt = parseFloat(getVal('edit-paid-amount')) || 0;
                     const method = getVal('edit-payment-method') || 'Other';
@@ -2924,48 +2925,49 @@
                         
                         const totalPaid = history.reduce((sum, p) => sum + p.amountCents, 0);
                         
-                        finalUpdatePayload.paymentHistory = history;
-                        finalUpdatePayload.paidCents = totalPaid;
-                        finalUpdatePayload.isPaid = totalPaid >= newTotalCents;
-                        finalUpdatePayload.lastPaymentMethod = method;
-        
-                        // Fire-and-forget receipt email
-                        fetch(RECEIPT_EMAIL_CONFIRMATION_FUNCTION, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                ...originalOrder, 
-                                items: finalUpdatePayload.items,
-                                orderId, 
-                                paidCents: newPaymentCents, 
-                                paymentMethod: method,
-                                language: lang || originalOrder.language || 'en'
-                            })
-                        }).catch(err => console.warn("Email trigger failed:", err));
+                        updatePayload.paymentHistory = history;
+                        updatePayload.paidCents = totalPaid;
+                        updatePayload.isPaid = totalPaid >= newTotalCents;
+                        updatePayload.lastPaymentMethod = method;
                     }
                 } else {
-                    // "Full Edit" mode fields
+                    // Full Edit Fields
                     const addr = getVal('edit-address');
                     const stat = getVal('edit-status');
                     const note = getVal('edit-notes');
         
-                    if (addr !== null) finalUpdatePayload.deliveryAddress = addr;
-                    if (stat !== null) finalUpdatePayload.status = stat;
-                    if (note !== null) finalUpdatePayload.adminNotes = note;
+                    if (addr !== null) updatePayload.deliveryAddress = addr;
+                    if (stat !== null) updatePayload.status = stat;
+                    if (note !== null) updatePayload.adminNotes = note;
                 }
         
-                // 4. Firestore Execution
+                // --- CRITICAL STEP: REMOVE ANY REMAINING UNDEFINED VALUES ---
+                // This loops through the object and deletes any keys that are undefined
+                Object.keys(updatePayload).forEach(key => {
+                    if (updatePayload[key] === undefined) {
+                        delete updatePayload[key];
+                    }
+                });
+        
+                // 3. Get Path and Execute
                 const path = window.module.getOrdersCollectionPath(sourceId);
+                if (!path || path.includes('undefined')) {
+                    throw new Error("Invalid database path generated.");
+                }
+        
                 const orderRef = doc(db, path, orderId);
-                
-                await updateDoc(orderRef, finalUpdatePayload);
+                await updateDoc(orderRef, updatePayload);
                 
                 showMessage('success', 'Order updated successfully!', 3000, 'orders');
                 closeEditModal();
         
             } catch (err) {
-                console.error("Update Error:", err);
-                alert("Sync Error: " + err.message);
+                console.error("Firestore Update Error Debug:", {
+                    orderId,
+                    sourceId,
+                    error: err.message
+                });
+                alert("Update Failed: " + err.message);
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalText;
