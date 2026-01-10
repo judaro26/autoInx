@@ -2316,17 +2316,17 @@
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) throw new Error("Order not found in local state.");
         
-                // 1. Update Firestore
+                // 1. Update Firestore status
                 const orderRef = doc(db, window.module.getOrdersCollectionPath(order.uid || 'guest'), orderId);
                 await updateDoc(orderRef, { 
                     status: newStatus,
                     updatedAt: serverTimestamp() 
                 });
         
-                // 2. GET THE TOKEN (Critical for protected functions)
+                // 2. IMPORTANT: Get Admin Token for the Fetch call
                 const idToken = await auth.currentUser.getIdToken();
         
-                // 3. Call Function with Auth Headers
+                // 3. Call the Netlify Function
                 const emailPayload = {
                     orderId: orderId,
                     buyerEmail: order.buyerEmail,
@@ -2334,8 +2334,7 @@
                     items: order.items,
                     totalCents: order.totalCents,
                     communicationLang: order.language || order.communicationLang || 'en',
-                    status: newStatus, // Using 'status' instead of 'newStatus' for consistency
-                    isUpdate: true,    // Helper flag to tell backend this is an update
+                    newStatus: newStatus, // BACK-END EXPECTS 'newStatus'
                     appId: appId
                 };
         
@@ -2343,14 +2342,14 @@
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${idToken}` // Add this!
+                        'Authorization': `Bearer ${idToken}` // Added Token
                     },
                     body: JSON.stringify(emailPayload)
                 });
         
                 if (!res.ok) {
                     const errData = await res.json();
-                    throw new Error(errData.message || "Email notification failed.");
+                    throw new Error(errData.error || "Email notification failed.");
                 }
         
                 showMessage('success', `Success: Order ${newStatus} and customer notified.`, 5000, 'orders');
