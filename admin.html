@@ -2313,18 +2313,20 @@
             showMessage('info', `Updating & Notifying...`, 3000, 'orders');
         
             try {
-                // 1. Get original order details for the email
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) throw new Error("Order not found in local state.");
         
-                // 2. Update Firestore Status
+                // 1. Update Firestore
                 const orderRef = doc(db, window.module.getOrdersCollectionPath(order.uid || 'guest'), orderId);
                 await updateDoc(orderRef, { 
                     status: newStatus,
                     updatedAt: serverTimestamp() 
                 });
         
-                // 3. Call the Netlify Function (Trigger Email)
+                // 2. GET THE TOKEN (Critical for protected functions)
+                const idToken = await auth.currentUser.getIdToken();
+        
+                // 3. Call Function with Auth Headers
                 const emailPayload = {
                     orderId: orderId,
                     buyerEmail: order.buyerEmail,
@@ -2332,18 +2334,24 @@
                     items: order.items,
                     totalCents: order.totalCents,
                     communicationLang: order.language || order.communicationLang || 'en',
-                    newStatus: newStatus, // This tells the Netlify function to use Update mode
+                    status: newStatus, // Using 'status' instead of 'newStatus' for consistency
+                    isUpdate: true,    // Helper flag to tell backend this is an update
                     appId: appId
                 };
         
-                // Note: Using the EMAIL_CONFIRMATION_FUNCTION URL defined in your state
                 const res = await fetch(EMAIL_CONFIRMATION_FUNCTION, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}` // Add this!
+                    },
                     body: JSON.stringify(emailPayload)
                 });
         
-                if (!res.ok) throw new Error("Status updated, but email notification failed.");
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.message || "Email notification failed.");
+                }
         
                 showMessage('success', `Success: Order ${newStatus} and customer notified.`, 5000, 'orders');
         
