@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Checkout - autoInx</title>
-    <meta name="description" content="Finaliza tu compra de forma rápida y segura">
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -12,44 +11,22 @@
             theme: {
                 extend: {
                     fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
-                    animation: { float: 'float 6s ease-in-out infinite', 'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' }
+                    animation: { float: 'float 6s ease-in-out infinite' }
                 }
             }
         }
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  
     <style>
         body { background: linear-gradient(to bottom, #f8fafc, #e2e8f0); min-height: 100vh; }
-        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #e5e7eb; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(to bottom, #a78bfa, #6366f1); border-radius: 4px; }
-        
-        /* Validation Colors */
         .input-error { @apply border-red-500 bg-red-50 ring-4 ring-red-100 !important; }
         .input-success { @apply border-green-500 bg-green-50 !important; }
-
-        .phone-input-group {
-            @apply flex rounded-xl shadow-md border-2 border-gray-300 focus-within:ring-4 focus-within:ring-indigo-100 focus-within:border-indigo-600 overflow-hidden transition-all duration-300 bg-white;
-        }
-        .country-select { @apply bg-gray-50 text-indigo-800 font-bold px-3 py-4 border-0 cursor-pointer text-sm; }
+        .phone-input-group { @apply flex rounded-xl shadow-md border-2 border-gray-300 focus-within:ring-4 focus-within:ring-indigo-100 focus-within:border-indigo-600 overflow-hidden transition-all duration-300 bg-white; }
+        .country-select { @apply bg-gray-100 text-indigo-800 font-bold px-3 py-4 border-0 cursor-pointer text-sm; }
         .phone-input { @apply flex-1 px-4 py-4 text-base font-medium focus:ring-0 focus:outline-none bg-transparent; }
-
-        /* Address Standout */
-        .address-highlight-container {
-            @apply p-5 sm:p-7 bg-indigo-50/50 rounded-3xl border-2 border-indigo-100 mb-4 shadow-inner;
-        }
-        .address-input {
-            @apply w-full p-5 sm:p-6 border-4 border-indigo-500 rounded-2xl text-lg sm:text-xl font-bold transition-all duration-300 shadow-xl focus:ring-8 focus:ring-indigo-100 focus:outline-none bg-white;
-        }
-        .address-valid { @apply border-green-500 bg-green-50 ring-4 ring-green-100; }
-        .address-invalid { @apply border-red-500 bg-red-50 ring-4 ring-red-100; }
-        
-        #map-container {
-            height: 250px; width: 100%; border-radius: 1.5rem; margin-top: 1.5rem;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.15); border: 4px solid white;
-        }
-        @media (min-width: 768px) { #map-container { height: 350px; } }
+        .address-highlight-container { @apply p-5 sm:p-7 bg-indigo-50/50 rounded-3xl border-2 border-indigo-100 mb-4 shadow-inner; }
+        .address-input { @apply w-full p-5 sm:p-6 border-4 border-indigo-500 rounded-2xl text-lg sm:text-xl font-bold transition-all duration-300 shadow-xl focus:ring-8 focus:ring-indigo-100 focus:outline-none bg-white; }
+        #map-container { height: 300px; width: 100%; border-radius: 1.5rem; margin-top: 1.5rem; box-shadow: 0 15px 35px rgba(0,0,0,0.15); border: 4px solid white; }
     </style>
 </head>
 <body class="antialiased text-gray-800">
@@ -64,172 +41,123 @@
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    // --- STATE & CONFIG ---
     let db, auth, userId, cartData = {}, cartTotalCents = 0;
     let currentLang = localStorage.getItem('checkoutLang') || (navigator.language.startsWith('en') ? 'en' : 'es');
-    let map, marker, autocomplete, geocoder;
-    let isMaintenanceMode = false;
-
-    const APP_ID = 'autoInx-checkout';
-    const ORDERS_COLLECTION = (uid) => `artifacts/${APP_ID}/public/data/orders`;
-    const MAPS_KEY_URL = '/.netlify/functions/getGoogleMapsKey';
-    const FIREBASE_CONFIG_URL = '/.netlify/functions/getClientFirebaseConfig';
+    let map, marker, autocomplete;
 
     const TEXT = {
         es: {
-            title: 'Finalizar Compra',
-            formHeader: 'Información de Entrega',
-            emailLabel: 'Correo Electrónico',
-            emailError: 'Ingresa un correo válido.',
-            nameLabel: 'Nombre Completo',
-            phoneLabel: 'Teléfono (WhatsApp)',
-            phoneError: 'Número inválido (mínimo 7 dígitos).',
-            addressLabel: 'DIRECCIÓN DE ENTREGA',
-            addressHelp: 'Busca tu dirección y selecciónala de la lista desplegable.',
-            addressStatusDefault: 'Escribe para buscar...',
-            addressValid: '✅ UBICACIÓN VERIFICADA',
-            addressError: 'Selecciona una dirección válida de la lista.',
-            btnComplete: 'COMPLETAR PEDIDO',
-            total: 'Total',
-            summary: 'Resumen'
+            title: 'Finalizar Compra', return: 'Volver', email: 'Correo Electrónico', name: 'Nombre Completo',
+            phone: 'Teléfono (WhatsApp)', phoneHelp: 'Te enviaremos actualizaciones por WhatsApp',
+            whatsappOpt: 'Sí, deseo recibir notificaciones por WhatsApp.',
+            address: 'DIRECCIÓN DE ENTREGA', addressHelp: 'Busca tu dirección y selecciónala de la lista.',
+            statusDefault: 'Escribe para buscar...', valid: '✅ UBICACIÓN VERIFICADA',
+            complete: 'COMPLETAR PEDIDO', summary: 'Resumen', total: 'Total',
+            errorEmail: 'Correo inválido', errorPhone: 'Número inválido', errorAddress: 'Selecciona una dirección'
         },
         en: {
-            title: 'Checkout',
-            formHeader: 'Delivery Information',
-            emailLabel: 'Email Address',
-            emailError: 'Enter a valid email.',
-            nameLabel: 'Full Name',
-            phoneLabel: 'Phone (WhatsApp)',
-            phoneError: 'Invalid number (min 7 digits).',
-            addressLabel: 'DELIVERY ADDRESS',
-            addressHelp: 'Search for your address and select it from the dropdown list.',
-            addressStatusDefault: 'Type to search...',
-            addressValid: '✅ LOCATION VERIFIED',
-            addressError: 'Please select a valid address from the list.',
-            btnComplete: 'COMPLETE ORDER',
-            total: 'Total',
-            summary: 'Summary'
+            title: 'Checkout', return: 'Back', email: 'Email Address', name: 'Full Name',
+            phone: 'Phone (WhatsApp)', phoneHelp: 'We will send updates via WhatsApp',
+            whatsappOpt: 'Yes, I want to receive WhatsApp notifications.',
+            address: 'DELIVERY ADDRESS', addressHelp: 'Search for your address and select it from the list.',
+            statusDefault: 'Type to search...', valid: '✅ LOCATION VERIFIED',
+            complete: 'COMPLETE ORDER', summary: 'Summary', total: 'Total',
+            errorEmail: 'Invalid email', errorPhone: 'Invalid phone', errorAddress: 'Select an address'
         }
     };
 
     const $ = id => document.getElementById(id);
-    const t = key => TEXT[currentLang][key] || TEXT.es[key];
+    const t = key => TEXT[currentLang][key];
     const formatPrice = c => `$${(c/100).toFixed(2)}`;
 
-    // --- VALIDATION HELPERS ---
-    const isEmailValid = email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    const isPhoneValid = phone => phone.length >= 7 && /^\d+$/.test(phone);
+    window.setLang = (lang) => {
+        localStorage.setItem('checkoutLang', lang);
+        currentLang = lang;
+        render();
+    };
 
-    function setupValidation() {
-        const email = $('buyer-email');
-        const phone = $('buyer-phone');
-        const phoneGroup = phone.closest('.phone-input-group');
-
-        email.addEventListener('input', () => {
-            email.classList.toggle('input-error', !isEmailValid(email.value) && email.value !== "");
-            email.classList.toggle('input-success', isEmailValid(email.value));
-        });
-
-        phone.addEventListener('input', () => {
-            const valid = isPhoneValid(phone.value);
-            phoneGroup.classList.toggle('input-error', !valid && phone.value !== "");
-            phoneGroup.classList.toggle('input-success', valid);
-        });
+    function renderHeader() {
+        return `
+            <header class="flex justify-between items-center bg-white p-5 rounded-2xl shadow-lg mb-8 border-t-4 border-indigo-600">
+                <div class="flex items-center gap-3">
+                    <img src="/images/AutoInx logo.png" class="h-8">
+                    <h1 class="text-xl font-black text-indigo-700 uppercase tracking-tight">${t('title')}</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button onclick="setLang('${currentLang === 'es' ? 'en' : 'es'}')" class="text-xs font-bold px-3 py-1 bg-gray-100 rounded-full hover:bg-gray-200 transition">
+                        ${currentLang === 'es' ? 'Switch to English' : 'Cambiar a Español'}
+                    </button>
+                    <a href="/" class="text-sm font-bold text-gray-500 hover:text-indigo-600 underline">${t('return')}</a>
+                </div>
+            </header>
+        `;
     }
 
-    // --- MAPS LOGIC ---
-    async function initGoogleMaps() {
-        try {
-            const res = await fetch(MAPS_KEY_URL);
-            const { apiKey } = await res.json();
-            const script = document.createElement('script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-            script.onload = () => {
-                geocoder = new google.maps.Geocoder();
-                const input = $('delivery-address');
-                autocomplete = new google.maps.places.Autocomplete(input, { types: ['address'], componentRestrictions: { country: ['co', 'us'] } });
-                
-                const initialPos = { lat: 4.7110, lng: -74.0721 };
-                map = new google.maps.Map($('map-container'), { center: initialPos, zoom: 12, disableDefaultUI: true });
-                marker = new google.maps.Marker({ position: initialPos, map, draggable: true });
-
-                autocomplete.addListener('place_changed', () => {
-                    const place = autocomplete.getPlace();
-                    if (place.geometry) {
-                        map.setCenter(place.geometry.location);
-                        map.setZoom(17);
-                        marker.setPosition(place.geometry.location);
-                        input.dataset.validated = 'true';
-                        input.classList.add('address-valid');
-                        $('addressStatus').innerHTML = `<span class="text-green-600 font-bold">${t('addressValid')}</span>`;
-                    }
-                });
-            };
-            document.head.appendChild(script);
-        } catch (e) { console.error("Maps failed", e); }
-    }
-
-    // --- MAIN RENDER ---
     function render() {
         const stored = sessionStorage.getItem('autoInxCart');
         cartData = stored ? JSON.parse(stored) : {};
         cartTotalCents = Object.values(cartData).reduce((s, e) => s + (e.item.price * e.quantity), 0);
 
         if (Object.keys(cartData).length === 0) {
-            $('app').innerHTML = `<div class="text-center py-20"><h1 class="text-2xl font-bold">Carrito Vacío</h1><a href="/" class="text-indigo-600 underline">Volver</a></div>`;
+            $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<p class="mt-10 text-xl font-bold">Tu carrito está vacío</p></div>`;
             return;
         }
 
         $('app').innerHTML = `
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-10">
-                <div class="lg:col-span-2 space-y-8">
-                    <div class="bg-white p-8 rounded-3xl shadow-2xl border-t-8 border-indigo-600">
-                        <h2 class="text-3xl font-black text-indigo-700 mb-8">${t('formHeader')}</h2>
+            ${renderHeader()}
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 space-y-6">
+                    <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-2xl">
                         <form id="checkoutForm" class="space-y-6">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <label class="block font-bold mb-2">${t('emailLabel')} *</label>
+                                    <label class="block font-bold mb-2">${t('email')} *</label>
                                     <input type="email" id="buyer-email" required class="w-full p-4 border-2 border-gray-300 rounded-xl outline-none transition-all">
                                 </div>
                                 <div>
-                                    <label class="block font-bold mb-2">${t('nameLabel')} *</label>
+                                    <label class="block font-bold mb-2">${t('name')} *</label>
                                     <input type="text" id="buyer-name" required class="w-full p-4 border-2 border-gray-300 rounded-xl outline-none">
                                 </div>
                             </div>
                             
                             <div>
-                                <label class="block font-bold mb-2">${t('phoneLabel')} *</label>
+                                <label class="block font-bold mb-1">${t('phone')} *</label>
+                                <p class="text-xs text-gray-500 mb-2">${t('phoneHelp')}</p>
                                 <div class="phone-input-group">
                                     <select id="country-code" class="country-select">
                                         <option value="+57">CO +57</option>
                                         <option value="+1">US +1</option>
                                     </select>
-                                    <input type="tel" id="buyer-phone" required class="phone-input" placeholder="321 000 0000">
+                                    <input type="tel" id="buyer-phone" required class="phone-input" placeholder="300 000 0000">
                                 </div>
                             </div>
 
+                            <div class="flex items-center gap-3 bg-green-50 p-4 rounded-xl border border-green-100">
+                                <input type="checkbox" id="whatsapp-opt" checked class="w-5 h-5 text-green-600 rounded">
+                                <label for="whatsapp-opt" class="text-sm font-semibold text-green-800">${t('whatsappOpt')}</label>
+                            </div>
+
                             <div class="address-highlight-container">
-                                <label class="flex items-center gap-3 text-xl font-black text-indigo-900 mb-4">📍 ${t('addressLabel')}</label>
-                                <p class="text-indigo-600 text-sm mb-4 font-medium">${t('addressHelp')}</p>
-                                <input type="text" id="delivery-address" required class="address-input" data-validated="false" placeholder="Calle 123 #45-67...">
-                                <div id="addressStatus" class="mt-3 font-bold text-orange-600">${t('addressStatusDefault')}</div>
+                                <label class="flex items-center gap-3 text-xl font-black text-indigo-900 mb-4">📍 ${t('address')}</label>
+                                <input type="text" id="delivery-address" required class="address-input" data-validated="false" placeholder="${t('addressHelp')}">
+                                <div id="addressStatus" class="mt-3 font-bold text-orange-600">${t('statusDefault')}</div>
                                 <div id="map-container"></div>
                             </div>
 
                             <button type="submit" id="btnSubmit" class="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black text-2xl shadow-xl hover:bg-indigo-700 transition transform hover:scale-[1.01]">
-                                ${t('btnComplete')} — ${formatPrice(cartTotalCents)}
+                                ${t('complete')} — ${formatPrice(cartTotalCents)}
                             </button>
                         </form>
                     </div>
                 </div>
 
                 <div class="lg:col-span-1">
-                    <div class="bg-white p-6 rounded-3xl shadow-xl sticky top-10 border-t-8 border-pink-500">
-                        <h3 class="text-xl font-black mb-6">${t('summary')}</h3>
+                    <div class="bg-white p-6 rounded-3xl shadow-xl sticky top-6 border-t-8 border-pink-500">
+                        <h3 class="text-xl font-black mb-6 uppercase tracking-wider text-gray-400">${t('summary')}</h3>
                         <div class="space-y-4 mb-6">
                             ${Object.values(cartData).map(e => `
                                 <div class="flex justify-between text-sm border-b pb-2">
-                                    <span>${e.quantity}x ${e.item.name}</span>
+                                    <span class="font-medium">${e.quantity}x ${e.item.name}</span>
                                     <span class="font-bold">${formatPrice(e.item.price * e.quantity)}</span>
                                 </div>
                             `).join('')}
@@ -242,58 +170,85 @@
                 </div>
             </div>`;
 
-        setupValidation();
-        initGoogleMaps();
+        initLiveValidation();
+        initMaps();
         $('checkoutForm').onsubmit = handleSubmit;
     }
 
-    async function handleSubmit(e) {
-        e.preventDefault();
-        const btn = $('btnSubmit');
-        const email = $('buyer-email').value;
-        const phone = $('buyer-phone').value;
-        const addressValidated = $('delivery-address').dataset.validated === 'true';
+    function initLiveValidation() {
+        const e = $('buyer-email'), p = $('buyer-phone'), g = p.closest('.phone-input-group');
+        e.oninput = () => {
+            const v = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.value);
+            e.classList.toggle('input-success', v); e.classList.toggle('input-error', !v && e.value !== "");
+        };
+        p.oninput = () => {
+            const v = p.value.length >= 7 && /^\d+$/.test(p.value);
+            g.classList.toggle('input-success', v); g.classList.toggle('input-error', !v && p.value !== "");
+        };
+    }
 
-        if (!isEmailValid(email)) return alert(t('emailError'));
-        if (!isPhoneValid(phone)) return alert(t('phoneError'));
-        if (!addressValidated) return alert(t('addressError'));
+    async function initMaps() {
+        try {
+            const res = await fetch('/.netlify/functions/getGoogleMapsKey');
+            const { apiKey } = await res.json();
+            const s = document.createElement('script');
+            s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+            s.onload = () => {
+                const inp = $('delivery-address');
+                autocomplete = new google.maps.places.Autocomplete(inp, { types: ['address'] });
+                map = new google.maps.Map($('map-container'), { center: { lat: 4.711, lng: -74.072 }, zoom: 12, disableDefaultUI: true });
+                marker = new google.maps.Marker({ position: { lat: 4.711, lng: -74.072 }, map, draggable: true });
 
-        btn.disabled = true;
-        btn.innerText = "Procesando...";
+                autocomplete.addListener('place_changed', () => {
+                    const place = autocomplete.getPlace();
+                    if (!place.geometry) return;
+                    map.setCenter(place.geometry.location); map.setZoom(17); marker.setPosition(place.geometry.location);
+                    inp.dataset.validated = 'true';
+                    $('addressStatus').innerHTML = `<span class="text-green-600">${t('valid')}</span>`;
+                });
+            };
+            document.head.appendChild(s);
+        } catch (err) {}
+    }
 
-        const orderData = {
+    async function handleSubmit(event) {
+        event.preventDefault();
+        const email = $('buyer-email').value, phone = $('buyer-phone').value, validAddr = $('delivery-address').dataset.validated === 'true';
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert(t('errorEmail'));
+        if (phone.length < 7) return alert(t('errorPhone'));
+        if (!validAddr) return alert(t('errorAddress'));
+
+        $('btnSubmit').disabled = true;
+        $('btnSubmit').innerText = "...";
+
+        const order = {
             buyerEmail: email,
             buyerName: $('buyer-name').value,
             buyerPhone: $('country-code').value + phone,
+            whatsappConsent: $('whatsapp-opt').checked,
             deliveryAddress: $('delivery-address').value,
             items: Object.values(cartData),
             totalCents: cartTotalCents,
-            createdAt: serverTimestamp(),
-            status: 'Pending'
+            createdAt: serverTimestamp()
         };
 
         try {
-            await addDoc(collection(db, ORDERS_COLLECTION(userId || 'guest')), orderData);
+            await addDoc(collection(db, `artifacts/autoInx-checkout/public/data/orders`), order);
             sessionStorage.removeItem('autoInxCart');
-            $('app').innerHTML = `<div class="text-center py-20"><h2 class="text-5xl font-black text-green-600 mb-4">¡Gracias!</h2><p class="text-xl">Pedido recibido con éxito.</p><a href="/" class="mt-8 inline-block bg-indigo-600 text-white px-8 py-3 rounded-xl">Seguir Comprando</a></div>`;
-        } catch (err) {
-            alert("Error al guardar pedido");
-            btn.disabled = false;
-        }
+            $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<h2 class="text-4xl font-black text-green-600">¡Pedido Recibido!</h2><p class="mt-4">Gracias por tu compra.</p></div>`;
+        } catch (e) { alert("Error al guardar"); $('btnSubmit').disabled = false; }
     }
 
-    // --- INIT APP ---
     async function init() {
         try {
-            const res = await fetch(FIREBASE_CONFIG_URL);
-            const config = await res.json();
-            const app = initializeApp(config);
-            auth = getAuth(app);
-            db = getFirestore(app);
+            const res = await fetch('/.netlify/functions/getClientFirebaseConfig');
+            const cfg = await res.json();
+            const app = initializeApp(cfg);
+            auth = getAuth(app); db = getFirestore(app);
             onAuthStateChanged(auth, u => { userId = u?.uid; render(); });
-        } catch (e) { render(); } // Fallback for local testing
+        } catch (e) { render(); }
     }
-
     init();
 </script>
 </body>
