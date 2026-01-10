@@ -2306,27 +2306,41 @@
         }
     
         // UPDATED: Makes a direct Firestore update
-        async function handleOrderStatusUpdate(orderId, newStatus) {
+         async function handleOrderStatusUpdate(orderId, newStatus) {
+            console.log("Starting status update for:", orderId, "New Status:", newStatus);
+        
             if (!confirm(`Notify customer and change order ${orderId.substring(0,5)} to ${newStatus}?`)) return;
             
             resetTimer();
             showMessage('info', `Updating & Notifying...`, 3000, 'orders');
         
             try {
+                // 1. Find order in local state
                 const order = state.orders.find(o => o.id === orderId);
-                if (!order) throw new Error("Order not found in local state.");
+                if (!order) throw new Error("Order data not found in local state.");
         
-                // 1. Update Firestore status
-                const orderRef = doc(db, window.module.getOrdersCollectionPath(order.uid || 'guest'), orderId);
+                // 2. Update Firestore (Database change)
+                const orderPath = window.module.getOrdersCollectionPath(order.uid || 'guest');
+                console.log("Updating Firestore path:", orderPath);
+                
+                const orderRef = doc(db, orderPath, orderId);
                 await updateDoc(orderRef, { 
                     status: newStatus,
                     updatedAt: serverTimestamp() 
                 });
+                console.log("Firestore updated successfully.");
         
-                // 2. IMPORTANT: Get Admin Token for the Fetch call
-                const idToken = await auth.currentUser.getIdToken();
+                // 3. Get Auth Token
+                const user = auth.currentUser;
+                if (!user) throw new Error("Admin session expired. Please refresh.");
+                const idToken = await user.getIdToken();
+                console.log("Auth token acquired.");
         
-                // 3. Call the Netlify Function
+                // 4. Build Payload
+                // Note: Ensure 'appId' is accessible here. 
+                // If it's undefined, we use a fallback to prevent the script from crashing.
+                const currentAppId = typeof appId !== 'undefined' ? appId : 'default-app-id';
+        
                 const emailPayload = {
                     orderId: orderId,
                     buyerEmail: order.buyerEmail,
@@ -2334,29 +2348,36 @@
                     items: order.items,
                     totalCents: order.totalCents,
                     communicationLang: order.language || order.communicationLang || 'en',
-                    newStatus: newStatus, // BACK-END EXPECTS 'newStatus'
-                    appId: appId
+                    newStatus: newStatus, 
+                    appId: currentAppId
                 };
         
+                console.log("Sending fetch request to:", EMAIL_CONFIRMATION_FUNCTION);
+        
+                // 5. Trigger the Cloud Function
                 const res = await fetch(EMAIL_CONFIRMATION_FUNCTION, {
                     method: 'POST',
                     headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${idToken}` // Added Token
+                        'Authorization': `Bearer ${idToken}` 
                     },
                     body: JSON.stringify(emailPayload)
                 });
         
                 if (!res.ok) {
-                    const errData = await res.json();
-                    throw new Error(errData.error || "Email notification failed.");
+                    const errorText = await res.text();
+                    console.error("Function Response Error:", errorText);
+                    throw new Error(`Server Error: ${res.status}`);
                 }
+        
+                const result = await res.json();
+                console.log("Email triggered successfully:", result);
         
                 showMessage('success', `Success: Order ${newStatus} and customer notified.`, 5000, 'orders');
         
             } catch (error) {
-                console.error('Update/Notify Error:', error);
-                showMessage('error', `Error: ${error.message}`, 5000, 'orders');
+                console.error('CRITICAL ERROR in handleOrderStatusUpdate:', error);
+                showMessage('error', `Error: ${error.message}`, 8000, 'orders');
             }
         }
         
