@@ -938,62 +938,25 @@
         }
         async function handleStandardAuth(event) {
             event.preventDefault();
-            console.log('handleStandardAuth called.');
             
             const emailInput = document.getElementById('email-input');
             const passwordInput = document.getElementById('password-input');
+            // FIX: Trim prevents 'auth/invalid-email' or 'invalid-credential' due to hidden spaces
             const email = emailInput ? emailInput.value.trim() : '';
             const password = passwordInput ? passwordInput.value : '';
             const messageEl = document.getElementById('auth-message');
             
             if (messageEl) messageEl.textContent = ''; 
         
-            // 1. Basic Validation
             if (!email || !password) {
-                if (messageEl) messageEl.textContent = `❌ ${t(state.modalMode === 'login' ? 'loginBtn' : 'registerBtn')} Error: Please enter both email and password.`;
+                if (messageEl) messageEl.textContent = "❌ Please enter both email and password.";
                 return;
             }
         
-            // 2. reCAPTCHA Execution (Required for Enterprise if enabled in Console)
-            let captchaToken = null;
-            if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
-                try {
-                    // We execute for both login and register to satisfy Enterprise enforcement
-                    const action = state.modalMode === 'register' ? 'register' : 'login';
-                    captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, { action: action });
-                    state.captchaToken = captchaToken;
-                } catch (e) {
-                    console.error("reCAPTCHA execution failed:", e);
-                    if (state.modalMode === 'register') {
-                        if (messageEl) messageEl.textContent = `❌ ${t('captchaRequired')}`;
-                        return;
-                    }
-                }
-            }
-        
-            // 3. Registration-Specific Validation (T&C)
-            if (state.modalMode === 'register') {
-                const acceptTosCheckbox = document.getElementById('accept-tos');
-                if (!acceptTosCheckbox || !acceptTosCheckbox.checked) {
-                    if (messageEl) messageEl.textContent = `❌ ${t('eConsentRequired')}`;
-                    return;
-                }
-        
-                // Verify Captcha via your Netlify function
-                const captchaVerified = await verifyCaptcha(captchaToken);
-                if (!captchaVerified) {
-                    if (messageEl) messageEl.textContent = `❌ ${t('captchaRequired')}`;
-                    if (typeof grecaptcha !== 'undefined' && document.getElementById('captcha-container')?.children.length > 0) {
-                        grecaptcha.reset();
-                    }
-                    return;
-                }
-            }
-        
-            // 4. Authentication Logic
             try {
                 if (state.modalMode === 'login') {
-                    // Handle Login (Admin or Standard)
+                    // Note: We no longer call grecaptcha.execute manually here.
+                    // App Check and Firebase SDK handle the token exchange internally.
                     const userCredential = await signInWithEmailAndPassword(auth, email, password);
                     const user = userCredential.user;
         
@@ -1004,45 +967,43 @@
                             window.location.href = '/admin.html';
                         } else {
                             await signOut(auth);
-                            if (messageEl) messageEl.textContent = `❌ ${t('loginBtn')} Error: Admin privileges required.`;
+                            if (messageEl) messageEl.textContent = "❌ Admin privileges required.";
                         }
                     } else {
                         showMessage('success', t('loginSuccessful'), 2000);
                         closeModal();
                     }
                 } else {
-                    // Handle Registration
-                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                    const user = userCredential.user;
+                    // Registration logic requires manual captcha for your Netlify verify function
+                    let captchaToken = null;
+                    if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
+                        captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, { action: 'register' });
+                    }
         
-                    // Log E-Consent for Compliance
-                    const eConsentSuccess = await logEconsent(user.uid, email, state.clientIp);
-                    
-                    if (!eConsentSuccess) {
-                        await user.delete(); // Rollback if consent logging fails
-                        if (messageEl) messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
+                    const captchaVerified = await verifyCaptcha(captchaToken);
+                    if (!captchaVerified) {
+                        if (messageEl) messageEl.textContent = "❌ Bot verification failed.";
                         return;
                     }
         
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    await logEconsent(userCredential.user.uid, email, state.clientIp);
                     showMessage('success', t('registerSuccessful'), 2000);
                     closeModal();
                 }
             } catch (error) {
-                console.error("Authentication failed:", error.code, error);
-                let errorMessage = 'An error occurred during authentication.';
+                console.error("Auth Error:", error.code, error.message);
+                let errorMessage = "Invalid email or password.";
                 
-                // Map Firebase error codes to user-friendly messages
-                if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-                    errorMessage = 'Invalid email or password.';
-                } else if (error.code === 'auth/email-already-in-use') {
-                    errorMessage = 'This email is already registered. Try logging in.';
-                } else if (error.code === 'auth/weak-password') {
-                    errorMessage = 'Password is too weak (must be 6+ characters).';
+                // Handle specific Firebase error codes
+                if (error.code === 'auth/network-request-failed') {
+                    errorMessage = "Network error. Please check your connection.";
+                } else if (error.code === 'auth/too-many-requests') {
+                    errorMessage = "Too many failed attempts. Please try again later.";
                 }
-        
+                
                 if (messageEl) messageEl.textContent = `❌ ${errorMessage}`;
             }
-            render();
         }
         async function handleGoogleSignIn() {
             const messageEl = document.getElementById('auth-message');
