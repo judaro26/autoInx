@@ -37,6 +37,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
 
@@ -941,7 +942,7 @@
             
             const emailInput = document.getElementById('email-input');
             const passwordInput = document.getElementById('password-input');
-            const email = emailInput ? emailInput.value : '';
+            const email = emailInput ? emailInput.value.trim() : '';
             const password = passwordInput ? passwordInput.value : '';
             const messageEl = document.getElementById('auth-message');
             
@@ -1192,30 +1193,28 @@
                     currentLang = storedLang;
                 }
         
-                // 2. Fetch the new public configuration
-                // This is where we get the IP whitelist status from the server
+                // 2. Fetch public configuration (Maintenance mode, IP, etc.)
                 const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
                 if (!configResponse.ok) throw new Error("Failed to load site config.");
                 
                 const globalConfig = await configResponse.json();
         
-                // 3. Update global state with the server-verified admin status
+                // 3. Update global state
                 state.isAdminIP = globalConfig.isRequesterAdmin === true;
                 state.isMaintenanceMode = globalConfig.maintenanceMode === true;
                 state.clientIp = globalConfig.clientIp;
         
                 console.log("Connected from IP:", state.clientIp);
-                console.log("Admin Privileges Detected:", state.isAdminIP);
         
                 // 4. Handle Maintenance Mode Restriction
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
                     isAuthReady = true;
-                    render(); // Renders the maintenance screen
+                    render(); 
                     return;
                 }
         
-                // 5. Load Firebase Client Config (API Keys, etc)
+                // 5. Load Firebase Client Config (API Keys)
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
         
@@ -1223,12 +1222,24 @@
                     throw new Error("Firebase configuration could not be loaded.");
                 }
         
-                // Initialize Firebase services
+                // 6. Initialize Firebase services
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
         
-                // 6. Set up Authentication Listener
+                // --- NEW: Initialize App Check ---
+                // This validates your app's identity and prevents the 400 Bad Request error
+                try {
+                    initializeAppCheck(app, {
+                        provider: new ReCaptchaEnterpriseProvider('6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'),
+                        isTokenAutoRefreshEnabled: true 
+                    });
+                    console.log("App Check initialized with reCAPTCHA Enterprise.");
+                } catch (appCheckErr) {
+                    console.error("App Check failed to initialize:", appCheckErr);
+                }
+        
+                // 7. Set up Authentication Listener
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
@@ -1241,7 +1252,7 @@
                     } else {
                         userId = null;
                         state.userName = null;
-                        // Sign in anonymously to allow reading public data
+                        // Sign in anonymously for public data access
                         await signInAnonymously(auth).catch(e => console.error("Anon login failed:", e));
                     }
                     
@@ -1250,7 +1261,7 @@
                     // Apply chat widget logic
                     state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
                     
-                    // 7. Start live data sync and render page
+                    // Start live data sync and render
                     setupRealtimeListeners();
                     render();
                 });
