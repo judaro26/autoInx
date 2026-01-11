@@ -369,19 +369,19 @@
         }
 
         function renderAuthToggle() {
-            // 1. Guard clause: If Firebase or Config isn't ready, show nothing yet
+            // 1. Guard clause
             if (!state.configLoaded || !isAuthReady) return '';
         
-            // 2. Admin View Toggle: If the user is currently looking at the Admin Dashboard
+            // 2. Admin View Toggle (If currently in admin mode)
             if (state.view === 'admin') {
                 return `
-                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
+                    <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 shadow-md">
                         ${t('exitAdminView')}
                     </button>
                 `;
             }
         
-            // 3. Define the Track Order link (Visible to both Logged-in and Guests)
+            // 3. Define the Track Order link
             const trackOrderText = currentLang === 'es' ? 'Rastrear Pedido' : 'Track Order';
             const trackOrderLink = `
                 <a href="/myOrders.html" class="flex items-center gap-1 px-3 py-2 rounded-lg font-semibold text-indigo-600 border border-indigo-100 bg-white shadow-sm hover:bg-indigo-50 transition">
@@ -394,11 +394,20 @@
         
             // 4. Logged-in Status
             if (state.userName) {
+                // Show Admin Dashboard button if: 
+                // A) The IP is whitelisted OR 
+                // B) The user email contains your specific admin domain (optional safety fallback)
+                const showAdminBtn = state.isAdminIP || state.userName.includes('@autoinx.com');
+        
                 return `
                     <div class="flex items-center space-x-2 sm:space-x-4">
                         <span class="text-gray-600 font-medium text-xs hidden lg:inline">${t('welcome')} ${state.userName.split('@')[0]}</span>
                         ${trackOrderLink}
-                        ${state.isAdminIP ? `<a href="/admin.html" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 text-xs shadow-md">${t('adminDashboard')}</a>` : ''}
+                        ${showAdminBtn ? `
+                            <a href="/admin.html" class="px-3 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 text-xs shadow-md transition">
+                                ${t('adminDashboard')}
+                            </a>
+                        ` : ''}
                         <button onclick="window.module.handleSignOut()" class="px-3 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 text-xs shadow-md">
                             ${t('signOut')}
                         </button>
@@ -406,19 +415,19 @@
                 `;
             }
         
-            // 5. Logged-out (Guest) Status
-            const commonButtons = `
+            // 5. Guest (Logged-out) Status
+            const guestButtons = `
                 <button onclick="window.module.registerUser()" class="text-xs font-medium text-gray-500 hover:text-indigo-600 transition hidden md:inline">
                     ${t('signUp')}
                 </button>
-                <button onclick="window.module.requestPasswordReset()" class="text-xs font-medium text-gray-500 hover:text-indigo-600 transition hidden md:inline">
-                    ${t('forgotPassword')}
+                <button onclick="window.module.showLoginModal('admin', 'login')" class="text-xs font-medium text-amber-600 hover:text-amber-700 transition">
+                    ${t('adminLogin')}
                 </button>
             `;
         
             return `
                 <div class="flex items-center space-x-2 sm:space-x-4">
-                    ${commonButtons}
+                    ${guestButtons}
                     ${trackOrderLink}
                     <button onclick="window.module.showLoginModal('standard', 'login')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 text-xs shadow-md">
                         ${t('standardLogin')}
