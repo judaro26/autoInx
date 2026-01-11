@@ -51,12 +51,11 @@ exports.handler = async (event, context) => {
         });
 
         const data = await response.json();
-
-        // Check for general API errors
-        if (data.error) {
-            console.error("reCAPTCHA Enterprise API Error:", data.error.message);
-            // This often means invalid API key or PROJECT ID
-            return { statusCode: 500, body: JSON.stringify({ success: false, error: 'Enterprise API error.' }) };
+        console.log("Full Google API Response:", JSON.stringify(data)); // Add this line
+        
+        // Check the invalidReason field specifically
+        if (data.tokenProperties && data.tokenProperties.valid === false) {
+            console.error("Token Invalid Reason:", data.tokenProperties.invalidReason);
         }
 
         // 4. Enterprise Verification Logic
