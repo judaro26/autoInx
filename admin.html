@@ -2877,7 +2877,7 @@
             document.getElementById('editModalContainer').innerHTML = '';
         }
         
-         async function updateOrder(e, orderId, sourceId, mode = 'edit') {
+        async function updateOrder(e, orderId, sourceId, mode = 'edit') {
             e.preventDefault();
             const saveBtn = document.getElementById('saveOrderBtn');
             if (!saveBtn) return;
@@ -2885,7 +2885,6 @@
             const originalText = saveBtn.innerHTML;
             const isPaymentOnly = mode === 'payment';
             
-            // Helper to safely get value. Returns null if missing to avoid 'undefined'
             const getVal = (id) => {
                 const el = document.getElementById(id);
                 return el ? el.value : null;
@@ -2901,8 +2900,7 @@
             saveBtn.innerHTML = `Syncing...`;
         
             try {
-                // 1. Build the list of items from the draft cart
-                // We ensure every single property has a fallback to avoid 'undefined'
+                // 1. Build Item Draft and Total
                 const newItemsDraft = Object.values(state.editingOrderDraftCart || {});
                 const processedItems = newItemsDraft.map(entry => ({
                     id: entry.item.id || 'unknown-id', 
@@ -2913,15 +2911,15 @@
                 }));
         
                 const newTotalCents = processedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                const newStatus = getVal('edit-status'); // Capture the status from modal
         
-                // 2. Construct the update payload
+                // 2. Construct Firestore Payload
                 let updatePayload = { 
                     updatedAt: serverTimestamp(),
                     items: processedItems,
                     totalCents: newTotalCents
                 };
         
-                // Capture Language
                 const lang = getVal('edit-language');
                 if (lang) updatePayload.language = lang;
         
@@ -2936,57 +2934,71 @@
                             method: method,
                             date: new Date().toISOString()
                         }];
-                        
                         const totalPaid = history.reduce((sum, p) => sum + p.amountCents, 0);
-                        
                         updatePayload.paymentHistory = history;
                         updatePayload.paidCents = totalPaid;
                         updatePayload.isPaid = totalPaid >= newTotalCents;
                         updatePayload.lastPaymentMethod = method;
                     }
                 } else {
-                    // Full Edit Fields
                     const addr = getVal('edit-address');
-                    const stat = getVal('edit-status');
-                    const note = getVal('edit-notes');
-        
                     if (addr !== null) updatePayload.deliveryAddress = addr;
-                    if (stat !== null) updatePayload.status = stat;
+                    if (newStatus !== null) updatePayload.status = newStatus;
+                    const note = getVal('edit-notes');
                     if (note !== null) updatePayload.adminNotes = note;
                 }
         
-                // --- CRITICAL STEP: REMOVE ANY REMAINING UNDEFINED VALUES ---
-                // This loops through the object and deletes any keys that are undefined
+                // Clean undefined keys
                 Object.keys(updatePayload).forEach(key => {
-                    if (updatePayload[key] === undefined) {
-                        delete updatePayload[key];
-                    }
+                    if (updatePayload[key] === undefined) delete updatePayload[key];
                 });
         
-                // 3. Get Path and Execute
+                // 3. Update Database
                 const path = window.module.getOrdersCollectionPath(sourceId);
-                if (!path || path.includes('undefined')) {
-                    throw new Error("Invalid database path generated.");
-                }
-        
                 const orderRef = doc(db, path, orderId);
                 await updateDoc(orderRef, updatePayload);
-                
+        
+                // --- NEW: TRIGGER EMAIL IF STATUS CHANGED ---
+                // If it's a full edit AND the status is different from the original status
+                if (!isPaymentOnly && newStatus && newStatus !== originalOrder.status) {
+                    console.log("Status changed in modal. Triggering email...");
+                    
+                    const idToken = await auth.currentUser.getIdToken();
+                    const emailPayload = {
+                        orderId: orderId,
+                        buyerEmail: originalOrder.buyerEmail,
+                        buyerName: originalOrder.buyerName,
+                        items: processedItems, // Use the latest items
+                        totalCents: newTotalCents,
+                        communicationLang: lang || originalOrder.language || 'en',
+                        newStatus: newStatus, 
+                        appId: typeof appId !== 'undefined' ? appId : 'default-app-id'
+                    };
+        
+                    await fetch(EMAIL_CONFIRMATION_FUNCTION, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${idToken}` 
+                        },
+                        body: JSON.stringify(emailPayload)
+                    });
+                    console.log("Modal status update email sent.");
+                }
+                // --------------------------------------------
+        
                 showMessage('success', 'Order updated successfully!', 3000, 'orders');
                 closeEditModal();
         
             } catch (err) {
-                console.error("Firestore Update Error Debug:", {
-                    orderId,
-                    sourceId,
-                    error: err.message
-                });
+                console.error("Update Error:", err);
                 alert("Update Failed: " + err.message);
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.innerHTML = originalText;
             }
         }
+        
         async function handleResendReceipt(orderId) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
