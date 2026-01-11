@@ -368,9 +368,9 @@
             `;
         }
         function renderAuthToggle() {
-            // Condition reads: If not loaded, OR (if Maintenance AND not logged in AND not whitelisted), then return ''.
             if (!state.configLoaded || !isAuthReady || (state.isMaintenanceMode && !state.userName && !state.isAdminIP)) return '';
         
+            // If viewing as Admin
             if (state.view === 'admin') {
                 return `
                     <button onclick="window.module.toggleView()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
@@ -378,31 +378,40 @@
                     </button>
                 `;
             }
-            
-            // This block determines the "logged-in status" (MODIFIED)
+        
+            // Common "Track Order" link for everyone (Logged in or Guest)
+            const trackOrderLink = `
+                <a href="/myOrders.html" class="flex items-center gap-1 px-3 py-2 rounded-lg font-semibold text-indigo-600 hover:bg-indigo-50 transition duration-150 border border-indigo-100 bg-white shadow-sm">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <span class="text-xs sm:text-sm">${state.userName ? t('viewOrders') : (currentLang === 'es' ? 'Rastrear Pedido' : 'Track Order')}</span>
+                </a>
+            `;
+        
             if (state.userName) {
+                // Logged In Layout
                 return `
-                    <div class="flex items-center space-x-4">
-                        <span class="text-gray-600 font-medium text-sm hidden sm:inline">${t('welcome')} ${state.userName}</span>
-                        
-                        <a href="/myOrders.html" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 transition duration-150 shadow-md">
-                            ${t('viewOrders')}
-                        </a>
-                        
-                        ${state.isAdminIP ?
-                            `<a href="/admin.html" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 transition duration-150 shadow-md">
-                                ${t('adminDashboard')}
-                            </a>` : ''}
-                        <button onclick="window.module.handleSignOut()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 transition duration-150 shadow-md">
-                            ${t('signOut')}
-                        </button>
-                        <button onclick="window.module.setLanguage('${currentLang === 'es' ? 'en' : 'es'}')"
-                                 class="px-3 py-1 text-sm rounded-full bg-gray-100 hover:bg-gray-200">
-                            ${currentLang === 'es' ? 'English' : 'Español'}
-                        </button>
+                    <div class="flex items-center space-x-2 sm:space-x-4">
+                        <span class="text-gray-600 font-medium text-xs hidden lg:inline">${t('welcome')} ${state.userName.split('@')[0]}</span>
+                        ${trackOrderLink}
+                        ${state.isAdminIP ? `<a href="/admin.html" class="px-4 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 text-xs shadow-md">${t('adminDashboard')}</a>` : ''}
+                        <button onclick="window.module.handleSignOut()" class="px-3 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 text-xs shadow-md">${t('signOut')}</button>
                     </div>
                 `;
             }
+        
+            // Logged Out (Guest) Layout
+            return `
+                <div class="flex items-center space-x-2 sm:space-x-4">
+                    ${trackOrderLink}
+                    <button onclick="window.module.showLoginModal('standard', 'login')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 text-xs shadow-md">
+                        ${t('standardLogin')}
+                    </button>
+                    <button onclick="window.module.setLanguage('${currentLang === 'es' ? 'en' : 'es'}')" class="px-2 py-1 text-xs rounded-full bg-gray-100 hover:bg-gray-200">
+                        ${currentLang === 'es' ? 'EN' : 'ES'}
+                    </button>
+                </div>
+            `;
+        }
             
             // This block determines the "logged-out status"
             const commonButtons = `
