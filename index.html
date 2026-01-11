@@ -445,14 +445,18 @@
             const isStandard = state.modalType === 'standard';
             const isRegister = state.modalMode === 'register';
             const isAdminLogin = state.modalType === 'admin' && isLogin;
+            
             const title = isLogin ? (isStandard ? t('loginUser') : t('loginAdmin')) : t('registerNew');
             const submitText = isLogin ? t('loginBtn') : t('registerBtn');
             const switchModeText = isLogin ? t('needAccount') : t('alreadyRegistered');
             
+            // Values to pass into the onclick handler
+            const nextMode = state.modalMode === 'login' ? 'register' : 'login';
+            const currentType = state.modalType;
+        
             let emailField = `<input type="email" id="email-input" placeholder="${t('emailLabel') || 'Email'}" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
             let passwordField = `<input type="password" id="password-input" placeholder="${t('passwordLabel') || 'Password'}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
                                 
-            // NEW: T&C and CAPTCHA fields for registration
             let registerFields = '';
             if (isRegister) {
                 registerFields = `
@@ -477,9 +481,10 @@
                 </button>
             ` : '';
             
+            // FIX: Variables injected as strings into the onclick attribute
             const switchModeSection = isAdminLogin ?
                 `<p class="w-full mt-4 text-sm text-gray-400 text-center">${t('adminSetupNote')}</p>` :
-                `<button type="button" onclick="window.module.showLoginModal(state.modalType, state.modalMode === 'login' ? 'register' : 'login')"
+                `<button type="button" onclick="window.module.showLoginModal('${currentType}', '${nextMode}')"
                         class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
                     ${switchModeText}
                 </button>`;
