@@ -938,51 +938,50 @@
         async function handleStandardAuth(event) {
             event.preventDefault();
             console.log('handleStandardAuth called.');
+            
             const emailInput = document.getElementById('email-input');
             const passwordInput = document.getElementById('password-input');
             const email = emailInput ? emailInput.value : '';
             const password = passwordInput ? passwordInput.value : '';
             const messageEl = document.getElementById('auth-message');
-            messageEl.textContent = ''; // Clear previous error message
+            
+            if (messageEl) messageEl.textContent = ''; 
         
-            // 1. Basic Validation (for both login and register)
+            // 1. Basic Validation
             if (!email || !password) {
-                messageEl.textContent = `❌ ${t(state.modalMode === 'login' ? 'loginBtn' : 'registerBtn')} Error: Please enter both email and password.`;
+                if (messageEl) messageEl.textContent = `❌ ${t(state.modalMode === 'login' ? 'loginBtn' : 'registerBtn')} Error: Please enter both email and password.`;
                 return;
             }
         
-            // 2. Registration-Specific Validation (T&C and CAPTCHA)
-            if (state.modalMode === 'register') {
-                const acceptTosCheckbox = document.getElementById('accept-tos');
-                
-                // T&C Check
-                if (!acceptTosCheckbox || !acceptTosCheckbox.checked) {
-                    messageEl.textContent = `❌ ${t('eConsentRequired')}`;
-                    return;
-                }
-        
-                // CAPTCHA Validation
-                if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
-                    messageEl.textContent = 'Validating anti-bot check...';
-                    try {
-                        // Execute the action 'register' to get a token
-                        state.captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, {action: 'register'});
-                        messageEl.textContent = ''; // Clear temporary message
-                    } catch (e) {
-                        console.error("reCAPTCHA execution failed:", e);
-                        messageEl.textContent = `❌ ${t('captchaRequired')}`;
+            // 2. reCAPTCHA Execution (Required for Enterprise if enabled in Console)
+            let captchaToken = null;
+            if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
+                try {
+                    // We execute for both login and register to satisfy Enterprise enforcement
+                    const action = state.modalMode === 'register' ? 'register' : 'login';
+                    captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, { action: action });
+                    state.captchaToken = captchaToken;
+                } catch (e) {
+                    console.error("reCAPTCHA execution failed:", e);
+                    if (state.modalMode === 'register') {
+                        if (messageEl) messageEl.textContent = `❌ ${t('captchaRequired')}`;
                         return;
                     }
-                } else {
-                    // Fallback if reCAPTCHA script hasn't loaded (though dynamic load should prevent this)
-                    messageEl.textContent = `❌ ${t('captchaRequired')}`;
+                }
+            }
+        
+            // 3. Registration-Specific Validation (T&C)
+            if (state.modalMode === 'register') {
+                const acceptTosCheckbox = document.getElementById('accept-tos');
+                if (!acceptTosCheckbox || !acceptTosCheckbox.checked) {
+                    if (messageEl) messageEl.textContent = `❌ ${t('eConsentRequired')}`;
                     return;
                 }
         
-                const captchaVerified = await verifyCaptcha(state.captchaToken);
+                // Verify Captcha via your Netlify function
+                const captchaVerified = await verifyCaptcha(captchaToken);
                 if (!captchaVerified) {
-                    messageEl.textContent = `❌ ${t('captchaRequired')}`;
-                    state.captchaToken = null; // Clear token on failure
+                    if (messageEl) messageEl.textContent = `❌ ${t('captchaRequired')}`;
                     if (typeof grecaptcha !== 'undefined' && document.getElementById('captcha-container')?.children.length > 0) {
                         grecaptcha.reset();
                     }
@@ -990,60 +989,57 @@
                 }
             }
         
-            // 3. Authentication Logic
+            // 4. Authentication Logic
             try {
                 if (state.modalMode === 'login') {
-                    // Login Logic (Admin or Standard)
+                    // Handle Login (Admin or Standard)
+                    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                    const user = userCredential.user;
+        
                     if (state.modalType === 'admin') {
-                        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                        const user = userCredential.user;
                         const idTokenResult = await user.getIdTokenResult(true);
-                        
                         if (idTokenResult.claims.admin === true) {
                             closeModal();
                             window.location.href = '/admin.html';
                         } else {
                             await signOut(auth);
-                            messageEl.textContent = `❌ ${t('loginBtn')} Error: Admin privileges required.`;
+                            if (messageEl) messageEl.textContent = `❌ ${t('loginBtn')} Error: Admin privileges required.`;
                         }
                     } else {
-                        // Standard User Login
-                        await signInWithEmailAndPassword(auth, email, password);
                         showMessage('success', t('loginSuccessful'), 2000);
+                        closeModal();
                     }
                 } else {
-                    // Registration Logic
+                    // Handle Registration
                     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                     const user = userCredential.user;
         
                     // Log E-Consent for Compliance
-                    const eConsentSuccess = await logEconsent(user.uid, email, state.clientIp); // Assumes state.clientIp is available
+                    const eConsentSuccess = await logEconsent(user.uid, email, state.clientIp);
                     
                     if (!eConsentSuccess) {
-                        // Critical failure: delete the account and log the error.
-                        await user.delete();
-                        messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
+                        await user.delete(); // Rollback if consent logging fails
+                        if (messageEl) messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
                         return;
                     }
         
                     showMessage('success', t('registerSuccessful'), 2000);
+                    closeModal();
                 }
-                closeModal();
             } catch (error) {
                 console.error("Authentication failed:", error.code, error);
                 let errorMessage = 'An error occurred during authentication.';
                 
-                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                // Map Firebase error codes to user-friendly messages
+                if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
                     errorMessage = 'Invalid email or password.';
                 } else if (error.code === 'auth/email-already-in-use') {
                     errorMessage = 'This email is already registered. Try logging in.';
                 } else if (error.code === 'auth/weak-password') {
                     errorMessage = 'Password is too weak (must be 6+ characters).';
-                } else if (error.code === 'auth/invalid-email') {
-                    errorMessage = 'The email address is not valid.';
                 }
         
-                messageEl.textContent = `❌ ${errorMessage}`;
+                if (messageEl) messageEl.textContent = `❌ ${errorMessage}`;
             }
             render();
         }
