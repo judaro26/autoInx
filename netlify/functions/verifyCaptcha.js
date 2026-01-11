@@ -6,8 +6,8 @@ const fetch = require('node-fetch');
 const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID; 
 const GCP_API_KEY = process.env.GCP_API_KEY; 
 
-// The site key from your frontend (6LdiVx4sAAAAAJR3votlSI8nB61NMFmh5YZokFQ-)
-const RECAPTCHA_SITE_KEY = '6LdiVx4sAAAAAJR3votlSI8nB61NMFmh5YZokFQ-'; 
+// The site key from your frontend (6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J)
+const RECAPTCHA_SITE_KEY = '6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'; 
 const ACTION = 'register'; // The expected action name from your frontend execution
 
 exports.handler = async (event, context) => {
