@@ -1,38 +1,45 @@
-// netlify/functions/verifyCaptcha.js
-
 const fetch = require('node-fetch');
 
-// NEW: Use environment variables for Enterprise verification
+// These must be set in your Netlify Environment Variables
 const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID; 
 const GCP_API_KEY = process.env.GCP_API_KEY; 
 
-// The site key from your frontend (6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J)
-const RECAPTCHA_SITE_KEY = '6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'; 
-const ACTION = 'register'; // The expected action name from your frontend execution
+// Ensure this matches the key created in project: creditx-3c488
+const RECAPTCHA_SITE_KEY = '6LdiVx4sAAAAAJR3votlSI8nB61NMFmh5YZokFQ-'; 
+const ACTION = 'register'; 
 
 exports.handler = async (event, context) => {
     // 1. Security Check: Only allow POST requests
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+        return { 
+            statusCode: 405, 
+            body: JSON.stringify({ error: 'Method Not Allowed' }) 
+        };
     }
 
-    // 2. Enterprise Key Check
+    // 2. Configuration Check
     if (!GCP_PROJECT_ID || !GCP_API_KEY) {
-        console.error("GCP_PROJECT_ID or GCP_API_KEY is not set.");
-        return { statusCode: 500, body: JSON.stringify({ error: 'Server configuration error: Enterprise keys missing.' }) };
+        console.error("CRITICAL: GCP_PROJECT_ID or GCP_API_KEY is not set in Netlify.");
+        return { 
+            statusCode: 500, 
+            body: JSON.stringify({ error: 'Server configuration error.' }) 
+        };
     }
 
     try {
-        const { token } = JSON.parse(event.body);
+        const body = JSON.parse(event.body);
+        const token = body.token;
 
         if (!token) {
-            return { statusCode: 400, body: JSON.stringify({ success: false, error: 'Missing reCAPTCHA token.' }) };
+            return { 
+                statusCode: 400, 
+                body: JSON.stringify({ success: false, error: 'Missing reCAPTCHA token.' }) 
+            };
         }
 
-        // NEW: Construct the Enterprise API URL
-        const VERIFY_URL_ENTERPRISE = `https://recaptchaenterprise.googleapis.com/v1/projects/${GCP_PROJECT_ID}/assessments?key=${GCP_API_KEY}`;
+        // Construct the Enterprise API URL using your Project ID and API Key
+        const VERIFY_URL = `https://recaptchaenterprise.googleapis.com/v1/projects/${GCP_PROJECT_ID}/assessments?key=${GCP_API_KEY}`;
         
-        // NEW: Construct the Enterprise request body (Assessment object)
         const requestBody = {
             event: {
                 token: token,
@@ -41,51 +48,65 @@ exports.handler = async (event, context) => {
             },
         };
 
-        // 3. Call Google reCAPTCHA Enterprise API for verification
-        const response = await fetch(VERIFY_URL_ENTERPRISE, {
+        // 3. Call Google reCAPTCHA Enterprise API
+        const response = await fetch(VERIFY_URL, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json' // Must be JSON for Enterprise
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
         });
 
         const data = await response.json();
-        console.log("Full Google API Response:", JSON.stringify(data)); // Add this line
-        
-        // Check the invalidReason field specifically
-        if (data.tokenProperties && data.tokenProperties.valid === false) {
-            console.error("Token Invalid Reason:", data.tokenProperties.invalidReason);
+
+        // --- ERROR HANDLING BLOCK ---
+        // Catch API-level errors (like project mismatch or invalid API keys)
+        if (data.error) {
+            console.error("Google API Error:", data.error.message);
+            return { 
+                statusCode: 400, 
+                body: JSON.stringify({ success: false, error: data.error.message }) 
+            };
+        }
+
+        // Catch malformed responses to prevent code crashes
+        if (!data.tokenProperties || !data.riskAnalysis) {
+            console.error("Unexpected response structure from Google:", data);
+            return { 
+                statusCode: 500, 
+                body: JSON.stringify({ success: false, error: 'Malformed verification response.' }) 
+            };
         }
 
         // 4. Enterprise Verification Logic
-        // Enterprise returns a "name" property on success and a list of policy violations
         const isTokenValid = data.tokenProperties.valid;
         const actionMatches = data.tokenProperties.action === ACTION;
-        // Adjust score threshold as needed (e.g., require score >= 0.5)
         const scorePasses = data.riskAnalysis.score >= 0.5; 
         
         const success = isTokenValid && actionMatches && scorePasses;
 
         if (success) {
+            console.log(`Verification successful. Score: ${data.riskAnalysis.score}`);
             return {
                 statusCode: 200,
-                body: JSON.stringify({ success: true, score: data.riskAnalysis.score }),
+                body: JSON.stringify({ 
+                    success: true, 
+                    score: data.riskAnalysis.score 
+                }),
             };
         } else {
-            console.warn("reCAPTCHA Enterprise check failed:", data.riskAnalysis.reasons);
+            console.warn("reCAPTCHA failed. Reason:", data.tokenProperties.invalidReason || 'Low score');
             return {
                 statusCode: 200, 
                 body: JSON.stringify({ 
                     success: false, 
                     error: 'reCAPTCHA failed verification.',
-                    reasons: data.riskAnalysis.reasons 
+                    invalidReason: data.tokenProperties.invalidReason,
+                    score: data.riskAnalysis.score
                 }),
             };
         }
 
     } catch (error) {
-        console.error('Function error:', error);
+        console.error('Function execution error:', error);
         return {
             statusCode: 500,
             body: JSON.stringify({ error: 'Internal Server Error.' }),
