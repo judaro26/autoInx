@@ -241,14 +241,72 @@
         } catch (e) { alert("Error al guardar"); $('btnSubmit').disabled = false; }
     }
 
+    // 1. Add more robust error logging in your init
     async function init() {
         try {
             const res = await fetch('/.netlify/functions/getClientFirebaseConfig');
+            if (!res.ok) throw new Error("Could not fetch Firebase Config");
             const cfg = await res.json();
             const app = initializeApp(cfg);
-            auth = getAuth(app); db = getFirestore(app);
-            onAuthStateChanged(auth, u => { userId = u?.uid; render(); });
-        } catch (e) { render(); }
+            auth = getAuth(app); 
+            db = getFirestore(app);
+            onAuthStateChanged(auth, u => { 
+                userId = u ? u.uid : 'anonymous'; // Ensure userId isn't undefined
+                render(); 
+            });
+        } catch (e) { 
+            console.error("Firebase Init Error:", e);
+            render(); 
+        }
+    }
+    
+    // 2. Fix the handleSubmit to handle the db check
+    async function handleSubmit(event) {
+        event.preventDefault();
+        
+        // Check if Firestore is actually ready
+        if (!db) {
+            alert("System not ready. Please refresh the page.");
+            return;
+        }
+    
+        const email = $('buyer-email').value;
+        const phone = $('buyer-phone').value;
+        const validAddr = $('delivery-address').dataset.validated === 'true';
+    
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert(t('errorEmail'));
+        if (phone.length < 7) return alert(t('errorPhone'));
+        if (!validAddr) return alert(t('errorAddress'));
+    
+        $('btnSubmit').disabled = true;
+        $('btnSubmit').innerText = "...";
+    
+        const order = {
+            userId: userId || 'guest',
+            buyerEmail: email,
+            buyerName: $('buyer-name').value,
+            buyerPhone: $('country-code').value + phone,
+            whatsappConsent: $('whatsapp-opt').checked,
+            deliveryAddress: $('delivery-address').value,
+            items: Object.values(cartData),
+            totalCents: cartTotalCents,
+            createdAt: serverTimestamp()
+        };
+    
+        try {
+            // Recommendation: Use a simpler path like 'orders' first to test
+            // await addDoc(collection(db, "orders"), order); 
+            
+            await addDoc(collection(db, `artifacts/autoInx-checkout/public/data/orders`), order);
+            
+            sessionStorage.removeItem('autoInxCart');
+            $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<h2 class="text-4xl font-black text-green-600">¡Pedido Recibido!</h2><p class="mt-4">Gracias por tu compra.</p></div>`;
+        } catch (e) { 
+            console.error("Firestore Error:", e); // This will tell you if it's a Permission issue
+            alert("Error al guardar: " + e.message); 
+            $('btnSubmit').disabled = false; 
+            $('btnSubmit').innerText = t('complete');
+        }
     }
     init();
 </script>
