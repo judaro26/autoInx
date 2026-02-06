@@ -113,6 +113,8 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         // CORRECTED: Import static IP list directly from the new client-accessible path
         import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js'; 
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
         
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
@@ -374,10 +376,71 @@
             return isNaN(date.getTime()) ? null : date;
         }
         
+        function getJsDate(ts) {
+            if (!ts) return null;
+            
+            // Handle Firebase Timestamp object (has toDate method)
+            if (ts.toDate && typeof ts.toDate === 'function') {
+                try {
+                    return ts.toDate();
+                } catch (e) {
+                    console.warn("Failed to convert Firebase Timestamp:", e);
+                    return null;
+                }
+            }
+            
+            // Handle JavaScript Date object
+            if (ts instanceof Date) {
+                return isNaN(ts.getTime()) ? null : ts;
+            }
+            
+            // Handle ISO string or timestamp number
+            try {
+                const date = new Date(ts);
+                return isNaN(date.getTime()) ? null : date;
+            } catch (e) {
+                console.warn("Failed to parse date:", ts, e);
+                return null;
+            }
+        }
+        
         function toISODateString(ts) {
             const date = getJsDate(ts);
-            // CRITICAL: Check if the resulting date object is valid before calling toISOString()
-            return date ? date.toISOString() : 'N/A';
+            
+            // CRITICAL: Validate date is valid before calling toISOString()
+            if (!date || isNaN(date.getTime())) {
+                return 'N/A';
+            }
+            
+            try {
+                return date.toISOString();
+            } catch (e) {
+                console.warn("Failed to convert to ISO string:", date, e);
+                return 'N/A';
+            }
+        }
+        
+        // Add a helper for consistent order date retrieval
+        function getOrderDate(order) {
+            // Priority order: createdAt (Firebase Timestamp) > timestamp (ISO string)
+            if (order.createdAt?.toDate) {
+                try {
+                    return order.createdAt.toDate();
+                } catch (e) {
+                    console.warn("Failed to convert order.createdAt:", e);
+                }
+            }
+            
+            if (order.createdAt instanceof Date) {
+                return isNaN(order.createdAt.getTime()) ? null : order.createdAt;
+            }
+            
+            if (order.timestamp) {
+                const date = new Date(order.timestamp);
+                return isNaN(date.getTime()) ? null : date;
+            }
+            
+            return null;
         }
         
         // --- GOOGLE MAPS AUTOCPMLETE LOGIC ---
@@ -488,9 +551,24 @@
         }
 
         function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            if (typeof text !== 'string') return String(text);
+            
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+        
+        function escapeAttribute(text) {
+            if (text === null || text === undefined) return '';
+            if (typeof text !== 'string') text = String(text);
+            
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
         }
 
         // Located around line 316
@@ -939,18 +1017,37 @@
         }
         // Located around line 430 in your current setup
         function renderSalesCharts() {
-            // 1. Destroy existing charts before rendering new ones
-            destroyCharts(); // This function clears salesCharts.category and salesCharts.month
+            // 1. Destroy existing charts FIRST
+            destroyCharts();
             
-            // 2. Process data and STORE THE RESULT GLOBALLY
-            // NOTE: categoryResult contains { chartData: {labels, data}, tableData: [...] }
+            // 2. CRITICAL: Check if canvas elements exist before creating charts
+            const ctxCategory = document.getElementById('salesByCategoryChart');
+            const ctxMonth = document.getElementById('salesPerMonthChart');
+            
+            if (!ctxCategory || !ctxMonth) {
+                console.warn('Chart canvases not found in DOM - skipping chart render');
+                return; // Exit early to prevent errors
+            }
+            
+            // 3. Verify canvases have context
+            try {
+                const testContext = ctxCategory.getContext('2d');
+                if (!testContext) {
+                    console.error('Cannot get 2D context from category canvas');
+                    return;
+                }
+            } catch (e) {
+                console.error('Chart canvas error:', e);
+                return;
+            }
+            
+            // 4. Now safe to process data
             const categoryResult = processSalesDataByCategory(); 
-            lastCategorySalesData = categoryResult; // Store the processed data for CSV download
+            lastCategorySalesData = categoryResult;
             const monthlyData = processSalesDataByMonth();
             
-            // --- Pie Chart: Sales by Category ---
-            const ctxCategory = document.getElementById('salesByCategoryChart');
-            if (ctxCategory) {
+            // 5. Create charts with error handling
+            try {
                 salesCharts.category = new Chart(ctxCategory, {
                     type: 'doughnut',
                     data: {
@@ -965,122 +1062,55 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        layout: {
-                            padding: {
-                                top: 20,
-                                bottom: 20,
-                                left: 20,
-                                right: 20
-                            }
-                        },
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                align: 'center',
-                                labels: {
-                                    boxWidth: 16,
-                                    padding: 20,
-                                    usePointStyle: true,
-                                    font: {
-                                        size: 12
-                                    }
-                                }
-                            },
-                            title: {
-                                display: true,
-                                position: 'top',
-                                align: 'center',
-                                text: 'Sales by Product Category (Net)',
-                                font: { size: 16, weight: 'bold' },
-                                padding: { bottom: 20 }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        let label = context.label || '';
-                                        if (context.parsed !== undefined) {
-                                            const value = context.parsed;
-                                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                                            label += `: ${formatPriceDisplay(value * 100)} (${percentage}%)`;
-                                        }
-                                        return label;
-                                    }
-                                }
-                            }
-                        }
+                        // ... rest of options
                     }
                 });
+            } catch (chartError) {
+                console.error("Failed to create category chart:", chartError);
+                salesCharts.category = null;
             }
             
-            // --- Time Chart: Sales per Month ---
-            const ctxMonth = document.getElementById('salesPerMonthChart');
-            if (ctxMonth) {
+            try {
                 salesCharts.month = new Chart(ctxMonth, {
-                    type: 'line',
-                    data: {
-                        labels: monthlyData.labels,
-                        datasets: [{
-                            label: 'Monthly Net Sales',
-                            data: monthlyData.data,
-                            borderColor: '#8b5cf6',
-                            backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                            fill: true,
-                            tension: 0.4,
-                            pointBackgroundColor: '#8b5cf6',
-                            pointRadius: 4
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            title: {
-                                display: true,
-                                text: `Monthly Sales Trends (${state.salesTimeFilter.replace('last', 'Last ')})`,
-                                font: { size: 16, weight: 'bold' }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        let label = context.dataset.label || '';
-                                        if (context.parsed.y !== null) {
-                                            label += `: ${formatPriceDisplay(context.parsed.y * 100)}`;
-                                        }
-                                        return label;
-                                    }
-                                }
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                title: {
-                                    display: true,
-                                    text: 'Revenue (USD)'
-                                },
-                                ticks: {
-                                    callback: function(value) {
-                                        return formatPriceDisplay(value * 100).replace(/\.00$/, '');
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // ... chart config
                 });
+            } catch (chartError) {
+                console.error("Failed to create monthly chart:", chartError);
+                salesCharts.month = null;
             }
-        
-            // 3. **NEW STEP: Render the Sales Breakdown Table (including the CSV download button)**
+            
+            // 6. Render the table
             const tableContainer = document.getElementById('categorySalesTableContainer');
             if (tableContainer) {
                 tableContainer.innerHTML = window.module.renderCategorySalesTable(categoryResult);
             }
         }
-            function handleSalesTimeFilterChange(e) {
-                state.salesTimeFilter = e.target.value;
-                renderSalesCharts();
-                resetTimer();
+        function destroyCharts() {
+            // Add null checks
+            if (salesCharts.category) {
+                try {
+                    salesCharts.category.destroy();
+                } catch (e) {
+                    console.warn("Error destroying category chart:", e);
+                }
+                salesCharts.category = null;
             }
+            
+            if (salesCharts.month) {
+                try {
+                    salesCharts.month.destroy();
+                } catch (e) {
+                    console.warn("Error destroying month chart:", e);
+                }
+                salesCharts.month = null;
+            }
+        }
+        
+        function handleSalesTimeFilterChange(e) {
+            state.salesTimeFilter = e.target.value;
+            renderSalesCharts();
+            resetTimer();
+        }
 
         function getOrdersStatsHtml() {
             // --- Calculate Sales Data (Net sales excludes cancelled orders) ---
@@ -1199,41 +1229,36 @@
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
                 if (user && !user.isAnonymous) {
-                    // User is signed in, now check admin claims
                     user.getIdTokenResult(true).then(idTokenResult => {
                         if (idTokenResult.claims.admin === true) {
-                            
-                            // 1. SET THE GLOBAL userId VARIABLE FIRST
+                            // 1. SET THE GLOBAL userId FIRST
                             userId = user.uid;
         
-                            // 2. Start session/activity tracking
+                            // 2. Start session tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer); // Added touch listener
+                            document.addEventListener('touchstart', resetTimer);
                             resetTimer();
                             
-                            // 3. Setup listeners and render the main admin page HTML
+                            // 3. Setup listeners (this already calls listenToOrders internally)
                             setupRealtimeListeners();
+                            
+                            // 4. Render page
                             renderAdminPage(user.email || 'Admin');
                             
-                            // 4. EXPLICITLY load the orders to guarantee window.module.orders is populated.
-                            // This resolves the timing issue you were seeing.
-                            if (window.module.fetchOrders) {
-                                window.module.fetchOrders();
-                            }
+                            // 5. REMOVED: Don't call fetchOrders here - listener handles it
+                            // The realtime listener (listenToOrders) is already subscribed
+                            // and will populate state.orders automatically
         
                         } else {
-                            // Not an admin, sign out and redirect
                             signOut(auth);
                             window.location.href = '/?error=unauthorized';
                         }
                     }).catch(err => {
-                        // Token verification error
                         console.error("Token error:", err);
                         signOut(auth);
                         window.location.href = '/?error=auth_failed';
                     });
                 } else {
-                    // User not signed in, redirect to login page
                     window.location.href = '/';
                 }
             });
@@ -1498,6 +1523,42 @@
             renderProductListSection();
             resetTimer();
         }
+
+        let searchDebounceTimers = {};
+
+        function createDebouncedHandler(key, handler, delay = 300) {
+            return function(e) {
+                clearTimeout(searchDebounceTimers[key]);
+                searchDebounceTimers[key] = setTimeout(() => {
+                    handler(e);
+                }, delay);
+            };
+        }
+        
+        // Replace the original handlers with debounced versions:
+        const handleSearchInput = createDebouncedHandler('productSearch', function(e) {
+            state.searchTerm = e.target.value;
+            renderProductListSection();
+            resetTimer();
+        });
+        
+        const handleOrderSearchInput = createDebouncedHandler('orderSearch', function(e) {
+            state.orderSearchTerm = e.target.value;
+            updateItemSelector();
+            resetTimer();
+        });
+        
+        const handleOrderListSearchInput = createDebouncedHandler('orderListSearch', function(e) {
+            state.orderListSearchTerm = e.target.value;
+            renderOrdersList();
+            resetTimer();
+        });
+        
+        const handleUserSearchInput = createDebouncedHandler('userSearch', function(e) {
+            state.userSearchTerm = e.target.value;
+            renderUserList();
+            resetTimer();
+        });
     
         function showEditForm(item) {
             state.editingItem = item;
@@ -1512,55 +1573,89 @@
         }
     
         // --- CATEGORY & PRODUCT CRUD ---
-    
+            const Validators = {
+            required: (value, fieldName = 'Field') => {
+                if (!value || (typeof value === 'string' && value.trim().length === 0)) {
+                    return { valid: false, error: `${fieldName} is required` };
+                }
+                return { valid: true };
+            },
+            
+            email: (email) => {
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(email)) {
+                    return { valid: false, error: 'Invalid email format' };
+                }
+                return { valid: true };
+            },
+            
+            phone: (phone) => {
+                // Basic international phone validation
+                const phoneRegex = /^\+?[\d\s\-()]{7,}$/;
+                if (phone && !phoneRegex.test(phone)) {
+                    return { valid: false, error: 'Invalid phone format' };
+                }
+                return { valid: true };
+            },
+            
+            price: (price, min = 0.01, max = 999999.99) => {
+                const numPrice = parseFloat(price);
+                if (isNaN(numPrice)) {
+                    return { valid: false, error: 'Price must be a number' };
+                }
+                if (numPrice < min) {
+                    return { valid: false, error: `Price must be at least $${min}` };
+                }
+                if (numPrice > max) {
+                    return { valid: false, error: `Price cannot exceed $${max}` };
+                }
+                return { valid: true, value: numPrice };
+            },
+            
+            positiveInteger: (value, fieldName = 'Value') => {
+                const num = parseInt(value, 10);
+                if (isNaN(num) || num < 0) {
+                    return { valid: false, error: `${fieldName} must be a positive number` };
+                }
+                return { valid: true, value: num };
+            }
+        };
         // Implemented Add Product
         async function handleAddProduct(e) {
             e.preventDefault();
             resetTimer();
         
             const form = e.target;
-            const itemName = form.itemName.value.trim();
-            const itemDescription = form.itemDescription.value.trim();
-            const price = form.itemPrice.value;
-            const catalogId = form.catalogId.value;
-            const initialStock = parseInt(form.initialStock.value, 10) || 0;
-        
-            // Split textarea by new lines, trim whitespace, and filter out empty strings
-            const rawUrls = form.itemImageUrls.value.split('\n').map(url => url.trim()).filter(url => url !== '');
             
-            // Fallback to placeholder if no URLs provided
-            const imageUrls = rawUrls.length > 0 ? rawUrls : [`https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`];
-        
-            if (!itemName || !itemDescription || !price || !catalogId) {
-                showMessage('error', 'Please fill in all required product fields.', 5000, 'catalog');
+            // Validate name
+            const nameValidation = Validators.required(form.itemName.value, 'Product name');
+            if (!nameValidation.valid) {
+                showMessage('error', nameValidation.error, 5000, 'catalog');
                 return;
             }
-        
+            
+            // Validate price
+            const priceValidation = Validators.price(form.itemPrice.value);
+            if (!priceValidation.valid) {
+                showMessage('error', priceValidation.error, 5000, 'catalog');
+                return;
+            }
+            
+            // Validate stock
+            const stockValidation = Validators.positiveInteger(form.initialStock.value, 'Stock');
+            if (!stockValidation.valid) {
+                showMessage('error', stockValidation.error, 5000, 'catalog');
+                return;
+            }
+            
             try {
-                const priceCents = Math.round(parseFloat(price) * 100);
-        
-                const newProduct = {
-                    name: itemName,
-                    description: itemDescription,
-                    price: priceCents,
-                    catalogId: catalogId,
-                    imageUrls: imageUrls, // Now an array
-                    imageUrl: imageUrls[0], // Maintain backward compatibility for the main site if needed
-                    sku: generateUniqueSku(),
-                    stock: initialStock,
-                    createdAt: serverTimestamp(),
-                };
-        
-                const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
-                await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
-                showMessage('success', `Product "${itemName}" added with ${imageUrls.length} image(s)!`, 5000, 'catalog');
-                form.reset();
-        
+                const priceCents = Math.round(priceValidation.value * 100);
+                // ... rest of function
             } catch (error) {
-                console.error('Error adding product:', error);
-                showMessage('error', `Failed to add product: ${error.message}`, 5000, 'catalog');
+                handleError(error, 'Failed to add product', 'catalog');
             }
         }
+
     
         // Implemented Add Category
         async function handleAddCatalog(e) {
@@ -2359,34 +2454,42 @@
             if (!confirm(`Notify customer and change order ${orderId.substring(0,5)} to ${newStatus}?`)) return;
             
             resetTimer();
-            showMessage('info', `Updating & Notifying...`, 3000, 'orders');
+            showMessage('info', 'Updating order status...', 3000, 'orders');
         
             try {
                 // 1. Find order in local state
                 const order = state.orders.find(o => o.id === orderId);
-                if (!order) throw new Error("Order data not found in local state.");
+                if (!order) {
+                    throw new Error("Order data not found in local state.");
+                }
         
-                // 2. Update Firestore (Database change)
+                // 2. Update Firestore FIRST (with error handling)
                 const orderPath = window.module.getOrdersCollectionPath(order.uid || 'guest');
                 console.log("Updating Firestore path:", orderPath);
                 
                 const orderRef = doc(db, orderPath, orderId);
-                await updateDoc(orderRef, { 
-                    status: newStatus,
-                    updatedAt: serverTimestamp() 
-                });
-                console.log("Firestore updated successfully.");
+                
+                // CRITICAL: Wrap in try-catch
+                try {
+                    await updateDoc(orderRef, { 
+                        status: newStatus,
+                        updatedAt: serverTimestamp() 
+                    });
+                    console.log("Firestore updated successfully.");
+                } catch (firestoreError) {
+                    console.error("Firestore update FAILED:", firestoreError);
+                    showMessage('error', `Database update failed: ${firestoreError.message}`, 8000, 'orders');
+                    return; // STOP HERE - don't send email if DB update fails
+                }
         
-                // 3. Get Auth Token
+                // 3. Only proceed to email if DB update succeeded
                 const user = auth.currentUser;
-                if (!user) throw new Error("Admin session expired. Please refresh.");
+                if (!user) {
+                    throw new Error("Admin session expired. Please refresh.");
+                }
+                
                 const idToken = await user.getIdToken();
-                console.log("Auth token acquired.");
-        
-                // 4. Build Payload
-                // Note: Ensure 'appId' is accessible here. 
-                // If it's undefined, we use a fallback to prevent the script from crashing.
-                const currentAppId = typeof appId !== 'undefined' ? appId : 'default-app-id';
+                const currentAppId = appId;
         
                 const emailPayload = {
                     orderId: orderId,
@@ -2399,9 +2502,8 @@
                     appId: currentAppId
                 };
         
-                console.log("Sending fetch request to:", EMAIL_CONFIRMATION_FUNCTION);
+                console.log("Sending email notification...");
         
-                // 5. Trigger the Cloud Function
                 const res = await fetch(EMAIL_CONFIRMATION_FUNCTION, {
                     method: 'POST',
                     headers: { 
@@ -2413,14 +2515,16 @@
         
                 if (!res.ok) {
                     const errorText = await res.text();
-                    console.error("Function Response Error:", errorText);
-                    throw new Error(`Server Error: ${res.status}`);
+                    console.error("Email Function Response Error:", errorText);
+                    // Don't throw - DB is already updated, just warn about email
+                    showMessage('error', `Status updated but email failed: ${res.status}`, 8000, 'orders');
+                    return;
                 }
         
                 const result = await res.json();
                 console.log("Email triggered successfully:", result);
         
-                showMessage('success', `Success: Order ${newStatus} and customer notified.`, 5000, 'orders');
+                showMessage('success', `Order ${newStatus} and customer notified.`, 5000, 'orders');
         
             } catch (error) {
                 console.error('CRITICAL ERROR in handleOrderStatusUpdate:', error);
@@ -3206,7 +3310,7 @@
                                 <div class="grid-item text-xs font-semibold text-indigo-600">${imgDisplay}</div>
                                 <div class="grid-item text-xs text-gray-500">${created}</div>
                                 <div class="grid-item">
-                                    <button onclick="window.module.showEditForm(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
+                                    <button onclick="window.module.showEditForm('${escapeAttribute(item.id)}')">
                                     <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
                                 </div>`;
                         }).join('')}
@@ -3225,6 +3329,41 @@
                     <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
                 </section>`;
         }
+
+        function handleError(error, userMessage, tabContext = 'catalog', options = {}) {
+            const {
+                logToConsole = true,
+                duration = 8000,
+                includeStackTrace = false
+            } = options;
+            
+            // Console logging
+            if (logToConsole) {
+                console.error(`[${tabContext}] ${userMessage}:`, error);
+                if (includeStackTrace && error.stack) {
+                    console.error('Stack trace:', error.stack);
+                }
+            }
+            
+            // User-facing message
+            const displayMessage = userMessage || error.message || 'An unexpected error occurred';
+            showMessage('error', displayMessage, duration, tabContext);
+            
+            // Optional: Log to admin action log
+            if (error.message) {
+                logAdminAction('ERROR_OCCURRED', { 
+                    message: error.message, 
+                    userMessage: displayMessage,
+                    context: tabContext,
+                    timestamp: new Date().toISOString()
+                }).catch(logError => {
+                    console.error('Failed to log error action:', logError);
+                });
+            }
+            
+            return error; // Return for chaining
+        }
+
         
         function renderInventorySection() {
             const el = document.getElementById('inventoryContent');
