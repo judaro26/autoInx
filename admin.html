@@ -248,16 +248,40 @@
     
         async function setupFirebase() {
             const firebaseConfig = await loadFirebaseConfig();
-            if (Object.keys(firebaseConfig).length === 0) {
-                console.error("Firebase config is missing.");
-                return;
-            }
-            setLogLevel('debug');
+            if (Object.keys(firebaseConfig).length === 0) return;
+        
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
             
+            // Start listening for live order updates immediately
+            listenToOrders(); 
+            
             checkAuthAndRender();
+        }
+        
+        function listenToOrders() {
+            // This uses the ORDERS_COLLECTION constant you defined: artifacts/${appId}/public/data/orders
+            const ordersRef = collection(db, ORDERS_COLLECTION);
+            
+            onSnapshot(ordersRef, (snapshot) => {
+                state.orders = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                })).sort((a, b) => {
+                    // Robust sorting: check for createdAt (Timestamp) or timestamp (String)
+                    const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.timestamp || 0);
+                    const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.timestamp || 0);
+                    return dateB - dateA; // Newest first
+                });
+        
+                // Only re-render if we are currently looking at the Orders tab
+                if (state.activeTab === 'orders') {
+                    render(); 
+                }
+            }, (error) => {
+                console.error("Order Subscription Error:", error);
+            });
         }
         
         // NEW FUNCTION: Exports individual order item details, which contain date/status/payment.
@@ -328,7 +352,17 @@
                 showMessage('error', 'Browser does not support automatic CSV download.', 5000, 'orders');
             }
         }
-
+        // Helper to handle both Customer (nested) and Admin (flat) item structures
+        function getSafeItemData(orderItem) {
+            const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
+            
+            return {
+                name: isCustomerFormat ? orderItem.item.name : (orderItem.name || 'Unknown Item'),
+                price: isCustomerFormat ? orderItem.item.price : (orderItem.price || 0),
+                sku: isCustomerFormat ? orderItem.item.sku : (orderItem.sku || 'N/A'),
+                quantity: orderItem.quantity || 1
+            };
+        }
         function getJsDate(ts) {
             if (!ts) return null;
             // Handle Firebase Timestamp object
@@ -1263,7 +1297,20 @@
                 showMessage('error', 'Failed to fetch orders in real-time.', 5000, 'orders');
             });
         }
-    
+
+        // function to help admin render orders
+        function getSafeItemData(orderItem) {
+            // Check if 'item' exists as a sub-object (Customer Web Format)
+            const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
+            
+            return {
+                name: isCustomerFormat ? orderItem.item.name : (orderItem.name || 'Unknown Item'),
+                price: isCustomerFormat ? orderItem.item.price : (orderItem.price || 0),
+                sku: isCustomerFormat ? orderItem.item.sku : (orderItem.sku || 'N/A'),
+                quantity: orderItem.quantity || 1
+            };
+        }
+        
         // --- HELPER FUNCTIONS ---
         function formatPriceDisplay(cents) {
             return `$${(cents / 100).toFixed(2)}`;
@@ -3224,6 +3271,94 @@
             `;
             return '';
         }
+
+        function renderOrders() {
+            const container = document.getElementById('tab-content');
+            if (!container) return;
+        
+            // Use state.orders (ensure this is populated by your onSnapshot listener)
+            if (!state.orders || state.orders.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-20 bg-white rounded-3xl shadow-sm border-2 border-dashed border-gray-200">
+                        <p class="text-gray-500 text-lg">No orders found in the database.</p>
+                    </div>`;
+                return;
+            }
+        
+            const orderRows = state.orders.map(order => {
+                // 1. Resolve Date (Handles Firebase Timestamp OR ISO String)
+                let dateDisplay = 'N/A';
+                if (order.createdAt?.toDate) {
+                    dateDisplay = order.createdAt.toDate().toLocaleString();
+                } else if (order.timestamp) {
+                    dateDisplay = new Date(order.timestamp).toLocaleString();
+                }
+        
+                // 2. Resolve Items (Handles Flat vs Nested)
+                const itemsHtml = (order.items || []).map(item => {
+                    const data = getSafeItemData(item);
+                    return `
+                        <div class="flex justify-between text-xs py-1 border-b border-gray-50 last:border-0">
+                            <span class="text-gray-700 font-medium">
+                                <span class="bg-indigo-100 text-indigo-700 px-1 rounded font-bold">${data.quantity}x</span> 
+                                ${escapeHtml(data.name)}
+                            </span>
+                            <span class="text-gray-400 font-mono">${data.sku}</span>
+                        </div>
+                    `;
+                }).join('');
+        
+                const totalDisplay = `$${((order.totalCents || 0) / 100).toFixed(2)}`;
+                const isManual = !!order.createdByAdmin;
+                const badgeClass = isManual ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700';
+                const sourceLabel = isManual ? 'ADMIN' : 'WEB';
+        
+                return `
+                    <div class="bg-white p-5 rounded-2xl shadow-md border border-gray-100 hover:shadow-lg transition-all mb-4">
+                        <div class="flex flex-wrap justify-between items-start gap-4">
+                            <div class="flex-1 min-w-[280px]">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded ${badgeClass}">${sourceLabel}</span>
+                                    <h4 class="font-bold text-gray-900">${escapeHtml(order.buyerName || 'No Name')}</h4>
+                                </div>
+                                <div class="space-y-1 mb-3">
+                                    <p class="text-xs text-gray-500 flex items-center gap-1">📧 ${order.buyerEmail}</p>
+                                    <p class="text-xs text-gray-500 flex items-center gap-1">📱 ${order.buyerPhone}</p>
+                                    <p class="text-xs text-indigo-600 font-bold flex items-center gap-1">📍 ${order.deliveryAddress}</p>
+                                </div>
+                                
+                                <div class="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                    ${itemsHtml}
+                                </div>
+                            </div>
+        
+                            <div class="text-right flex flex-col items-end min-w-[120px]">
+                                <span class="text-[10px] text-gray-400 font-bold uppercase">${dateDisplay}</span>
+                                <div class="text-2xl font-black text-indigo-600 mt-1">${totalDisplay}</div>
+                                <button class="mt-4 w-full px-4 py-2 bg-gray-900 text-white text-xs font-bold rounded-lg hover:bg-indigo-600 transition shadow-sm">
+                                    View Details
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        
+            container.innerHTML = `
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-black text-gray-800 uppercase tracking-tight">Order Feed</h2>
+                        <div class="flex gap-2">
+                            <span class="bg-white border border-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm">
+                                ${state.orders.length} Total
+                            </span>
+                        </div>
+                    </div>
+                    ${orderRows}
+                </div>
+            `;
+        }
+        
     
             // --- ORDERS TRACKING FUNCTIONS (Render) ---
         function renderOrdersList() {
@@ -3325,7 +3460,17 @@
                 window.module.renderSalesCharts();
             }
         }
-    
+
+        function formatOrderDate(order) {
+            if (order.createdAt?.toDate) {
+                return order.createdAt.toDate().toLocaleString();
+            }
+            if (order.timestamp) {
+                return new Date(order.timestamp).toLocaleString();
+            }
+            return "Date Unknown";
+        }
+        
         function renderOrderCreateForm() {
             return `
                 <section class="space-y-8">
