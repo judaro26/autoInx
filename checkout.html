@@ -211,36 +211,6 @@
         } catch (err) {}
     }
 
-    async function handleSubmit(event) {
-        event.preventDefault();
-        const email = $('buyer-email').value, phone = $('buyer-phone').value, validAddr = $('delivery-address').dataset.validated === 'true';
-
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert(t('errorEmail'));
-        if (phone.length < 7) return alert(t('errorPhone'));
-        if (!validAddr) return alert(t('errorAddress'));
-
-        $('btnSubmit').disabled = true;
-        $('btnSubmit').innerText = "...";
-
-        const order = {
-            userId: userId, // <--- Add this line
-            buyerEmail: email,
-            buyerName: $('buyer-name').value,
-            buyerPhone: $('country-code').value + phone,
-            whatsappConsent: $('whatsapp-opt').checked,
-            deliveryAddress: $('delivery-address').value,
-            items: Object.values(cartData),
-            totalCents: cartTotalCents,
-            createdAt: serverTimestamp()
-        };
-
-        try {
-            await addDoc(collection(db, `artifacts/autoInx-checkout/public/data/orders`), order);
-            sessionStorage.removeItem('autoInxCart');
-            $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<h2 class="text-4xl font-black text-green-600">¡Pedido Recibido!</h2><p class="mt-4">Gracias por tu compra.</p></div>`;
-        } catch (e) { alert("Error al guardar"); $('btnSubmit').disabled = false; }
-    }
-
     // 1. Add more robust error logging in your init
     async function init() {
         try {
