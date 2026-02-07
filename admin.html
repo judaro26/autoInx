@@ -735,27 +735,31 @@
         
             getFilteredSalesOrders().forEach(order => {
                 order.items.forEach(orderItem => {
-                    const item = itemMap[orderItem.id];
+                    // FIX: Get correct ID for both customer and admin orders
+                    const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
+                    const itemId = isCustomerFormat ? orderItem.item.id : orderItem.id;
+                    const item = itemMap[itemId];
+                    
                     if (item) {
                         const catalogId = item.catalogId || 'no_category';
                         const categoryName = state.catalogs.find(c => c.id === catalogId)?.name || 'Uncategorized';
                         
-                        const salesAmount = orderItem.price * orderItem.quantity;
-        
-                        categoryMetrics[categoryName].totalRevenue += salesAmount; // Total revenue in CENTS
-                        categoryMetrics[categoryName].unitsSold += orderItem.quantity;
+                        // FIX: Use getSafeItemData to handle both formats
+                        const itemData = getSafeItemData(orderItem);
+                        const salesAmount = itemData.price * itemData.quantity;
+            
+                        categoryMetrics[categoryName].totalRevenue += salesAmount;
+                        categoryMetrics[categoryName].unitsSold += itemData.quantity;
                         
-                        // CRITICAL ADDITION: Store order details relevant to this category
-                        // We store the full order data for later display
                         categoryMetrics[categoryName].orders.push({
                             id: order.id.substring(0, 5),
                             fullId: order.id,
                             date: order.createdAt,
                             status: order.status,
                             paymentStatus: order.isPaid ? 'Paid' : 'Unpaid',
-                            itemName: orderItem.name,
-                            quantity: orderItem.quantity,
-                            totalItemCents: orderItem.price * orderItem.quantity,
+                            itemName: itemData.name,
+                            quantity: itemData.quantity,
+                            totalItemCents: salesAmount,
                         });
                     }
                 });
