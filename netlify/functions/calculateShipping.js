@@ -72,27 +72,42 @@ exports.handler = async (event) => {
         const shipment = await response.json();
         
         // Filter rates for requested service level
-        const rates = shipment.rates.filter(r => 
-            r.servicelevel.token === serviceLevel || r.provider === serviceLevel.split('_')[0]
-        );
-
+        const highestRate = sortedRates[sortedRates.length - 1];
+        const lowestRate = sortedRates[0];
+        
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                rates: rates.map(r => ({
+                allRates: sortedRates.map(r => ({
                     provider: r.provider,
                     servicelevel: r.servicelevel.name,
                     amount: parseFloat(r.amount),
                     currency: r.currency,
                     estimated_days: r.estimated_days
                 })),
-                bestRate: rates[0] ? {
-                    provider: rates[0].provider,
-                    amount: parseFloat(rates[0].amount),
-                    currency: rates[0].currency
-                } : null
+                // Return HIGHEST rate so customer sees max possible cost
+                displayRate: {
+                    provider: highestRate.provider,
+                    servicelevel: highestRate.servicelevel.name,
+                    amount: parseFloat(highestRate.amount),
+                    currency: highestRate.currency,
+                    estimated_days: highestRate.estimated_days
+                },
+                // Also include lowest for admin reference
+                lowestRate: {
+                    provider: lowestRate.provider,
+                    amount: parseFloat(lowestRate.amount),
+                    currency: lowestRate.currency
+                },
+                // Keep bestRate for backward compatibility (but use displayRate instead)
+                bestRate: {
+                    provider: highestRate.provider,
+                    amount: parseFloat(highestRate.amount),
+                    currency: highestRate.currency,
+                    estimated_days: highestRate.estimated_days
+                }
             })
         };
 
