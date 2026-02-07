@@ -27,6 +27,7 @@
         .address-highlight-container { @apply p-5 sm:p-7 bg-indigo-50/50 rounded-3xl border-2 border-indigo-100 mb-4 shadow-inner; }
         .address-input { @apply w-full p-5 sm:p-6 border-4 border-indigo-500 rounded-2xl text-lg sm:text-xl font-bold transition-all duration-300 shadow-xl focus:ring-8 focus:ring-indigo-100 focus:outline-none bg-white; }
         #map-container { height: 300px; width: 100%; border-radius: 1.5rem; margin-top: 1.5rem; box-shadow: 0 15px 35px rgba(0,0,0,0.15); border: 4px solid white; }
+        .calculating-spinner { @apply inline-block w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin ml-2; }
     </style>
 </head>
 <body class="antialiased text-gray-800">
@@ -39,11 +40,17 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, addDoc, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, addDoc, collection, serverTimestamp, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     let db, auth, userId, cartData = {}, cartTotalCents = 0;
     let currentLang = localStorage.getItem('checkoutLang') || (navigator.language.startsWith('en') ? 'en' : 'es');
     let map, marker, autocomplete;
+
+    // ✅ NEW: Shipping & Tax tracking
+    let shippingCents = 0;
+    let taxCents = 0;
+    let shippingDetails = null;
+    let taxDetails = null;
 
     const TEXT = {
         es: {
@@ -53,7 +60,15 @@
             address: 'DIRECCIÓN DE ENTREGA', addressHelp: 'Busca tu dirección y selecciónala de la lista.',
             statusDefault: 'Escribe para buscar...', valid: '✅ UBICACIÓN VERIFICADA',
             complete: 'COMPLETAR PEDIDO', summary: 'Resumen', total: 'Total',
-            errorEmail: 'Correo inválido', errorPhone: 'Número inválido', errorAddress: 'Selecciona una dirección'
+            errorEmail: 'Correo inválido', errorPhone: 'Número inválido', errorAddress: 'Selecciona una dirección',
+            // ✅ NEW: Shipping & Tax translations
+            subtotal: 'Subtotal',
+            shipping: 'Envío',
+            tax: 'Impuesto',
+            calculatedAtCheckout: 'Calculado al finalizar',
+            calculatingShipping: 'Calculando envío...',
+            calculatingTax: 'Calculando impuestos...',
+            shippingError: 'No se pudo calcular el envío. Estimado: $10.00',
         },
         en: {
             title: 'Checkout', return: 'Back', email: 'Email Address', name: 'Full Name',
@@ -62,7 +77,15 @@
             address: 'DELIVERY ADDRESS', addressHelp: 'Search for your address and select it from the list.',
             statusDefault: 'Type to search...', valid: '✅ LOCATION VERIFIED',
             complete: 'COMPLETE ORDER', summary: 'Summary', total: 'Total',
-            errorEmail: 'Invalid email', errorPhone: 'Invalid phone', errorAddress: 'Select an address'
+            errorEmail: 'Invalid email', errorPhone: 'Invalid phone', errorAddress: 'Select an address',
+            // ✅ NEW: Shipping & Tax translations
+            subtotal: 'Subtotal',
+            shipping: 'Shipping',
+            tax: 'Tax',
+            calculatedAtCheckout: 'Calculated at checkout',
+            calculatingShipping: 'Calculating shipping...',
+            calculatingTax: 'Calculating tax...',
+            shippingError: 'Could not calculate shipping. Estimated: $10.00',
         }
     };
 
@@ -102,6 +125,8 @@
             $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<p class="mt-10 text-xl font-bold">Tu carrito está vacío</p></div>`;
             return;
         }
+
+        const grandTotal = cartTotalCents + shippingCents + taxCents;
 
         $('app').innerHTML = `
             ${renderHeader()}
@@ -179,7 +204,7 @@
                             </div>
 
                             <button type="submit" id="btnSubmit" class="w-full bg-indigo-600 text-white py-6 rounded-2xl font-black text-2xl shadow-xl hover:bg-indigo-700 transition transform hover:scale-[1.01]">
-                                ${t('complete')} — ${formatPrice(cartTotalCents)}
+                                ${t('complete')} — ${formatPrice(grandTotal)}
                             </button>
                         </form>
                     </div>
@@ -196,9 +221,47 @@
                                 </div>
                             `).join('')}
                         </div>
-                        <div class="flex justify-between items-center text-2xl font-black">
-                            <span>${t('total')}</span>
-                            <span class="text-pink-600">${formatPrice(cartTotalCents)}</span>
+                        
+                        <div class="mt-6 border-t-2 pt-6 space-y-3">
+                            <div class="flex justify-between text-base font-semibold text-gray-700">
+                                <span>${t('subtotal')}</span>
+                                <span>${formatPrice(cartTotalCents)}</span>
+                            </div>
+                            
+                            ${shippingCents > 0 ? `
+                                <div class="flex justify-between text-base text-gray-600">
+                                    <span class="flex items-center gap-2">
+                                        📦 ${t('shipping')}
+                                        ${shippingDetails ? `<span class="text-xs text-gray-400">(${shippingDetails.provider})</span>` : ''}
+                                    </span>
+                                    <span>${formatPrice(shippingCents)}</span>
+                                </div>
+                            ` : `
+                                <div class="flex justify-between text-sm text-gray-400 italic">
+                                    <span>📦 ${t('shipping')}</span>
+                                    <span>${t('calculatedAtCheckout')}</span>
+                                </div>
+                            `}
+                            
+                            ${taxCents > 0 ? `
+                                <div class="flex justify-between text-base text-gray-600">
+                                    <span class="flex items-center gap-2">
+                                        📋 ${t('tax')}
+                                        ${taxDetails ? `<span class="text-xs text-gray-400">(${taxDetails.ratePercent}%)</span>` : ''}
+                                    </span>
+                                    <span>${formatPrice(taxCents)}</span>
+                                </div>
+                            ` : `
+                                <div class="flex justify-between text-sm text-gray-400 italic">
+                                    <span>📋 ${t('tax')}</span>
+                                    <span>${t('calculatedAtCheckout')}</span>
+                                </div>
+                            `}
+                            
+                            <div class="border-t-2 pt-3 flex justify-between text-2xl font-black text-gray-900">
+                                <span>${t('total')}</span>
+                                <span class="text-indigo-700">${formatPrice(grandTotal)}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -233,19 +296,136 @@
                 map = new google.maps.Map($('map-container'), { center: { lat: 4.711, lng: -74.072 }, zoom: 12, disableDefaultUI: true });
                 marker = new google.maps.Marker({ position: { lat: 4.711, lng: -74.072 }, map, draggable: true });
 
-                autocomplete.addListener('place_changed', () => {
+                autocomplete.addListener('place_changed', async () => {
                     const place = autocomplete.getPlace();
                     if (!place.geometry) return;
                     map.setCenter(place.geometry.location); map.setZoom(17); marker.setPosition(place.geometry.location);
                     inp.dataset.validated = 'true';
                     $('addressStatus').innerHTML = `<span class="text-green-600">${t('valid')}</span>`;
+                    
+                    // ✅ NEW: Calculate shipping & tax when address is selected
+                    await calculateShippingAndTax();
                 });
             };
             document.head.appendChild(s);
         } catch (err) {}
     }
 
-    // 1. Add more robust error logging in your init
+    // ✅ NEW: Calculate shipping and tax based on validated address
+    async function calculateShippingAndTax() {
+        const addressInput = $('delivery-address');
+        const address = addressInput?.value?.trim();
+        
+        if (!address || addressInput.dataset.validated !== 'true') {
+            // Address not validated yet - reset calculations
+            shippingCents = 0;
+            taxCents = 0;
+            shippingDetails = null;
+            taxDetails = null;
+            render();
+            return;
+        }
+
+        // Show loading state
+        $('btnSubmit').disabled = true;
+        $('btnSubmit').innerHTML = `${t('calculatingShipping')} <span class="calculating-spinner"></span>`;
+
+        try {
+            // Parse address for state/zip
+            const addressParts = address.split(',');
+            const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
+            const orderState = stateZip[0] || 'CA';
+            const zipCode = stateZip[1] || '00000';
+
+            // Calculate total weight (example: 1 lb per item, adjust as needed)
+            const totalItems = Object.values(cartData).reduce((sum, e) => sum + e.quantity, 0);
+            const totalWeight = Math.max(1, totalItems); // Minimum 1 lb
+
+            // 1. Calculate Shipping
+            try {
+                const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        addressTo: {
+                            name: $('buyer-name').value || 'Customer',
+                            street1: addressParts[0]?.trim() || address,
+                            city: addressParts[1]?.trim() || 'Unknown',
+                            state: orderState,
+                            zip: zipCode,
+                            country: 'US'
+                        },
+                        parcels: [{
+                            length: "12",
+                            width: "8",
+                            height: "6",
+                            distance_unit: "in",
+                            weight: totalWeight.toString(),
+                            mass_unit: "lb"
+                        }]
+                    })
+                });
+
+                if (shippingRes.ok) {
+                    const shippingData = await shippingRes.json();
+                    if (shippingData.bestRate) {
+                        shippingCents = Math.round(shippingData.bestRate.amount * 100);
+                        shippingDetails = {
+                            provider: shippingData.bestRate.provider,
+                            amount: shippingData.bestRate.amount
+                        };
+                    }
+                } else {
+                    console.warn('Shipping API failed, using default');
+                    shippingCents = 1000; // Default $10
+                    shippingDetails = { provider: 'Standard', amount: 10 };
+                }
+            } catch (shippingError) {
+                console.error('Shipping calculation error:', shippingError);
+                shippingCents = 1000; // Default $10
+                shippingDetails = { provider: 'Standard', amount: 10 };
+            }
+
+            // 2. Calculate Tax
+            $('btnSubmit').innerHTML = `${t('calculatingTax')} <span class="calculating-spinner"></span>`;
+
+            try {
+                const taxRes = await fetch('/.netlify/functions/calculateTax', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        subtotalCents: cartTotalCents,
+                        state: orderState,
+                        zipCode: zipCode
+                    })
+                });
+
+                if (taxRes.ok) {
+                    const taxData = await taxRes.json();
+                    taxCents = taxData.taxCents || 0;
+                    taxDetails = {
+                        rate: taxData.taxRate,
+                        ratePercent: taxData.taxRatePercent
+                    };
+                }
+            } catch (taxError) {
+                console.error('Tax calculation error:', taxError);
+                taxCents = 0; // No tax if calculation fails
+            }
+
+            // Re-render with updated totals
+            render();
+
+        } catch (error) {
+            console.error('Calculation error:', error);
+            alert(t('shippingError'));
+        } finally {
+            $('btnSubmit').disabled = false;
+            const grandTotal = cartTotalCents + shippingCents + taxCents;
+            $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
+        }
+    }
+
     async function init() {
         try {
             const res = await fetch('/.netlify/functions/getClientFirebaseConfig');
@@ -255,7 +435,7 @@
             auth = getAuth(app); 
             db = getFirestore(app);
             onAuthStateChanged(auth, u => { 
-                userId = u ? u.uid : 'anonymous'; // Ensure userId isn't undefined
+                userId = u ? u.uid : 'anonymous';
                 render(); 
             });
         } catch (e) { 
@@ -264,11 +444,9 @@
         }
     }
     
-    // 2. FIXED: handleSubmit now creates orders with flat item structure
     async function handleSubmit(event) {
         event.preventDefault();
         
-        // Check if Firestore is actually ready
         if (!db) {
             alert("System not ready. Please refresh the page.");
             return;
@@ -285,21 +463,20 @@
         $('btnSubmit').disabled = true;
         $('btnSubmit').innerText = "...";
     
-        // ✅ FIXED: Flatten the items structure to match admin order format
+        // ✅ UPDATED: Include shipping, tax, and breakdown
         const order = {
             userId: userId || 'guest',
             buyerEmail: email,
             buyerName: $('buyer-name').value,
             buyerPhone: $('country-code').value + phone,
             whatsappConsent: $('whatsapp-opt').checked,
-            smsConsent: $('sms-opt').checked,  // ✅ NEW: SMS notification preference
-            notificationPreferences: {  // ✅ NEW: Structured preferences object
+            smsConsent: $('sms-opt').checked,
+            notificationPreferences: {
                 whatsapp: $('whatsapp-opt').checked,
                 sms: $('sms-opt').checked,
-                email: true  // Email is always enabled for order confirmation
+                email: true
             },
             deliveryAddress: $('delivery-address').value,
-            // ✅ NEW: Extract only essential fields in flat structure (no nested "item" object)
             items: Object.values(cartData).map(cartItem => ({
                 id: cartItem.item.id,
                 name: cartItem.item.name,
@@ -307,27 +484,60 @@
                 sku: cartItem.item.sku,
                 quantity: cartItem.quantity
             })),
-            totalCents: cartTotalCents,
-            status: "Pending",  // ✅ Added default status
+            subtotalCents: cartTotalCents,           // ✅ NEW: Items only
+            shippingCents: shippingCents,            // ✅ NEW: Shipping cost
+            taxCents: taxCents,                      // ✅ NEW: Tax amount
+            totalCents: cartTotalCents + shippingCents + taxCents,  // ✅ NEW: Grand total
+            shippingDetails: shippingDetails,        // ✅ NEW: Provider info
+            taxDetails: taxDetails,                  // ✅ NEW: Tax rate info
+            status: "Pending",
             createdAt: serverTimestamp(),
-            timestamp: new Date().toISOString()  // ✅ Added backup timestamp
+            timestamp: new Date().toISOString()
         };
     
-        // 🔍 DEBUG: Log the order object before submission
         console.log("=== ORDER BEING SUBMITTED ===");
         console.log("Full order object:", order);
         console.log("buyerName:", order.buyerName);
         console.log("buyerEmail:", order.buyerEmail);
+        console.log("subtotalCents:", order.subtotalCents);
+        console.log("shippingCents:", order.shippingCents);
+        console.log("taxCents:", order.taxCents);
         console.log("totalCents:", order.totalCents);
-        console.log("items:", order.items);
-        console.log("userId:", order.userId);
         console.log("=============================");
     
         try {
             const docRef = await addDoc(collection(db, "artifacts", "default-app-id", "public", "data", "orders"), order);
             console.log("✅ Order created successfully with ID:", docRef.id);
             
-            // ✅ NEW: Send email confirmation to customer
+            // Adjust inventory
+            try {
+                console.log("📦 Adjusting inventory for ordered items...");
+                
+                for (const item of order.items) {
+                    const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
+                    const itemSnap = await getDoc(itemRef);
+                    
+                    if (itemSnap.exists()) {
+                        const currentStock = itemSnap.data().stock || 0;
+                        const newStock = Math.max(0, currentStock - item.quantity);
+                        
+                        await updateDoc(itemRef, { 
+                            stock: newStock,
+                            updatedAt: serverTimestamp()
+                        });
+                        
+                        console.log(`✅ ${item.name}: ${currentStock} → ${newStock} (ordered: ${item.quantity})`);
+                    } else {
+                        console.warn(`⚠️ Product ${item.id} not found, skipping inventory update`);
+                    }
+                }
+                
+                console.log("✅ Inventory adjustment completed");
+            } catch (inventoryError) {
+                console.error("❌ Inventory adjustment failed (order still created):", inventoryError);
+            }
+            
+            // Send email confirmation
             try {
                 const emailPayload = {
                     orderId: docRef.id,
@@ -336,11 +546,13 @@
                     buyerPhone: order.buyerPhone,
                     deliveryAddress: order.deliveryAddress,
                     items: order.items,
+                    subtotalCents: order.subtotalCents,
+                    shippingCents: order.shippingCents,
+                    taxCents: order.taxCents,
                     totalCents: order.totalCents,
                     status: order.status,
-                    language: currentLang,  // Use the current language from checkout
+                    language: currentLang,
                     communicationLang: currentLang,
-                    // Include notification preferences
                     whatsappConsent: order.whatsappConsent,
                     smsConsent: order.smsConsent
                 };
@@ -360,7 +572,6 @@
                 }
             } catch (emailError) {
                 console.error("Email Error (order still created):", emailError);
-                // Don't throw - order was already created successfully
             }
             
             sessionStorage.removeItem('autoInxCart');
@@ -376,7 +587,7 @@
                             <p class="text-sm text-gray-500">Número de pedido: <span class="font-mono font-bold">#${docRef.id.substring(0, 8)}</span></p>
                         </div>
                         
-                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-left">
+                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-left mb-4">
                             <p class="font-bold text-blue-900 mb-2 flex items-center gap-2">
                                 <span>📧</span> Confirmación Enviada
                             </p>
@@ -385,6 +596,16 @@
                             </p>
                             ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2">💬 También te enviaremos actualizaciones por WhatsApp</p>' : ''}
                             ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2">💬 También te enviaremos actualizaciones por SMS</p>' : ''}
+                        </div>
+                        
+                        <div class="bg-gray-50 rounded-xl p-6 mb-6">
+                            <h3 class="font-bold text-gray-700 mb-3">Resumen del Pedido</h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between"><span>Subtotal:</span><span>${formatPrice(order.subtotalCents)}</span></div>
+                                <div class="flex justify-between"><span>Envío:</span><span>${formatPrice(order.shippingCents)}</span></div>
+                                <div class="flex justify-between"><span>Impuesto:</span><span>${formatPrice(order.taxCents)}</span></div>
+                                <div class="flex justify-between font-bold text-lg border-t pt-2"><span>Total:</span><span>${formatPrice(order.totalCents)}</span></div>
+                            </div>
                         </div>
                         
                         <div class="mt-8">
@@ -404,7 +625,7 @@
                             <p class="text-sm text-gray-500">Order number: <span class="font-mono font-bold">#${docRef.id.substring(0, 8)}</span></p>
                         </div>
                         
-                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-left">
+                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-left mb-4">
                             <p class="font-bold text-blue-900 mb-2 flex items-center gap-2">
                                 <span>📧</span> Confirmation Sent
                             </p>
@@ -413,6 +634,16 @@
                             </p>
                             ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2">💬 We\'ll also send you updates via WhatsApp</p>' : ''}
                             ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2">💬 We\'ll also send you updates via SMS</p>' : ''}
+                        </div>
+                        
+                        <div class="bg-gray-50 rounded-xl p-6 mb-6">
+                            <h3 class="font-bold text-gray-700 mb-3">Order Summary</h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex justify-between"><span>Subtotal:</span><span>${formatPrice(order.subtotalCents)}</span></div>
+                                <div class="flex justify-between"><span>Shipping:</span><span>${formatPrice(order.shippingCents)}</span></div>
+                                <div class="flex justify-between"><span>Tax:</span><span>${formatPrice(order.taxCents)}</span></div>
+                                <div class="flex justify-between font-bold text-lg border-t pt-2"><span>Total:</span><span>${formatPrice(order.totalCents)}</span></div>
+                            </div>
                         </div>
                         
                         <div class="mt-8">
@@ -428,7 +659,8 @@
             console.error("Firestore Error:", e);
             alert("Error al guardar: " + e.message); 
             $('btnSubmit').disabled = false; 
-            $('btnSubmit').innerText = t('complete');
+            const grandTotal = cartTotalCents + shippingCents + taxCents;
+            $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
         }
     }
     init();
