@@ -230,7 +230,7 @@
         }
     }
     
-    // 2. Fix the handleSubmit to handle the db check
+    // 2. FIXED: handleSubmit now creates orders with flat item structure
     async function handleSubmit(event) {
         event.preventDefault();
         
@@ -251,26 +251,46 @@
         $('btnSubmit').disabled = true;
         $('btnSubmit').innerText = "...";
     
+        // ✅ FIXED: Flatten the items structure to match admin order format
         const order = {
-            // ...
+            userId: userId || 'guest',
+            buyerEmail: email,
+            buyerName: $('buyer-name').value,
+            buyerPhone: $('country-code').value + phone,
+            whatsappConsent: $('whatsapp-opt').checked,
+            deliveryAddress: $('delivery-address').value,
+            // ✅ NEW: Extract only essential fields in flat structure (no nested "item" object)
             items: Object.values(cartData).map(cartItem => ({
-                id: cartItem.item.id,           // ✅ Direct properties
+                id: cartItem.item.id,
                 name: cartItem.item.name,
                 price: cartItem.item.price,
                 sku: cartItem.item.sku,
                 quantity: cartItem.quantity
             })),
+            totalCents: cartTotalCents,
             status: "Pending",  // ✅ Added default status
-            // ...
+            createdAt: serverTimestamp(),
+            timestamp: new Date().toISOString()  // ✅ Added backup timestamp
         };
     
+        // 🔍 DEBUG: Log the order object before submission
+        console.log("=== ORDER BEING SUBMITTED ===");
+        console.log("Full order object:", order);
+        console.log("buyerName:", order.buyerName);
+        console.log("buyerEmail:", order.buyerEmail);
+        console.log("totalCents:", order.totalCents);
+        console.log("items:", order.items);
+        console.log("userId:", order.userId);
+        console.log("=============================");
+    
         try {
-            await addDoc(collection(db, "artifacts", "default-app-id", "public", "data", "orders"), order);
+            const docRef = await addDoc(collection(db, "artifacts", "default-app-id", "public", "data", "orders"), order);
+            console.log("✅ Order created successfully with ID:", docRef.id);
             
             sessionStorage.removeItem('autoInxCart');
             $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<h2 class="text-4xl font-black text-green-600">¡Pedido Recibido!</h2><p class="mt-4">Gracias por tu compra.</p></div>`;
         } catch (e) { 
-            console.error("Firestore Error:", e); // This will tell you if it's a Permission issue
+            console.error("Firestore Error:", e);
             alert("Error al guardar: " + e.message); 
             $('btnSubmit').disabled = false; 
             $('btnSubmit').innerText = t('complete');
