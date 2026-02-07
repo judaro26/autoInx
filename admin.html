@@ -798,25 +798,31 @@
         function initializeDraftCart(orderItems, currentPaidCents = 0) {
             state.editingOrderDraftCart = {};
             orderItems.forEach(orderItem => {
-                const fullItem = state.items.find(i => i.id === orderItem.id);
+                // FIX: Get the correct ID for both customer and admin orders
+                const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
+                const itemId = isCustomerFormat ? orderItem.item.id : orderItem.id;
+                
+                const fullItem = state.items.find(i => i.id === itemId);
+                
                 if (fullItem) {
-                    state.editingOrderDraftCart[orderItem.id] = {
+                    state.editingOrderDraftCart[itemId] = {
                         item: fullItem,
                         quantity: orderItem.quantity,
                     };
                 } else {
-                    state.editingOrderDraftCart[orderItem.id] = {
+                    // Fallback for deleted products - use getSafeItemData
+                    const itemData = getSafeItemData(orderItem);
+                    state.editingOrderDraftCart[itemId] = {
                         item: { 
-                            id: orderItem.id, 
-                            name: orderItem.name || 'DELETED PRODUCT', 
-                            price: orderItem.price || 0,
-                            sku: orderItem.sku || 'N/A'
+                            id: itemId, 
+                            name: itemData.name || 'DELETED PRODUCT', 
+                            price: itemData.price || 0,
+                            sku: itemData.sku || 'N/A'
                         },
                         quantity: orderItem.quantity,
                     };
                 }
             });
-            // Store the paid amount so recalculateBilling can see it immediately
             state.editingOrderPaymentTotal = currentPaidCents;
         }
         
