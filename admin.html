@@ -3476,7 +3476,13 @@
                             <div class="flex-1 min-w-[280px]">
                                 <div class="flex items-center gap-2 mb-2">
                                     <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded ${badgeClass}">${sourceLabel}</span>
-                                    <h4 class="font-bold text-gray-900">${escapeHtml(order.buyerName || 'No Name')}</h4>
+                                    <h4 class="font-bold text-gray-900">
+                                    ${escapeHtml(order.buyerName || 'No Name')}
+                                    ${escapeHtml(order.buyerEmail || '')}
+                                    ${escapeHtml(order.deliveryAddress || '')}
+                                    ${formatPriceDisplay(order.totalCents || 0)}
+                                    ${escapeHtml(order.status || 'Unknown')}
+                                    </h4>
                                 </div>
                                 <div class="space-y-1 mb-3">
                                     <p class="text-xs text-gray-500 flex items-center gap-1">📧 ${order.buyerEmail}</p>
@@ -3518,90 +3524,107 @@
         
     
             // --- ORDERS TRACKING FUNCTIONS (Render) ---
-        function renderOrdersList() {
-            // This logic filters the orders based on state.orderStatusFilter
-            const orders = getFilteredOrders();
+            function renderOrdersList() {
+                const orders = getFilteredOrders();
+                
+                const tableRows = orders.map(order => {
+                    const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
+                    
+                    // FIX 1: Handle both date formats
+                    const orderDate = getOrderDate(order);
+                    const formattedDate = orderDate ? orderDate.toLocaleString() : 'N/A';
+                    
+                    const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
+                                       order.status === 'Pending' ? 'text-red-600 font-bold' :
+                                       order.status === 'Processing' ? 'text-blue-600 font-bold' : 
+                                       'text-gray-600';
+                    
+                    let deliveryButton = '';
+                    if (order.status === 'Pending') {
+                         deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" 
+                                            class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">
+                                            Request Delivery</button>`;
+                    } else if (order.status === 'Processing') {
+                         deliveryButton = `<button disabled 
+                                            class="px-3 py-1 w-full bg-gray-400 text-white text-xs rounded">
+                                            Delivery In Progress</button>`;
+                    }
+                    
+                    // FIX 2: Use getSafeItemData helper
+                    const itemListHtml = (order.items || []).map(orderItem => {
+                        const itemData = getSafeItemData(orderItem);
+                        const displayName = itemData.name.substring(0, 20) + 
+                                           (itemData.name.length > 20 ? '...' : '');
+                        return `<p>${itemData.quantity}x ${escapeHtml(displayName)}</p>`;
+                    }).join('');
+                    
+                    const isPaid = order.isPaid || false;
+                    const paymentStatusBadge = isPaid
+                        ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
+                        : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
+                        
+                    const editButton = `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}', 'edit')" 
+                                         class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">
+                                         Edit Order</button>`;
             
-            const tableRows = orders.map(order => {
-                
-                // 🔑 1. Determine the necessary ID for the Firestore path
-                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
-                
-                // 2. Set status classes and delivery button logic
-                const statusClass = order.status === 'Delivered' ? 'text-green-600 font-bold' :
-                                            order.status === 'Pending' ? 'text-red-600 font-bold' :
-                                            order.status === 'Processing' ? 'text-blue-600 font-bold' : 'text-gray-600';
-                
-                let deliveryButton = '';
-                if (order.status === 'Pending') {
-                     deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">Request Delivery</button>`;
-                } else if (order.status === 'Processing') {
-                     deliveryButton = `<button disabled class="px-3 py-1 w-full bg-gray-400 text-white text-xs rounded">Delivery In Progress</button>`;
-                }
-                
-                const itemListHtml = order.items.map(item => `<p>${item.quantity}x ${item.name.substring(0,20)}${item.name.length > 20 ? '...' : ''}</p>`).join('');
-                const isPaid = order.isPaid || false;
-                const paymentStatusBadge = isPaid
-                    ? `<span class="text-xs font-semibold text-white bg-green-500 px-1 py-0.5 rounded-full ml-1">Paid</span>`
-                    : `<span class="text-xs font-semibold text-white bg-red-500 px-1 py-0.5 rounded-full ml-1">Unpaid</span>`;
-                const editButton = `<button onclick="window.module.showOrderEditForm('${order.id}', '${targetId}', 'edit')" class="px-3 py-1 w-full bg-yellow-500 text-white text-xs rounded hover:bg-yellow-600 transition">Edit Order</button>`;
-
-                // The status update dropdown remains for manual updates
-                const statusUpdateDropdown = `
-                    <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" class="p-1 border rounded-lg text-xs bg-gray-50 mt-1 w-full">
-                        <option value="${order.status}" selected>${order.status}</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Processing">Processing</option>
-                        <option value="Shipped">Shipped</option>
-                        <option value="Delivered">Delivered</option>
-                        <option value="Cancelled">Cancelled</option>
-                    </select>
-                `;
-                
-                return `
-                    <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
-                        <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
-                            <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
-                            <p class="text-xs text-gray-500 font-mono">${order.id}</p>
-                        </div>
-                        <div class="col-span-2 text-sm">
-                            <p class="font-semibold">${order.buyerName}</p>
-                            <p class="text-xs text-gray-500 truncate">${order.buyerEmail}</p>
-                            <p class="text-xs text-gray-500 truncate">${order.deliveryAddress}</p>
-                        </div>
-                        <div class="col-span-3 flex flex-col items-center justify-center space-y-1">    
-                            <div class="flex items-center">
-                                <span class="text-lg font-bold text-pink-700">${formatPriceDisplay(order.totalCents)}</span>
-                                ${paymentStatusBadge}    
+                    const statusUpdateDropdown = `
+                        <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value)" 
+                                class="p-1 border rounded-lg text-xs bg-gray-50 mt-1 w-full">
+                            <option value="${order.status}" selected>${order.status}</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Processing">Processing</option>
+                            <option value="Shipped">Shipped</option>
+                            <option value="Delivered">Delivered</option>
+                            <option value="Cancelled">Cancelled</option>
+                        </select>
+                    `;
+                    
+                    // FIX 3: Add safety checks and escapeHtml
+                    return `
+                        <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
+                            <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
+                                <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
+                                <p class="text-xs text-gray-500 font-mono">${order.id}</p>
                             </div>
-                            <span class="text-sm font-bold ${statusClass} flex-shrink-0">${order.status}</span>
-                        </div>
-                        <div class="col-span-1"></div>
-                        <div class="col-span-2 text-xs text-gray-700">
-                            ${itemListHtml}    
-                        </div>
-                        <div class="col-span-2 space-y-1">    
-                            <div class="text-xs text-gray-500 font-semibold mb-2">
-                                ${formatTime(order.createdAt)}    
+                            <div class="col-span-2 text-sm">
+                                <p class="font-semibold">${escapeHtml(order.buyerName || 'No Name')}</p>
+                                <p class="text-xs text-gray-500 truncate">${escapeHtml(order.buyerEmail || '')}</p>
+                                <p class="text-xs text-gray-500 truncate">${escapeHtml(order.deliveryAddress || '')}</p>
                             </div>
-                            ${editButton} 
-                            ${deliveryButton}
-                            ${statusUpdateDropdown}
+                            <div class="col-span-3 flex flex-col items-center justify-center space-y-1">    
+                                <div class="flex items-center">
+                                    <span class="text-lg font-bold text-pink-700">${formatPriceDisplay(order.totalCents || 0)}</span>
+                                    ${paymentStatusBadge}    
+                                </div>
+                                <span class="text-sm font-bold ${statusClass} flex-shrink-0">${escapeHtml(order.status || 'Unknown')}</span>
+                            </div>
+                            <div class="col-span-1"></div>
+                            <div class="col-span-2 text-xs text-gray-700">
+                                ${itemListHtml || '<p class="text-gray-400 italic">No items</p>'}    
+                            </div>
+                            <div class="col-span-2 space-y-1">    
+                                <div class="text-xs text-gray-500 font-semibold mb-2">
+                                    ${formattedDate}    
+                                </div>
+                                ${editButton} 
+                                ${deliveryButton}
+                                ${statusUpdateDropdown}
+                            </div>
                         </div>
-                    </div>
-                `;
-            }).join('');
-            const contentEl = document.getElementById('ordersListContent');
+                    `;
+                }).join('');
+                
+                const contentEl = document.getElementById('ordersListContent');
                 if (contentEl) {
                     contentEl.innerHTML = tableRows || '<p class="text-center p-6 text-gray-500">No orders found matching this filter.</p>';
                 }
+                
                 const statsEl = document.getElementById('ordersStats');
                 if (statsEl) {
                     statsEl.innerHTML = window.module.getOrdersStatsHtml();
-                    window.module.renderSalesCharts(); // Call the renderer after injecting the HTML
+                    window.module.renderSalesCharts();
                 }
                 
-                // Clear the loading message after rendering
                 const ordersMsgElClear = document.getElementById('ordersMessage');
                 if (ordersMsgElClear) ordersMsgElClear.textContent = '';
             }
