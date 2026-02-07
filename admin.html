@@ -201,6 +201,12 @@
             editingItem: null,
             previewMode: false,
             adminCart: {},
+            
+            // ✅ NEW: Admin order creation shipping/tax
+            adminOrderShippingCents: 0,
+            adminOrderTaxCents: 0,
+            adminOrderShippingDetails: null,
+            adminOrderTaxDetails: null,
             // --- ORDERS STATE ---
             orders: [],
             orderListSearchTerm: '',
@@ -462,15 +468,18 @@
             updateSubmitButtonState(); // Initialize button state
     
             // Listener: When the user selects an address from the dropdown
-            autocomplete.addListener('place_changed', () => {
+            autocomplete.addListener('place_changed', async () => {
                 const place = autocomplete.getPlace();
                 if (place.geometry) {
                     input.classList.remove('address-invalid', 'border-gray-300');
                     input.classList.add('address-valid');
                     document.getElementById('addressErrorAdmin')?.classList.add('hidden');
                     input.dataset.validated = 'true';
+                    
+                    // ✅ NEW: Calculate shipping and tax when address is selected
+                    await calculateAdminOrderShippingTax();
                 }
-                updateSubmitButtonState(); // Update button state on selection
+                updateSubmitButtonState();
             });
     
             // Listener: Mark as invalid if user manually types after initialization/selection
@@ -1510,6 +1519,14 @@
         }
     
         function switchOrderPage(page) {
+            // ✅ NEW: Reset shipping/tax when leaving create page
+            if (state.orderPage === 'create' && page !== 'create') {
+                state.adminOrderShippingCents = 0;
+                state.adminOrderTaxCents = 0;
+                state.adminOrderShippingDetails = null;
+                state.adminOrderTaxDetails = null;
+            }
+            
             state.orderPage = page;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             
@@ -2218,8 +2235,180 @@
             }).join('');
     
             cartEl.innerHTML = cartHtml;
-            totalEl.textContent = formatPriceDisplay(totalCents);
+            
+            // ✅ NEW: Show breakdown with shipping and tax
+            const shippingCents = state.adminOrderShippingCents || 0;
+            const taxCents = state.adminOrderTaxCents || 0;
+            const grandTotal = totalCents + shippingCents + taxCents;
+            
+            let breakdownHtml = `
+                <div class="border-t-2 pt-3 space-y-2">
+                    <div class="flex justify-between text-sm text-gray-700">
+                        <span>Subtotal:</span>
+                        <span class="font-semibold">${formatPriceDisplay(totalCents)}</span>
+                    </div>
+            `;
+            
+            if (shippingCents > 0) {
+                breakdownHtml += `
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span>📦 Shipping ${state.adminOrderShippingDetails ? `(${state.adminOrderShippingDetails.provider})` : ''}</span>
+                        <span>${formatPriceDisplay(shippingCents)}</span>
+                    </div>
+                `;
+            } else {
+                breakdownHtml += `
+                    <div class="flex justify-between text-xs text-gray-400 italic">
+                        <span>📦 Shipping</span>
+                        <span>Enter address to calculate</span>
+                    </div>
+                `;
+            }
+            
+            if (taxCents > 0) {
+                breakdownHtml += `
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span>📋 Tax ${state.adminOrderTaxDetails ? `(${state.adminOrderTaxDetails.ratePercent}%)` : ''}</span>
+                        <span>${formatPriceDisplay(taxCents)}</span>
+                    </div>
+                `;
+            } else {
+                breakdownHtml += `
+                    <div class="flex justify-between text-xs text-gray-400 italic">
+                        <span>📋 Tax</span>
+                        <span>Calculated with address</span>
+                    </div>
+                `;
+            }
+            
+            breakdownHtml += `
+                    <div class="flex justify-between text-xl font-black text-indigo-700 border-t-2 pt-2">
+                        <span>Total:</span>
+                        <span>${formatPriceDisplay(grandTotal)}</span>
+                    </div>
+                </div>
+            `;
+            
+            totalEl.innerHTML = breakdownHtml;
             updateSubmitButtonState();
+        }
+
+        // ✅ NEW: Calculate shipping and tax for manual orders
+        async function calculateAdminOrderShippingTax() {
+            const addressInput = document.getElementById('deliveryAddress');
+            const address = addressInput?.value?.trim();
+            
+            if (!address || addressInput.dataset.validated !== 'true') {
+                // Reset if address is invalid
+                state.adminOrderShippingCents = 0;
+                state.adminOrderTaxCents = 0;
+                state.adminOrderShippingDetails = null;
+                state.adminOrderTaxDetails = null;
+                updateAdminCartDisplay();
+                return;
+            }
+        
+            const submitButton = document.getElementById('submitOrderButton');
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = 'Calculating shipping...';
+            }
+        
+            try {
+                // Parse address for state/zip
+                const addressParts = address.split(',');
+                const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
+                const orderState = stateZip[0] || 'CA';
+                const zipCode = stateZip[1] || '00000';
+        
+                // Calculate total weight
+                const totalWeight = Object.values(state.adminCart).reduce((sum, e) => sum + e.quantity, 0);
+                const cartTotalCents = Object.values(state.adminCart).reduce((s, e) => s + e.item.price * e.quantity, 0);
+        
+                // 1. Calculate Shipping
+                try {
+                    const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            addressTo: {
+                                name: document.getElementById('buyerName')?.value || 'Customer',
+                                street1: addressParts[0]?.trim() || address,
+                                city: addressParts[1]?.trim() || 'Unknown',
+                                state: orderState,
+                                zip: zipCode,
+                                country: 'US'
+                            },
+                            parcels: [{
+                                length: "12",
+                                width: "8",
+                                height: "6",
+                                distance_unit: "in",
+                                weight: Math.max(1, totalWeight).toString(),
+                                mass_unit: "lb"
+                            }]
+                        })
+                    });
+        
+                    if (shippingRes.ok) {
+                        const shippingData = await shippingRes.json();
+                        if (shippingData.bestRate) {
+                            state.adminOrderShippingCents = Math.round(shippingData.bestRate.amount * 100);
+                            state.adminOrderShippingDetails = {
+                                provider: shippingData.bestRate.provider,
+                                amount: shippingData.bestRate.amount
+                            };
+                        }
+                    } else {
+                        console.warn('Shipping API failed, using default');
+                        state.adminOrderShippingCents = 1000; // $10 default
+                        state.adminOrderShippingDetails = { provider: 'Standard', amount: 10 };
+                    }
+                } catch (shippingError) {
+                    console.error('Shipping calculation error:', shippingError);
+                    state.adminOrderShippingCents = 1000;
+                    state.adminOrderShippingDetails = { provider: 'Standard', amount: 10 };
+                }
+        
+                if (submitButton) submitButton.textContent = 'Calculating tax...';
+        
+                // 2. Calculate Tax
+                try {
+                    const taxRes = await fetch('/.netlify/functions/calculateTax', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            subtotalCents: cartTotalCents,
+                            state: orderState,
+                            zipCode: zipCode
+                        })
+                    });
+        
+                    if (taxRes.ok) {
+                        const taxData = await taxRes.json();
+                        state.adminOrderTaxCents = taxData.taxCents || 0;
+                        state.adminOrderTaxDetails = {
+                            rate: taxData.taxRate,
+                            ratePercent: taxData.taxRatePercent
+                        };
+                    }
+                } catch (taxError) {
+                    console.error('Tax calculation error:', taxError);
+                    state.adminOrderTaxCents = 0;
+                }
+        
+                // Re-render cart with updated totals
+                updateAdminCartDisplay();
+        
+            } catch (error) {
+                console.error('Calculation error:', error);
+                showMessage('error', 'Failed to calculate shipping/tax. Using defaults.', 5000, 'orders');
+            } finally {
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'SUBMIT ORDER & SEND EMAIL';
+                }
+            }
         }
     
         // NEW: Renders the item selector dropdown with search results
@@ -2373,6 +2562,10 @@
                 const whatsappConsent = document.getElementById('adminWhatsappOpt')?.checked || false;
                 const smsConsent = document.getElementById('adminSmsOpt')?.checked || false;
                 
+                const shippingCents = state.adminOrderShippingCents || 0;
+                const taxCents = state.adminOrderTaxCents || 0;
+                const finalTotalCents = cartTotalCents + shippingCents + taxCents;
+                
                 const orderData = {
                     buyerEmail: email,
                     buyerName: name,
@@ -2392,12 +2585,12 @@
                         price: e.item.price,
                         quantity: e.quantity
                     })),
-                    subtotalCents: cartTotalCents,
-                    shippingCents: shippingCents,
-                    taxCents: taxCents,
-                    totalCents: finalTotalCents,
-                    shippingDetails: shippingDetails,
-                    taxDetails: taxDetails,
+                    subtotalCents: cartTotalCents,           // ✅ Items only
+                    shippingCents: shippingCents,            // ✅ Pre-calculated
+                    taxCents: taxCents,                      // ✅ Pre-calculated
+                    totalCents: finalTotalCents,             // ✅ Grand total
+                    shippingDetails: state.adminOrderShippingDetails,
+                    taxDetails: state.adminOrderTaxDetails,
                     userId: auth.currentUser.uid,
                     timestamp: new Date().toISOString(),
                     geolocation: geolocation,
@@ -3759,10 +3952,23 @@
                     
                         <div class="md:col-span-5 bg-white p-6 rounded-xl shadow-lg border-t-4 border-purple-500">
                             <h3 class="text-xl font-bold mb-4 text-purple-700">Enter Customer Details</h3>
+
                             <form id="createOrderForm" onsubmit="window.module.handleAdminOrderSubmit(event)" class="space-y-4">
                                 <input type="text" id="buyerName" placeholder="Customer Name" required class="w-full p-2 border rounded-lg">
                                 <input type="email" id="buyerEmail" placeholder="Customer Email (for confirmation)" required class="w-full p-2 border rounded-lg">
                                 <input type="tel" id="buyerPhone" placeholder="Customer Phone (Optional)" class="w-full p-2 border rounded-lg">
+                                
+                                <!-- ✅ NEW: Delivery Address with Google Autocomplete -->
+                                <div class="space-y-2">
+                                    <label class="block text-sm font-bold text-gray-700">Delivery Address *</label>
+                                    <input type="text" id="deliveryAddress" placeholder="Start typing address..." required 
+                                           data-validated="false"
+                                           class="w-full p-3 border-2 border-gray-300 rounded-lg address-input transition-all">
+                                    <div id="addressErrorAdmin" class="text-xs text-red-600 font-semibold hidden">
+                                        ⚠️ Please select a valid address from the dropdown
+                                    </div>
+                                </div>
+
                                 
                                 <div class="mt-4 bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded-xl border-2 border-green-200">
                                     <p class="font-bold text-gray-800 mb-3 flex items-center gap-2">
@@ -4394,6 +4600,7 @@
             renderOrdersList, renderOrderCreateForm, renderOrdersStats, getOrdersStatsHtml,
             renderSalesCharts, handleSalesTimeFilterChange, renderCategorySalesTable,
             downloadCategorySalesCsv, downloadIndividualItemSalesCsv,
+            calculateAdminOrderShippingTax,  
         
             // --- MANUAL ORDER CREATION (ADMIN CART) ---
             handleAdminOrderSubmit, addAdminCartItem, removeAdminCartItem,
@@ -4404,6 +4611,8 @@
             initializeDraftCart,
             handleResendReceipt,
             updateOrder,
+
+            
             
             updateDraftCartDisplay: function() {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
