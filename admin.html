@@ -2259,22 +2259,17 @@
             const deliveryAddress = document.getElementById('deliveryAddress');
             const submitButton = document.getElementById('submitOrderButton');
         
-            // 1. Get and Validate Form Data (Including Language)
+            // 1. Get Form Data
             const buyerName = form.buyerName.value.trim();
             const buyerEmail = form.buyerEmail.value.trim();
             const buyerPhone = form.buyerPhone.value.trim();
             const orderNotes = form.orderNotes.value.trim();
-            // NEW: Get the language code from the select input (default to 'en')
-            const buyerLanguage = form.buyerLanguage?.value.trim() || 'en'; 
+            const buyerLanguage = form.buyerLanguage?.value.trim() || 'en';
             
-            // Derived variables for payload construction
             const email = buyerEmail;
             const name = buyerName;
             const phone = buyerPhone;
             const address = deliveryAddress.value.trim();
-            const prefersWhatsapp = false;
-            const cartTotalCents = Object.values(state.adminCart).reduce((s, e) => s + e.item.price * e.quantity, 0);
-            const userId = auth.currentUser.uid;
             const itemsToOrder = Object.values(state.adminCart);
         
             if (itemsToOrder.length === 0) {
@@ -2293,43 +2288,125 @@
                 }
             }
         
-            // 2. Prepare Order Data for Submission (ADD LANGUAGE)
-            const whatsappConsent = document.getElementById('adminWhatsappOpt')?.checked || false;
-            const smsConsent = document.getElementById('adminSmsOpt')?.checked || false;
-            
-            const orderData = {
-                buyerEmail: email,
-                buyerName: name,
-                buyerPhone: phone,
-                deliveryAddress: address,
-                whatsappConsent: whatsappConsent,  // ✅ Updated field name
-                smsConsent: smsConsent,  // ✅ NEW: SMS preference
-                notificationPreferences: {  // ✅ NEW: Structured preferences
-                    whatsapp: whatsappConsent,
-                    sms: smsConsent,
-                    email: true
-                },
-                items: itemsToOrder.map(e => ({
-                    id: e.item.id,
-                    name: e.item.name,
-                    sku: e.item.sku || null,
-                    price: e.item.price,
-                    quantity: e.quantity
-                })),
-                totalCents: cartTotalCents,
-                userId: userId,
-                timestamp: new Date().toISOString(),
-                geolocation: geolocation,
-                adminNotes: orderNotes,
-                language: buyerLanguage,
-                communicationLang: buyerLanguage
-            };
-            
             submitButton.disabled = true;
-            submitButton.textContent = 'Processing...';
+            submitButton.textContent = 'Calculating shipping...';
         
             try {
-                // 3. Submit Order to Remote Cloud Function (Remote Submission FIRST)
+                // ✅ NEW: Calculate shipping cost
+                let shippingCents = 0;
+                let shippingDetails = null;
+                
+                // Parse address for state/zip
+                const addressParts = address.split(',');
+                const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
+                const orderState = stateZip[0] || 'CA';
+                const zipCode = stateZip[1] || '00000';
+        
+                // Calculate total weight (example: 1 lb per item)
+                const totalWeight = itemsToOrder.reduce((sum, e) => sum + e.quantity, 0);
+                
+                const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        addressTo: {
+                            name: name,
+                            street1: addressParts[0] || address,
+                            city: addressParts[1]?.trim() || 'Unknown',
+                            state: orderState,
+                            zip: zipCode,
+                            country: 'US'
+                        },
+                        parcels: [{
+                            length: "12",
+                            width: "8",
+                            height: "6",
+                            distance_unit: "in",
+                            weight: totalWeight.toString(),
+                            mass_unit: "lb"
+                        }]
+                    })
+                });
+        
+                if (shippingRes.ok) {
+                    const shippingData = await shippingRes.json();
+                    if (shippingData.bestRate) {
+                        shippingCents = Math.round(shippingData.bestRate.amount * 100);
+                        shippingDetails = shippingData.bestRate;
+                    }
+                } else {
+                    console.warn('Shipping calculation failed, using default $10');
+                    shippingCents = 1000; // Default $10
+                }
+        
+                submitButton.textContent = 'Calculating tax...';
+        
+                // ✅ NEW: Calculate tax
+                const cartTotalCents = itemsToOrder.reduce((s, e) => s + e.item.price * e.quantity, 0);
+                let taxCents = 0;
+                let taxDetails = null;
+        
+                const taxRes = await fetch('/.netlify/functions/calculateTax', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        subtotalCents: cartTotalCents,
+                        state: orderState,
+                        zipCode: zipCode
+                    })
+                });
+        
+                if (taxRes.ok) {
+                    const taxData = await taxRes.json();
+                    taxCents = taxData.taxCents || 0;
+                    taxDetails = {
+                        rate: taxData.taxRate,
+                        ratePercent: taxData.taxRatePercent
+                    };
+                }
+        
+                const finalTotalCents = cartTotalCents + shippingCents + taxCents;
+        
+                submitButton.textContent = 'Creating order...';
+        
+                // 2. Prepare Order Data
+                const whatsappConsent = document.getElementById('adminWhatsappOpt')?.checked || false;
+                const smsConsent = document.getElementById('adminSmsOpt')?.checked || false;
+                
+                const orderData = {
+                    buyerEmail: email,
+                    buyerName: name,
+                    buyerPhone: phone,
+                    deliveryAddress: address,
+                    whatsappConsent: whatsappConsent,
+                    smsConsent: smsConsent,
+                    notificationPreferences: {
+                        whatsapp: whatsappConsent,
+                        sms: smsConsent,
+                        email: true
+                    },
+                    items: itemsToOrder.map(e => ({
+                        id: e.item.id,
+                        name: e.item.name,
+                        sku: e.item.sku || null,
+                        price: e.item.price,
+                        quantity: e.quantity
+                    })),
+                    subtotalCents: cartTotalCents,
+                    shippingCents: shippingCents,
+                    taxCents: taxCents,
+                    totalCents: finalTotalCents,
+                    shippingDetails: shippingDetails,
+                    taxDetails: taxDetails,
+                    userId: auth.currentUser.uid,
+                    timestamp: new Date().toISOString(),
+                    geolocation: geolocation,
+                    adminNotes: orderNotes,
+                    language: buyerLanguage,
+                    communicationLang: buyerLanguage
+                };
+        
+                // 3. Submit Order
                 const idToken = await auth.currentUser.getIdToken();
                 const res = await fetch(ADMIN_CREATE_ORDER_FUNCTION, {
                     method: 'POST',
@@ -2348,7 +2425,7 @@
                 const orderCreationResponse = await res.json();
                 const finalOrderId = orderCreationResponse.orderId || 'ADMIN_ORDER_ID';
                 
-                // 4. Process Inventory Updates (Local Firestore Operation - NOW SECOND)
+                // 4. Update Inventory
                 const inventoryUpdates = itemsToOrder.map(async entry => {
                     const itemId = entry.item.id;
                     const orderQty = entry.quantity;
@@ -2373,13 +2450,13 @@
                 
                 await Promise.all(inventoryUpdates);
                 
-                // 5. Send Confirmation Email (Includes Language)
+                // 5. Send Email
                 const emailPayload = {
                     ...orderData,
                     orderId: finalOrderId,
                     adminEmail: auth.currentUser?.email,
                     requesterEmail: auth.currentUser?.email,
-                    language: buyerLanguage // <<< NEW: Passed to email function
+                    language: buyerLanguage
                 };
                 
                 await fetch(EMAIL_CONFIRMATION_FUNCTION, {
@@ -2388,20 +2465,24 @@
                     body: JSON.stringify(emailPayload)
                 });
                 
-                // 6. Finalize UI State
+                // 6. Success
                 state.adminCart = {};
                 form.reset();
                 deliveryAddress.dataset.validated = 'false';
                 
-                showMessage('success', `Order ${finalOrderId} for ${name} successfully created and confirmation emails sent!`, 8000, 'orders');
+                showMessage('success', 
+                    `Order ${finalOrderId} created! Subtotal: ${formatPriceDisplay(cartTotalCents)}, Shipping: ${formatPriceDisplay(shippingCents)}, Tax: ${formatPriceDisplay(taxCents)}, Total: ${formatPriceDisplay(finalTotalCents)}`, 
+                    10000, 'orders'
+                );
                 
                 window.module.fetchOrders();
         
             } catch (error) {
-                console.error('Error creating order, updating inventory, or sending emails:', error);
-                showMessage('error', `Failed to create order: ${error.message}. Check console for details.`, 10000, 'orders');
+                console.error('Error creating order:', error);
+                showMessage('error', `Failed to create order: ${error.message}`, 10000, 'orders');
             } finally {
                 submitButton.textContent = 'SUBMIT ORDER & SEND EMAIL';
+                submitButton.disabled = false;
                 updateAdminCartDisplay();
             }
         }
@@ -2656,29 +2737,30 @@
         async function handleUpdateConfig(e) {
             e.preventDefault();
             
-            // Get the latest values from the DOM elements
             const maintenanceToggle = document.getElementById('maintenanceToggle');
             const chatWidgetToggle = document.getElementById('chatWidgetToggle');
             const dynamicIpList = document.getElementById('dynamicIpList');
-
-            // --- NEW: Gather dynamic schedule data ---
-            const activeDaysCheckboxes = Array.from(document.querySelectorAll('#chatActiveDays input[name="chatDay"]:checked'));
-            const activeDaysValues = activeDaysCheckboxes.map(cb => parseInt(cb.value, 10));
+        
+            // ✅ FIX: Properly gather checked day values
+            const activeDaysCheckboxes = document.querySelectorAll('#chatActiveDays input[name="chatDay"]:checked');
+            const activeDaysValues = Array.from(activeDaysCheckboxes).map(cb => parseInt(cb.value, 10));
             
             const chatScheduleUpdates = {
-                enableTime: document.getElementById('chatEnableTime').value,
-                disableTime: document.getElementById('chatDisableTime').value,
-                activeDays: activeDaysValues,
+                enableTime: document.getElementById('chatEnableTime')?.value || '08:00',
+                disableTime: document.getElementById('chatDisableTime')?.value || '20:00',
+                activeDays: activeDaysValues.length > 0 ? activeDaysValues : [1,2,3,4,5] // Default Mon-Fri
             };
-            // -----------------------------------------
         
-            // Use values directly from the toggles and the textarea
             const updates = {
                 maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
                 chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
                 ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist,
                 chatSchedule: chatScheduleUpdates,
             };
+            
+            // Add debug logging
+            console.log('💾 Saving config:', updates);
+            console.log('📅 Active days being saved:', activeDaysValues);
             
             try {
                 const idToken = await auth.currentUser.getIdToken();
@@ -2977,15 +3059,12 @@
         }
                 
         async function showOrderEditForm(orderId, clientUid, mode = 'edit') {
-            // 1. Validation check for essential identifiers
             if (!orderId || !clientUid) {
                 console.error("Missing Order ID or Client UID. Cannot open edit form.");
                 return;
             }
             
             try {
-                // 2. Authorization & Path Resolution
-                // Ensures the admin's own UID is resolved before trying to access protected paths
                 const adminUserId = await waitForUserId(); 
                 const collectionPathFn = window.module.getOrdersCollectionPath;
                 
@@ -2993,15 +3072,11 @@
                     throw new Error("Collection path helper is missing or not a function.");
                 }
                 
-                // Resolve the specific Firestore path for this client's order
                 const path = collectionPathFn(clientUid);
                 const orderRef = doc(db, path, orderId);
-                
-                // 3. Data Fetching
                 const orderSnap = await getDoc(orderRef);
                 
                 if (!orderSnap.exists()) {
-                    // Display a user-friendly error in the modal container if the document is missing
                     document.getElementById('editModalContainer').innerHTML = `
                         <div class="fixed inset-0 bg-gray-600 bg-opacity-50 z-50 flex items-center justify-center">
                             <div class="bg-white p-8 rounded-xl shadow-2xl border-t-4 border-red-500 text-center">
@@ -3015,14 +3090,8 @@
                 }
                 
                 const orderData = { id: orderSnap.id, ...orderSnap.data() };
-                
-                // 4. State Initialization
-                // CRITICAL: We pass the items array AND the current paid amount (cents) 
-                // to sync the internal 'Draft Cart' used for recalculating balances.
                 window.module.initializeDraftCart(orderData.items || [], orderData.paidCents || 0);
                 
-                // 5. Modal Injection
-                // We pass the 'mode' ('edit' or 'payment') to the renderer to determine which HTML to show
                 const modalHtml = window.module.renderOrderEditModal(orderData, mode);
                 const container = document.getElementById('editModalContainer');
                 
@@ -3032,23 +3101,22 @@
                     throw new Error("Target container 'editModalContainer' not found in the DOM.");
                 }
                 
-                // 6. Mode-Specific Setup
+                // ✅ FIX: Populate item selector for BOTH modes
+                const selectorEl = document.getElementById('editItemSelector');
+                if (selectorEl && state.items) {
+                    let optionsHtml = '<option value="" disabled selected>-- Add Product --</option>';
+                    optionsHtml += state.items.map(item => {
+                        const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                        return `<option value="${item.id}">${item.name} (${catName}) - ${formatPriceDisplay(item.price)}</option>`;
+                    }).join('');
+                    selectorEl.innerHTML = optionsHtml;
+                }
+                
                 if (mode === 'edit') {
-                    // Full Editor Mode: Sync the item list display and total price
                     window.module.updateDraftCartDisplay();
-                    
-                    // Populate the "Add Product" selector with all available items from the store library
-                    const selectorEl = document.getElementById('editItemSelector');
-                    if (selectorEl && state.items) {
-                        let optionsHtml = '<option value="" disabled selected>-- Add Product --</option>';
-                        optionsHtml += state.items.map(item => {
-                            const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                            return `<option value="${item.id}">${item.name} (${catName}) - ${formatPriceDisplay(item.price)}</option>`;
-                        }).join('');
-                        selectorEl.innerHTML = optionsHtml;
-                    }
                 } else {
-                    // Payment Mode: Run an initial billing calculation to show current balance owed
+                    // Payment mode
+                    window.module.updateDraftCartDisplay();
                     window.module.recalculateBilling();
                 }
                 
