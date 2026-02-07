@@ -327,8 +327,103 @@
             const docRef = await addDoc(collection(db, "artifacts", "default-app-id", "public", "data", "orders"), order);
             console.log("✅ Order created successfully with ID:", docRef.id);
             
+            // ✅ NEW: Send email confirmation to customer
+            try {
+                const emailPayload = {
+                    orderId: docRef.id,
+                    buyerEmail: order.buyerEmail,
+                    buyerName: order.buyerName,
+                    buyerPhone: order.buyerPhone,
+                    deliveryAddress: order.deliveryAddress,
+                    items: order.items,
+                    totalCents: order.totalCents,
+                    status: order.status,
+                    language: currentLang,  // Use the current language from checkout
+                    communicationLang: currentLang,
+                    // Include notification preferences
+                    whatsappConsent: order.whatsappConsent,
+                    smsConsent: order.smsConsent
+                };
+                
+                console.log("📧 Sending confirmation email...");
+                
+                const emailResponse = await fetch('/.netlify/functions/sendOrderConfirmation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(emailPayload)
+                });
+                
+                if (emailResponse.ok) {
+                    console.log("✅ Confirmation email sent successfully");
+                } else {
+                    console.warn("⚠️ Email sending failed, but order was created successfully");
+                }
+            } catch (emailError) {
+                console.error("Email Error (order still created):", emailError);
+                // Don't throw - order was already created successfully
+            }
+            
             sessionStorage.removeItem('autoInxCart');
-            $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<h2 class="text-4xl font-black text-green-600">¡Pedido Recibido!</h2><p class="mt-4">Gracias por tu compra.</p></div>`;
+            
+            const successMessage = currentLang === 'es' 
+                ? `<div class="text-center py-20">
+                    ${renderHeader()}
+                    <div class="max-w-2xl mx-auto">
+                        <div class="mb-6">
+                            <div class="text-6xl mb-4">✅</div>
+                            <h2 class="text-4xl font-black text-green-600 mb-2">¡Pedido Recibido!</h2>
+                            <p class="text-lg text-gray-700 mb-1">Gracias por tu compra</p>
+                            <p class="text-sm text-gray-500">Número de pedido: <span class="font-mono font-bold">#${docRef.id.substring(0, 8)}</span></p>
+                        </div>
+                        
+                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-left">
+                            <p class="font-bold text-blue-900 mb-2 flex items-center gap-2">
+                                <span>📧</span> Confirmación Enviada
+                            </p>
+                            <p class="text-sm text-blue-800">
+                                Hemos enviado una confirmación a <strong>${order.buyerEmail}</strong>
+                            </p>
+                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2">💬 También te enviaremos actualizaciones por WhatsApp</p>' : ''}
+                            ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2">💬 También te enviaremos actualizaciones por SMS</p>' : ''}
+                        </div>
+                        
+                        <div class="mt-8">
+                            <a href="/" class="inline-block bg-indigo-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-indigo-700 transition">
+                                Volver a la Tienda
+                            </a>
+                        </div>
+                    </div>
+                </div>`
+                : `<div class="text-center py-20">
+                    ${renderHeader()}
+                    <div class="max-w-2xl mx-auto">
+                        <div class="mb-6">
+                            <div class="text-6xl mb-4">✅</div>
+                            <h2 class="text-4xl font-black text-green-600 mb-2">Order Received!</h2>
+                            <p class="text-lg text-gray-700 mb-1">Thank you for your purchase</p>
+                            <p class="text-sm text-gray-500">Order number: <span class="font-mono font-bold">#${docRef.id.substring(0, 8)}</span></p>
+                        </div>
+                        
+                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-left">
+                            <p class="font-bold text-blue-900 mb-2 flex items-center gap-2">
+                                <span>📧</span> Confirmation Sent
+                            </p>
+                            <p class="text-sm text-blue-800">
+                                We've sent a confirmation to <strong>${order.buyerEmail}</strong>
+                            </p>
+                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2">💬 We\'ll also send you updates via WhatsApp</p>' : ''}
+                            ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2">💬 We\'ll also send you updates via SMS</p>' : ''}
+                        </div>
+                        
+                        <div class="mt-8">
+                            <a href="/" class="inline-block bg-indigo-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-indigo-700 transition">
+                                Return to Store
+                            </a>
+                        </div>
+                    </div>
+                </div>`;
+            
+            $('app').innerHTML = successMessage;
         } catch (e) { 
             console.error("Firestore Error:", e);
             alert("Error al guardar: " + e.message); 
