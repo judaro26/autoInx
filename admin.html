@@ -113,7 +113,6 @@
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         // CORRECTED: Import static IP list directly from the new client-accessible path
         import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js'; 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         
         // --- GLOBAL VARIABLES & STATE ---
@@ -364,16 +363,6 @@
                 sku: isCustomerFormat ? orderItem.item.sku : (orderItem.sku || 'N/A'),
                 quantity: orderItem.quantity || 1
             };
-        }
-        function getJsDate(ts) {
-            if (!ts) return null;
-            // Handle Firebase Timestamp object
-            if (ts.toDate && typeof ts.toDate === 'function') {
-                return ts.toDate();
-            }
-            // Handle standard JavaScript Date or ISO string/number
-            const date = new Date(ts);
-            return isNaN(date.getTime()) ? null : date;
         }
         
         function getJsDate(ts) {
@@ -1062,7 +1051,22 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        // ... rest of options
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 15,
+                                    font: { size: 12 }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.label}: $${context.parsed.toFixed(2)}`;
+                                    }
+                                }
+                            }
+                        }
                     }
                 });
             } catch (chartError) {
@@ -1071,9 +1075,39 @@
             }
             
             try {
-                salesCharts.month = new Chart(ctxMonth, {
-                    // ... chart config
-                });
+              salesCharts.month = new Chart(ctxMonth, {
+                type: 'bar',
+                data: {
+                    labels: monthlyData.labels,
+                    datasets: [{
+                        label: 'Monthly Sales (USD)',
+                        data: monthlyData.data,
+                        backgroundColor: 'rgba(99, 102, 241, 0.8)',
+                        borderColor: 'rgba(99, 102, 241, 1)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => `Sales: $${context.parsed.y.toFixed(2)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: (value) => `$${value.toFixed(0)}`
+                            }
+                        }
+                    }
+                }
+            });
             } catch (chartError) {
                 console.error("Failed to create monthly chart:", chartError);
                 salesCharts.month = null;
@@ -1517,12 +1551,6 @@
             }
             resetTimer();
         }
-    
-        function handleSearchInput(e) {
-            state.searchTerm = e.target.value;
-            renderProductListSection();
-            resetTimer();
-        }
 
         let searchDebounceTimers = {};
 
@@ -1648,12 +1676,40 @@
                 return;
             }
             
-            try {
-                const priceCents = Math.round(priceValidation.value * 100);
-                // ... rest of function
-            } catch (error) {
-                handleError(error, 'Failed to add product', 'catalog');
-            }
+        try {
+            const priceCents = Math.round(priceValidation.value * 100);
+            
+            const itemName = form.itemName.value.trim();
+            const itemDescription = form.itemDescription.value.trim();
+            const catalogId = form.catalogId.value;
+            const initialStock = stockValidation.value;
+            
+            // Split textarea by new lines, trim whitespace, and filter out empty strings
+            const rawUrls = form.itemImageUrls.value.split('\n').map(url => url.trim()).filter(url => url !== '');
+            
+            // Fallback to placeholder if no URLs provided
+            const imageUrls = rawUrls.length > 0 ? rawUrls : [`https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`];
+        
+            const newProduct = {
+                name: itemName,
+                description: itemDescription,
+                price: priceCents,
+                catalogId: catalogId,
+                imageUrls: imageUrls,
+                imageUrl: imageUrls[0],
+                sku: generateUniqueSku(),
+                stock: initialStock,
+                createdAt: serverTimestamp(),
+            };
+        
+            const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
+            await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
+            showMessage('success', `Product "${itemName}" added with ${imageUrls.length} image(s)!`, 5000, 'catalog');
+            form.reset();
+        
+        } catch (error) {
+            handleError(error, 'Failed to add product', 'catalog');
+        }
         }
 
     
@@ -3310,8 +3366,10 @@
                                 <div class="grid-item text-xs font-semibold text-indigo-600">${imgDisplay}</div>
                                 <div class="grid-item text-xs text-gray-500">${created}</div>
                                 <div class="grid-item">
-                                    <button onclick="window.module.showEditForm('${escapeAttribute(item.id)}')">
-                                    <button onclick="window.module.handleDeleteProduct('${item.id}', '${item.name}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                                  <button onclick='window.module.showEditForm(${JSON.stringify(item).replace(/'/g, "&#39;")})' 
+                                        class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
+                                <button onclick="window.module.handleDeleteProduct('${item.id}', '${escapeHtml(item.name)}')" 
+                                        class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
                                 </div>`;
                         }).join('')}
                     </div>
