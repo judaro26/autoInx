@@ -1,6 +1,6 @@
 /**
- * Netlify Function: send-email.js
- * Handles Inventory Deduction and Email Notifications for New Orders & Status Updates.
+ * Netlify Function: sendOrderConfirmation.js
+ * Handles Email Notifications for New Orders & Status Updates with Shipping/Tax Breakdown.
  */
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
@@ -81,44 +81,72 @@ function generateTableRows(items) {
         </tr>`).join('');
 }
 
-// --- 5. Inventory Transaction Logic ---
-async function decrementInventory(items, appId = 'default-app-id') {
-    const db = getDb();
-    const collectionPath = `artifacts/${appId}/public/data/items`;
+// ✅ NEW: Generate cost breakdown section with shipping and tax
+function generateCostBreakdown(orderData, languageCode) {
+    // Handle both new orders (with breakdown) and old orders (without breakdown)
+    const subtotalCents = orderData.subtotalCents || orderData.totalCents || 0;
+    const shippingCents = orderData.shippingCents || 0;
+    const taxCents = orderData.taxCents || 0;
+    const totalCents = orderData.totalCents || 0;
     
-    try {
-        await db.runTransaction(async (transaction) => {
-            const itemRefs = items.map(item => {
-                const docId = item.itemId || item.id; 
-                if (!docId) throw new Error(`Missing Document ID for: ${item.name}`);
-                return db.collection(collectionPath).doc(docId);
-            });
+    const labels = languageCode === 'es' 
+        ? { subtotal: 'Subtotal', shipping: 'Envío', tax: 'Impuesto', total: 'TOTAL' }
+        : { subtotal: 'Subtotal', shipping: 'Shipping', tax: 'Tax', total: 'TOTAL' };
 
-            const docs = await Promise.all(itemRefs.map(ref => transaction.get(ref)));
+    let breakdownHtml = `
+        <tr style="border-top: 2px solid #e5e7eb;">
+            <td colspan="3" style="padding: 12px; text-align: right; font-size: 14px; font-weight: 600; color: #374151;">${labels.subtotal}:</td>
+            <td style="padding: 12px; text-align: right; font-size: 14px; font-weight: 600; color: #374151;">${formatPrice(subtotalCents)}</td>
+        </tr>
+    `;
 
-            docs.forEach((doc, index) => {
-                if (!doc.exists) throw new Error(`Product not found: ${items[index].name}`);
-                const currentStock = doc.data().stock || 0;
-                const requestedQty = items[index].quantity;
-
-                if (currentStock < requestedQty) {
-                    throw new Error(`Insufficient stock for ${doc.data().name}. Available: ${currentStock}`);
-                }
-
-                transaction.update(doc.ref, {
-                    stock: currentStock - requestedQty,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            });
-        });
-        return { success: true };
-    } catch (err) {
-        console.error("Inventory Transaction Failed:", err.message);
-        return { success: false, error: err.message };
+    // ✅ Only show shipping row if shipping cost exists
+    if (shippingCents > 0) {
+        const shippingProvider = orderData.shippingDetails?.provider 
+            ? ` (${orderData.shippingDetails.provider})` 
+            : '';
+        const estimatedDays = orderData.shippingDetails?.estimated_days
+            ? ` - ${orderData.shippingDetails.estimated_days} days`
+            : '';
+        
+        breakdownHtml += `
+            <tr>
+                <td colspan="3" style="padding: 12px; text-align: right; font-size: 14px; color: #6b7280;">
+                    📦 ${labels.shipping}${shippingProvider}${estimatedDays}:
+                </td>
+                <td style="padding: 12px; text-align: right; font-size: 14px; color: #6b7280;">${formatPrice(shippingCents)}</td>
+            </tr>
+        `;
     }
+
+    // ✅ Only show tax row if tax cost exists
+    if (taxCents > 0) {
+        const taxRate = orderData.taxDetails?.ratePercent 
+            ? ` (${orderData.taxDetails.ratePercent}%)` 
+            : '';
+        
+        breakdownHtml += `
+            <tr>
+                <td colspan="3" style="padding: 12px; text-align: right; font-size: 14px; color: #6b7280;">
+                    📋 ${labels.tax}${taxRate}:
+                </td>
+                <td style="padding: 12px; text-align: right; font-size: 14px; color: #6b7280;">${formatPrice(taxCents)}</td>
+            </tr>
+        `;
+    }
+
+    // ✅ Total row - always shown
+    breakdownHtml += `
+        <tr style="border-top: 2px solid #4f46e5; background-color: #f9fafb;">
+            <td colspan="3" style="padding: 16px; text-align: right; font-size: 18px; font-weight: bold; color: #1f2937;">${labels.total}:</td>
+            <td style="padding: 16px; text-align: right; font-size: 18px; font-weight: bold; color: #4f46e5;">${formatPrice(totalCents)}</td>
+        </tr>
+    `;
+
+    return breakdownHtml;
 }
 
-// --- 6. Main Handler ---
+// --- 5. Main Handler ---
 exports.handler = async function (event) {
     if (event.httpMethod !== "POST") {
         return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
@@ -136,21 +164,36 @@ exports.handler = async function (event) {
 
     try {
         const orderData = JSON.parse(event.body);
-        const { orderId, buyerEmail, buyerName, items, totalCents, communicationLang, appId, newStatus } = orderData;
+        const { 
+            orderId, 
+            buyerEmail, 
+            buyerName, 
+            items, 
+            totalCents,
+            subtotalCents,      // ✅ NEW
+            shippingCents,      // ✅ NEW
+            taxCents,           // ✅ NEW
+            shippingDetails,    // ✅ NEW
+            taxDetails,         // ✅ NEW
+            communicationLang, 
+            appId, 
+            newStatus 
+        } = orderData;
 
         // Ensure DB is initialized
         getDb();
 
-        // STEP 1: Inventory Management
-        // Only decrement inventory for NEW orders (when newStatus is NOT present)
-        if (!newStatus) {
-            const inventoryResult = await decrementInventory(items, appId);
-            if (!inventoryResult.success) {
-                return { statusCode: 409, body: JSON.stringify({ error: inventoryResult.error }) };
-            }
-        }
+        console.log('📧 Processing email for order:', {
+            orderId: orderId?.substring(0, 8),
+            isStatusUpdate: !!newStatus,
+            hasBreakdown: !!(subtotalCents || shippingCents || taxCents),
+            subtotal: subtotalCents ? formatPrice(subtotalCents) : 'N/A',
+            shipping: shippingCents ? formatPrice(shippingCents) : '$0.00',
+            tax: taxCents ? formatPrice(taxCents) : '$0.00',
+            total: formatPrice(totalCents)
+        });
 
-        // STEP 2: Prepare Email Content Logic
+        // STEP 1: Prepare Email Content Logic
         const languageCode = communicationLang || 'en';
         let template = await getTemplateHtml(languageCode);
 
@@ -187,7 +230,10 @@ exports.handler = async function (event) {
             closeMsg = languageCode === 'es' ? "¡Gracias por elegir autoInx!" : "Thanks for choosing autoInx!";
         }
 
-        // STEP 3: Replace placeholders in HTML
+        // ✅ NEW: Generate cost breakdown with shipping and tax
+        const costBreakdown = generateCostBreakdown(orderData, languageCode);
+
+        // STEP 2: Replace placeholders in HTML
         template = template
             .replace(/{{params\.badgeColor}}/g, badgeColor)
             .replace(/{{params\.badgeText}}/g, badgeLabel)
@@ -197,11 +243,12 @@ exports.handler = async function (event) {
             .replace(/{{params\.orderId}}/g, orderId)
             .replace(/{{params\.orderDate}}/g, new Date().toLocaleDateString())
             .replace(/{{params\.orderTableRows}}/g, generateTableRows(items))
+            .replace(/{{params\.costBreakdown}}/g, costBreakdown)  // ✅ NEW
             .replace(/{{params\.totalPrice}}/g, formatPrice(totalCents))
             .replace(/{{params\.closeMessage}}/g, closeMsg)
             .replace(/{{contact\.EMAIL}}/g, buyerEmail);
 
-        // STEP 4: Send Emails
+        // STEP 3: Send Emails
         const subject = isStatusUpdate 
             ? (languageCode === 'es' ? `Actualización de Pedido #${orderId.substring(0,8)}` : `Order Update #${orderId.substring(0,8)}`)
             : (languageCode === 'es' ? "Confirmación de Pedido - autoInx" : "Order Confirmation - autoInx");
@@ -214,23 +261,35 @@ exports.handler = async function (event) {
         };
 
         await transporter.sendMail(mailOptions);
+        console.log('✅ Customer email sent to:', buyerEmail);
         
-        // Internal log email
+        // Internal log email (only for new orders, not status updates)
         if (!isStatusUpdate) {
+            const internalSubject = `[NEW ORDER] #${orderId.substring(0,8)} - ${formatPrice(totalCents)}`;
             await transporter.sendMail({ 
                 ...mailOptions, 
                 to: "orders@autoinx.com", 
-                subject: `[NEW ORDER] #${orderId.substring(0,8)}` 
+                subject: internalSubject
             });
+            console.log('✅ Internal notification sent to orders@autoinx.com');
         }
 
         return {
             statusCode: 200,
-            body: JSON.stringify({ message: isStatusUpdate ? "Status update sent." : "New order processed.", orderId })
+            body: JSON.stringify({ 
+                message: isStatusUpdate ? "Status update sent." : "Order confirmation sent.", 
+                orderId,
+                breakdown: {
+                    subtotal: formatPrice(subtotalCents || totalCents),
+                    shipping: formatPrice(shippingCents || 0),
+                    tax: formatPrice(taxCents || 0),
+                    total: formatPrice(totalCents)
+                }
+            })
         };
 
     } catch (error) {
-        console.error("Function Error:", error);
+        console.error("❌ Function Error:", error);
         return {
             statusCode: 500,
             body: JSON.stringify({ error: "Email failure", details: error.message })
