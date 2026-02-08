@@ -213,6 +213,7 @@
             orderStatusFilter: 'All',
             deliveryStatusFilter: 'All', 
             orderPage: 'list', 
+            editingOrderId: null,  // ✅ NEW: Track which order is being edited
 
             // --- BILLING STATE ---
             editingOrderDraftCart: {},
@@ -2321,7 +2322,7 @@
                 const orderState = stateZip[0] || 'CA';
                 const zipCode = stateZip[1] || '00000';
         
-                // Calculate total weight
+                // Calculate total weight (1 lb per item as example)
                 const totalWeight = Object.values(state.adminCart).reduce((sum, e) => sum + e.quantity, 0);
                 const cartTotalCents = Object.values(state.adminCart).reduce((s, e) => s + e.item.price * e.quantity, 0);
         
@@ -2356,8 +2357,11 @@
                             state.adminOrderShippingCents = Math.round(shippingData.bestRate.amount * 100);
                             state.adminOrderShippingDetails = {
                                 provider: shippingData.bestRate.provider,
-                                amount: shippingData.bestRate.amount
+                                servicelevel: shippingData.bestRate.servicelevel?.name || 'Standard',
+                                amount: shippingData.bestRate.amount,
+                                estimated_days: shippingData.bestRate.estimated_days
                             };
+                            console.log('✅ Shipping calculated:', shippingData.bestRate);
                         }
                     } else {
                         console.warn('Shipping API failed, using default');
@@ -2391,6 +2395,10 @@
                             rate: taxData.taxRate,
                             ratePercent: taxData.taxRatePercent
                         };
+                        console.log('✅ Tax calculated:', taxData);
+                    } else {
+                        console.warn('Tax API failed, using 0');
+                        state.adminOrderTaxCents = 0;
                     }
                 } catch (taxError) {
                     console.error('Tax calculation error:', taxError);
@@ -2410,6 +2418,7 @@
                 }
             }
         }
+
     
         // NEW: Renders the item selector dropdown with search results
         function updateItemSelector() {
@@ -2440,7 +2449,7 @@
         }
     
         // UPDATED Order submission function with email call
-        async function handleAdminOrderSubmit(e) {
+         async function handleAdminOrderSubmit(e) {
             e.preventDefault();
             resetTimer();
         
@@ -2461,6 +2470,7 @@
             const address = deliveryAddress.value.trim();
             const itemsToOrder = Object.values(state.adminCart);
         
+            // 1.1 Validation
             if (itemsToOrder.length === 0) {
                 return showMessage('error', 'The order cart is empty.', 3000, 'orders');
             }
@@ -2469,102 +2479,38 @@
                 return showMessage('error', 'Please select a valid delivery address from the dropdown.', 5000, 'orders');
             }
         
+            // 1.2 Get Geolocation (if available)
             let geolocation = null;
             if (autocomplete && autocomplete.getPlace) {
                 const place = autocomplete.getPlace();
                 if (place.geometry && place.geometry.location) {
-                    geolocation = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() };
+                    geolocation = { 
+                        lat: place.geometry.location.lat(), 
+                        lng: place.geometry.location.lng() 
+                    };
                 }
             }
         
             submitButton.disabled = true;
-            submitButton.textContent = 'Calculating shipping...';
+            submitButton.textContent = 'Creating order...';
         
             try {
-                // ✅ NEW: Calculate shipping cost
-                let shippingCents = 0;
-                let shippingDetails = null;
-                
-                // Parse address for state/zip
-                const addressParts = address.split(',');
-                const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
-                const orderState = stateZip[0] || 'CA';
-                const zipCode = stateZip[1] || '00000';
-        
-                // Calculate total weight (example: 1 lb per item)
-                const totalWeight = itemsToOrder.reduce((sum, e) => sum + e.quantity, 0);
-                
-                const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        addressTo: {
-                            name: name,
-                            street1: addressParts[0] || address,
-                            city: addressParts[1]?.trim() || 'Unknown',
-                            state: orderState,
-                            zip: zipCode,
-                            country: 'US'
-                        },
-                        parcels: [{
-                            length: "12",
-                            width: "8",
-                            height: "6",
-                            distance_unit: "in",
-                            weight: totalWeight.toString(),
-                            mass_unit: "lb"
-                        }]
-                    })
-                });
-        
-                if (shippingRes.ok) {
-                    const shippingData = await shippingRes.json();
-                    if (shippingData.bestRate) {
-                        shippingCents = Math.round(shippingData.bestRate.amount * 100);
-                        shippingDetails = shippingData.bestRate;
-                    }
-                } else {
-                    console.warn('Shipping calculation failed, using default $10');
-                    shippingCents = 1000; // Default $10
-                }
-        
-                submitButton.textContent = 'Calculating tax...';
-        
-                // ✅ NEW: Calculate tax
+                // 2. Calculate Totals - Use pre-calculated shipping/tax from state
                 const cartTotalCents = itemsToOrder.reduce((s, e) => s + e.item.price * e.quantity, 0);
-                let taxCents = 0;
-                let taxDetails = null;
-        
-                const taxRes = await fetch('/.netlify/functions/calculateTax', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        subtotalCents: cartTotalCents,
-                        state: orderState,
-                        zipCode: zipCode
-                    })
-                });
-        
-                if (taxRes.ok) {
-                    const taxData = await taxRes.json();
-                    taxCents = taxData.taxCents || 0;
-                    taxDetails = {
-                        rate: taxData.taxRate,
-                        ratePercent: taxData.taxRatePercent
-                    };
-                }
-        
-                const finalTotalCents = cartTotalCents + shippingCents + taxCents;
-        
-                submitButton.textContent = 'Creating order...';
-        
-                // 2. Prepare Order Data
-                const whatsappConsent = document.getElementById('adminWhatsappOpt')?.checked || false;
-                const smsConsent = document.getElementById('adminSmsOpt')?.checked || false;
-                
                 const shippingCents = state.adminOrderShippingCents || 0;
                 const taxCents = state.adminOrderTaxCents || 0;
                 const finalTotalCents = cartTotalCents + shippingCents + taxCents;
+        
+                console.log('💰 Order Totals:', {
+                    subtotal: formatPriceDisplay(cartTotalCents),
+                    shipping: formatPriceDisplay(shippingCents),
+                    tax: formatPriceDisplay(taxCents),
+                    total: formatPriceDisplay(finalTotalCents)
+                });
+        
+                // 3. Prepare Order Data
+                const whatsappConsent = document.getElementById('adminWhatsappOpt')?.checked || false;
+                const smsConsent = document.getElementById('adminSmsOpt')?.checked || false;
                 
                 const orderData = {
                     buyerEmail: email,
@@ -2585,13 +2531,14 @@
                         price: e.item.price,
                         quantity: e.quantity
                     })),
-                    subtotalCents: cartTotalCents,           // ✅ Items only
-                    shippingCents: shippingCents,            // ✅ Pre-calculated
-                    taxCents: taxCents,                      // ✅ Pre-calculated
-                    totalCents: finalTotalCents,             // ✅ Grand total
+                    subtotalCents: cartTotalCents,
+                    shippingCents: shippingCents,
+                    taxCents: taxCents,
+                    totalCents: finalTotalCents,
                     shippingDetails: state.adminOrderShippingDetails,
                     taxDetails: state.adminOrderTaxDetails,
                     userId: auth.currentUser.uid,
+                    createdByAdmin: auth.currentUser.uid,
                     timestamp: new Date().toISOString(),
                     geolocation: geolocation,
                     adminNotes: orderNotes,
@@ -2599,7 +2546,7 @@
                     communicationLang: buyerLanguage
                 };
         
-                // 3. Submit Order
+                // 4. Submit Order to Backend
                 const idToken = await auth.currentUser.getIdToken();
                 const res = await fetch(ADMIN_CREATE_ORDER_FUNCTION, {
                     method: 'POST',
@@ -2618,7 +2565,9 @@
                 const orderCreationResponse = await res.json();
                 const finalOrderId = orderCreationResponse.orderId || 'ADMIN_ORDER_ID';
                 
-                // 4. Update Inventory
+                console.log('✅ Order created:', finalOrderId);
+        
+                // 5. Update Inventory
                 const inventoryUpdates = itemsToOrder.map(async entry => {
                     const itemId = entry.item.id;
                     const orderQty = entry.quantity;
@@ -2642,8 +2591,9 @@
                 });
                 
                 await Promise.all(inventoryUpdates);
+                console.log('✅ Inventory updated');
                 
-                // 5. Send Email
+                // 6. Send Confirmation Email
                 const emailPayload = {
                     ...orderData,
                     orderId: finalOrderId,
@@ -2652,26 +2602,49 @@
                     language: buyerLanguage
                 };
                 
-                await fetch(EMAIL_CONFIRMATION_FUNCTION, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(emailPayload)
-                });
+                try {
+                    const emailRes = await fetch(EMAIL_CONFIRMATION_FUNCTION, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(emailPayload)
+                    });
+        
+                    if (emailRes.ok) {
+                        console.log('✅ Confirmation email sent');
+                    } else {
+                        console.warn('⚠️ Email send failed, but order was created');
+                    }
+                } catch (emailError) {
+                    console.error('Email error:', emailError);
+                    // Don't fail the whole order if email fails
+                }
                 
-                // 6. Success
+                // 7. Success - Reset Form and State
                 state.adminCart = {};
+                state.adminOrderShippingCents = 0;
+                state.adminOrderTaxCents = 0;
+                state.adminOrderShippingDetails = null;
+                state.adminOrderTaxDetails = null;
+                
                 form.reset();
                 deliveryAddress.dataset.validated = 'false';
+                deliveryAddress.classList.remove('address-valid');
+                deliveryAddress.classList.add('address-invalid');
                 
                 showMessage('success', 
-                    `Order ${finalOrderId} created! Subtotal: ${formatPriceDisplay(cartTotalCents)}, Shipping: ${formatPriceDisplay(shippingCents)}, Tax: ${formatPriceDisplay(taxCents)}, Total: ${formatPriceDisplay(finalTotalCents)}`, 
+                    `✅ Order ${finalOrderId.substring(0, 8)} created successfully!\n` +
+                    `Subtotal: ${formatPriceDisplay(cartTotalCents)}\n` +
+                    `Shipping: ${formatPriceDisplay(shippingCents)}\n` +
+                    `Tax: ${formatPriceDisplay(taxCents)}\n` +
+                    `Total: ${formatPriceDisplay(finalTotalCents)}`, 
                     10000, 'orders'
                 );
                 
+                // Refresh orders list
                 window.module.fetchOrders();
         
             } catch (error) {
-                console.error('Error creating order:', error);
+                console.error('❌ Error creating order:', error);
                 showMessage('error', `Failed to create order: ${error.message}`, 10000, 'orders');
             } finally {
                 submitButton.textContent = 'SUBMIT ORDER & SEND EMAIL';
@@ -2679,6 +2652,7 @@
                 updateAdminCartDisplay();
             }
         }
+
     
         // --- ORDERS DATA & ACTIONS (NEW) ---
     
@@ -3114,9 +3088,23 @@
                                             <button type="button" onclick="window.module.addDraftCartItem()" class="bg-indigo-600 text-white px-3 rounded font-bold">+</button>
                                         </div>
                                         <div id="editOrderItemsDisplay" class="space-y-1 max-h-48 overflow-y-auto custom-scrollbar"></div>
-                                        <div class="border-t mt-3 pt-2 flex justify-between font-black text-gray-800">
-                                            <span>Current Total:</span>
-                                            <span id="editOrderTotal">$0.00</span>
+                                        <div class="border-t-2 mt-3 pt-3 space-y-2">
+                                            <div class="flex justify-between text-sm text-gray-700">
+                                                <span>Subtotal:</span>
+                                                <span id="editOrderSubtotal" class="font-semibold">$0.00</span>
+                                            </div>
+                                            <div class="flex justify-between text-sm text-gray-600">
+                                                <span>📦 Shipping:</span>
+                                                <span id="editOrderShipping">$0.00</span>
+                                            </div>
+                                            <div class="flex justify-between text-sm text-gray-600">
+                                                <span>📋 Tax:</span>
+                                                <span id="editOrderTax">$0.00</span>
+                                            </div>
+                                            <div class="flex justify-between font-black text-gray-800 border-t pt-2">
+                                                <span>Current Total:</span>
+                                                <span id="editOrderTotal" class="text-xl text-indigo-700">$0.00</span>
+                                            </div>
                                         </div>
                                     </div>
                                     
@@ -3256,6 +3244,7 @@
                 console.error("Missing Order ID or Client UID. Cannot open edit form.");
                 return;
             }
+                state.editingOrderId = orderId;
             
             try {
                 const adminUserId = await waitForUserId(); 
@@ -3320,7 +3309,7 @@
         }
         
         function closeEditModal() {
-            // Hide the modal by clearing its container
+            state.editingOrderId = null;  // ✅ NEW: Clear tracking
             document.getElementById('editModalContainer').innerHTML = '';
         }
         
@@ -4610,24 +4599,26 @@
             showOrderEditForm, closeEditModal, updateOrder, renderOrderEditModal,
             initializeDraftCart,
             handleResendReceipt,
-            updateOrder,
-
-            
+            updateOrder,            
             
             updateDraftCartDisplay: function() {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
                 const totalEl = document.getElementById('editOrderTotal');
-                if (!cartEl || !totalEl) return; // Modal probably closed
+                const subtotalEl = document.getElementById('editOrderSubtotal');
+                const shippingEl = document.getElementById('editOrderShipping');
+                const taxEl = document.getElementById('editOrderTax');
+                
+                if (!cartEl || !totalEl) return;
             
-                let totalCents = 0;
+                let subtotalCents = 0;
                 const itemsInCart = Object.values(state.editingOrderDraftCart);
                 
                 if (itemsInCart.length === 0) {
                     cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">No items</p>';
                 } else {
                     cartEl.innerHTML = itemsInCart.map(entry => {
-                        const subtotal = entry.item.price * entry.quantity;
-                        totalCents += subtotal;
+                        const itemSubtotal = entry.item.price * entry.quantity;
+                        subtotalCents += itemSubtotal;
                         return `
                             <div class="flex justify-between items-center py-2 border-b text-xs">
                                 <span class="truncate font-semibold">${entry.item.name}</span>
@@ -4635,13 +4626,25 @@
                                     <input type="number" value="${entry.quantity}" min="1" 
                                            onchange="window.module.updateDraftItemQuantity(this.value, '${entry.item.id}')"
                                            class="w-10 border rounded text-center">
-                                    <span class="font-bold">${(subtotal/100).toFixed(2)}</span>
+                                    <span class="font-bold">${formatPriceDisplay(itemSubtotal)}</span>
                                     <button type="button" onclick="window.module.removeDraftCartItem('${entry.item.id}')" class="text-red-500">×</button>
                                 </div>
                             </div>`;
                     }).join('');
                 }
-                totalEl.textContent = `$${(totalCents / 100).toFixed(2)}`;
+            
+                // ✅ NEW: Get shipping and tax from the original order
+                const currentOrder = state.orders.find(o => o.id === state.editingOrderId);
+                const shippingCents = currentOrder?.shippingCents || 0;
+                const taxCents = currentOrder?.taxCents || 0;
+                const grandTotal = subtotalCents + shippingCents + taxCents;
+            
+                // Update all displays
+                if (subtotalEl) subtotalEl.textContent = formatPriceDisplay(subtotalCents);
+                if (shippingEl) shippingEl.textContent = formatPriceDisplay(shippingCents);
+                if (taxEl) taxEl.textContent = formatPriceDisplay(taxCents);
+                totalEl.textContent = formatPriceDisplay(grandTotal);
+                
                 this.recalculateBilling();
             },
             
