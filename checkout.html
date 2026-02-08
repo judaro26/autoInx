@@ -46,7 +46,7 @@
     let currentLang = localStorage.getItem('checkoutLang') || (navigator.language.startsWith('en') ? 'en' : 'es');
     let map, marker, autocomplete;
 
-    // ✅ NEW: Prevent re-renders after order completion
+    // ✅ Prevent re-renders after order completion
     let orderCompleted = false;
 
     // ✅ Shipping & Tax tracking
@@ -121,8 +121,73 @@
         `;
     }
 
+    // ✅ NEW: Update only the cart summary without full re-render
+    function updateCartSummary() {
+        const summaryContainer = document.getElementById('cart-summary-breakdown');
+        if (!summaryContainer) return;
+
+        const grandTotal = cartTotalCents + shippingCents + taxCents;
+
+        summaryContainer.innerHTML = `
+            <div class="flex justify-between text-base font-semibold text-gray-700">
+                <span>${t('subtotal')}</span>
+                <span>${formatPrice(cartTotalCents)}</span>
+            </div>
+            
+            ${shippingCents > 0 ? `
+                <div class="flex justify-between text-base text-gray-600">
+                    <span class="flex items-center gap-2">
+                        📦 ${t('shipping')}
+                        ${shippingDetails ? `
+                            <span class="text-xs text-gray-400">
+                                (${shippingDetails.provider}${shippingDetails.estimated_days ? ` - ${shippingDetails.estimated_days} days` : ''})
+                            </span>
+                        ` : ''}
+                    </span>
+                    <span class="font-semibold">${formatPrice(shippingCents)}</span>
+                </div>
+                ${shippingDetails ? `
+                    <div class="text-xs text-blue-600 italic px-2">
+                        💡 ${t('shippingNote')}
+                    </div>
+                ` : ''}
+            ` : `
+                <div class="flex justify-between text-sm text-gray-400 italic">
+                    <span>📦 ${t('shipping')}</span>
+                    <span>${t('calculatedAtCheckout')}</span>
+                </div>
+            `}
+            
+            ${taxCents > 0 ? `
+                <div class="flex justify-between text-base text-gray-600">
+                    <span class="flex items-center gap-2">
+                        📋 ${t('tax')}
+                        ${taxDetails ? `<span class="text-xs text-gray-400">(${taxDetails.ratePercent}%)</span>` : ''}
+                    </span>
+                    <span>${formatPrice(taxCents)}</span>
+                </div>
+            ` : `
+                <div class="flex justify-between text-sm text-gray-400 italic">
+                    <span>📋 ${t('tax')}</span>
+                    <span>${t('calculatedAtCheckout')}</span>
+                </div>
+            `}
+            
+            <div class="border-t-2 pt-3 flex justify-between text-2xl font-black text-gray-900">
+                <span>${t('total')}</span>
+                <span class="text-indigo-700">${formatPrice(grandTotal)}</span>
+            </div>
+        `;
+
+        // Update submit button text with new total
+        const btnSubmit = $('btnSubmit');
+        if (btnSubmit && !btnSubmit.disabled) {
+            btnSubmit.innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
+        }
+    }
+
     function render() {
-        // ✅ NEW: Don't re-render if order is complete
+        // ✅ Don't re-render if order is complete
         if (orderCompleted) {
             console.log('Order completed - skipping render');
             return;
@@ -233,50 +298,21 @@
                             `).join('')}
                         </div>
                         
-                        <div class="mt-6 border-t-2 pt-6 space-y-3">
+                        <div id="cart-summary-breakdown" class="mt-6 border-t-2 pt-6 space-y-3">
                             <div class="flex justify-between text-base font-semibold text-gray-700">
                                 <span>${t('subtotal')}</span>
                                 <span>${formatPrice(cartTotalCents)}</span>
                             </div>
                             
-                            ${shippingCents > 0 ? `
-                                <div class="flex justify-between text-base text-gray-600">
-                                    <span class="flex items-center gap-2">
-                                        📦 ${t('shipping')}
-                                        ${shippingDetails ? `
-                                            <span class="text-xs text-gray-400">
-                                                (${shippingDetails.provider}${shippingDetails.estimated_days ? ` - ${shippingDetails.estimated_days} days` : ''})
-                                            </span>
-                                        ` : ''}
-                                    </span>
-                                    <span class="font-semibold">${formatPrice(shippingCents)}</span>
-                                </div>
-                                ${shippingDetails ? `
-                                    <div class="text-xs text-blue-600 italic px-2">
-                                        💡 ${t('shippingNote')}
-                                    </div>
-                                ` : ''}
-                            ` : `
-                                <div class="flex justify-between text-sm text-gray-400 italic">
-                                    <span>📦 ${t('shipping')}</span>
-                                    <span>${t('calculatedAtCheckout')}</span>
-                                </div>
-                            `}
+                            <div class="flex justify-between text-sm text-gray-400 italic">
+                                <span>📦 ${t('shipping')}</span>
+                                <span>${t('calculatedAtCheckout')}</span>
+                            </div>
                             
-                            ${taxCents > 0 ? `
-                                <div class="flex justify-between text-base text-gray-600">
-                                    <span class="flex items-center gap-2">
-                                        📋 ${t('tax')}
-                                        ${taxDetails ? `<span class="text-xs text-gray-400">(${taxDetails.ratePercent}%)</span>` : ''}
-                                    </span>
-                                    <span>${formatPrice(taxCents)}</span>
-                                </div>
-                            ` : `
-                                <div class="flex justify-between text-sm text-gray-400 italic">
-                                    <span>📋 ${t('tax')}</span>
-                                    <span>${t('calculatedAtCheckout')}</span>
-                                </div>
-                            `}
+                            <div class="flex justify-between text-sm text-gray-400 italic">
+                                <span>📋 ${t('tax')}</span>
+                                <span>${t('calculatedAtCheckout')}</span>
+                            </div>
                             
                             <div class="border-t-2 pt-3 flex justify-between text-2xl font-black text-gray-900">
                                 <span>${t('total')}</span>
@@ -337,7 +373,7 @@
         } catch (err) {}
     }
 
-    // ✅ Calculate shipping and tax based on validated address
+    // ✅ Calculate shipping and tax - NOW UPDATES WITHOUT FULL RE-RENDER
     async function calculateShippingAndTax() {
         const addressInput = $('delivery-address');
         const address = addressInput?.value?.trim();
@@ -348,7 +384,7 @@
             taxCents = 0;
             shippingDetails = null;
             taxDetails = null;
-            render();
+            updateCartSummary(); // ✅ Changed from render()
             return;
         }
 
@@ -453,8 +489,8 @@
                 taxCents = 0; // No tax if calculation fails
             }
 
-            // Re-render with updated totals
-            render();
+            // ✅ Update only the summary section (NOT full re-render)
+            updateCartSummary();
 
         } catch (error) {
             console.error('Calculation error:', error);
@@ -485,7 +521,7 @@
     }
     
     async function handleSubmit(event) {
-        event.preventDefault(); // ✅ CRITICAL: Prevent default form submission
+        event.preventDefault();
         
         if (!db) {
             alert("System not ready. Please refresh the page.");
@@ -503,7 +539,6 @@
         $('btnSubmit').disabled = true;
         $('btnSubmit').innerText = "...";
     
-        // ✅ Include shipping, tax, and breakdown
         const order = {
             userId: userId || 'guest',
             buyerEmail: email,
@@ -536,7 +571,6 @@
         };
     
         console.log("=== ORDER BEING SUBMITTED ===");
-        console.log("Full order object:", order);
         console.log("subtotalCents:", order.subtotalCents);
         console.log("shippingCents:", order.shippingCents);
         console.log("taxCents:", order.taxCents);
@@ -549,8 +583,6 @@
             
             // Adjust inventory
             try {
-                console.log("📦 Adjusting inventory for ordered items...");
-                
                 for (const item of order.items) {
                     const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
                     const itemSnap = await getDoc(itemRef);
@@ -558,63 +590,43 @@
                     if (itemSnap.exists()) {
                         const currentStock = itemSnap.data().stock || 0;
                         const newStock = Math.max(0, currentStock - item.quantity);
-                        
-                        await updateDoc(itemRef, { 
-                            stock: newStock,
-                            updatedAt: serverTimestamp()
-                        });
-                        
-                        console.log(`✅ ${item.name}: ${currentStock} → ${newStock} (ordered: ${item.quantity})`);
-                    } else {
-                        console.warn(`⚠️ Product ${item.id} not found, skipping inventory update`);
+                        await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
+                        console.log(`✅ ${item.name}: ${currentStock} → ${newStock}`);
                     }
                 }
-                
-                console.log("✅ Inventory adjustment completed");
             } catch (inventoryError) {
-                console.error("❌ Inventory adjustment failed (order still created):", inventoryError);
+                console.error("❌ Inventory adjustment failed:", inventoryError);
             }
             
-            // Send email confirmation
+            // Send email
             try {
-                const emailPayload = {
-                    orderId: docRef.id,
-                    buyerEmail: order.buyerEmail,
-                    buyerName: order.buyerName,
-                    buyerPhone: order.buyerPhone,
-                    deliveryAddress: order.deliveryAddress,
-                    items: order.items,
-                    subtotalCents: order.subtotalCents,
-                    shippingCents: order.shippingCents,
-                    taxCents: order.taxCents,
-                    totalCents: order.totalCents,
-                    status: order.status,
-                    language: currentLang,
-                    communicationLang: currentLang,
-                    whatsappConsent: order.whatsappConsent,
-                    smsConsent: order.smsConsent
-                };
-                
-                console.log("📧 Sending confirmation email...");
-                
-                const emailResponse = await fetch('/.netlify/functions/sendOrderConfirmation', {
+                await fetch('/.netlify/functions/sendOrderConfirmation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(emailPayload)
+                    body: JSON.stringify({
+                        orderId: docRef.id,
+                        buyerEmail: order.buyerEmail,
+                        buyerName: order.buyerName,
+                        buyerPhone: order.buyerPhone,
+                        deliveryAddress: order.deliveryAddress,
+                        items: order.items,
+                        subtotalCents: order.subtotalCents,
+                        shippingCents: order.shippingCents,
+                        taxCents: order.taxCents,
+                        totalCents: order.totalCents,
+                        status: order.status,
+                        language: currentLang,
+                        communicationLang: currentLang,
+                        whatsappConsent: order.whatsappConsent,
+                        smsConsent: order.smsConsent
+                    })
                 });
-                
-                if (emailResponse.ok) {
-                    console.log("✅ Confirmation email sent successfully");
-                } else {
-                    console.warn("⚠️ Email sending failed, but order was created successfully");
-                }
             } catch (emailError) {
-                console.error("Email Error (order still created):", emailError);
+                console.error("Email Error:", emailError);
             }
             
-            // ✅ NEW: Lock rendering to prevent page refresh
+            // ✅ Lock rendering to prevent page refresh
             orderCompleted = true;
-            
             sessionStorage.removeItem('autoInxCart');
             
             const successMessage = currentLang === 'es' 
