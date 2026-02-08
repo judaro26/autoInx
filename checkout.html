@@ -46,7 +46,10 @@
     let currentLang = localStorage.getItem('checkoutLang') || (navigator.language.startsWith('en') ? 'en' : 'es');
     let map, marker, autocomplete;
 
-    // ✅ NEW: Shipping & Tax tracking
+    // ✅ NEW: Prevent re-renders after order completion
+    let orderCompleted = false;
+
+    // ✅ Shipping & Tax tracking
     let shippingCents = 0;
     let taxCents = 0;
     let shippingDetails = null;
@@ -61,7 +64,6 @@
             statusDefault: 'Escribe para buscar...', valid: '✅ UBICACIÓN VERIFICADA',
             complete: 'COMPLETAR PEDIDO', summary: 'Resumen', total: 'Total',
             errorEmail: 'Correo inválido', errorPhone: 'Número inválido', errorAddress: 'Selecciona una dirección',
-            // ✅ NEW: Shipping & Tax translations
             subtotal: 'Subtotal',
             shipping: 'Envío',
             tax: 'Impuesto',
@@ -69,6 +71,8 @@
             calculatingShipping: 'Calculando envío...',
             calculatingTax: 'Calculando impuestos...',
             shippingError: 'No se pudo calcular el envío. Estimado: $10.00',
+            shippingNote: 'El costo final de envío puede ser menor según el transportista seleccionado',
+            maxShipping: 'Costo máximo de envío',
         },
         en: {
             title: 'Checkout', return: 'Back', email: 'Email Address', name: 'Full Name',
@@ -78,7 +82,6 @@
             statusDefault: 'Type to search...', valid: '✅ LOCATION VERIFIED',
             complete: 'COMPLETE ORDER', summary: 'Summary', total: 'Total',
             errorEmail: 'Invalid email', errorPhone: 'Invalid phone', errorAddress: 'Select an address',
-            // ✅ NEW: Shipping & Tax translations
             subtotal: 'Subtotal',
             shipping: 'Shipping',
             tax: 'Tax',
@@ -86,6 +89,8 @@
             calculatingShipping: 'Calculating shipping...',
             calculatingTax: 'Calculating tax...',
             shippingError: 'Could not calculate shipping. Estimated: $10.00',
+            shippingNote: 'Final shipping cost may be lower based on selected carrier',
+            maxShipping: 'Maximum shipping cost',
         }
     };
 
@@ -117,6 +122,12 @@
     }
 
     function render() {
+        // ✅ NEW: Don't re-render if order is complete
+        if (orderCompleted) {
+            console.log('Order completed - skipping render');
+            return;
+        }
+
         const stored = sessionStorage.getItem('autoInxCart');
         cartData = stored ? JSON.parse(stored) : {};
         cartTotalCents = Object.values(cartData).reduce((s, e) => s + (e.item.price * e.quantity), 0);
@@ -232,10 +243,19 @@
                                 <div class="flex justify-between text-base text-gray-600">
                                     <span class="flex items-center gap-2">
                                         📦 ${t('shipping')}
-                                        ${shippingDetails ? `<span class="text-xs text-gray-400">(${shippingDetails.provider})</span>` : ''}
+                                        ${shippingDetails ? `
+                                            <span class="text-xs text-gray-400">
+                                                (${shippingDetails.provider}${shippingDetails.estimated_days ? ` - ${shippingDetails.estimated_days} days` : ''})
+                                            </span>
+                                        ` : ''}
                                     </span>
-                                    <span>${formatPrice(shippingCents)}</span>
+                                    <span class="font-semibold">${formatPrice(shippingCents)}</span>
                                 </div>
+                                ${shippingDetails ? `
+                                    <div class="text-xs text-blue-600 italic px-2">
+                                        💡 ${t('shippingNote')}
+                                    </div>
+                                ` : ''}
                             ` : `
                                 <div class="flex justify-between text-sm text-gray-400 italic">
                                     <span>📦 ${t('shipping')}</span>
@@ -269,7 +289,13 @@
 
         initLiveValidation();
         initMaps();
-        $('checkoutForm').onsubmit = handleSubmit;
+        
+        // ✅ Only attach once to prevent multiple handlers
+        const form = $('checkoutForm');
+        if (form && !form.dataset.listenerAttached) {
+            form.onsubmit = handleSubmit;
+            form.dataset.listenerAttached = 'true';
+        }
     }
 
     function initLiveValidation() {
@@ -303,7 +329,7 @@
                     inp.dataset.validated = 'true';
                     $('addressStatus').innerHTML = `<span class="text-green-600">${t('valid')}</span>`;
                     
-                    // ✅ NEW: Calculate shipping & tax when address is selected
+                    // ✅ Calculate shipping & tax when address is selected
                     await calculateShippingAndTax();
                 });
             };
@@ -311,7 +337,7 @@
         } catch (err) {}
     }
 
-    // ✅ NEW: Calculate shipping and tax based on validated address
+    // ✅ Calculate shipping and tax based on validated address
     async function calculateShippingAndTax() {
         const addressInput = $('delivery-address');
         const address = addressInput?.value?.trim();
@@ -368,7 +394,21 @@
 
                 if (shippingRes.ok) {
                     const shippingData = await shippingRes.json();
-                    if (shippingData.bestRate) {
+                    
+                    // ✅ Use displayRate (highest cost) to show customer worst-case scenario
+                    if (shippingData.displayRate) {
+                        shippingCents = Math.round(shippingData.displayRate.amount * 100);
+                        shippingDetails = {
+                            provider: shippingData.displayRate.provider,
+                            servicelevel: shippingData.displayRate.servicelevel,
+                            amount: shippingData.displayRate.amount,
+                            estimated_days: shippingData.displayRate.estimated_days
+                        };
+                        
+                        console.log('💰 Showing customer highest rate:', shippingData.displayRate);
+                        console.log('📊 All available rates:', shippingData.allRates);
+                    } else if (shippingData.bestRate) {
+                        // Fallback to bestRate if displayRate not available
                         shippingCents = Math.round(shippingData.bestRate.amount * 100);
                         shippingDetails = {
                             provider: shippingData.bestRate.provider,
@@ -445,7 +485,7 @@
     }
     
     async function handleSubmit(event) {
-        event.preventDefault();
+        event.preventDefault(); // ✅ CRITICAL: Prevent default form submission
         
         if (!db) {
             alert("System not ready. Please refresh the page.");
@@ -463,7 +503,7 @@
         $('btnSubmit').disabled = true;
         $('btnSubmit').innerText = "...";
     
-        // ✅ UPDATED: Include shipping, tax, and breakdown
+        // ✅ Include shipping, tax, and breakdown
         const order = {
             userId: userId || 'guest',
             buyerEmail: email,
@@ -484,12 +524,12 @@
                 sku: cartItem.item.sku,
                 quantity: cartItem.quantity
             })),
-            subtotalCents: cartTotalCents,           // ✅ NEW: Items only
-            shippingCents: shippingCents,            // ✅ NEW: Shipping cost
-            taxCents: taxCents,                      // ✅ NEW: Tax amount
-            totalCents: cartTotalCents + shippingCents + taxCents,  // ✅ NEW: Grand total
-            shippingDetails: shippingDetails,        // ✅ NEW: Provider info
-            taxDetails: taxDetails,                  // ✅ NEW: Tax rate info
+            subtotalCents: cartTotalCents,
+            shippingCents: shippingCents,
+            taxCents: taxCents,
+            totalCents: cartTotalCents + shippingCents + taxCents,
+            shippingDetails: shippingDetails,
+            taxDetails: taxDetails,
             status: "Pending",
             createdAt: serverTimestamp(),
             timestamp: new Date().toISOString()
@@ -497,8 +537,6 @@
     
         console.log("=== ORDER BEING SUBMITTED ===");
         console.log("Full order object:", order);
-        console.log("buyerName:", order.buyerName);
-        console.log("buyerEmail:", order.buyerEmail);
         console.log("subtotalCents:", order.subtotalCents);
         console.log("shippingCents:", order.shippingCents);
         console.log("taxCents:", order.taxCents);
@@ -573,6 +611,9 @@
             } catch (emailError) {
                 console.error("Email Error (order still created):", emailError);
             }
+            
+            // ✅ NEW: Lock rendering to prevent page refresh
+            orderCompleted = true;
             
             sessionStorage.removeItem('autoInxCart');
             
