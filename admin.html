@@ -2659,40 +2659,62 @@
         }
 
         // ✅ NEW: Shipping Label Modal Functions
-showShippingModal: function(orderId) {
-    resetTimer();
-    const order = state.orders.find(o => o.id === orderId);
-    if (!order) {
-        showMessage('error', 'Order not found', 3000, 'orders');
-        return;
-    }
-    
-    state.shippingModalOrderId = orderId;
-    state.shippingModalOpen = true;
-    
-    const container = document.getElementById('shippingModalContainer');
-    if (container) {
-        container.innerHTML = renderShippingLabelModal(order);
+            showShippingModal: function(orderId) {
+            resetTimer();
+            const order = state.orders.find(o => o.id === orderId);
+            if (!order) {
+                showMessage('error', 'Order not found', 3000, 'orders');
+                return;
+            }
+            
+            state.shippingModalOrderId = orderId;
+            state.shippingModalOpen = true;
+            
+            const container = document.getElementById('shippingModalContainer');
+            if (container) {
+                container.innerHTML = renderShippingLabelModal(order);
+                
+                // Attach form submit handler
+                const form = document.getElementById('shippingLabelForm');
+                if (form) {
+                    form.onsubmit = (e) => {
+                        e.preventDefault();
+                        this.handleGenerateShippingLabel(orderId);
+                    };
+                }
+            }
+        },
         
-        // Attach form submit handler
-        const form = document.getElementById('shippingLabelForm');
-        if (form) {
-            form.onsubmit = (e) => {
-                e.preventDefault();
-                window.module.handleGenerateShippingLabel(orderId);
-            };
+    // ✅ CORRECT: ES6 method syntax for async function
+    async handleGenerateShippingLabel(orderId) {
+        resetTimer();
+        const order = state.orders.find(o => o.id === orderId);
+        if (!order) return;
+        
+        const carrier = document.getElementById('shippingCarrier')?.value;
+        const service = document.getElementById('shippingService')?.value;
+        const weight = document.getElementById('packageWeight')?.value;
+        const value = document.getElementById('packageValue')?.value;
+        const notes = document.getElementById('shippingNotes')?.value;
+        
+        if (!carrier || !service) {
+            showMessage('error', 'Please select carrier and service level', 3000, 'orders');
+            return;
         }
-    }
-},
-
-closeShippingModal: function() {
-    state.shippingModalOrderId = null;
-    state.shippingModalOpen = false;
-    const container = document.getElementById('shippingModalContainer');
-    if (container) {
-        container.innerHTML = '';
-    }
-},
+        
+        try {
+            showMessage('info', 'Generating shipping label...', 2000, 'orders');
+            
+            // ... rest of the function ...
+            
+        } catch (error) {
+            console.error('Label generation error:', error);
+            showMessage('error', `Failed to generate label: ${error.message}`, 5000, 'orders');
+        }
+    },
+        
+    
+renderShippingLabelModal: renderShippingLabelModal,
 
 handleGenerateShippingLabel: async function(orderId) {
     resetTimer();
@@ -2831,7 +2853,7 @@ handleGenerateShippingLabel: async function(orderId) {
             showMessage('error', `Shippo request failed: ${error.message}`, 5000, 'orders');
         }
     },
-    updateOrderTracking: async function(orderId, trackingData) {
+    async updateOrderTracking(orderId, trackingData) {
         try {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
