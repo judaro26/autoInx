@@ -1167,59 +1167,62 @@
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
             try {
+                // 🔥 CHECK FOR REDIRECT FIRST (before everything else)
+                const urlParams = new URLSearchParams(window.location.search);
+                const isAdminRedirect = urlParams.get('redirect') === 'admin_login';
+                
                 // 1. Set language from storage
                 const storedLang = localStorage.getItem('siteLang');
                 if (storedLang && TEXT[storedLang]) {
                     currentLang = storedLang;
                 }
-
+        
                 // 2. Fetch public configuration (Maintenance mode, IP, etc.)
                 const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
                 if (!configResponse.ok) throw new Error("Failed to load site config.");
-
+                
                 const globalConfig = await configResponse.json();
-
+        
                 // 3. Update global state
                 state.isAdminIP = globalConfig.isRequesterAdmin === true;
                 state.isMaintenanceMode = globalConfig.maintenanceMode === true;
                 state.clientIp = globalConfig.clientIp;
-
+        
                 console.log("Connected from IP:", state.clientIp);
-
+        
                 // 4. Handle Maintenance Mode Restriction
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
                     isAuthReady = true;
-                    render();
+                    render(); 
                     return;
                 }
-
+        
                 // 5. Load Firebase Client Config (API Keys)
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
-
+        
                 if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
                     throw new Error("Firebase configuration could not be loaded.");
                 }
-
+        
                 // 6. Initialize Firebase services
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
-
-                // --- NEW: Initialize App Check ---
-                // This validates your app's identity and prevents the 400 Bad Request error
+        
+                // 7. Initialize App Check
                 try {
                     initializeAppCheck(app, {
                         provider: new ReCaptchaEnterpriseProvider('6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'),
-                        isTokenAutoRefreshEnabled: true
+                        isTokenAutoRefreshEnabled: true 
                     });
                     console.log("App Check initialized with reCAPTCHA Enterprise.");
                 } catch (appCheckErr) {
                     console.error("App Check failed to initialize:", appCheckErr);
                 }
-
-                // 7. Set up Authentication Listener
+        
+                // 8. Set up Authentication Listener
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         userId = user.uid;
@@ -1235,36 +1238,51 @@
                         // Sign in anonymously for public data access
                         await signInAnonymously(auth).catch(e => console.error("Anon login failed:", e));
                     }
-
+                    
                     isAuthReady = true;
-
+        
                     // Apply chat widget logic
                     state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
-
+                    
                     // Start live data sync and render
                     setupRealtimeListeners();
                     render();
+                    
+                    // 🔥 HANDLE ADMIN REDIRECT AFTER RENDER
+                    if (isAdminRedirect) {
+                        console.log("🔐 Admin login redirect detected");
+                        
+                        // Show informative message
+                        setTimeout(() => {
+                            showMessage('info', 'Please log in with your admin credentials.', 6000);
+                        }, 100);
+                        
+                        // Open admin login modal
+                        setTimeout(() => {
+                            state.isModalOpen = true;
+                            state.modalMode = 'login';
+                            state.modalType = 'admin';
+                            render();
+                            
+                            // Clean up URL
+                            window.history.replaceState({}, document.title, '/');
+                        }, 400);
+                    }
                 });
-
-                // Check if redirected from admin page
-                const urlParams = new URLSearchParams(window.location.search);
-                if (urlParams.get('redirect') === 'admin_login') {
-                    showMessage('info', 'Please log in with your admin account to access the admin dashboard.', 5000);
-                    // Automatically open the admin login modal
-                    setTimeout(() => {
-                        showLoginModal('admin', 'login');
-                    }, 500);
-                }
-
+        
             } catch (error) {
                 console.error("Critical Setup Error:", error);
-                state.message = {
-                    type: 'error',
-                    text: currentLang === 'es' ? 'Error al cargar el portal.' : 'Error loading portal.'
+                state.message = { 
+                    type: 'error', 
+                    text: currentLang === 'es' ? 'Error al cargar el portal.' : 'Error loading portal.' 
                 };
                 render();
             }
         }
+        
+
+
+        
         // --- EXPOSED MODULE FUNCTIONS & INITIALIZATION ---
         function toggleView(type = 'standard') {
             if (state.view === 'user') {
