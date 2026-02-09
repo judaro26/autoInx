@@ -1634,42 +1634,73 @@
 
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
+            console.log("🔵 checkAuthAndRender called");
+            
             onAuthStateChanged(auth, user => {
+                console.log("🔵 Auth state changed:", {
+                    hasUser: !!user,
+                    isAnonymous: user?.isAnonymous,
+                    email: user?.email,
+                    uid: user?.uid
+                });
+                
                 if (user && !user.isAnonymous) {
+                    console.log("🟢 User is logged in, checking admin status...");
+                    
                     // User is logged in, now check for admin privileges
                     user.getIdTokenResult(true).then(idTokenResult => {
+                        console.log("🟢 Token claims received:", idTokenResult.claims);
+                        
                         if (idTokenResult.claims.admin === true) {
+                            console.log("✅ ADMIN VERIFIED - Setting up dashboard...");
+                            
                             // 1. SET THE GLOBAL userId FIRST
                             userId = user.uid;
                             isAuthReady = true;
-
+        
                             // 2. Start session tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
                             document.addEventListener('touchstart', resetTimer);
                             resetTimer();
-
+        
                             // 3. Setup listeners
                             setupRealtimeListeners();
-
+        
                             // 4. Render page
                             renderAdminPage(user.email || 'Admin');
-
+        
                         } else {
-                            // User is logged in but not an admin
-                            console.warn("User lacks admin privileges");
+                            console.error("❌ User lacks admin privileges. Claims:", idTokenResult.claims);
+                            
+                            // ⏸️ PAUSE FOR DEBUGGING
+                            alert("DEBUG: User lacks admin claim. Check console before redirect.");
+                            
                             signOut(auth).then(() => {
                                 window.location.href = '/?error=unauthorized';
                             });
                         }
                     }).catch(err => {
-                        console.error("Token error:", err);
+                        console.error("❌ Token retrieval error:", err);
+                        console.error("Error details:", {
+                            code: err.code,
+                            message: err.message,
+                            stack: err.stack
+                        });
+                        
+                        // ⏸️ PAUSE FOR DEBUGGING
+                        alert("DEBUG: Token error - " + err.message + ". Check console before redirect.");
+                        
                         signOut(auth).then(() => {
                             window.location.href = '/?error=auth_failed';
                         });
                     });
                 } else {
-                    // No user is logged in OR user is anonymous
-                    console.log("No authenticated user, redirecting to index");
+                    console.warn("🔴 No authenticated user detected");
+                    console.warn("User object:", user);
+                    
+                    // ⏸️ PAUSE FOR DEBUGGING
+                    alert("DEBUG: No authenticated user. Check console before redirect.");
+                    
                     window.location.href = '/?redirect=admin_login';
                 }
             });
