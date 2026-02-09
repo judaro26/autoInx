@@ -1,16 +1,18 @@
 <!DOCTYPE html>
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AutoInx Market Portal</title>
-    
+
     <link rel="icon" type="image/x-icon" href="/images/AutoInx logo.ico">
-    
+
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
 
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,20 +20,35 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
         /* Custom scrollbar for better appearance */
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background-color: #e5e7eb; }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #6366f1;
+            border-radius: 3px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background-color: #e5e7eb;
+        }
+
         /* Modal background */
-        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
         .line-clamp-2 {
             display: -webkit-box;
             -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;  
+            -webkit-box-orient: vertical;
             overflow: hidden;
         }
-        
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -39,20 +56,20 @@
         import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        
 
-        
+
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         const RECAPTCHA_SITE_KEY = '6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J';
         const CAPTCHA_VERIFY_FUNCTION = '/.netlify/functions/verifyCaptcha';
-        
+
         let app, db, auth;
         let userId = null;
         let isAuthReady = false;
         let explicitSignOutOccurred = false;
         let currentLang = 'es'; // Initialized here, updated in setupFirebase
-        
+
         // --- LANGUAGE TEXT MAPPING (MODIFIED) ---
         const TEXT = {
             es: {
@@ -68,7 +85,7 @@
                 eConsentStoreFail: 'Error al registrar el consentimiento. Intente nuevamente.',
                 viewOrders: 'Ver mis pedidos',
                 // FIX: Update product button text
-                addToCart: 'Añadir al Carrito', 
+                addToCart: 'Añadir al Carrito',
             },
             en: {
                 logoTitle: 'Catalog', welcome: 'Welcome,', signOut: 'Sign Out', adminDashboard: 'Admin Dashboard', adminLogin: 'Admin Login', standardLogin: 'Login', signUp: 'Sign Up', forgotPassword: 'Forgot Password?', searchPlaceholder: 'Search products by name or description...', categoriesHeader: 'Categories', productsVisible: 'visible', allProducts: 'All Products', noProducts: 'No products match your current filters.', shoppingCart: 'Shopping Cart', cartEmpty: 'Your cart is empty.', maintenanceTitle: 'System Under Maintenance', maintenanceMsg: 'We are performing scheduled maintenance. We apologize for any inconvenience.', exitAdminView: 'Exit Admin View', loginSuccessful: 'Login successful!', registerSuccessful: 'Registration successful! You are now logged in.', loginUser: 'User Login', loginAdmin: 'Admin Login (Secure)', registerNew: 'Register New Account', loginBtn: 'Login', registerBtn: 'Register', needAccount: 'Need an account? Register', alreadyRegistered: 'Already registered? Login', adminSetupNote: 'Admin accounts must be set up by an administrator.', checkout: 'Checkout',
@@ -95,46 +112,46 @@
             currentLang = lang;
             render();
         }
-        
+
         // --- GLOBAL STATE (MODIFIED) ---
         const state = {
-            view: 'user', 
+            view: 'user',
             catalogs: [],
             items: [],
-            cart: {}, 
+            cart: {},
             email: '',
             message: null,
             loading: false,
-            isAdminIP: false, 
-            configLoaded: false, 
-            isModalOpen: false, 
-            modalMode: 'login', 
-            modalType: 'standard', 
-            userName: null, 
-            isMaintenanceMode: false, 
-            chatWidgetEnabled: false, 
-            productSearchTerm: '', 
-            selectedCategoryId: 'all', 
+            isAdminIP: false,
+            configLoaded: false,
+            isModalOpen: false,
+            modalMode: 'login',
+            modalType: 'standard',
+            userName: null,
+            isMaintenanceMode: false,
+            chatWidgetEnabled: false,
+            productSearchTerm: '',
+            selectedCategoryId: 'all',
             selectedItem: null,
             captchaToken: null
         };
-        
+
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
         const GET_PUBLIC_CONFIG_FUNCTION = '/.netlify/functions/getPublicConfig'; // <-- Use a new public endpoint
         const GET_SECURE_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig'; // <-- Keep for secure admin use
-        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig'; 
-        const GET_CLIENT_IP_FUNCTION = '/.netlify/functions/getClientIp'; 
-        
+        const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
+        const GET_CLIENT_IP_FUNCTION = '/.netlify/functions/getClientIp';
+
         // --- RENDER FUNCTIONS (MODIFIED FOR I18N) ---
         function render() {
             const appElement = document.getElementById('app');
             if (!appElement) return;
-            
+
             const loadingState = document.getElementById('loadingState');
             if (loadingState && (state.configLoaded && isAuthReady)) {
                 loadingState.remove();
             }
-        
+
             appElement.innerHTML = `
                 <div class="min-h-screen bg-gradient-to-br from-blue-100 to-indigo-50">
                     <header class="bg-white shadow-lg sticky top-0 z-40">
@@ -170,7 +187,7 @@
                     ${renderChatWidget()}
                 </div>
             `;
-        
+
             // Re-bind T&C link logic
             const tosLabel = document.querySelector('label[for="accept-tos"]');
             if (tosLabel) {
@@ -179,17 +196,17 @@
         }
 
         // --- NEW UTILITY FUNCTIONS ---
-        
+
         // This function is called by the reCAPTCHA script when validation is successful
         function handleCaptchaSuccess(token) {
             console.log("reCAPTCHA successful. Token:", token);
             state.captchaToken = token;
         }
-        
+
         // Function to log e-consent to Firestore
         async function logEconsent(userId, email, ipAddress, tosVersion = 'v1') {
             if (!db) return console.error("Firestore not initialized for e-consent logging.");
-        
+
             try {
                 const econsentDocRef = doc(db, 'users', userId, 'econsent', tosVersion);
                 await setDoc(econsentDocRef, {
@@ -207,47 +224,47 @@
                 return false;
             }
         }
-        
-        
+
+
         async function verifyCaptcha(token) {
             if (!token) return false;
-        
+
             // Save token locally before clearing the global state
-            const currentToken = state.captchaToken; 
+            const currentToken = state.captchaToken;
             state.captchaToken = null; // Clear immediately to prevent accidental reuse
-        
+
             try {
                 const response = await fetch(CAPTCHA_VERIFY_FUNCTION, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     // Use the locally saved token, but this is the original code structure:
-                    body: JSON.stringify({ token }) 
+                    body: JSON.stringify({ token })
                 });
-        
+
                 if (!response.ok) throw new Error('Network response was not ok');
-        
+
                 const result = await response.json();
                 // The Netlify function should return { success: true/false }
                 return result.success; // The server determines success
-        
+
             } catch (error) {
                 console.error("Error verifying reCAPTCHA:", error);
                 return false;
             }
-        }       
-        
+        }
+
         function renderItemDetailModal() {
             if (!state.selectedItem) return '';
-            
+
             const item = state.selectedItem;
             const catalog = state.catalogs.find(c => c.id === item.catalogId);
             const categoryName = catalog ? catalog.name : 'Uncategorized';
-            
+
             // Ensure we have an array to work with
-            const images = item.imageUrls && item.imageUrls.length > 0 
-                ? item.imageUrls 
+            const images = item.imageUrls && item.imageUrls.length > 0
+                ? item.imageUrls
                 : [item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing'];
-        
+
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeItemDetailModal()">
                     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
@@ -301,11 +318,11 @@
         }
         function loadRecaptchaScript() {
             if (document.getElementById('recaptcha-script')) return; // Already loaded
-        
+
             const script = document.createElement('script');
             script.id = 'recaptcha-script';
             // Use the globally defined RECAPTCHA_SITE_KEY from your script
-            const RECAPTCHA_SITE_KEY = '6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'; 
+            const RECAPTCHA_SITE_KEY = '6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J';
             // Pass the handleCaptchaSuccess function as the callback
             script.src = `https://www.google.com/recaptcha/enterprise.js?render=${RECAPTCHA_SITE_KEY}&onload=onloadRecaptchaCallback`;
             script.async = true;
@@ -313,14 +330,14 @@
             console.log("reCAPTCHA script injected.");
         }
         // function to display the product
-         function renderProductCard(item) {
+        function renderProductCard(item) {
             // Clean JSON for data attributes to prevent syntax breaks
             const itemJson = JSON.stringify(item).replace(/'/g, "&apos;").replace(/"/g, '&quot;');
-            
-            const displayImg = (item.imageUrls && item.imageUrls.length > 0) 
-                ? item.imageUrls[0] 
+
+            const displayImg = (item.imageUrls && item.imageUrls.length > 0)
+                ? item.imageUrls[0]
                 : (item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing');
-        
+
             return `
                 <div class="bg-white rounded-xl shadow-md overflow-hidden transform hover:shadow-lg transition duration-300 border border-gray-100 flex flex-col h-full">
                     <div class="relative cursor-pointer group h-40 overflow-hidden bg-gray-50" onclick='window.module.openItemDetailModal(${itemJson})'>
@@ -357,7 +374,7 @@
         }
         function renderCartLink() {
             const itemCount = Object.values(state.cart).reduce((total, entry) => total + entry.quantity, 0);
-            
+
             if (itemCount === 0) return '';
             return `
                 <a href="/checkout.html" onclick="event.preventDefault(); window.module.continueToCheckout()"
@@ -372,7 +389,7 @@
         function renderAuthToggle() {
             // 1. Guard clause
             if (!state.configLoaded || !isAuthReady) return '';
-        
+
             // 2. Admin View Toggle (If currently in admin mode)
             if (state.view === 'admin') {
                 return `
@@ -381,7 +398,7 @@
                     </button>
                 `;
             }
-        
+
             // 3. Define the Track Order link
             const trackOrderText = currentLang === 'es' ? 'Rastrear Pedido' : 'Track Order';
             const trackOrderLink = `
@@ -392,14 +409,14 @@
                     <span class="text-xs sm:text-sm">${state.userName ? t('viewOrders') : trackOrderText}</span>
                 </a>
             `;
-        
+
             // 4. Logged-in Status
             if (state.userName) {
                 // Show Admin Dashboard button if: 
                 // A) The IP is whitelisted OR 
                 // B) The user email contains your specific admin domain (optional safety fallback)
                 const showAdminBtn = state.isAdminIP || state.userName.includes('@autoinx.com');
-        
+
                 return `
                     <div class="flex items-center space-x-2 sm:space-x-4">
                         <span class="text-gray-600 font-medium text-xs hidden lg:inline">${t('welcome')} ${state.userName.split('@')[0]}</span>
@@ -415,7 +432,7 @@
                     </div>
                 `;
             }
-        
+
             // 5. Guest (Logged-out) Status
             const guestButtons = `
                 <button onclick="window.module.registerUser()" class="text-xs font-medium text-gray-500 hover:text-indigo-600 transition hidden md:inline">
@@ -427,7 +444,7 @@
                 </button>` : ''}
             `;
 
-        
+
             return `
                 <div class="flex items-center space-x-2 sm:space-x-4">
                     ${guestButtons}
@@ -443,23 +460,23 @@
         }
         function renderModal() {
             if (!state.isModalOpen) return '';
-            
+
             const isLogin = state.modalMode === 'login';
             const isStandard = state.modalType === 'standard';
             const isRegister = state.modalMode === 'register';
             const isAdminLogin = state.modalType === 'admin' && isLogin;
-            
+
             const title = isLogin ? (isStandard ? t('loginUser') : t('loginAdmin')) : t('registerNew');
             const submitText = isLogin ? t('loginBtn') : t('registerBtn');
             const switchModeText = isLogin ? t('needAccount') : t('alreadyRegistered');
-            
+
             // Values to pass into the onclick handler
             const nextMode = state.modalMode === 'login' ? 'register' : 'login';
             const currentType = state.modalType;
-        
+
             let emailField = `<input type="email" id="email-input" placeholder="${t('emailLabel') || 'Email'}" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
             let passwordField = `<input type="password" id="password-input" placeholder="${t('passwordLabel') || 'Password'}" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">`;
-                                
+
             let registerFields = '';
             if (isRegister) {
                 registerFields = `
@@ -472,7 +489,7 @@
                     </div>
                 `;
             }
-            
+
             const googleAuthButton = (isStandard || isRegister) ? `
                 <div class="my-4 flex items-center">
                     <hr class="flex-grow border-gray-300">
@@ -483,7 +500,7 @@
                     ${isLogin ? 'Sign in with Google' : 'Register with Google'}
                 </button>
             ` : '';
-            
+
             // FIX: Variables injected as strings into the onclick attribute
             const switchModeSection = isAdminLogin ?
                 `<p class="w-full mt-4 text-sm text-gray-400 text-center">${t('adminSetupNote')}</p>` :
@@ -491,7 +508,7 @@
                         class="w-full mt-4 text-sm text-indigo-600 hover:text-indigo-800 transition text-center">
                     ${switchModeText}
                 </button>`;
-        
+
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeModal()">
                     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-sm relative" onclick="event.stopPropagation()">
@@ -538,9 +555,9 @@
         function renderChatWidget() {
             // Check 1: If Chat is globally disabled, or if the view is explicitly 'admin', hide it.
             if (!state.chatWidgetEnabled || state.view === 'admin') return '';
-            
+
             // NOTE: The WhatsApp number from checkout.html is used here: +57 300 123 4567
-        
+
             return `
                 <div id="chatWidget" class="fixed bottom-6 right-6 z-50">
                     <a href="https://wa.me/573001234567" target="_blank" rel="noopener"
@@ -563,7 +580,7 @@
                     count: state.items.filter(i => i.catalogId === c.id).length
                 })))
                 .filter(c => c.count > 0 || c.id === 'all');
-                
+
             return `
                 <div class="bg-white p-3 rounded-xl shadow-md border-t-4 border-indigo-500 sticky top-24">
                     <h3 class="text-xs font-black uppercase tracking-widest mb-3 text-gray-400 hidden md:block">
@@ -571,15 +588,15 @@
                     </h3>
                     <div class="flex flex-row md:flex-col overflow-x-auto md:overflow-y-auto space-x-2 md:space-x-0 md:space-y-1 pb-2 md:pb-0 custom-scrollbar">
                         ${allCategories.map(cat => {
-                            const isActive = state.selectedCategoryId === cat.id;
-                            return `
+                const isActive = state.selectedCategoryId === cat.id;
+                return `
                                 <button onclick="window.module.selectCategory('${cat.id}')"
                                          class="whitespace-nowrap md:whitespace-normal text-left px-3 py-2 rounded-lg transition-all text-[11px] leading-tight
                                          ${isActive ? 'bg-indigo-600 text-white font-bold shadow-sm' : 'bg-gray-50 text-gray-600 hover:bg-indigo-50 hover:text-indigo-600'}">
                                     ${cat.name} <span class="opacity-60 font-normal">(${cat.count})</span>
                                 </button>
                             `;
-                        }).join('')}
+            }).join('')}
                     </div>
                 </div>
             `;
@@ -600,7 +617,7 @@
                 acc[catalogName].push(item);
                 return acc;
             }, {});
-        
+
             return Object.keys(itemsByCatalog).map(catalogName => `
                 <div>
                     ${state.selectedCategoryId === 'all' ? `<h3 class="text-2xl font-bold mb-4 text-indigo-700">${catalogName}</h3>` : ''}
@@ -610,7 +627,7 @@
                 </div>
             `).join('<hr class="my-8 border-indigo-200">');
         }
-        
+
         function renderCartSidebar(totalCartPrice) {
             return `
                 <div class="md:col-span-1 mt-8 md:mt-0">
@@ -621,7 +638,7 @@
                         </h3>
                         <div class="space-y-3 max-h-64 custom-scrollbar overflow-y-auto pr-1">
                             ${Object.values(state.cart).length > 0
-                                ? Object.values(state.cart).map(entry => `
+                    ? Object.values(state.cart).map(entry => `
                                     <div class="flex flex-col border-b pb-2 space-y-1">
                                         <div class="flex justify-between items-start">
                                             <p class="text-xs font-bold text-gray-900 line-clamp-2 leading-tight">${entry.item.name}</p>
@@ -636,8 +653,8 @@
                                         </div>
                                     </div>
                                 `).join('')
-                                : `<p class="text-xs text-gray-400 italic">${t('cartEmpty')}</p>`
-                            }
+                    : `<p class="text-xs text-gray-400 italic">${t('cartEmpty')}</p>`
+                }
                         </div>
                         <div class="pt-3 mt-3 border-t border-gray-200">
                             <div class="flex justify-between font-bold text-lg text-gray-800">
@@ -657,7 +674,7 @@
                 </div>
             `;
         }
-        
+
         function renderUserView() {
             if (state.isMaintenanceMode && !state.isAdminIP) {
                 return `<div class="p-10 text-center text-gray-600">
@@ -665,7 +682,7 @@
                     <p class="mt-2">${t('maintenanceMsg')}</p>
                 </div>`;
             }
-            
+
             return `
                 <div class="flex flex-col md:grid md:grid-cols-12 gap-6">
                     
@@ -701,7 +718,7 @@
                 render();
             }, duration);
         }
-        
+
         function getFilteredAndCategorizedItems() {
             let filtered = state.items;
             const term = state.productSearchTerm.toLowerCase();
@@ -716,7 +733,7 @@
             }
             return filtered;
         }
-        
+
         function handleProductSearchInput(e) {
             state.productSearchTerm = e.target.value;
             render();
@@ -734,7 +751,7 @@
             }
             try {
                 const response = await fetch(CONFIG_CLIENT_FUNCTION);
-                
+
                 if (!response.ok) {
                     throw new Error(`Failed to fetch config from Netlify Function (Status: ${response.status})`);
                 }
@@ -746,19 +763,19 @@
                 return {};
             }
         }
-        
+
         // --- FETCH GLOBAL CONFIG AFTER FIREBASE IS READY ---
-                async function fetchAndApplyGlobalConfig() {
+        async function fetchAndApplyGlobalConfig() {
             try {
                 // FIX: Use the new public function path
                 const response = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
                 if (!response.ok) throw new Error('Failed to fetch global config.');
-                
+
                 const config = await response.json();
-                
+
                 // Ensure chat widget honors the current maintenance state
                 state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (state.isMaintenanceMode === false);
-                
+
             } catch (error) {
                 console.error("Error fetching global config:", error);
                 state.chatWidgetEnabled = false;
@@ -768,7 +785,7 @@
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
         // --- PERSISTENCE & LISTENING ---
-        
+
         function loadCartFromSession() {
             try {
                 const cartJson = sessionStorage.getItem('autoInxCart');
@@ -783,13 +800,13 @@
         }
         function setupRealtimeListeners() {
             if (!isAuthReady || !db) return;
-            
+
             // CRITICAL FIX: Allow listeners to run if Maintenance Mode is OFF OR if the user is a whitelisted Admin IP
             if (state.isMaintenanceMode && !state.isAdminIP) {
                 console.log("Realtime listeners suppressed due to Maintenance Mode.");
                 return;
             }
-            
+
             loadCartFromSession();
             // 1. Catalogs Listener
             onSnapshot(collection(db, CATALOGS_COLLECTION), (snapshot) => {
@@ -820,38 +837,38 @@
             }
             const currentEntry = state.cart[item.id];
             const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
-            
+
             // 1. Update local state
             state.cart = {
                 ...state.cart,
                 [item.id]: { item, quantity: newQuantity }
             };
-        
+
             // 2. IMMEDIATE PERSISTENCE: Save to sessionStorage right now
             sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
-        
+
             showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
             render();
         }
         function updateCartQuantity(itemId, change) {
             if (state.isMaintenanceMode) return;
-            
+
             const currentEntry = state.cart[itemId];
             if (!currentEntry) return;
             const newQuantity = currentEntry.quantity + change;
-            
+
             const newCart = { ...state.cart };
             if (newQuantity <= 0) {
                 delete newCart[itemId];
             } else {
                 newCart[itemId] = { item: currentEntry.item, quantity: newQuantity };
             }
-            
+
             state.cart = newCart;
-            
+
             // SYNC TO STORAGE
             sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
-            
+
             render();
         }
         function continueToCheckout() {
@@ -863,7 +880,7 @@
                 showMessage('error', 'Your cart is empty!');
                 return;
             }
-            
+
             try {
                 sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
             } catch (error) {
@@ -882,38 +899,38 @@
             state.selectedItem = null;
             render();
         }
-        
+
         function showLoginModal(type, mode) {
             state.isModalOpen = true;
             state.modalMode = mode;
             state.modalType = type;
             state.captchaToken = null; // NEW: Reset captcha token on modal open
-        
+
             render(); // This renders the new modal structure (including the g-recaptcha div) into the DOM
-            
+
             // Clear previous error messages
             const messageEl = document.getElementById('auth-message');
             if (messageEl) {
                 messageEl.textContent = '';
             }
-        
+
             // Clear input fields
             const emailInput = document.getElementById('email-input');
             const passwordInput = document.getElementById('password-input');
             if (emailInput) emailInput.value = '';
             if (passwordInput) passwordInput.value = '';
-        
+
             // FIX: Only attempt to reset reCAPTCHA if we are in register mode 
             // AND the global grecaptcha object exists. We use a slight delay 
             // to give the reCAPTCHA script time to process the newly rendered div.
             if (mode === 'register' && typeof grecaptcha !== 'undefined') {
                 setTimeout(() => {
                     const captchaContainer = document.getElementById('captcha-container');
-                    
+
                     // Check if the container is present AND if reCAPTCHA has actually rendered a widget inside it.
                     if (captchaContainer && captchaContainer.children.length > 0) {
                         try {
-                            grecaptcha.reset(); 
+                            grecaptcha.reset();
                         } catch (e) {
                             // This catch is a last resort, but the DOM check should prevent the common error.
                             console.warn("reCAPTCHA reset failed: Client may not be fully ready.", e);
@@ -940,28 +957,28 @@
         }
         async function handleStandardAuth(event) {
             event.preventDefault();
-            
+
             const emailInput = document.getElementById('email-input');
             const passwordInput = document.getElementById('password-input');
             // FIX: Trim prevents 'auth/invalid-email' or 'invalid-credential' due to hidden spaces
             const email = emailInput ? emailInput.value.trim() : '';
             const password = passwordInput ? passwordInput.value : '';
             const messageEl = document.getElementById('auth-message');
-            
-            if (messageEl) messageEl.textContent = ''; 
-        
+
+            if (messageEl) messageEl.textContent = '';
+
             if (!email || !password) {
                 if (messageEl) messageEl.textContent = "❌ Please enter both email and password.";
                 return;
             }
-        
+
             try {
                 if (state.modalMode === 'login') {
                     // Note: We no longer call grecaptcha.execute manually here.
                     // App Check and Firebase SDK handle the token exchange internally.
                     const userCredential = await signInWithEmailAndPassword(auth, email, password);
                     const user = userCredential.user;
-        
+
                     if (state.modalType === 'admin') {
                         const idTokenResult = await user.getIdTokenResult(true);
                         if (idTokenResult.claims.admin === true) {
@@ -981,13 +998,13 @@
                     if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
                         captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, { action: 'register' });
                     }
-        
+
                     const captchaVerified = await verifyCaptcha(captchaToken);
                     if (!captchaVerified) {
                         if (messageEl) messageEl.textContent = "❌ Bot verification failed.";
                         return;
                     }
-        
+
                     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                     await logEconsent(userCredential.user.uid, email, state.clientIp);
                     showMessage('success', t('registerSuccessful'), 2000);
@@ -996,40 +1013,40 @@
             } catch (error) {
                 console.error("Auth Error:", error.code, error.message);
                 let errorMessage = "Invalid email or password.";
-                
+
                 // Handle specific Firebase error codes
                 if (error.code === 'auth/network-request-failed') {
                     errorMessage = "Network error. Please check your connection.";
                 } else if (error.code === 'auth/too-many-requests') {
                     errorMessage = "Too many failed attempts. Please try again later.";
                 }
-                
+
                 if (messageEl) messageEl.textContent = `❌ ${errorMessage}`;
             }
         }
         async function handleGoogleSignIn() {
             const messageEl = document.getElementById('auth-message');
             messageEl.textContent = ''; // Clear previous message
-            
+
             // Define RECAPTCHA_SITE_KEY here for use in grecaptcha.enterprise.execute
             const RECAPTCHA_SITE_KEY = '6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J';
-            
+
             // Check if the modal is in Registration mode
             if (state.modalMode === 'register') {
                 const acceptTosCheckbox = document.getElementById('accept-tos');
-        
+
                 // 1. T&C Check
                 if (!acceptTosCheckbox || !acceptTosCheckbox.checked) {
                     messageEl.textContent = `❌ ${t('eConsentRequired')}`;
                     return;
                 }
-        
+
                 // --- 2. EXPLICIT RECAPTCHA EXECUTION ---
                 if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
                     messageEl.textContent = 'Validating anti-bot check...';
                     try {
                         // Execute reCAPTCHA Enterprise for a token
-                        state.captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, {action: 'register'});
+                        state.captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, { action: 'register' });
                         messageEl.textContent = ''; // Clear temporary message
                     } catch (e) {
                         console.error("reCAPTCHA execution failed during Google Sign-In:", e);
@@ -1040,7 +1057,7 @@
                     messageEl.textContent = `❌ ReCAPTCHA client not ready. ${t('captchaRequired')}`;
                     return;
                 }
-                
+
                 // 3. CAPTCHA Verification (server-side check)
                 const captchaVerified = await verifyCaptcha(state.captchaToken);
                 if (!captchaVerified) {
@@ -1048,31 +1065,31 @@
                     return;
                 }
             }
-            
+
             // Original Google Sign-In Logic
             messageEl.textContent = 'Logging in with Google...';
-            
+
             try {
                 const provider = new GoogleAuthProvider();
                 await signInWithPopup(auth, provider);
-                
+
                 // E-consent logging 
                 if (state.modalMode === 'register') {
-                     // NOTE: The listener will now handle state updates, but we need the user object 
-                     // for logEconsent. For now, we assume the user object is available here.
-                     const user = auth.currentUser; 
-                     if (user) {
-                         const eConsentSuccess = await logEconsent(user.uid, user.email, state.clientIp); 
-                         if (!eConsentSuccess) {
-                             await user.delete();
-                             messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
-                             return;
-                         }
-                     }
+                    // NOTE: The listener will now handle state updates, but we need the user object 
+                    // for logEconsent. For now, we assume the user object is available here.
+                    const user = auth.currentUser;
+                    if (user) {
+                        const eConsentSuccess = await logEconsent(user.uid, user.email, state.clientIp);
+                        if (!eConsentSuccess) {
+                            await user.delete();
+                            messageEl.textContent = `❌ ${t('eConsentStoreFail')}`;
+                            return;
+                        }
+                    }
                 }
-                
+
                 showMessage('success', 'Google Sign-In successful!', 2000);
-                
+
             } catch (error) {
                 // ... (error handling remains the same)
                 console.error("Google Sign-In failed:", error);
@@ -1080,7 +1097,7 @@
                 if (error.code === 'auth/popup-closed-by-user') {
                     errorMessage = 'Sign-in window closed. Please try again.';
                 } else if (error.code === 'auth/cancelled-popup-request') {
-                     errorMessage = 'Authentication window was cancelled or already in progress.';
+                    errorMessage = 'Authentication window was cancelled or already in progress.';
                 }
                 messageEl.textContent = `❌ ${errorMessage}`;
             }
@@ -1088,17 +1105,17 @@
         }
         async function requestPasswordReset() {
             const email = prompt("Enter the email associated with your account to receive a password reset link:");
-            
+
             if (!email) {
                 return;
             }
-            
+
             if (!email.includes('@') || email.length < 5) {
                 showMessage('error', 'Please enter a valid email address.');
                 return;
             }
             showMessage('info', 'Requesting password reset link...', 60000);
-            
+
             const netlifyFunctionUrl = '/.netlify/functions/sendPasswordResetEmail';
             try {
                 const MAX_RETRIES = 3;
@@ -1135,17 +1152,17 @@
                 showMessage('error', 'Network error. Could not connect to the password reset service.');
             }
         }
-        
+
         async function registerUser() {
             showLoginModal('standard', 'register');
         }
-        
+
         // --- NEW CHAT WIDGET FUNCTION ---
         function openChatWidget() {
             // The button now contains a direct link to WhatsApp in renderChatWidget, so this is no longer a placeholder.
             console.log('WhatsApp Chat widget clicked. Direct link is being opened.');
         }
-        
+
 
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
@@ -1155,53 +1172,53 @@
                 if (storedLang && TEXT[storedLang]) {
                     currentLang = storedLang;
                 }
-        
+
                 // 2. Fetch public configuration (Maintenance mode, IP, etc.)
                 const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
                 if (!configResponse.ok) throw new Error("Failed to load site config.");
-                
+
                 const globalConfig = await configResponse.json();
-        
+
                 // 3. Update global state
                 state.isAdminIP = globalConfig.isRequesterAdmin === true;
                 state.isMaintenanceMode = globalConfig.maintenanceMode === true;
                 state.clientIp = globalConfig.clientIp;
-        
+
                 console.log("Connected from IP:", state.clientIp);
-        
+
                 // 4. Handle Maintenance Mode Restriction
                 if (state.isMaintenanceMode && !state.isAdminIP) {
                     state.configLoaded = true;
                     isAuthReady = true;
-                    render(); 
+                    render();
                     return;
                 }
-        
+
                 // 5. Load Firebase Client Config (API Keys)
                 const firebaseConfig = await loadFirebaseConfig();
                 state.configLoaded = true;
-        
+
                 if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
                     throw new Error("Firebase configuration could not be loaded.");
                 }
-        
+
                 // 6. Initialize Firebase services
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
                 db = getFirestore(app);
-        
+
                 // --- NEW: Initialize App Check ---
                 // This validates your app's identity and prevents the 400 Bad Request error
                 try {
                     initializeAppCheck(app, {
                         provider: new ReCaptchaEnterpriseProvider('6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'),
-                        isTokenAutoRefreshEnabled: true 
+                        isTokenAutoRefreshEnabled: true
                     });
                     console.log("App Check initialized with reCAPTCHA Enterprise.");
                 } catch (appCheckErr) {
                     console.error("App Check failed to initialize:", appCheckErr);
                 }
-        
+
                 // 7. Set up Authentication Listener
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
@@ -1218,22 +1235,32 @@
                         // Sign in anonymously for public data access
                         await signInAnonymously(auth).catch(e => console.error("Anon login failed:", e));
                     }
-                    
+
                     isAuthReady = true;
-        
+
                     // Apply chat widget logic
                     state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
-                    
+
                     // Start live data sync and render
                     setupRealtimeListeners();
                     render();
                 });
-        
+
+                // Check if redirected from admin page
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('redirect') === 'admin_login') {
+                    showMessage('info', 'Please log in with your admin account to access the admin dashboard.', 5000);
+                    // Automatically open the admin login modal
+                    setTimeout(() => {
+                        showLoginModal('admin', 'login');
+                    }, 500);
+                }
+
             } catch (error) {
                 console.error("Critical Setup Error:", error);
-                state.message = { 
-                    type: 'error', 
-                    text: currentLang === 'es' ? 'Error al cargar el portal.' : 'Error loading portal.' 
+                state.message = {
+                    type: 'error',
+                    text: currentLang === 'es' ? 'Error al cargar el portal.' : 'Error loading portal.'
                 };
                 render();
             }
@@ -1267,7 +1294,7 @@
             setLanguage, // Exported language setter
             openItemDetailModal,
             closeItemDetailModal,
-            openChatWidget 
+            openChatWidget
         };
         document.addEventListener('DOMContentLoaded', () => {
             setupFirebase();
@@ -1275,12 +1302,16 @@
         });
     </script>
 </head>
-    <body class="bg-gradient-to-br from-blue-100 to-blue-50 min-h-screen">
+
+<body class="bg-gradient-to-br from-blue-100 to-blue-50 min-h-screen">
     <div id="app">
         <div id="loadingState" class="text-center p-20">
-            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg"
+                fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <path class="opacity-75" fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                </path>
             </svg>
             <p class="text-gray-600">Loading autoinx.com ...</p>
         </div>
@@ -1289,29 +1320,32 @@
     <footer class="bg-gray-900 text-white p-10 mt-10">
         <div class="max-w-5xl mx-auto">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8 border-b border-gray-700 pb-8 mb-8">
-                
+
                 <div>
                     <h4 class="text-2xl font-extrabold text-indigo-400 mb-4">AutoInx</h4>
-                    <p class="text-gray-400 text-sm">Your reliable source for high-quality auto parts in the Colombian and US markets. Family-owned and committed to service.</p>
+                    <p class="text-gray-400 text-sm">Your reliable source for high-quality auto parts in the Colombian
+                        and US markets. Family-owned and committed to service.</p>
                 </div>
 
                 <div>
                     <h4 class="text-xl font-bold mb-4">General Support</h4>
                     <p class="text-gray-400 mb-2">Non-Order Questions:</p>
-                    <a href="mailto:support@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">support@autoinx.com</a>
-                    
+                    <a href="mailto:support@autoinx.com"
+                        class="text-indigo-400 hover:text-indigo-300 font-medium">support@autoinx.com</a>
+
                     <h4 class="text-xl font-bold mt-6 mb-4">Order Inquiries</h4>
                     <p class="text-gray-400 mb-2">Order-Related Questions:</p>
-                    <a href="mailto:orders@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">orders@autoinx.com</a>
+                    <a href="mailto:orders@autoinx.com"
+                        class="text-indigo-400 hover:text-indigo-300 font-medium">orders@autoinx.com</a>
                 </div>
-                
+
                 <div>
                     <h4 class="text-xl font-bold mb-4">Phone Contact</h4>
                     <p class="text-gray-400 mb-2">US Number (WhatsApp):</p>
                     <a href="tel:+19377016185" class="text-lg font-extrabold text-white block hover:text-indigo-400">
                         (937) 701-6185
                     </a>
-                    
+
                     <p class="text-gray-400 mt-4 mb-2">Colombian Number (WhatsApp):</p>
                     <a href="tel:+573217040789" class="text-lg font-extrabold text-white block hover:text-indigo-400">
                         +57 321 704 0789
@@ -1320,11 +1354,11 @@
 
                 <div>
                     <h4 class="text-xl font-bold mb-4">Locations</h4>
-                    
+
                     <p class="font-medium text-white">Colombia</p>
                     <p class="text-gray-400 text-sm">Calle 68A 92-24, Bogota DC</p>
                     <p class="text-gray-400 text-sm mb-4">Calle 68A 92-58, Bogota</p>
-                    
+
                     <p class="font-medium text-white">United States</p>
                     <p class="text-gray-400 text-sm">587 Paradise Blvd, Hayward, CA 94541</p>
                 </div>
@@ -1336,4 +1370,5 @@
         </div>
     </footer>
 </body>
+
 </html>
