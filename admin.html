@@ -114,6 +114,7 @@
         let salesCharts = { category: null, month: null };
         // import modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js"; 
         import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -124,6 +125,7 @@
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
         let db;
+        let isAuthReady = false;
         let userId = null;
         let autocomplete; // Global variable for Google Autocomplete instance
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -265,14 +267,27 @@
         async function setupFirebase() {
             const firebaseConfig = await loadFirebaseConfig();
             if (Object.keys(firebaseConfig).length === 0) return;
-
+        
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-
+        
+            // ✅ ADD APP CHECK INITIALIZATION
+            try {
+                const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js");
+                
+                initializeAppCheck(app, {
+                    provider: new ReCaptchaEnterpriseProvider('6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'),
+                    isTokenAutoRefreshEnabled: true
+                });
+                console.log("✅ App Check initialized");
+            } catch (appCheckErr) {
+                console.error("❌ App Check failed:", appCheckErr);
+            }
+        
             // Start listening for live order updates immediately
             listenToOrders();
-
+        
             checkAuthAndRender();
         }
 
