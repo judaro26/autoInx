@@ -1,16 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>autoInx Admin Dashboard</title>
-    
+
     <link rel="icon" type="image/x-icon" href="/images/AutoInx logo.ico">
-    
+
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    
+
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style type="text/tailwindcss">
         body { font-family: 'Inter', sans-serif; }
@@ -90,18 +91,22 @@
         #maintenanceToggle:checked + .toggle-label { background-color: #10b981; }
     </style>
 </head>
+
 <body class="bg-gray-100 min-h-screen">
     <div id="app" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         <div id="loadingState" class="text-center p-20">
-            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg"
+                fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <path class="opacity-75" fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                </path>
             </svg>
             <p class="text-gray-600">Checking authentication and loading configuration...</p>
         </div>
     </div>
 
-    <div id="editModalContainer"></div> 
+    <div id="editModalContainer"></div>
     <div id="shippingModalContainer"></div>
 
     <script type="module">
@@ -113,9 +118,9 @@
         import { getFirestore, doc, getDoc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         // CORRECTED: Import static IP list directly from the new client-accessible path
-        import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js'; 
+        import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js';
 
-        
+
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
         let db;
@@ -186,23 +191,23 @@
                 ledgerTitle: 'Centralized Billing Ledger',
             }
         };
-        
+
         let currentLang = localStorage.getItem('adminLang') || 'en';
         const t = key => TEXT[currentLang][key] || TEXT['en'][key];
-    
+
         const state = {
             activeTab: 'catalog',
             catalogs: [],
             items: [],
-            searchTerm: '', 
+            searchTerm: '',
             orderSearchTerm: '',
-            userSearchTerm: '', 
-            allUsers: [], 
+            userSearchTerm: '',
+            allUsers: [],
             selectedUsers: [],
             editingItem: null,
             previewMode: false,
             adminCart: {},
-            
+
             // ✅ NEW: Admin order creation shipping/tax
             adminOrderShippingCents: 0,
             adminOrderTaxCents: 0,
@@ -212,8 +217,8 @@
             orders: [],
             orderListSearchTerm: '',
             orderStatusFilter: 'All',
-            deliveryStatusFilter: 'All', 
-            orderPage: 'list', 
+            deliveryStatusFilter: 'All',
+            orderPage: 'list',
             editingOrderId: null,  // ✅ NEW: Track which order is being edited
 
             // --- BILLING STATE ---
@@ -222,12 +227,12 @@
             // ✅ NEW: Shipping label modal state
             shippingModalOrderId: null,
             shippingModalOpen: false,
-                    
+
             // ✅ CRITICAL FIX: Initialize the sales time filter
-            salesTimeFilter: 'last6months', 
+            salesTimeFilter: 'last6months',
             // -------------------------
         };
-    
+
         // --- FIRESTORE COLLECTION PATHS & FUNCTION URLS ---
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
@@ -238,12 +243,12 @@
         const MANAGE_USER_FUNCTION = '/.netlify/functions/manageUser';
         const CLEAR_ANON_FUNCTION = '/.netlify/functions/clearAnonymousUsers';
         const ADMIN_CREATE_ORDER_FUNCTION = '/.netlify/functions/adminCreateOrder';
-        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey'; 
+        const MAPS_KEY_FUNCTION_URL = '/.netlify/functions/getGoogleMapsKey';
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
         const EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendOrderConfirmation'; // Added Email Function
         const RECEIPT_EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendReceiptConfirmation';
         const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection
-    
+
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
             try {
@@ -256,21 +261,21 @@
                 return {};
             }
         }
-    
+
         async function setupFirebase() {
             const firebaseConfig = await loadFirebaseConfig();
             if (Object.keys(firebaseConfig).length === 0) return;
-        
+
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-            
+
             // Start listening for live order updates immediately
-            listenToOrders(); 
-            
+            listenToOrders();
+
             checkAuthAndRender();
         }
-        
+
         function listenToOrders() {
             // This uses the ORDERS_COLLECTION constant you defined: artifacts/${appId}/public/data/orders
             const ordersRef = collection(db, ORDERS_COLLECTION);
@@ -283,7 +288,7 @@
                     const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.timestamp || 0);
                     return dateB - dateA;
                 });
-            
+
                 // ✅ FIXED: Call the correct function based on current page
                 if (state.activeTab === 'orders') {
                     if (state.orderPage === 'list') {
@@ -296,23 +301,23 @@
                 console.error("Order Subscription Error:", error);
             });
         }
-        
+
         // NEW FUNCTION: Exports individual order item details, which contain date/status/payment.
         function downloadIndividualItemSalesCsv() {
             resetTimer();
             const data = lastCategorySalesData.tableData;
-        
+
             if (data.length === 0) {
                 showMessage('error', 'No data available to download.', 5000, 'orders');
                 return;
             }
-        
+
             // Define CSV headers for individual items
             const headers = [
                 "Category", "Order ID (Short)", "Full Order ID", "Date", "Status",
                 "Payment Status", "Item Name", "Quantity", "Total Item Revenue (USD)"
             ];
-        
+
             // Collect ALL individual sales records from all categories
             const csvRows = [];
             data.forEach(categoryRow => {
@@ -321,16 +326,16 @@
                     const totalRevenueUSD = (orderItem.totalItemCents / 100).toFixed(2);
                     const category = `"${categoryRow.category.replace(/"/g, '""')}"`;
                     const itemName = `"${orderItem.itemName.replace(/"/g, '""')}"`;
-        
+
                     // CRITICAL FIX: Use the robust helper function
-                    const dateStr = toISODateString(orderItem.date); 
+                    const dateStr = toISODateString(orderItem.date);
                     // ---------------------------------------------
-        
+
                     csvRows.push([
                         category,
                         orderItem.id, // Short ID
                         orderItem.fullId, // Full ID
-                        dateStr, 
+                        dateStr,
                         orderItem.status,
                         orderItem.paymentStatus,
                         itemName,
@@ -339,19 +344,19 @@
                     ].join(','));
                 });
             });
-        
+
             // Combine headers and rows
             const csvString = [
                 headers.join(','),
                 ...csvRows
             ].join('\n');
-        
+
             // Create a Blob and trigger download
             const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
-            
+
             const filename = `Sales_Detail_Items_${state.salesTimeFilter}_${new Date().toISOString().slice(0, 10)}.csv`;
-        
+
             if (link.download !== undefined) {
                 const url = URL.createObjectURL(blob);
                 link.setAttribute("href", url);
@@ -365,10 +370,236 @@
                 showMessage('error', 'Browser does not support automatic CSV download.', 5000, 'orders');
             }
         }
-        
+
+        function renderPreviewSite() {
+            return `
+                <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                    <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview</h2>
+                    <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
+                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups allow-scripts allow-same-origin"></iframe>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
+                </section>`;
+        }
+
+
+        function renderAdminTabs() {
+            const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+            if (state.activeTab === 'catalog') {
+                return `
+                    <section class="space-y-10">
+                        <div id="catalogMessage"></div>
+                        
+                        ${renderEditProductForm()}
+    
+                        <div class="bg-white p-6 rounded-xl shadow-lg">
+                            <div class="flex justify-between items-center mb-4">
+                                <input type="text" oninput="window.module.handleSearchInput(event)" placeholder="Search products, SKUs, or category..." class="p-2 border rounded-lg w-full max-w-md">
+                            </div>
+                            <div id="productListContainer">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
+                                <h3 class="text-xl font-bold mb-4 text-indigo-700">Manage Categories</h3>
+                                <form onsubmit="window.module.handleAddCatalog(event)" class="space-y-4">
+                                    <input type="text" name="catalogName" placeholder="New Category Name (e.g., 'Electronics')" required class="w-full p-2 border rounded-lg">
+                                    <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">Add New Category</button>
+                                </form>
+                                <div class="mt-4 space-y-2 max-h-40 custom-scrollbar overflow-y-auto">
+                                    ${state.catalogs.map(c => `
+                                        <div class="flex justify-between items-center text-sm p-2 bg-gray-50 rounded-lg">
+                                            <span class="font-medium">${c.name}</span>
+                                            <button onclick="window.module.handleDeleteCatalog('${c.id}', '${c.name}')" class="text-red-500 hover:text-red-700 text-xs font-semibold">Delete</button>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                                <h3 class="text-xl font-bold mb-4 text-green-700">Add New Product</h3>
+                                <form onsubmit="window.module.handleAddProduct(event)" class="space-y-4">
+                                    <input type="text" name="itemName" placeholder="Product Name" required class="w-full p-2 border rounded-lg">
+                                    <textarea name="itemDescription" rows="2" placeholder="Product Description" required class="w-full p-2 border rounded-lg"></textarea>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <input type="number" step="0.01" name="itemPrice" placeholder="Price (e.g., 19.99)" required min="0.01" class="w-full p-2 border rounded-lg">
+                                        <select name="catalogId" required class="w-full p-2 border rounded-lg">
+                                            <option value="">-- Select Category --</option>
+                                            ${catOpts}
+                                        </select>
+                                    </div>
+                                    <textarea name="itemImageUrls" placeholder="Image URLs (One per line) - Optional" rows="3" class="w-full p-2 border rounded-lg text-sm"></textarea>
+                                    <input type="number" name="initialStock" placeholder="Initial Stock (Units)" min="0" value="0" class="w-full p-2 border rounded-lg">
+                                    <button type="submit" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Add Product</button>
+                                </form>
+                            </div>
+                        </div>
+    
+                        
+                    </section>
+                `;
+            } else if (state.activeTab === 'config') {
+                // Use default times if config doesn't have them
+                const enableTime = globalConfig.chatSchedule?.enableTime || '08:00';
+                const disableTime = globalConfig.chatSchedule?.disableTime || '20:00';
+                const activeDays = globalConfig.chatSchedule?.activeDays || [1, 2, 3, 4, 5]; // Default Mon-Fri
+
+                return `
+                <section class="space-y-8">
+                    <div id="configMessage"></div>
+                    <h2 class="text-2xl font-bold text-indigo-700">Global System Configuration</h2>
+    
+                    <div class="p-6 border rounded-xl bg-blue-50 border-blue-200">
+                        <h3 class="text-xl font-bold mb-4 text-blue-700">Chat Widget Schedule</h3>
+                        <p class="text-sm text-gray-600 mb-4">Set the window (in UTC-5 / Colombia Time) when the chat widget should be automatically enabled.</p>
+                        
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Enable Time (UTC-5)</label>
+                                <input type="time" id="chatEnableTime" required class="w-full p-2 border rounded-lg" value="${enableTime}">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Disable Time (UTC-5)</label>
+                                <input type="time" id="chatDisableTime" required class="w-full p-2 border rounded-lg" value="${disableTime}">
+                            </div>
+                        </div>
+    
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Active Days</label>
+                        <div id="chatActiveDays" class="flex flex-wrap space-x-4">
+                            ${renderDayCheckboxes(activeDays)}
+                        </div>
+                    </div>
+                    <div class="p-4 bg-blue-50 rounded-xl shadow-inner border border-blue-300">
+                        <div class="flex items-center justify-between">
+                            <label for="chatWidgetToggle" class="text-lg font-medium text-gray-700">Enable Site Chat Widget (Manual Override)</label>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="chatWidgetToggle" id="chatWidgetToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                <label for="chatWidgetToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <p class="text-sm text-blue-600 mt-2">Controls visibility of the customer support chat widget on the public site.</p>
+                    </div>
+                    <div class="p-4 bg-red-100 rounded-xl shadow-inner border border-red-300">
+                        <p class="text-sm font-semibold text-red-700 mb-3">User Management Utility (Global Action):</p>
+                        <button id="clearAnonButtonConfig" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md">
+                            Clear All Anonymous Users
+                        </button>
+                        <p class="text-xs text-red-500 mt-2">Warning: This action is irreversible and should only be performed after careful consideration.</p>
+                    </div>
+                    
+                    <form id="configForm" onsubmit="window.module.handleUpdateConfig(event)" class="bg-white p-6 rounded-xl shadow-lg space-y-6">
+                        
+                        <div class="flex items-center justify-between p-4 border rounded-lg bg-red-50 border-red-200">
+                            <label for="maintenanceToggle" class="text-lg font-medium text-gray-700">Maintenance Mode</label>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="maintenanceToggle" id="maintenanceToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                <label for="maintenanceToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-red-300 cursor-pointer"></label>
+                            </div>
+                            <p class="text-sm text-red-600">Disables store functionality for public users.</p>
+                                    </div>
+    
+                            <div>
+                                <h3 class="text-xl font-bold mb-2 text-gray-700">Dynamic Admin IP Whitelist (Stored in Firestore)</h3>
+                                <p class="text-sm text-gray-500 mb-4">Users from these IPs can access the Admin Login page even if Maintenance Mode is active. One IP address per line.</p>
+                                <textarea id="dynamicIpList" rows="4" placeholder="123.45.67.89&#10;98.76.54.32" class="w-full p-3 border rounded-lg font-mono text-sm"></textarea>
+                                <p id="configLastUpdated" class="text-xs text-gray-500 mt-2"></p>
+                            </div>
+    
+                            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <h3 class="text-xl font-bold mb-2 text-gray-700">Static Client IP Whitelist (Codebase)</h3>
+                                <p class="text-sm text-gray-500 mb-2">This is the list of IP addresses whitelisted to allow access to admin functionality</p>
+                                <pre id="staticIpListDisplay" class="bg-white p-3 rounded-lg border font-mono text-sm text-gray-800"></pre>
+                            </div>
+                            
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">Save Configuration</button>
+                        </form>
+                    </section>
+                `;
+            } else if (state.activeTab === 'users') {
+                return `
+                        <section class="space-y-8">
+                            <h2 class="text-2xl font-bold text-indigo-700">Registered Users Management</h2>
+                            <div id="usersMessage"></div>
+    
+                            <div class="flex justify-between items-center mb-4">
+                                <input type="text" oninput="window.module.handleUserSearchInput(event)" 
+                                    placeholder="Search users by email, ID, or name..." 
+                                    class="p-2 border rounded-lg w-full max-w-md">
+                                
+                                <button id="clearAnonButton" onclick="window.module.handleClearAnonymousUsers()" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-600 hover:bg-red-700 transition duration-150 shadow-md ml-4">
+                                    Clear All Anonymous Users
+                                </button>
+                            </div>
+                            
+                            <div class="p-4 bg-gray-200 rounded-lg shadow-inner flex justify-between items-center mb-4">
+                                <span class="text-sm font-semibold text-gray-700">
+                                    <span id="selectedUserCount">0</span> users selected.
+                                </span>
+                                <div class="flex space-x-2">
+                                    <select id="bulkActionSelect" class="p-2 border rounded-lg text-sm bg-white">
+                                        <option value="">-- Select Bulk Action --</option>
+                                        <option value="delete">Delete Permanently</option>
+                                        <option value="update" data-update='{"disabled": false}'>Enable</option>
+                                        <option value="update" data-update='{"disabled": true}'>Disable</option>
+                                        <option value="resetPassword">Set New Password</option>
+                                    </select>
+                                    <button onclick="window.module.handleBulkUserAction()" id="bulkActionButton" disabled class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300">
+                                        Apply to Selected
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="bg-white p-6 rounded-xl shadow-lg overflow-x-auto">
+                                <div id="usersGrid" class="grid gap-x-4 min-w-[1300px]" style="grid-template-columns: 30px 0.5fr 1.5fr 1fr 1fr 1fr 0.5fr 2fr;">
+                                    <div class="grid-header">
+                                        <input type="checkbox" onchange="window.module.toggleAllUsers(this.checked)" id="selectAllUsers">
+                                    </div>
+                                    <div class="grid-header">UID</div>
+                                    <div class="grid-header">Email</div>
+                                    <div class="grid-header">Display Name</div>
+                                    <div class="grid-header">Created</div>
+                                    <div class="grid-header">Last Sign-In</div>
+                                    <div class="grid-header">Status</div>
+                                    <div class="grid-header">Actions</div>
+                                    </div>
+                                <div class="text-center mt-6">
+                                    <button id="loadMoreUsersButton" onclick="window.module.fetchUsers(globalNextPageToken)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 shadow-md hidden">
+                                        Load More Users (100)
+                                    </button>
+                                    <p id="userCount" class="text-sm text-gray-500 mt-2">Showing 0 users.</p>
+                                </div>
+                            </div>
+                        </section>
+                    `;
+            } else if (state.activeTab === 'orders') {
+                if (state.orderPage === 'list') {
+                    return renderOrderTracker(); // Renders the tracking list and charts
+                } else {
+                    return renderOrderCreateForm(); // Renders the manual order creation form
+                }
+            }
+            // NEW CASE FOR THE FINANCIALS TAB
+            else if (state.activeTab === 'financials') {
+                return window.module.renderFinancialsSection();
+
+            } else if (state.activeTab === 'inventory') { // NEW: Inventory tab rendering
+                return `
+                        <section class="space-y-8">
+                            <h2 class="text-2xl font-bold text-indigo-700">Inventory Management & Stock Control</h2>
+                            <div id="inventoryMessage"></div>
+                            
+                            <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-orange-500">
+                                <div id="inventoryContent">
+                                    </div>
+                            </div>
+                        </section>
+                    `;
+            }
+        }
+
+
         function getJsDate(ts) {
             if (!ts) return null;
-            
+
             // Handle Firebase Timestamp object (has toDate method)
             if (ts.toDate && typeof ts.toDate === 'function') {
                 try {
@@ -378,12 +609,12 @@
                     return null;
                 }
             }
-            
+
             // Handle JavaScript Date object
             if (ts instanceof Date) {
                 return isNaN(ts.getTime()) ? null : ts;
             }
-            
+
             // Handle ISO string or timestamp number
             try {
                 const date = new Date(ts);
@@ -393,15 +624,15 @@
                 return null;
             }
         }
-        
+
         function toISODateString(ts) {
             const date = getJsDate(ts);
-            
+
             // CRITICAL: Validate date is valid before calling toISOString()
             if (!date || isNaN(date.getTime())) {
                 return 'N/A';
             }
-            
+
             try {
                 return date.toISOString();
             } catch (e) {
@@ -409,7 +640,7 @@
                 return 'N/A';
             }
         }
-        
+
         // Add a helper for consistent order date retrieval
         function getOrderDate(order) {
             // Priority order: createdAt (Firebase Timestamp) > timestamp (ISO string)
@@ -420,21 +651,21 @@
                     console.warn("Failed to convert order.createdAt:", e);
                 }
             }
-            
+
             if (order.createdAt instanceof Date) {
                 return isNaN(order.createdAt.getTime()) ? null : order.createdAt;
             }
-            
+
             if (order.timestamp) {
                 const date = new Date(order.timestamp);
                 return isNaN(date.getTime()) ? null : date;
             }
-            
+
             return null;
         }
-        
+
         // --- GOOGLE MAPS AUTOCPMLETE LOGIC ---
-    
+
         // Function to update the Order Submit button state
         function updateSubmitButtonState() {
             const submitButton = document.getElementById('submitOrderButton');
@@ -444,35 +675,35 @@
             const isAddressValid = addressInput?.dataset.validated === 'true';
 
             // Check if cart has items
-            const isCartNotEmpty = Object.keys(state.adminCart).length > 0; 
+            const isCartNotEmpty = Object.keys(state.adminCart).length > 0;
 
             if (submitButton) {
                 // Button is enabled only if address is valid AND the cart is not empty
                 submitButton.disabled = !(isAddressValid && isCartNotEmpty);
             }
         }
-            
-    
+
+
         // Function called by the dynamically loaded Google Maps script
-        window.initGooglePlaces = function() {
+        window.initGooglePlaces = function () {
             const input = document.getElementById('deliveryAddress');
             if (!input) return;
-    
+
             // Initialize Autocomplete, restricting to addresses and selected countries
             autocomplete = new google.maps.places.Autocomplete(input, {
                 types: ['address'],
                 componentRestrictions: { country: ['co', 'us'] },
                 fields: ['formatted_address', 'geometry']
             });
-    
+
             // Set initial state
             input.dataset.validated = 'false';
             input.classList.remove('address-valid');
             input.classList.add('address-invalid'); // Start as invalid
             document.getElementById('addressErrorAdmin')?.classList.remove('hidden');
-            
+
             updateSubmitButtonState(); // Initialize button state
-    
+
             // Listener: When the user selects an address from the dropdown
             autocomplete.addListener('place_changed', async () => {
                 const place = autocomplete.getPlace();
@@ -481,13 +712,13 @@
                     input.classList.add('address-valid');
                     document.getElementById('addressErrorAdmin')?.classList.add('hidden');
                     input.dataset.validated = 'true';
-                    
+
                     // ✅ NEW: Calculate shipping and tax when address is selected
                     await calculateAdminOrderShippingTax();
                 }
                 updateSubmitButtonState();
             });
-    
+
             // Listener: Mark as invalid if user manually types after initialization/selection
             input.addEventListener('input', () => {
                 input.classList.remove('address-valid');
@@ -497,7 +728,7 @@
                 updateSubmitButtonState(); // Update button state on manual input
             });
         };
-    
+
         async function loadGoogleMapsScript() {
             // Check if the script is ALREADY loaded or is being loaded
             if (document.querySelector('script[data-maps-loaded]')) {
@@ -507,16 +738,16 @@
                 }
                 return;
             }
-            
+
             try {
                 // 1. Fetch API Key securely from the Netlify Function
                 const response = await fetch(MAPS_KEY_FUNCTION_URL);
                 if (!response.ok) throw new Error('Failed to fetch Maps API key.');
                 const { apiKey } = await response.json();
-                
+
                 // 2. Build the script URL
                 const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGooglePlaces`;
-            
+
                 // 3. Dynamically create and append the script tag
                 const script = document.createElement('script');
                 script.src = scriptUrl;
@@ -524,14 +755,14 @@
                 script.defer = true;
                 script.setAttribute('data-maps-loaded', 'true'); // Add marker for check
                 document.head.appendChild(script);
-            
+
             } catch (error) {
                 console.warn('Delivery Address Validation service disabled for Admin:', error);
             }
         }
         // --- END: Google Maps Autocomplete Logic ---
-    
-    
+
+
         // --- IDLE TIMEOUT LOGIC ---
         function autoLogout() {
             if (auth?.currentUser && !auth.currentUser.isAnonymous) {
@@ -540,22 +771,22 @@
                     logAdminAction('ADMIN_AUTO_LOGOUT', { reason: 'Idle Timeout (15m)' });
                     window.location.href = '/?error=idle_timeout';
                 });
-           }
+            }
         }
 
         function escapeHtml(text) {
             if (text === null || text === undefined) return '';
             if (typeof text !== 'string') return String(text);
-            
+
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
         }
-        
+
         function escapeAttribute(text) {
             if (text === null || text === undefined) return '';
             if (typeof text !== 'string') text = String(text);
-            
+
             return text
                 .replace(/&/g, '&amp;')
                 .replace(/"/g, '&quot;')
@@ -568,42 +799,42 @@
         function downloadCategorySalesCsv() {
             resetTimer();
             const data = lastCategorySalesData.tableData;
-        
+
             if (data.length === 0) {
                 showMessage('error', 'No data available to download.', 5000, 'orders');
                 return;
             }
-        
+
             // Define CSV headers
             const headers = ["Category", "Units Sold", "Total Revenue (USD)", "Avg. Item Price (USD)"];
-        
+
             // Format the data rows
             const csvRows = data.map(row => {
                 // --- FIX: Use the new 'Cents' properties and convert to Dollars for the CSV output ---
                 const category = `"${row.category.replace(/"/g, '""')}"`; // Double quotes and escape internal quotes
                 const unitsSold = row.unitsSold;
-                
+
                 // Convert Cents back to Dollars for CSV display and use .toFixed(2)
-                const totalRevenueUSD = (row.totalRevenueCents / 100).toFixed(2); 
+                const totalRevenueUSD = (row.totalRevenueCents / 100).toFixed(2);
                 const averagePriceUSD = (row.averagePriceCents / 100).toFixed(2);
                 // ------------------------------------------------------------------------------------
-        
+
                 return [category, unitsSold, totalRevenueUSD, averagePriceUSD].join(',');
             });
-        
+
             // Combine headers and rows
             const csvString = [
                 headers.join(','),
                 ...csvRows
             ].join('\n');
-        
+
             // Create a Blob and trigger download
             const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
-            
+
             const filename = `Sales_Breakdown_${state.salesTimeFilter}_${new Date().toISOString().slice(0, 10)}.csv`;
-        
-            if (link.download !== undefined) { 
+
+            if (link.download !== undefined) {
                 // HTML5 download attribute is supported
                 const url = URL.createObjectURL(blob);
                 link.setAttribute("href", url);
@@ -617,16 +848,16 @@
                 showMessage('error', 'Browser does not support automatic CSV download.', 5000, 'orders');
             }
         }
-        
-          function renderCategorySalesTable(salesData) {
+
+        function renderCategorySalesTable(salesData) {
             if (!salesData.tableData || salesData.tableData.length === 0) {
                 return `<p class="text-center text-gray-500 p-8">No sales data found for the selected time period.</p>`;
             }
-        
+
             const tableRows = salesData.tableData.map((row, index) => {
                 const totalRevenue = row.totalRevenueCents;
                 const averagePrice = Math.round(row.averagePriceCents);
-        
+
                 // Generate detailed order rows
                 const detailRows = row.rawOrders.map(order => `
                     <div class="grid grid-cols-5 gap-4 text-xs py-2 border-b border-gray-100 hover:bg-gray-50">
@@ -634,12 +865,11 @@
                             ${formatTime(order.date)}
                         </div>
                         <div class="text-center">
-                            <span class="px-2 py-1 text-xs rounded-full ${
-                                order.status === 'Completed' ? 'bg-green-100 text-green-800' :
-                                order.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
-                                order.status === 'Cancelled' ? 'bg-red-100 text-red-800' :
+                            <span class="px-2 py-1 text-xs rounded-full ${order.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                        order.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
+                            order.status === 'Cancelled' ? 'bg-red-100 text-red-800' :
                                 'bg-gray-100 text-gray-800'
-                            }">${order.status}</span>
+                    }">${order.status}</span>
                         </div>
                         <div class="text-center font-medium">${order.quantity}x ${escapeHtml(order.itemName)}</div>
                         <div class="text-center">
@@ -650,7 +880,7 @@
                         <div class="text-right font-mono text-gray-700">${formatPriceDisplay(order.totalItemCents)}</div>
                     </div>
                 `).join('');
-        
+
                 return `
                     <div class="border-b border-gray-200 last:border-b-0">
                         <!-- Summary Row -->
@@ -692,7 +922,7 @@
                     </div>
                 `;
             }).join('');
-        
+
             return `
                 <div id="categorySalesBreakdown" class="bg-white rounded-xl shadow-xl border-t-4 border-indigo-600 overflow-hidden mt-8">
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50">
@@ -733,39 +963,39 @@
                 </div>
             `;
         }
-        
+
         function processSalesDataByCategory() {
             const categorySales = {};
             const itemMap = state.items.reduce((map, item) => {
                 map[item.id] = item;
                 return map;
             }, {});
-        
+
             // Initialize category tracking - ADDED orders array
             const categoryMetrics = state.catalogs.reduce((metrics, cat) => {
                 metrics[cat.name] = { totalRevenue: 0, unitsSold: 0, averagePrice: 0, orders: [] };
                 return metrics;
             }, {});
             categoryMetrics['Uncategorized'] = { totalRevenue: 0, unitsSold: 0, averagePrice: 0, orders: [] }; // Handle uncategorized items
-        
+
             getFilteredSalesOrders().forEach(order => {
                 order.items.forEach(orderItem => {
                     // FIX: Get correct ID for both customer and admin orders
                     const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
                     const itemId = isCustomerFormat ? orderItem.item.id : orderItem.id;
                     const item = itemMap[itemId];
-                    
+
                     if (item) {
                         const catalogId = item.catalogId || 'no_category';
                         const categoryName = state.catalogs.find(c => c.id === catalogId)?.name || 'Uncategorized';
-                        
+
                         // FIX: Use getSafeItemData to handle both formats
                         const itemData = getSafeItemData(orderItem);
                         const salesAmount = itemData.price * itemData.quantity;
-            
+
                         categoryMetrics[categoryName].totalRevenue += salesAmount;
                         categoryMetrics[categoryName].unitsSold += itemData.quantity;
-                        
+
                         categoryMetrics[categoryName].orders.push({
                             id: order.id.substring(0, 5),
                             fullId: order.id,
@@ -779,35 +1009,35 @@
                     }
                 });
             });
-        
+
             // Finalize data structure for charts and the new table
             const chartData = { labels: [], data: [] };
             const tableData = [];
-        
+
             Object.keys(categoryMetrics).forEach(categoryName => {
                 const metrics = categoryMetrics[categoryName];
                 if (metrics.totalRevenue > 0) {
-                    
+
                     // For the CHART: Must use dollar value (cents / 100)
                     const revenueDollars = metrics.totalRevenue / 100;
                     chartData.labels.push(categoryName);
-                    chartData.data.push(revenueDollars); 
-        
+                    chartData.data.push(revenueDollars);
+
                     // For the TABLE: Store values as CENTS (integer) for consistency with formatPriceDisplay
                     const totalRevenueCents = metrics.totalRevenue; // <<< FIX 1: Store CENTS
                     const averagePriceCents = totalRevenueCents / metrics.unitsSold; // Avg price in CENTS per unit
-        
+
                     tableData.push({
                         category: categoryName,
                         totalRevenueCents: totalRevenueCents, // <<< NEW PROPERTY NAME (CENTS)
                         unitsSold: metrics.unitsSold,
                         averagePriceCents: averagePriceCents, // <<< NEW PROPERTY NAME (CENTS)
                         // CRITICAL ADDITION: Pass the filtered orders for this category
-                        rawOrders: metrics.orders.sort((a, b) => new Date(b.date) - new Date(a.date)) 
+                        rawOrders: metrics.orders.sort((a, b) => new Date(b.date) - new Date(a.date))
                     });
                 }
             });
-        
+
             return {
                 chartData: chartData,
                 tableData: tableData.sort((a, b) => b.totalRevenueCents - a.totalRevenueCents), // Sort by cents descending
@@ -820,9 +1050,9 @@
                 // FIX: Get the correct ID for both customer and admin orders
                 const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
                 const itemId = isCustomerFormat ? orderItem.item.id : orderItem.id;
-                
+
                 const fullItem = state.items.find(i => i.id === itemId);
-                
+
                 if (fullItem) {
                     state.editingOrderDraftCart[itemId] = {
                         item: fullItem,
@@ -832,9 +1062,9 @@
                     // Fallback for deleted products - use getSafeItemData
                     const itemData = getSafeItemData(orderItem);
                     state.editingOrderDraftCart[itemId] = {
-                        item: { 
-                            id: itemId, 
-                            name: itemData.name || 'DELETED PRODUCT', 
+                        item: {
+                            id: itemId,
+                            name: itemData.name || 'DELETED PRODUCT',
                             price: itemData.price || 0,
                             sku: itemData.sku || 'N/A'
                         },
@@ -844,27 +1074,27 @@
             });
             state.editingOrderPaymentTotal = currentPaidCents;
         }
-        
+
         // Re-use the updateAdminCartDisplay logic, renamed for the modal
         function updateDraftCartDisplay() {
             const cartEl = document.getElementById('editOrderItemsDisplay');
             const totalEl = document.getElementById('editOrderTotal');
             let totalCents = 0;
-        
+
             if (!cartEl || !totalEl) return;
-        
+
             const itemsInCart = Object.values(state.editingOrderDraftCart);
-        
+
             if (itemsInCart.length === 0) {
                 cartEl.innerHTML = '<p class="text-gray-500 italic">No items currently in order.</p>';
                 totalEl.textContent = formatPriceDisplay(0);
                 return;
             }
-        
+
             const cartHtml = itemsInCart.map(entry => {
                 const subtotal = entry.item.price * entry.quantity;
                 totalCents += subtotal;
-        
+
                 return `
                     <div class="flex justify-between items-center py-2 border-b border-gray-100">
                         <div class="flex-1 min-w-0 pr-2">
@@ -882,7 +1112,7 @@
                     </div>
                 `;
             }).join('');
-        
+
             cartEl.innerHTML = cartHtml;
             totalEl.textContent = formatPriceDisplay(totalCents);
         }
@@ -892,25 +1122,25 @@
             renderOrdersList();
             resetTimer();
         }
-                
+
         // Function to add a NEW item to the draft cart
         function addDraftCartItem() {
             const selector = document.getElementById('editItemSelector');
             const quantityEl = document.getElementById('editItemQuantity');
-        
+
             if (!selector || !quantityEl) return;
-        
+
             const itemId = selector.value;
             const quantity = parseInt(quantityEl.value, 10);
-        
+
             if (!itemId || quantity <= 0) {
                 showMessage('error', 'Please select a product and quantity to add.', 2000, 'orders');
                 return;
             }
-        
+
             const item = state.items.find(i => i.id === itemId);
             if (!item) return;
-        
+
             state.editingOrderDraftCart = {
                 ...state.editingOrderDraftCart,
                 [itemId]: {
@@ -918,11 +1148,11 @@
                     quantity: (state.editingOrderDraftCart[itemId]?.quantity || 0) + quantity
                 }
             };
-            
+
             // Reset inputs
-            quantityEl.value = 1; 
+            quantityEl.value = 1;
             selector.value = '';
-        
+
             showMessage('success', `Added ${quantity}x ${item.name} to the order draft.`, 2000, 'orders');
             updateDraftCartDisplay();
         }
@@ -932,7 +1162,7 @@
             const el = document.getElementById('productListContainer');
             if (!el) return;
             const items = getFilteredItems();
-        
+
             el.innerHTML = `
                 <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${items.length} / ${state.items.length} total)</h3>
                 <div class="overflow-x-auto">
@@ -945,14 +1175,14 @@
                         <div class="grid-header">Added At</div>
                         <div class="grid-header">Actions</div>
                         ${items.map(item => {
-                            const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                            const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
-                            
-                            // Logic to handle image count display
-                            const imgCount = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
-                            const imgDisplay = imgCount > 0 ? `🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}` : '❌ No Image';
-        
-                            return `
+                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
+
+                // Logic to handle image count display
+                const imgCount = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
+                const imgDisplay = imgCount > 0 ? `🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}` : '❌ No Image';
+
+                return `
                                 <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
                                 <div class="grid-item">
                                     <p class="font-semibold">${item.name}</p>
@@ -968,33 +1198,33 @@
                                 <button onclick="window.module.handleDeleteProduct('${item.id}', '${escapeHtml(item.name)}')" 
                                         class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
                                 </div>`;
-                        }).join('')}
+            }).join('')}
                     </div>
                     ${items.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found.</p>' : ''}
                 </div>`;
         }
-        
-        
+
+
         // Function to remove an item from the draft cart
         function removeDraftCartItem(itemId) {
             const currentEntry = state.editingOrderDraftCart[itemId];
             if (!currentEntry) return;
-        
+
             const newCart = { ...state.editingOrderDraftCart };
             delete newCart[itemId];
             state.editingOrderDraftCart = newCart;
-        
+
             showMessage('info', `${currentEntry.item.name} removed from order draft.`, 2000, 'orders');
             updateDraftCartDisplay();
         }
-        
+
         // Function to update the quantity of an item in the draft cart
         function updateDraftItemQuantity(quantityString, itemId) {
             const quantity = parseInt(quantityString, 10);
             const currentEntry = state.editingOrderDraftCart[itemId];
-            
+
             if (!currentEntry) return;
-            
+
             if (quantity <= 0) {
                 removeDraftCartItem(itemId);
             } else {
@@ -1008,40 +1238,40 @@
                 updateDraftCartDisplay();
             }
         }
-        
+
         function processSalesDataByMonth() {
             const filteredOrders = getFilteredSalesOrders();
             const monthlySales = {};
-        
+
             filteredOrders.forEach(order => {
                 const dateObj = (order.createdAt instanceof Date) ? order.createdAt : new Date(order.timestamp);
                 // Creates a key like "2025-11" for grouping
                 const yearMonth = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
-        
+
                 if (!monthlySales[yearMonth]) {
                     monthlySales[yearMonth] = 0;
                 }
                 monthlySales[yearMonth] += order.totalCents;
             });
-        
+
             const sortedKeys = Object.keys(monthlySales).sort();
             const monthNames = sortedKeys.map(key => {
                 const [year, month] = key.split('-');
                 const date = new Date(year, parseInt(month) - 1);
-                return date.toLocaleString('default', { month: 'short', year: 'numeric' }); 
+                return date.toLocaleString('default', { month: 'short', year: 'numeric' });
             });
-        
+
             return {
                 labels: monthNames,
                 // Data is converted from cents to dollars for Chart.js display
-                data: sortedKeys.map(key => monthlySales[key] / 100), 
+                data: sortedKeys.map(key => monthlySales[key] / 100),
             };
         }
         function getFilteredSalesOrders() {
             let filteredOrders = state.orders.filter(o => o.status !== 'Cancelled');
             const now = new Date();
             let cutoffDate = null;
-        
+
             switch (state.salesTimeFilter) {
                 case 'lastmonth':
                     // Creates a date roughly 30 days ago
@@ -1059,7 +1289,7 @@
                 default:
                     return filteredOrders;
             }
-        
+
             return filteredOrders.filter(order => {
                 // Uses the pre-converted Date object (from the Firestore listener)
                 const orderDate = (order.createdAt instanceof Date) ? order.createdAt : new Date(order.timestamp);
@@ -1070,11 +1300,11 @@
         function renderSalesCharts() {
             // 1. Destroy existing charts FIRST
             destroyCharts();
-            
+
             // 2. CRITICAL: Check if canvas elements exist before creating charts
             const ctxCategory = document.getElementById('salesByCategoryChart');
             const ctxMonth = document.getElementById('salesPerMonthChart');
-            
+
             if (!ctxCategory || !ctxMonth) {
                 console.warn('Chart canvases not found in DOM - skipping chart render');
                 return; // Exit early to prevent errors
@@ -1094,7 +1324,7 @@
                 }
                 return;
             }
-            
+
             // 3. Verify canvases have context
             try {
                 const testContext = ctxCategory.getContext('2d');
@@ -1106,12 +1336,12 @@
                 console.error('Chart canvas error:', e);
                 return;
             }
-            
+
             // 4. Now safe to process data
-            const categoryResult = processSalesDataByCategory(); 
+            const categoryResult = processSalesDataByCategory();
             lastCategorySalesData = categoryResult;
             const monthlyData = processSalesDataByMonth();
-            
+
             // 5. Create charts with error handling
             try {
                 salesCharts.category = new Chart(ctxCategory, {
@@ -1138,7 +1368,7 @@
                             },
                             tooltip: {
                                 callbacks: {
-                                    label: function(context) {
+                                    label: function (context) {
                                         return `${context.label}: $${context.parsed.toFixed(2)}`;
                                     }
                                 }
@@ -1150,46 +1380,46 @@
                 console.error("Failed to create category chart:", chartError);
                 salesCharts.category = null;
             }
-            
+
             try {
-              salesCharts.month = new Chart(ctxMonth, {
-                type: 'bar',
-                data: {
-                    labels: monthlyData.labels,
-                    datasets: [{
-                        label: 'Monthly Sales (USD)',
-                        data: monthlyData.data,
-                        backgroundColor: 'rgba(99, 102, 241, 0.8)',
-                        borderColor: 'rgba(99, 102, 241, 1)',
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: (context) => `Sales: $${context.parsed.y.toFixed(2)}`
-                            }
-                        }
+                salesCharts.month = new Chart(ctxMonth, {
+                    type: 'bar',
+                    data: {
+                        labels: monthlyData.labels,
+                        datasets: [{
+                            label: 'Monthly Sales (USD)',
+                            data: monthlyData.data,
+                            backgroundColor: 'rgba(99, 102, 241, 0.8)',
+                            borderColor: 'rgba(99, 102, 241, 1)',
+                            borderWidth: 2
+                        }]
                     },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                callback: (value) => `$${value.toFixed(0)}`
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (context) => `Sales: $${context.parsed.y.toFixed(2)}`
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: (value) => `$${value.toFixed(0)}`
+                                }
                             }
                         }
                     }
-                }
-            });
+                });
             } catch (chartError) {
                 console.error("Failed to create monthly chart:", chartError);
                 salesCharts.month = null;
             }
-            
+
             // 6. Render the table
             const tableContainer = document.getElementById('categorySalesTableContainer');
             if (tableContainer) {
@@ -1201,28 +1431,28 @@
         function handleRequestDelivery(orderId) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
-            
+
             // --- API Integration Placeholder ---
             showMessage('info', `Requesting delivery for order ${order.orderNumber} to ${order.deliveryAddress}. (API integration needed)`, 8000, 'orders');
-            
+
             // Mock immediate status update to Processing
-            handleOrderStatusUpdate(orderId, 'Processing'); 
+            handleOrderStatusUpdate(orderId, 'Processing');
             resetTimer();
         }
-        
+
 
         function renderInventorySection() {
             const el = document.getElementById('inventoryContent');
             if (!el) return '';
-            
+
             const lowStockThreshold = 10;
             const items = state.items;
-        
+
             const inventoryListHtml = items.map(item => {
                 const isLowStock = item.stock <= lowStockThreshold;
                 const stockColor = isLowStock ? 'text-red-600 font-bold' : 'text-green-700 font-semibold';
                 const rowClass = isLowStock ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200';
-        
+
                 return `
                     <div class="grid grid-cols-12 gap-4 items-center p-3 border-b ${rowClass}">
                         <div class="col-span-4 truncate text-sm font-medium">${item.name} <span class="text-xs text-gray-500 ml-2">(${item.sku})</span></div>
@@ -1241,7 +1471,7 @@
                     </div>
                 `;
             }).join('');
-        
+
             el.innerHTML = `
                 <div class="space-y-4">
                     <div class="grid grid-cols-12 gap-4 font-bold bg-gray-100 p-3 rounded-lg border-b border-gray-300">
@@ -1257,7 +1487,7 @@
             return '';
         }
 
-        
+
         function destroyCharts() {
             // Add null checks
             if (salesCharts.category) {
@@ -1268,7 +1498,7 @@
                 }
                 salesCharts.category = null;
             }
-            
+
             if (salesCharts.month) {
                 try {
                     salesCharts.month.destroy();
@@ -1278,7 +1508,7 @@
                 salesCharts.month = null;
             }
         }
-        
+
         function handleSalesTimeFilterChange(e) {
             state.salesTimeFilter = e.target.value;
             renderSalesCharts();
@@ -1295,7 +1525,7 @@
                 return counts;
             }, {});
             // --- End Sales Data ---
-            
+
             return `
                 <div id="ordersStatsSummary" class="grid grid-cols-3 gap-4 text-center">
                     <div class="bg-indigo-50 p-4 rounded-lg">
@@ -1350,16 +1580,16 @@
         
                 `;
         }
-        
-        function getOrdersCollectionPath(targetIdOrIndicator) { 
+
+        function getOrdersCollectionPath(targetIdOrIndicator) {
             // Get the application ID (or use default)
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            
+
             // Since ALL orders (Guest, User, and Admin-created) are stored in the public collection,
             // we return the public path regardless of the targetIdOrIndicator.
-            return `artifacts/${appId}/public/data/orders`; 
+            return `artifacts/${appId}/public/data/orders`;
         }
-                
+
         function resetTimer() {
             clearTimeout(idleTimer);
             if (auth?.currentUser && !auth.currentUser.isAnonymous) {
@@ -1370,23 +1600,23 @@
         function waitForUserId(timeout = 5000) {
             return new Promise((resolve, reject) => {
                 const startTime = Date.now();
-                
+
                 const check = () => {
                     // Check the GLOBAL variable 'userId' directly
-                    if (userId) { 
+                    if (userId) {
                         resolve(userId); // Resolve with the UID string
                     } else if (Date.now() - startTime >= timeout) {
                         reject(new Error("Timeout waiting for Admin user ID."));
                     } else {
                         // Check again in 100 milliseconds
-                        setTimeout(check, 100); 
+                        setTimeout(check, 100);
                     }
                 };
-        
+
                 check();
             });
-        } 
-        
+        }
+
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             onAuthStateChanged(auth, user => {
@@ -1395,22 +1625,22 @@
                         if (idTokenResult.claims.admin === true) {
                             // 1. SET THE GLOBAL userId FIRST
                             userId = user.uid;
-        
+
                             // 2. Start session tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
                             document.addEventListener('touchstart', resetTimer);
                             resetTimer();
-                            
+
                             // 3. Setup listeners (this already calls listenToOrders internally)
                             setupRealtimeListeners();
-                            
+
                             // 4. Render page
                             renderAdminPage(user.email || 'Admin');
-                            
+
                             // 5. REMOVED: Don't call fetchOrders here - listener handles it
                             // The realtime listener (listenToOrders) is already subscribed
                             // and will populate state.orders automatically
-        
+
                         } else {
                             signOut(auth);
                             window.location.href = '/?error=unauthorized';
@@ -1425,35 +1655,35 @@
                 }
             });
         }
-    
+
         // --- FIRESTORE REALTIME LISTENERS ---
         function setupRealtimeListeners() {
             if (!db) return;
-        
+
             // Listener for Catalogs (Categories)
             onSnapshot(collection(db, CATALOGS_COLLECTION), snap => {
                 state.catalogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
                 if (state.activeTab === 'orders' && !state.previewMode) {
-                    updateItemSelector(); 
+                    updateItemSelector();
                     if (state.orderPage === 'list') renderOrdersStats();
                 }
             }, err => {
                 console.error("Error listening to categories:", err);
                 showMessage('error', 'Failed to fetch categories.', 5000, 'catalog');
             });
-        
+
             // Listener for Items (Products)
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
                 state.items = snap.docs.map(d => {
                     const data = d.data();
-                    return { 
-                        id: d.id, 
+                    return {
+                        id: d.id,
                         ...data,
                         stock: data.stock !== undefined ? data.stock : 0
                     };
                 });
-                
+
                 if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
                 if (state.activeTab === 'orders' && !state.previewMode) {
                     updateItemSelector();
@@ -1464,21 +1694,21 @@
                 console.error("Error listening to items:", err);
                 showMessage('error', 'Failed to fetch items.', 5000, 'catalog');
             });
-        
+
             // NEW LISTENER: Realtime Listener for Orders (Replaces mock data source)
             onSnapshot(collection(db, ORDERS_COLLECTION), snap => {
                 // 1. Update the state.orders array with live data
                 state.orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        
+
                 // 2. If the Orders tab is open, trigger a re-render
                 if (state.activeTab === 'orders' && state.orderPage === 'list') {
-                    window.module.renderOrdersList(); 
+                    window.module.renderOrdersList();
                 }
-                
+
                 // Clear any loading message
                 const ordersMsgElClear = document.getElementById('ordersMessage');
-                if (ordersMsgElClear) ordersMsgElClear.textContent = ''; 
-        
+                if (ordersMsgElClear) ordersMsgElClear.textContent = '';
+
             }, err => {
                 console.error("Error listening to orders:", err);
                 showMessage('error', 'Failed to fetch orders in real-time.', 5000, 'orders');
@@ -1489,7 +1719,7 @@
         function getSafeItemData(orderItem) {
             // Check if 'item' exists as a sub-object (Customer Web Format)
             const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
-            
+
             return {
                 name: isCustomerFormat ? orderItem.item.name : (orderItem.name || 'Unknown Item'),
                 price: isCustomerFormat ? orderItem.item.price : (orderItem.price || 0),
@@ -1497,18 +1727,18 @@
                 quantity: orderItem.quantity || 1
             };
         }
-        
+
         // --- HELPER FUNCTIONS ---
         function formatPriceDisplay(cents) {
             return `$${(cents / 100).toFixed(2)}`;
         }
-        
+
         function formatTime(ts) {
             if (!ts) return 'N/A';
             const date = ts.toDate ? ts.toDate() : new Date(ts);
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
         }
-    
+
         function showMessage(type, text, duration = 5000, targetTab) {
             const id = targetTab === 'config' ? 'configMessage' : targetTab === 'orders' ? 'ordersMessage' : targetTab === 'inventory' ? 'inventoryMessage' : 'catalogMessage';
             const el = document.getElementById(id);
@@ -1517,7 +1747,7 @@
             el.textContent = text;
             setTimeout(() => el.textContent = '', duration);
         }
-    
+
         async function logAdminAction(actionType, details, objectId = null) {
             try {
                 await fetch(LOG_ACTION_FUNCTION, {
@@ -1532,42 +1762,42 @@
                 });
             } catch (e) { console.error("Log failed:", e); }
         }
-    
+
         function generateUniqueSku() {
             const t = Date.now().toString(36).toUpperCase();
             const r = Math.random().toString(36).substring(2, 4).toUpperCase();
             return `AX-${t}${r}`;
         }
-    
+
         function getFilteredItems() {
             if (!state.searchTerm) return state.items;
             const term = state.searchTerm.toLowerCase();
             return state.items.filter(item => {
                 const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
                 return item.name.toLowerCase().includes(term) ||
-                                     item.description.toLowerCase().includes(term) ||
-                                     catName.toLowerCase().includes(term) ||
-                                     (item.sku && item.sku.toLowerCase().includes(term));
+                    item.description.toLowerCase().includes(term) ||
+                    catName.toLowerCase().includes(term) ||
+                    (item.sku && item.sku.toLowerCase().includes(term));
             });
         }
-    
+
         // --- USER LIST UTILITIES ---
         function getFilteredAuthUsers() {
             if (!state.userSearchTerm) return state.allUsers;
             const term = state.userSearchTerm.toLowerCase();
             return state.allUsers.filter(user => {
                 // Handles anonymous users where email might be null
-                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)'); 
-                
+                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
+
                 const uidMatch = user.uid.toLowerCase().includes(term);
                 const emailMatch = userEmail.toLowerCase().includes(term);
                 const nameMatch = user.displayName && user.displayName.toLowerCase().includes(term);
                 return uidMatch || emailMatch || nameMatch;
             });
         }
-    
+
         // --- BULK SELECTION LOGIC (NEW) ---
-    
+
         function toggleUserSelection(uid) {
             const index = state.selectedUsers.indexOf(uid);
             if (index > -1) {
@@ -1578,12 +1808,12 @@
             document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
             document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
         }
-    
+
         function toggleAllUsers(checked) {
             const grid = document.getElementById('usersGrid');
             // Select only visible users based on current search filter
             const visibleUsers = getFilteredAuthUsers();
-            
+
             state.selectedUsers = [];
             if (checked) {
                 // Collect UIDs from currently filtered users
@@ -1591,14 +1821,14 @@
                     state.selectedUsers.push(user.uid);
                 });
             }
-            
+
             // Update all rendered checkboxes to reflect the new state.
             const checkboxes = grid.querySelectorAll('input[type="checkbox"][data-uid]');
             checkboxes.forEach(cb => {
                 const uid = cb.dataset.uid;
                 cb.checked = state.selectedUsers.includes(uid);
             });
-            
+
             document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
             document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
         }
@@ -1609,7 +1839,7 @@
             state.previewMode = false;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
-        
+
             if (tab === 'config') {
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
@@ -1617,7 +1847,7 @@
                 // Clear old data but keep headers before fetching new page. 
                 const grid = document.getElementById('usersGrid');
                 // The grid header now contains 8 elements (including the master checkbox)
-                if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove()); 
+                if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove());
                 window.module.fetchUsers(null);
                 state.selectedUsers = []; // Clear selection when switching tab
             } else if (tab === 'orders') {
@@ -1633,7 +1863,7 @@
                     window.initGooglePlaces();
                 }
             } else if (tab === 'inventory') { // NEW: Inventory tab initialization
-                 window.module.renderInventorySection();
+                window.module.renderInventorySection();
             }
             else if (tab === 'financials') {
                 // Since state.orders is already synced via realtime listener, 
@@ -1641,7 +1871,7 @@
                 renderAdminPage(auth.currentUser?.email || 'Admin');
             }
         }
-    
+
         function switchOrderPage(page) {
             // ✅ NEW: Reset shipping/tax when leaving create page
             if (state.orderPage === 'create' && page !== 'create') {
@@ -1650,10 +1880,10 @@
                 state.adminOrderShippingDetails = null;
                 state.adminOrderTaxDetails = null;
             }
-            
+
             state.orderPage = page;
             renderAdminPage(auth.currentUser?.email || 'Admin');
-            
+
             if (page === 'create') {
                 window.module.updateAdminCartDisplay();
                 window.module.updateItemSelector();
@@ -1672,54 +1902,54 @@
         let searchDebounceTimers = {};
 
         function createDebouncedHandler(key, handler, delay = 300) {
-            return function(e) {
+            return function (e) {
                 clearTimeout(searchDebounceTimers[key]);
                 searchDebounceTimers[key] = setTimeout(() => {
                     handler(e);
                 }, delay);
             };
         }
-        
+
         // Replace the original handlers with debounced versions:
-        const handleSearchInput = createDebouncedHandler('productSearch', function(e) {
+        const handleSearchInput = createDebouncedHandler('productSearch', function (e) {
             state.searchTerm = e.target.value;
             renderProductListSection();
             resetTimer();
         });
-        
-        const handleOrderListSearchInput = createDebouncedHandler('orderListSearch', function(e) {
+
+        const handleOrderListSearchInput = createDebouncedHandler('orderListSearch', function (e) {
             state.orderListSearchTerm = e.target.value;
             renderOrdersList();
             resetTimer();
         });
-        
-        const handleUserSearchInput = createDebouncedHandler('userSearch', function(e) {
+
+        const handleUserSearchInput = createDebouncedHandler('userSearch', function (e) {
             state.userSearchTerm = e.target.value;
             renderUserList();
             resetTimer();
         });
-    
+
         function showEditForm(item) {
             state.editingItem = item;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
         }
-    
+
         function cancelEdit() {
             state.editingItem = null;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
         }
-    
+
         // --- CATEGORY & PRODUCT CRUD ---
-            const Validators = {
+        const Validators = {
             required: (value, fieldName = 'Field') => {
                 if (!value || (typeof value === 'string' && value.trim().length === 0)) {
                     return { valid: false, error: `${fieldName} is required` };
                 }
                 return { valid: true };
             },
-            
+
             email: (email) => {
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 if (!emailRegex.test(email)) {
@@ -1727,7 +1957,7 @@
                 }
                 return { valid: true };
             },
-            
+
             phone: (phone) => {
                 // Basic international phone validation
                 const phoneRegex = /^\+?[\d\s\-()]{7,}$/;
@@ -1736,7 +1966,7 @@
                 }
                 return { valid: true };
             },
-            
+
             price: (price, min = 0.01, max = 999999.99) => {
                 const numPrice = parseFloat(price);
                 if (isNaN(numPrice)) {
@@ -1750,7 +1980,7 @@
                 }
                 return { valid: true, value: numPrice };
             },
-            
+
             positiveInteger: (value, fieldName = 'Value') => {
                 const num = parseInt(value, 10);
                 if (isNaN(num) || num < 0) {
@@ -1763,181 +1993,181 @@
         async function handleAddProduct(e) {
             e.preventDefault();
             resetTimer();
-        
+
             const form = e.target;
-            
+
             // Validate name
             const nameValidation = Validators.required(form.itemName.value, 'Product name');
             if (!nameValidation.valid) {
                 showMessage('error', nameValidation.error, 5000, 'catalog');
                 return;
             }
-            
+
             // Validate price
             const priceValidation = Validators.price(form.itemPrice.value);
             if (!priceValidation.valid) {
                 showMessage('error', priceValidation.error, 5000, 'catalog');
                 return;
             }
-            
+
             // Validate stock
             const stockValidation = Validators.positiveInteger(form.initialStock.value, 'Stock');
             if (!stockValidation.valid) {
                 showMessage('error', stockValidation.error, 5000, 'catalog');
                 return;
             }
-            
-        try {
-            const priceCents = Math.round(priceValidation.value * 100);
-            
-            const itemName = form.itemName.value.trim();
-            const itemDescription = form.itemDescription.value.trim();
-            const catalogId = form.catalogId.value;
-            const initialStock = stockValidation.value;
-            
-            // Split textarea by new lines, trim whitespace, and filter out empty strings
-            const rawUrls = form.itemImageUrls.value.split('\n').map(url => url.trim()).filter(url => url !== '');
-            
-            // Fallback to placeholder if no URLs provided
-            const imageUrls = rawUrls.length > 0 ? rawUrls : [`https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`];
-        
-            const newProduct = {
-                name: itemName,
-                description: itemDescription,
-                price: priceCents,
-                catalogId: catalogId,
-                imageUrls: imageUrls,
-                imageUrl: imageUrls[0],
-                sku: generateUniqueSku(),
-                stock: initialStock,
-                createdAt: serverTimestamp(),
-            };
-        
-            const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
-            await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
-            showMessage('success', `Product "${itemName}" added with ${imageUrls.length} image(s)!`, 5000, 'catalog');
-            form.reset();
-        
-        } catch (error) {
-            handleError(error, 'Failed to add product', 'catalog');
-        }
+
+            try {
+                const priceCents = Math.round(priceValidation.value * 100);
+
+                const itemName = form.itemName.value.trim();
+                const itemDescription = form.itemDescription.value.trim();
+                const catalogId = form.catalogId.value;
+                const initialStock = stockValidation.value;
+
+                // Split textarea by new lines, trim whitespace, and filter out empty strings
+                const rawUrls = form.itemImageUrls.value.split('\n').map(url => url.trim()).filter(url => url !== '');
+
+                // Fallback to placeholder if no URLs provided
+                const imageUrls = rawUrls.length > 0 ? rawUrls : [`https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`];
+
+                const newProduct = {
+                    name: itemName,
+                    description: itemDescription,
+                    price: priceCents,
+                    catalogId: catalogId,
+                    imageUrls: imageUrls,
+                    imageUrl: imageUrls[0],
+                    sku: generateUniqueSku(),
+                    stock: initialStock,
+                    createdAt: serverTimestamp(),
+                };
+
+                const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
+                await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
+                showMessage('success', `Product "${itemName}" added with ${imageUrls.length} image(s)!`, 5000, 'catalog');
+                form.reset();
+
+            } catch (error) {
+                handleError(error, 'Failed to add product', 'catalog');
+            }
         }
 
-    
+
         // Implemented Add Category
         async function handleAddCatalog(e) {
-             e.preventDefault();
-             resetTimer();
-    
-             const form = e.target;
-             const categoryName = form.catalogName.value.trim();
-    
-             if (!categoryName) {
-                 showMessage('error', 'Category name cannot be empty.', 5000, 'catalog');
-                 return;
-             }
-    
-             try {
-                 const newCategory = {
-                     name: categoryName,
-                     createdAt: serverTimestamp(),
-                 };
-                 
-                 const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), newCategory);
-    
-                 await logAdminAction('CATEGORY_CREATED', newCategory, docRef.id);
-                 showMessage('success', `Category "${categoryName}" added successfully!`, 5000, 'catalog');
-                 form.reset();
-    
-             } catch (error) {
-                 console.error('Error adding category:', error);
-                 showMessage('error', `Failed to add category: ${error.message}`, 5000, 'catalog');
-             }
+            e.preventDefault();
+            resetTimer();
+
+            const form = e.target;
+            const categoryName = form.catalogName.value.trim();
+
+            if (!categoryName) {
+                showMessage('error', 'Category name cannot be empty.', 5000, 'catalog');
+                return;
+            }
+
+            try {
+                const newCategory = {
+                    name: categoryName,
+                    createdAt: serverTimestamp(),
+                };
+
+                const docRef = await addDoc(collection(db, CATALOGS_COLLECTION), newCategory);
+
+                await logAdminAction('CATEGORY_CREATED', newCategory, docRef.id);
+                showMessage('success', `Category "${categoryName}" added successfully!`, 5000, 'catalog');
+                form.reset();
+
+            } catch (error) {
+                console.error('Error adding category:', error);
+                showMessage('error', `Failed to add category: ${error.message}`, 5000, 'catalog');
+            }
         }
-    
+
         // Delete Category
         async function handleDeleteCatalog(id, name) {
             resetTimer();
-        
+
             // 1. Safety Check: Verify if any items are assigned to this category
             const associatedItems = state.items.filter(item => item.catalogId === id);
-            
+
             if (associatedItems.length > 0) {
                 showMessage('error', `Cannot delete "${name}": ${associatedItems.length} products are still assigned to it. Move or delete those products first.`, 7000, 'catalog');
                 return;
             }
-        
+
             // 2. Final Confirmation
             if (!confirm(`Are you sure you want to PERMANENTLY delete the category: "${name}"?`)) return;
-        
+
             try {
                 // 3. Reference and Delete the document
                 const catalogRef = doc(db, CATALOGS_COLLECTION, id);
                 await deleteDoc(catalogRef);
-        
+
                 // 4. Log the action
                 await logAdminAction('CATEGORY_DELETED', { name, id }, id);
-        
+
                 // 5. Success Feedback
                 showMessage('success', `Category "${name}" deleted successfully.`, 5000, 'catalog');
-        
+
             } catch (error) {
                 console.error('Error deleting category:', error);
                 showMessage('error', `Failed to delete category: ${error.message}`, 5000, 'catalog');
             }
         }
-    
+
         // Delete Product function
         async function handleDeleteProduct(id, name) {
             if (!confirm(`WARNING: Are you sure you want to PERMANENTLY delete product: ${name}?\n\nThis action cannot be undone.`)) return;
-            
+
             resetTimer();
-        
+
             try {
                 // 1. Create a reference to the specific product document
                 const itemRef = doc(db, ITEMS_COLLECTION, id);
-        
+
                 // 2. Perform the deletion in Firestore
                 await deleteDoc(itemRef);
-        
+
                 // 3. Log the action for administrative records
                 await logAdminAction('ITEM_DELETED', { name, id }, id);
-        
+
                 // 4. Provide visual feedback to the admin
                 showMessage('success', `Product "${name}" has been permanently deleted.`, 5000, 'catalog');
-        
+
             } catch (error) {
                 console.error('Error deleting product:', error);
                 showMessage('error', `Failed to delete product: ${error.message}`, 5000, 'catalog');
             }
         }
-        
+
         // Edit product function
         async function handleEditProduct(e) {
             e.preventDefault();
             resetTimer();
-        
+
             const form = e.target;
             const itemId = form.itemId.value;
             const itemName = form.itemName.value.trim();
             const itemDescription = form.itemDescription.value.trim();
             const price = form.itemPrice.value;
             const catalogId = form.catalogId.value;
-            
+
             // Process textarea into an array of URLs
             const imageUrls = form.itemImageUrls.value
                 .split('\n')
                 .map(url => url.trim())
                 .filter(url => url !== '');
-        
+
             if (!itemId || !itemName || !price || !catalogId) {
                 showMessage('error', 'Please fill in all required fields.', 5000, 'catalog');
                 return;
             }
-        
+
             try {
                 const priceCents = Math.round(parseFloat(price) * 100);
-                
+
                 const updatedProduct = {
                     name: itemName,
                     description: itemDescription,
@@ -1948,42 +2178,42 @@
                     imageUrl: imageUrls.length > 0 ? imageUrls[0] : `https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`,
                     updatedAt: serverTimestamp()
                 };
-        
+
                 const itemRef = doc(db, ITEMS_COLLECTION, itemId);
                 await updateDoc(itemRef, updatedProduct);
-        
+
                 await logAdminAction('ITEM_UPDATED', updatedProduct, itemId);
                 showMessage('success', `Product "${itemName}" updated successfully with ${imageUrls.length} image(s)!`, 5000, 'catalog');
-                
+
                 cancelEdit(); // Closes the form and resets editing state
-        
+
             } catch (error) {
                 console.error('Error updating product:', error);
                 showMessage('error', `Failed to update product: ${error.message}`, 5000, 'catalog');
             }
         }
-    
+
         // --- INVENTORY MANAGEMENT FUNCTIONS (NEW) ---
-    
+
         async function handleUpdateStock(e, itemId) {
             e.preventDefault();
             resetTimer();
-            
+
             const form = e.target;
             const newStockValue = parseInt(form.stockAdjustment.value, 10);
             const actionType = form.stockAction.value;
-            
+
             if (isNaN(newStockValue) || newStockValue <= 0) {
                 showMessage('error', 'Please enter a valid, positive adjustment amount.', 5000, 'inventory');
                 return;
             }
-    
+
             const item = state.items.find(i => i.id === itemId);
             if (!item) {
                 showMessage('error', 'Item not found.', 5000, 'inventory');
                 return;
             }
-    
+
             let newStock;
             if (actionType === 'add') {
                 newStock = item.stock + newStockValue;
@@ -1994,20 +2224,20 @@
                 showMessage('error', 'Invalid stock action.', 5000, 'inventory');
                 return;
             }
-            
+
             try {
                 const itemRef = doc(db, ITEMS_COLLECTION, itemId);
                 await updateDoc(itemRef, { stock: newStock });
-                
-                await logAdminAction('INVENTORY_UPDATED', { 
-                    itemId, 
-                    item: item.name, 
-                    action: actionType, 
-                    amount: newStockValue, 
-                    oldStock: item.stock, 
-                    newStock 
+
+                await logAdminAction('INVENTORY_UPDATED', {
+                    itemId,
+                    item: item.name,
+                    action: actionType,
+                    amount: newStockValue,
+                    oldStock: item.stock,
+                    newStock
                 }, itemId);
-                
+
                 showMessage('success', `${item.name} stock updated successfully to ${newStock}.`, 5000, 'inventory');
                 form.reset();
                 // Realtime listener handles UI update
@@ -2016,30 +2246,30 @@
                 showMessage('error', `Failed to update stock: ${error.message}`, 5000, 'inventory');
             }
         }
-        
+
         function showPurchaseOrderForm(itemId, itemName) {
             // Placeholder function for the 'Order More' button
             showMessage('info', `Simulating creation of Purchase Order for ${itemName} (${itemId}). (Not Implemented)`, 5000, 'inventory');
         }
-        
+
         // --- USER MANAGEMENT (MODIFIED for Bulk) ---
-        
+
         async function handleBulkUserAction() {
             resetTimer();
-            
+
             const bulkActionSelect = document.getElementById('bulkActionSelect');
             const action = bulkActionSelect.value;
             const selectedUsers = state.selectedUsers;
-            
+
             if (selectedUsers.length === 0 || !action) {
                 return showMessage('error', 'Please select users and an action.', 5000, 'users');
             }
-        
+
             const usersToProcess = state.allUsers.filter(u => selectedUsers.includes(u.uid));
-            
+
             let confirmationMessage = '';
             let actionData = {};
-        
+
             // 1. Determine action and confirmation message
             if (action === 'delete') {
                 confirmationMessage = `WARNING: Are you sure you want to PERMANENTLY delete ${selectedUsers.length} selected users? This is irreversible!`;
@@ -2057,28 +2287,28 @@
                 // which should generally be done individually or requires separate batching logic.
                 return showMessage('error', 'Unsupported bulk action selected.', 5000, 'users');
             }
-        
+
             if (!confirm(confirmationMessage)) {
                 return;
             }
-        
+
             // 2. Execute actions sequentially to ensure stability and proper logging
             const results = { success: 0, failed: 0 };
             const total = usersToProcess.length;
-        
+
             // Use a modal/message to show progress during a long bulk operation
             showMessage('info', `Processing ${total} users... Please wait.`, 0, 'users');
-            
+
             for (const user of usersToProcess) {
                 let successMsg = '';
                 const data = (action === 'update') ? actionData : {};
-                
+
                 if (action === 'delete') {
                     successMsg = `User ${user.email || user.uid} deleted.`;
                 } else if (action === 'update') {
                     successMsg = `User ${user.email || user.uid} ${data.disabled ? 'disabled' : 'enabled'}.`;
                 }
-        
+
                 try {
                     // suppressRefresh: true is critical here to prevent re-fetching the entire list after every single user update
                     await window.module.handleUserAction(action, user.uid, data, successMsg, true);
@@ -2087,36 +2317,36 @@
                     results.failed++;
                 }
             }
-        
+
             // 3. Final cleanup and feedback
             if (results.failed === 0) {
                 showMessage('success', `Bulk action complete! ${results.success} user(s) processed successfully.`, 8000, 'users');
             } else {
                 showMessage('error', `Bulk action finished with ${results.failed} failure(s) out of ${total} users. Check console for details.`, 10000, 'users');
             }
-        
+
             // Clear selection state and reload the entire list to reflect all changes
             state.selectedUsers = [];
-            window.module.fetchUsers(null); 
+            window.module.fetchUsers(null);
         }
 
         // MODIFIED: Central function to execute actions against a user via Netlify function
         async function handleUserAction(action, uid, data = {}, successMsg, suppressRefresh = false) {
             resetTimer();
-        
+
             if (action !== 'resetPassword' && !confirm(`Are you sure you want to perform the action: ${action} on user ${uid}?`)) {
                 throw new Error('Action cancelled by user.');
             }
-        
+
             try {
                 const idToken = await auth.currentUser.getIdToken();
-                
-                const payload = { 
-                    action, 
-                    uid, 
-                    data 
+
+                const payload = {
+                    action,
+                    uid,
+                    data
                 };
-        
+
                 const res = await fetch(MANAGE_USER_FUNCTION, {
                     method: 'POST',
                     headers: {
@@ -2125,95 +2355,95 @@
                     },
                     body: JSON.stringify(payload)
                 });
-        
+
                 if (!res.ok) {
                     const errorDetails = await res.json();
                     throw new Error(errorDetails.details || errorDetails.error || res.statusText);
                 }
-                
+
                 // Log the successful action
                 await logAdminAction(action.toUpperCase() + '_USER', { uid, details: data }, uid);
-        
+
                 showMessage('success', successMsg, 5000, 'users');
-        
+
                 if (!suppressRefresh) {
                     // After successful individual action, fetch users from the start
                     // This is safer than just updating local state for complex changes.
-                    window.module.fetchUsers(null); 
+                    window.module.fetchUsers(null);
                 }
-        
+
                 return await res.json(); // Return data (e.g., reset link)
-                
+
             } catch (error) {
                 console.error(`User Action (${action}) failed for ${uid}:`, error);
                 showMessage('error', `Action failed: ${error.message}`, 8000, 'users');
                 throw error; // Re-throw the error for other handlers (like bulk) to catch
             }
         }
-    
-    
+
+
         // UPDATED: Function to send a password reset email
         function promptForPasswordReset(uid, email) {
             if (!confirm(`Are you sure you want to send a password reset link to ${email}?`)) {
                 return;
             }
             handleUserAction(
-                'resetPassword', 
-                uid, 
-                { email }, 
+                'resetPassword',
+                uid,
+                { email },
                 `Password reset link sent to ${email} (via server).`,
                 true // Suppress refresh since this doesn't change user list data
             );
         }
-        
+
         // UPDATED: Function to delete a user
         function deleteUser(uid, email) {
             if (!confirm(`WARNING: Are you sure you want to PERMANENTLY delete user: ${email}? This is irreversible!`)) {
                 return;
             }
             handleUserAction(
-                'delete', 
-                uid, 
-                {}, 
+                'delete',
+                uid,
+                {},
                 `User ${email} deleted successfully.`
             );
         }
-        
+
         // UPDATED: Function to disable/enable a user account
         function disableUser(uid, email, currentlyDisabled) {
             const action = currentlyDisabled ? 'enable' : 'disable';
             const data = { disabled: !currentlyDisabled };
-            
+
             if (!confirm(`Are you sure you want to ${action} user account for: ${email}?`)) {
                 return;
             }
-            
+
             handleUserAction(
-                'update', 
-                uid, 
-                data, 
+                'update',
+                uid,
+                data,
                 `User ${email} account ${action}d successfully.`
             );
         }
-        
+
         async function handleClearAnonymousUsers() {
             if (!confirm("Are you sure you want to delete ALL anonymous users? This process is irreversible and may take time for large databases.")) {
                 return;
             }
-    
+
             const msgEl = document.getElementById('clearAnonButtonConfig') || document.getElementById('clearAnonButton');
             if (!msgEl) return;
-            
+
             const originalText = msgEl.textContent;
             msgEl.textContent = 'Processing...';
             msgEl.disabled = true;
-    
+
             let pageToken = null;
             let totalDeleted = 0;
-    
+
             try {
                 const idToken = await auth.currentUser.getIdToken();
-    
+
                 do {
                     const payload = { nextPageToken: pageToken };
                     const res = await fetch(CLEAR_ANON_FUNCTION, {
@@ -2224,29 +2454,29 @@
                         },
                         body: JSON.stringify(payload)
                     });
-    
+
                     if (!res.ok) {
                         const errorDetails = await res.json();
                         throw new Error(errorDetails.details || errorDetails.error || res.statusText);
                     }
-    
+
                     const data = await res.json();
-                    
+
                     totalDeleted += data.deletedCount || 0;
                     pageToken = data.nextPageToken;
-    
+
                     if (pageToken) {
                         msgEl.textContent = `Processing batch... (${totalDeleted} deleted)`;
                     } else {
                         showMessage('success', `Cleanup complete! Total anonymous users deleted: ${totalDeleted}.`, 8000, 'config');
                         break; // Exit loop if no token is returned
                     }
-    
+
                 } while (pageToken);
-    
+
                 await logAdminAction('CLEANUP_ANON_USERS', { totalDeleted });
                 if (state.activeTab === 'users') window.module.fetchUsers(null); // Refresh user list
-    
+
             } catch (error) {
                 console.error('Anonymous user cleanup failed:', error);
                 showMessage('error', `Cleanup failed: ${error.message}. Check Netlify logs.`, 8000, 'config');
@@ -2255,95 +2485,95 @@
                 msgEl.disabled = false;
             }
         }
-        
+
         // --- ADMIN ORDER CREATION IMPLEMENTATION (FIXED) ---
-        
+
         // NEW: Filtering logic specifically for the Orders tab's selector
         function getItemsForOrderSelector() {
             if (!state.orderSearchTerm) return state.items;
-            
+
             const term = state.orderSearchTerm.toLowerCase();
-            
+
             return state.items.filter(item => {
                 const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
                 return item.name.toLowerCase().includes(term) ||
-                              (item.sku && item.sku.toLowerCase().includes(term)) ||
-                              catName.toLowerCase().includes(term);
+                    (item.sku && item.sku.toLowerCase().includes(term)) ||
+                    catName.toLowerCase().includes(term);
             });
         }
-    
+
         // NEW: Handler for the search input in the Orders tab
         function handleOrderSearchInput(e) {
             state.orderSearchTerm = e.target.value;
             updateItemSelector(); // Rerender the item selector based on search
             resetTimer();
         }
-    
+
         // IMPLEMENTED: Adds the selected item/quantity to the adminCart state
         function addAdminCartItem() {
             const selector = document.getElementById('itemSelector');
             const quantityEl = document.getElementById('itemQuantity');
-            
+
             if (!selector || !quantityEl) return;
-            
+
             const itemId = selector.value;
             const quantity = parseInt(quantityEl.value, 10);
-            
+
             if (!itemId || quantity <= 0) {
                 showMessage('error', 'Please select a product and quantity.', 3000, 'orders');
                 return;
             }
-    
+
             const item = state.items.find(i => i.id === itemId);
             if (!item) return;
-    
+
             state.adminCart = {
                 ...state.adminCart,
-                [itemId]: { 
-                    item, 
-                    quantity: (state.adminCart[itemId]?.quantity || 0) + quantity 
+                [itemId]: {
+                    item,
+                    quantity: (state.adminCart[itemId]?.quantity || 0) + quantity
                 }
             };
-            
+
             showMessage('success', `Added ${quantity}x ${item.name} to the order cart.`, 2000, 'orders');
             quantityEl.value = 1; // Reset quantity input
             updateAdminCartDisplay();
         }
-    
+
         // IMPLEMENTED: Removes item completely or updates quantity by -1
         function removeAdminCartItem(itemId) {
             const currentEntry = state.adminCart[itemId];
             if (!currentEntry) return;
-    
+
             const newCart = { ...state.adminCart };
             delete newCart[itemId];
             state.adminCart = newCart;
-    
+
             showMessage('info', `${currentEntry.item.name} removed from order cart.`, 2000, 'orders');
             updateAdminCartDisplay();
         }
-    
+
         // IMPLEMENTED: Renders the order cart display
         function updateAdminCartDisplay() {
             const cartEl = document.getElementById('adminCartDisplay');
             const totalEl = document.getElementById('adminCartTotal');
             let totalCents = 0;
-    
+
             if (!cartEl || !totalEl) return;
-    
+
             const itemsInCart = Object.values(state.adminCart);
-            
+
             if (itemsInCart.length === 0) {
                 cartEl.innerHTML = '<p class="text-gray-500 italic">No items added to the order yet. Start searching above!</p>';
                 totalEl.textContent = formatPriceDisplay(0);
                 updateSubmitButtonState();
                 return;
             }
-    
+
             const cartHtml = itemsInCart.map(entry => {
                 const subtotal = entry.item.price * entry.quantity;
                 totalCents += subtotal;
-                
+
                 return `
                     <div class="flex justify-between items-center border-b pb-2">
                         <div class="flex-1 min-w-0 pr-2">
@@ -2357,14 +2587,14 @@
                     </div>
                 `;
             }).join('');
-    
+
             cartEl.innerHTML = cartHtml;
-            
+
             // ✅ NEW: Show breakdown with shipping and tax
             const shippingCents = state.adminOrderShippingCents || 0;
             const taxCents = state.adminOrderTaxCents || 0;
             const grandTotal = totalCents + shippingCents + taxCents;
-            
+
             let breakdownHtml = `
                 <div class="border-t-2 pt-3 space-y-2">
                     <div class="flex justify-between text-sm text-gray-700">
@@ -2372,7 +2602,7 @@
                         <span class="font-semibold">${formatPriceDisplay(totalCents)}</span>
                     </div>
             `;
-            
+
             if (shippingCents > 0) {
                 breakdownHtml += `
                     <div class="flex justify-between text-sm text-gray-600">
@@ -2388,7 +2618,7 @@
                     </div>
                 `;
             }
-            
+
             if (taxCents > 0) {
                 breakdownHtml += `
                     <div class="flex justify-between text-sm text-gray-600">
@@ -2404,7 +2634,7 @@
                     </div>
                 `;
             }
-            
+
             breakdownHtml += `
                     <div class="flex justify-between text-xl font-black text-indigo-700 border-t-2 pt-2">
                         <span>Total:</span>
@@ -2412,7 +2642,7 @@
                     </div>
                 </div>
             `;
-            
+
             totalEl.innerHTML = breakdownHtml;
             updateSubmitButtonState();
         }
@@ -2421,7 +2651,7 @@
         async function calculateAdminOrderShippingTax() {
             const addressInput = document.getElementById('deliveryAddress');
             const address = addressInput?.value?.trim();
-            
+
             if (!address || addressInput.dataset.validated !== 'true') {
                 // Reset if address is invalid
                 state.adminOrderShippingCents = 0;
@@ -2431,24 +2661,24 @@
                 updateAdminCartDisplay();
                 return;
             }
-        
+
             const submitButton = document.getElementById('submitOrderButton');
             if (submitButton) {
                 submitButton.disabled = true;
                 submitButton.textContent = 'Calculating shipping...';
             }
-        
+
             try {
                 // Parse address for state/zip
                 const addressParts = address.split(',');
                 const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
                 const orderState = stateZip[0] || 'CA';
                 const zipCode = stateZip[1] || '00000';
-        
+
                 // Calculate total weight (1 lb per item as example)
                 const totalWeight = Object.values(state.adminCart).reduce((sum, e) => sum + e.quantity, 0);
                 const cartTotalCents = Object.values(state.adminCart).reduce((s, e) => s + e.item.price * e.quantity, 0);
-        
+
                 // 1. Calculate Shipping
                 try {
                     const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
@@ -2473,7 +2703,7 @@
                             }]
                         })
                     });
-        
+
                     if (shippingRes.ok) {
                         const shippingData = await shippingRes.json();
                         if (shippingData.bestRate) {
@@ -2496,9 +2726,9 @@
                     state.adminOrderShippingCents = 1000;
                     state.adminOrderShippingDetails = { provider: 'Standard', amount: 10 };
                 }
-        
+
                 if (submitButton) submitButton.textContent = 'Calculating tax...';
-        
+
                 // 2. Calculate Tax
                 try {
                     const taxRes = await fetch('/.netlify/functions/calculateTax', {
@@ -2510,7 +2740,7 @@
                             zipCode: zipCode
                         })
                     });
-        
+
                     if (taxRes.ok) {
                         const taxData = await taxRes.json();
                         state.adminOrderTaxCents = taxData.taxCents || 0;
@@ -2527,10 +2757,10 @@
                     console.error('Tax calculation error:', taxError);
                     state.adminOrderTaxCents = 0;
                 }
-        
+
                 // Re-render cart with updated totals
                 updateAdminCartDisplay();
-        
+
             } catch (error) {
                 console.error('Calculation error:', error);
                 showMessage('error', 'Failed to calculate shipping/tax. Using defaults.', 5000, 'orders');
@@ -2542,17 +2772,17 @@
             }
         }
 
-    
+
         // NEW: Renders the item selector dropdown with search results
         function updateItemSelector() {
             const selectorEl = document.getElementById('itemSelector');
             if (!selectorEl) return;
-            
+
             const items = getItemsForOrderSelector();
-            
+
             // Default option
             let optionsHtml = '<option value="" disabled selected>-- Select Product or Search --</option>';
-            
+
             if (items.length > 0) {
                 optionsHtml += items.map(item => {
                     const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
@@ -2561,105 +2791,105 @@
             } else if (state.orderSearchTerm) {
                 optionsHtml += `<option value="" disabled>No results found for "${state.orderSearchTerm}"</option>`;
             } else {
-                 // Initial state when items are loaded and no search is performed
-                 optionsHtml += state.items.map(item => {
+                // Initial state when items are loaded and no search is performed
+                optionsHtml += state.items.map(item => {
                     const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
                     return `<option value="${item.id}">${item.name} (${cat}) - ${formatPriceDisplay(item.price)}</option>`;
                 }).join('');
             }
-            
+
             selectorEl.innerHTML = optionsHtml;
         }
-        
+
         function validateOrderForm() {
             const name = document.getElementById('buyerName')?.value.trim();
             const email = document.getElementById('buyerEmail')?.value.trim();
             const address = document.getElementById('deliveryAddress')?.value.trim();
             const addressValidated = document.getElementById('deliveryAddress')?.dataset.validated === 'true';
             const cartItems = Object.keys(state.adminCart).length;
-            
+
             const errors = [];
-            
+
             if (!name) errors.push('Customer name is required');
             if (!email || !Validators.email(email).valid) errors.push('Valid email is required');
             if (!address || !addressValidated) errors.push('Valid address must be selected from dropdown');
             if (cartItems === 0) errors.push('Cart cannot be empty');
-            
+
             if (errors.length > 0) {
                 showMessage('error', errors.join('\n'), 5000, 'orders');
                 return false;
             }
-            
+
             return true;
         }
-        
-    
+
+
         // UPDATED Order submission function with email call
-         async function handleAdminOrderSubmit(e) {
+        async function handleAdminOrderSubmit(e) {
             e.preventDefault();
             resetTimer();
             if (!validateOrderForm()) {
                 return;
-            }             
+            }
             const form = document.getElementById('createOrderForm');
             const deliveryAddress = document.getElementById('deliveryAddress');
             const submitButton = document.getElementById('submitOrderButton');
-        
+
             // 1. Get Form Data
             const buyerName = form.buyerName.value.trim();
             const buyerEmail = form.buyerEmail.value.trim();
             const buyerPhone = form.buyerPhone.value.trim();
             const orderNotes = form.orderNotes.value.trim();
             const buyerLanguage = form.buyerLanguage?.value.trim() || 'en';
-            
+
             const email = buyerEmail;
             const name = buyerName;
             const phone = buyerPhone;
             const address = deliveryAddress.value.trim();
             const itemsToOrder = Object.values(state.adminCart);
-        
+
             // 1.1 Validation
             if (itemsToOrder.length === 0) {
                 return showMessage('error', 'The order cart is empty.', 3000, 'orders');
             }
-            
+
             if (deliveryAddress.dataset.validated !== 'true') {
                 return showMessage('error', 'Please select a valid delivery address from the dropdown.', 5000, 'orders');
             }
-        
+
             // 1.2 Get Geolocation (if available)
             let geolocation = null;
             if (autocomplete && autocomplete.getPlace) {
                 const place = autocomplete.getPlace();
                 if (place.geometry && place.geometry.location) {
-                    geolocation = { 
-                        lat: place.geometry.location.lat(), 
-                        lng: place.geometry.location.lng() 
+                    geolocation = {
+                        lat: place.geometry.location.lat(),
+                        lng: place.geometry.location.lng()
                     };
                 }
             }
-        
+
             submitButton.disabled = true;
             submitButton.textContent = 'Creating order...';
-        
+
             try {
                 // 2. Calculate Totals - Use pre-calculated shipping/tax from state
                 const cartTotalCents = itemsToOrder.reduce((s, e) => s + e.item.price * e.quantity, 0);
                 const shippingCents = state.adminOrderShippingCents || 0;
                 const taxCents = state.adminOrderTaxCents || 0;
                 const finalTotalCents = cartTotalCents + shippingCents + taxCents;
-        
+
                 console.log('💰 Order Totals:', {
                     subtotal: formatPriceDisplay(cartTotalCents),
                     shipping: formatPriceDisplay(shippingCents),
                     tax: formatPriceDisplay(taxCents),
                     total: formatPriceDisplay(finalTotalCents)
                 });
-        
+
                 // 3. Prepare Order Data
                 const whatsappConsent = document.getElementById('adminWhatsappOpt')?.checked || false;
                 const smsConsent = document.getElementById('adminSmsOpt')?.checked || false;
-                
+
                 const orderData = {
                     buyerEmail: email,
                     buyerName: name,
@@ -2693,7 +2923,7 @@
                     language: buyerLanguage,
                     communicationLang: buyerLanguage
                 };
-        
+
                 // 4. Submit Order to Backend
                 const idToken = await auth.currentUser.getIdToken();
                 const res = await fetch(ADMIN_CREATE_ORDER_FUNCTION, {
@@ -2704,43 +2934,43 @@
                     },
                     body: JSON.stringify(orderData)
                 });
-                
+
                 if (!res.ok) {
                     const errorDetails = await res.json();
                     throw new Error(errorDetails.details || 'Order creation failed on server.');
                 }
-                
+
                 const orderCreationResponse = await res.json();
                 const finalOrderId = orderCreationResponse.orderId || 'ADMIN_ORDER_ID';
-                
+
                 console.log('✅ Order created:', finalOrderId);
-        
+
                 // 5. Update Inventory
                 const inventoryUpdates = itemsToOrder.map(async entry => {
                     const itemId = entry.item.id;
                     const orderQty = entry.quantity;
                     const currentItem = state.items.find(i => i.id === itemId);
-                    
+
                     if (!currentItem) return;
-        
+
                     const newStock = Math.max(0, (currentItem.stock || 0) - orderQty);
-                    
+
                     const itemRef = doc(db, ITEMS_COLLECTION, itemId);
                     await updateDoc(itemRef, { stock: newStock });
-        
-                    await logAdminAction('INVENTORY_DECREASED', { 
-                        itemId, 
-                        item: currentItem.name, 
-                        action: 'remove', 
-                        amount: orderQty, 
-                        oldStock: currentItem.stock, 
-                        newStock 
+
+                    await logAdminAction('INVENTORY_DECREASED', {
+                        itemId,
+                        item: currentItem.name,
+                        action: 'remove',
+                        amount: orderQty,
+                        oldStock: currentItem.stock,
+                        newStock
                     }, itemId);
                 });
-                
+
                 await Promise.all(inventoryUpdates);
                 console.log('✅ Inventory updated');
-                
+
                 // 6. Send Confirmation Email
                 const emailPayload = {
                     ...orderData,
@@ -2749,14 +2979,14 @@
                     requesterEmail: auth.currentUser?.email,
                     language: buyerLanguage
                 };
-                
+
                 try {
                     const emailRes = await fetch(EMAIL_CONFIRMATION_FUNCTION, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(emailPayload)
                     });
-        
+
                     if (emailRes.ok) {
                         console.log('✅ Confirmation email sent');
                     } else {
@@ -2766,31 +2996,31 @@
                     console.error('Email error:', emailError);
                     // Don't fail the whole order if email fails
                 }
-                
+
                 // 7. Success - Reset Form and State
                 state.adminCart = {};
                 state.adminOrderShippingCents = 0;
                 state.adminOrderTaxCents = 0;
                 state.adminOrderShippingDetails = null;
                 state.adminOrderTaxDetails = null;
-                
+
                 form.reset();
                 deliveryAddress.dataset.validated = 'false';
                 deliveryAddress.classList.remove('address-valid');
                 deliveryAddress.classList.add('address-invalid');
-                
-                showMessage('success', 
+
+                showMessage('success',
                     `✅ Order ${finalOrderId.substring(0, 8)} created successfully!\n` +
                     `Subtotal: ${formatPriceDisplay(cartTotalCents)}\n` +
                     `Shipping: ${formatPriceDisplay(shippingCents)}\n` +
                     `Tax: ${formatPriceDisplay(taxCents)}\n` +
-                    `Total: ${formatPriceDisplay(finalTotalCents)}`, 
+                    `Total: ${formatPriceDisplay(finalTotalCents)}`,
                     10000, 'orders'
                 );
-                
+
                 // Refresh orders list
                 window.module.fetchOrders();
-        
+
             } catch (error) {
                 console.error('❌ Error creating order:', error);
                 showMessage('error', `Failed to create order: ${error.message}`, 10000, 'orders');
@@ -2809,14 +3039,14 @@
                 showMessage('error', 'Order not found', 3000, 'orders');
                 return;
             }
-            
+
             state.shippingModalOrderId = orderId;
             state.shippingModalOpen = true;
-            
+
             const container = document.getElementById('shippingModalContainer');
             if (container) {
                 container.innerHTML = renderShippingLabelModal(order);
-                
+
                 const form = document.getElementById('shippingLabelForm');
                 if (form) {
                     form.onsubmit = (e) => {
@@ -2826,33 +3056,33 @@
                 }
             }
         }
-        
+
         function closeShippingModal() {
             state.shippingModalOpen = false;
             state.shippingModalOrderId = null;
             const container = document.getElementById('shippingModalContainer');
             if (container) container.innerHTML = '';
         }
-        
+
         async function handleGenerateShippingLabel(orderId) {
             resetTimer();
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
-            
+
             const carrier = document.getElementById('shippingCarrier')?.value;
             const service = document.getElementById('shippingService')?.value;
             const weight = document.getElementById('packageWeight')?.value;
             const value = document.getElementById('packageValue')?.value;
             const notes = document.getElementById('shippingNotes')?.value;
-            
+
             if (!carrier || !service) {
                 showMessage('error', 'Please select carrier and service level', 3000, 'orders');
                 return;
             }
-            
+
             try {
                 showMessage('info', 'Generating shipping label...', 2000, 'orders');
-                
+
                 const shipmentData = {
                     orderId: orderId,
                     carrier: carrier,
@@ -2871,48 +3101,48 @@
                         email: order.buyerEmail || ''
                     }
                 };
-                
+
                 const response = await fetch('/.netlify/functions/generateShippingLabel', {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
                     },
                     body: JSON.stringify(shipmentData)
                 });
-                
+
                 if (!response.ok) throw new Error('Failed to generate label');
-                
+
                 const result = await response.json();
-                
+
                 if (result.labelUrl) {
                     window.open(result.labelUrl, '_blank');
                     showMessage('success', 'Label generated! Opening print window...', 5000, 'orders');
                     await window.module.handleOrderStatusUpdate(orderId, 'Processing');
                     closeShippingModal();
                 }
-                
+
             } catch (error) {
                 console.error('Label generation error:', error);
                 showMessage('error', `Failed to generate label: ${error.message}`, 5000, 'orders');
             }
         }
-        
+
         async function requestShippoLabel(orderId) {
             resetTimer();
             showMessage('info', 'Requesting label via Shippo API...', 2000, 'orders');
-            
+
             try {
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) return;
-                
+
                 const carrier = document.getElementById('shippingCarrier')?.value;
                 const service = document.getElementById('shippingService')?.value;
                 const weight = document.getElementById('packageWeight')?.value;
-                
+
                 const response = await fetch('/.netlify/functions/createShippoLabel', {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
                     },
@@ -2933,14 +3163,14 @@
                         }
                     })
                 });
-                
+
                 if (!response.ok) throw new Error('Shippo API failed');
-                
+
                 const result = await response.json();
-                
+
                 if (result.labelUrl) {
                     window.open(result.labelUrl, '_blank');
-                    
+
                     if (result.trackingNumber) {
                         await updateOrderTracking(orderId, {
                             trackingNumber: result.trackingNumber,
@@ -2949,26 +3179,26 @@
                             labelUrl: result.labelUrl
                         });
                     }
-                    
+
                     showMessage('success', 'Shippo label created! Opening for print...', 5000, 'orders');
                     closeShippingModal();
                 }
-                
+
             } catch (error) {
                 console.error('Shippo error:', error);
                 showMessage('error', `Shippo request failed: ${error.message}`, 5000, 'orders');
             }
         }
-        
+
         async function updateOrderTracking(orderId, trackingData) {
             try {
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) return;
-                
+
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-                
+
                 await updateDoc(orderRef, {
                     trackingNumber: trackingData.trackingNumber,
                     shippingCarrier: trackingData.carrier,
@@ -2978,15 +3208,15 @@
                     status: 'Shipped',
                     updatedAt: serverTimestamp()
                 });
-                
+
                 await logAdminAction('TRACKING_ADDED', {
                     orderId,
                     trackingNumber: trackingData.trackingNumber,
                     carrier: trackingData.carrier
                 }, orderId);
-                
+
                 showMessage('success', 'Tracking number saved!', 3000, 'orders');
-                
+
             } catch (error) {
                 console.error('Update tracking error:', error);
                 showMessage('error', 'Failed to save tracking number', 3000, 'orders');
@@ -2996,43 +3226,43 @@
             resetTimer();
             const loadMoreBtn = document.getElementById('loadMoreUsersButton');
             const msgEl = document.getElementById('usersMessage');
-            
+
             if (msgEl) msgEl.textContent = pageToken ? 'Loading next batch...' : 'Loading users...';
             if (loadMoreBtn) loadMoreBtn.disabled = true;
-        
+
             if (!pageToken) {
-                state.allUsers = []; 
+                state.allUsers = [];
                 globalNextPageToken = null;
                 state.selectedUsers = [];
             }
-        
+
             try {
                 const idToken = await auth.currentUser.getIdToken();
                 const params = new URLSearchParams();
                 if (pageToken) params.append('nextPageToken', pageToken);
-                
+
                 const res = await fetch(`${LIST_USERS_FUNCTION}?${params.toString()}`, {
                     headers: { 'Authorization': `Bearer ${idToken}` }
                 });
-        
+
                 if (!res.ok) {
                     const errorDetails = await res.json();
                     throw new Error(errorDetails.details || errorDetails.error || res.statusText);
                 }
-        
+
                 const data = await res.json();
                 globalNextPageToken = data.nextPageToken;
-                state.allUsers = state.allUsers.concat(data.users); 
-        
+                state.allUsers = state.allUsers.concat(data.users);
+
                 renderUserList();
-        
+
             } catch (error) {
                 console.error('Error fetching users:', error);
                 showMessage('error', `Failed to fetch users: ${error.message}`, 5000, 'users');
             } finally {
                 if (msgEl) msgEl.textContent = '';
                 if (loadMoreBtn) loadMoreBtn.disabled = false;
-                renderUserControls(); 
+                renderUserControls();
             }
         }
 
@@ -3040,14 +3270,14 @@
             const grid = document.getElementById('usersGrid');
             if (!grid) return;
             const users = getFilteredAuthUsers();
-            
+
             Array.from(grid.children).slice(8).forEach(el => el.remove());
             const selectAll = document.getElementById('selectAllUsers');
             if (selectAll) selectAll.checked = false;
-            
+
             document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
             document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
-            
+
             const userRows = users.map(user => {
                 const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
                 const emailVerifiedIcon = user.emailVerified ? '✅' : '❌';
@@ -3055,7 +3285,7 @@
                 const disabledButtonColor = user.disabled ? 'text-green-600 hover:text-green-800' : 'text-yellow-600 hover:text-yellow-800';
                 const isSelected = state.selectedUsers.includes(user.uid);
                 const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
-                
+
                 return `
                     <div class="grid-item ${disabledClass}">
                         <input type="checkbox" onchange="window.module.toggleUserSelection('${user.uid}')" 
@@ -3074,17 +3304,17 @@
                     </div>
                 `;
             }).join('');
-            
+
             grid.insertAdjacentHTML('beforeend', userRows);
             renderUserControls();
         }
-        
+
         function renderUserControls() {
             const loadMoreBtn = document.getElementById('loadMoreUsersButton');
             const userCountEl = document.getElementById('userCount');
             const filteredCount = getFilteredAuthUsers().length;
             const totalCount = state.allUsers.length;
-            
+
             if (loadMoreBtn) {
                 if (globalNextPageToken && !state.userSearchTerm) {
                     loadMoreBtn.classList.remove('hidden');
@@ -3094,7 +3324,7 @@
                     loadMoreBtn.classList.add('hidden');
                 }
             }
-        
+
             if (userCountEl) {
                 if (state.userSearchTerm) {
                     userCountEl.textContent = `Found ${filteredCount} matching users (from ${totalCount} loaded).`;
@@ -3103,39 +3333,39 @@
                 }
             }
         }
-        
+
         // ============================================================================
         // CONFIG FUNCTIONS
         // ============================================================================
-        
+
         async function fetchAdminConfig() {
             try {
                 if (!auth.currentUser) throw new Error("User not authenticated.");
-                const idToken = await auth.currentUser.getIdToken(true); 
-        
+                const idToken = await auth.currentUser.getIdToken(true);
+
                 const res = await fetch(CONFIG_FUNCTION, {
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${idToken}` }
                 });
-        
+
                 if (!res.ok) throw new Error('Config fetch failed.');
                 const config = await res.json();
                 globalConfig = config;
-        
+
                 const maintenanceToggle = document.getElementById('maintenanceToggle');
                 const chatWidgetToggle = document.getElementById('chatWidgetToggle');
                 const dynamicIpList = document.getElementById('dynamicIpList');
                 const lastUpdatedEl = document.getElementById('configLastUpdated');
-        
+
                 if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
                 if (chatWidgetToggle) chatWidgetToggle.checked = config.chatWidgetEnabled;
                 if (dynamicIpList) dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
-                
+
                 if (lastUpdatedEl) {
-                    lastUpdatedEl.textContent = config.lastUpdated ? 
+                    lastUpdatedEl.textContent = config.lastUpdated ?
                         `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
                 }
-        
+
                 if (chatWidgetToggle) {
                     chatWidgetToggle.removeEventListener('change', chatToggleHandler);
                     chatWidgetToggle.addEventListener('change', chatToggleHandler);
@@ -3144,7 +3374,7 @@
                     maintenanceToggle.removeEventListener('change', maintenanceToggleHandler);
                     maintenanceToggle.addEventListener('change', maintenanceToggleHandler);
                 }
-        
+
             } catch (error) {
                 console.error("Error fetching admin config:", error);
                 if (document.getElementById('configMessage')) {
@@ -3152,7 +3382,7 @@
                 }
             }
         }
-        
+
         function displayStaticIps() {
             const el = document.getElementById('staticIpListDisplay');
             if (el) {
@@ -3163,30 +3393,30 @@
                 }
             }
         }
-        
+
         async function handleUpdateConfig(e) {
             e.preventDefault();
-            
+
             const maintenanceToggle = document.getElementById('maintenanceToggle');
             const chatWidgetToggle = document.getElementById('chatWidgetToggle');
             const dynamicIpList = document.getElementById('dynamicIpList');
-        
+
             const activeDaysCheckboxes = document.querySelectorAll('#chatActiveDays input[name="chatDay"]:checked');
             const activeDaysValues = Array.from(activeDaysCheckboxes).map(cb => parseInt(cb.value, 10));
-            
+
             const chatScheduleUpdates = {
                 enableTime: document.getElementById('chatEnableTime')?.value || '08:00',
                 disableTime: document.getElementById('chatDisableTime')?.value || '20:00',
-                activeDays: activeDaysValues.length > 0 ? activeDaysValues : [1,2,3,4,5]
+                activeDays: activeDaysValues.length > 0 ? activeDaysValues : [1, 2, 3, 4, 5]
             };
-        
+
             const updates = {
                 maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
                 chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
                 ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist,
                 chatSchedule: chatScheduleUpdates,
             };
-            
+
             try {
                 const idToken = await auth.currentUser.getIdToken();
                 const res = await fetch(UPDATE_CONFIG_FUNCTION, {
@@ -3197,12 +3427,12 @@
                     },
                     body: JSON.stringify(updates)
                 });
-                
+
                 if (!res.ok) {
                     const errorDetails = await res.json();
                     throw new Error(errorDetails.details || 'Update failed on server.');
                 }
-                
+
                 showMessage('success', 'Configuration updated successfully!', 8000, 'config');
                 await logAdminAction('CONFIG_UPDATE', updates);
                 fetchAdminConfig();
@@ -3211,34 +3441,34 @@
                 showMessage('error', `Failed to save configuration: ${error.message}`, 8000, 'config');
             }
         }
-        
+
         function chatToggleHandler(e) {
             globalConfig.chatWidgetEnabled = e.target.checked;
             resetTimer();
         }
-        
+
         function maintenanceToggleHandler(e) {
             globalConfig.maintenanceMode = e.target.checked;
             resetTimer();
         }
-        
+
         function togglePreviewMode(enable) {
             state.previewMode = enable;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
         }
-        
+
         function toggleLanguage() {
             currentLang = (currentLang === 'en') ? 'es' : 'en';
             localStorage.setItem('adminLang', currentLang);
             const userEmail = auth.currentUser ? auth.currentUser.email : 'Admin';
             renderAdminPage(userEmail);
         }
-        
+
         // ============================================================================
         // ORDER FUNCTIONS
         // ============================================================================
-        
+
         async function fetchOrders() {
             const ordersMsgEl = document.getElementById('ordersMessage');
             if (ordersMsgEl) {
@@ -3246,13 +3476,13 @@
             }
             renderOrdersList();
         }
-        
+
         function handleStatusFilterChange(e) {
             state.orderStatusFilter = e.target.value;
             renderOrdersList();
             resetTimer();
         }
-        
+
         async function handleOrderStatusUpdate(orderId, newStatus) {
             resetTimer();
             const order = state.orders.find(o => o.id === orderId);
@@ -3260,66 +3490,66 @@
                 showMessage('error', 'Order not found.', 3000, 'orders');
                 return;
             }
-        
+
             try {
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-                
+
                 await updateDoc(orderRef, {
                     status: newStatus,
                     updatedAt: serverTimestamp()
                 });
-        
+
                 await logAdminAction('ORDER_STATUS_UPDATED', {
                     orderId,
                     oldStatus: order.status,
                     newStatus
                 }, orderId);
-        
+
                 showMessage('success', `Order status updated to: ${newStatus}`, 3000, 'orders');
             } catch (error) {
                 console.error('Error updating order status:', error);
                 showMessage('error', `Failed to update order status: ${error.message}`, 5000, 'orders');
             }
         }
-        
+
         function renderOrdersList() {
             const container = document.getElementById('ordersListContent');
             if (!container) return;
-        
+
             const filteredOrders = state.orders.filter(order => {
                 const matchesStatus = state.orderStatusFilter === 'All' || order.status === state.orderStatusFilter;
-                const matchesDelivery = state.deliveryStatusFilter === 'All' || 
+                const matchesDelivery = state.deliveryStatusFilter === 'All' ||
                     (state.deliveryStatusFilter === 'Delivered' && order.status === 'Delivered') ||
                     (state.deliveryStatusFilter === 'Pending' && order.status !== 'Delivered' && order.status !== 'Cancelled');
-                
-                const matchesSearch = !state.orderListSearchTerm || 
+
+                const matchesSearch = !state.orderListSearchTerm ||
                     order.id.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
                     order.buyerName?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
                     order.buyerEmail?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase());
-        
+
                 return matchesStatus && matchesDelivery && matchesSearch;
             });
-        
+
             if (filteredOrders.length === 0) {
                 container.innerHTML = '<p class="text-center text-gray-500 p-8">No orders found matching your filters.</p>';
                 return;
             }
-        
+
             const ordersHtml = filteredOrders.map(order => {
                 const itemsList = order.items.map(item => {
                     const itemData = getSafeItemData(item);
                     return `${itemData.quantity}x ${escapeHtml(itemData.name)}`;
                 }).join(', ');
-        
+
                 const statusColor = {
                     'Pending': 'bg-yellow-100 text-yellow-800',
                     'Processing': 'bg-blue-100 text-blue-800',
                     'Delivered': 'bg-green-100 text-green-800',
                     'Cancelled': 'bg-red-100 text-red-800'
                 }[order.status] || 'bg-gray-100 text-gray-800';
-        
+
                 return `
                     <div class="bg-white p-4 rounded-lg shadow border border-gray-200">
                         <div class="flex justify-between items-start mb-2">
@@ -3354,10 +3584,10 @@
                     </div>
                 `;
             }).join('');
-        
+
             container.innerHTML = ordersHtml;
         }
-        
+
         function renderOrderCreateForm() {
             return `
                 <div class="bg-white p-6 rounded-lg shadow-lg">
@@ -3371,7 +3601,7 @@
                 </div>
             `;
         }
-        
+
         function renderOrdersStats() {
             const statsContainer = document.getElementById('ordersStatsContainer');
             if (statsContainer) {
@@ -3379,11 +3609,11 @@
             }
             renderSalesCharts();
         }
-        
+
         // ============================================================================
         // ORDER EDITING FUNCTIONS
         // ============================================================================
-        
+
         function showOrderEditForm(orderId) {
             resetTimer();
             const order = state.orders.find(o => o.id === orderId);
@@ -3391,29 +3621,29 @@
                 showMessage('error', 'Order not found', 3000, 'orders');
                 return;
             }
-        
+
             state.editingOrderId = orderId;
             initializeDraftCart(order.items, order.paidCents || 0);
-        
+
             const modalContainer = document.getElementById('editModalContainer');
             if (modalContainer) {
                 modalContainer.innerHTML = renderOrderEditModal(order);
             }
         }
-        
+
         function closeEditModal() {
             state.editingOrderId = null;
             state.editingOrderDraftCart = {};
             const modalContainer = document.getElementById('editModalContainer');
             if (modalContainer) modalContainer.innerHTML = '';
         }
-        
+
         async function updateOrder(orderId) {
             resetTimer();
             try {
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) throw new Error('Order not found');
-        
+
                 const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
                     id: entry.item.id,
                     name: entry.item.name,
@@ -3421,31 +3651,31 @@
                     quantity: entry.quantity,
                     sku: entry.item.sku
                 }));
-        
+
                 const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
                 const newTotal = newSubtotal + (order.shippingCents || 0) + (order.taxCents || 0);
-        
+
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-        
+
                 await updateDoc(orderRef, {
                     items: newItems,
                     subtotalCents: newSubtotal,
                     totalCents: newTotal,
                     updatedAt: serverTimestamp()
                 });
-        
+
                 await logAdminAction('ORDER_UPDATED', { orderId, newItems }, orderId);
                 showMessage('success', 'Order updated successfully!', 3000, 'orders');
                 closeEditModal();
-        
+
             } catch (error) {
                 console.error('Error updating order:', error);
                 showMessage('error', `Failed to update order: ${error.message}`, 5000, 'orders');
             }
         }
-        
+
         function renderOrderEditModal(order) {
             return `
                 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -3482,12 +3712,12 @@
                 </div>
             `;
         }
-        
+
         async function handleResendReceipt(orderId) {
             resetTimer();
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
-        
+
             try {
                 await fetch(RECEIPT_EMAIL_CONFIRMATION_FUNCTION, {
                     method: 'POST',
@@ -3499,15 +3729,15 @@
                 showMessage('error', 'Failed to resend receipt', 3000, 'orders');
             }
         }
-        
+
         // ============================================================================
         // FINANCIALS FUNCTIONS
         // ============================================================================
-        
+
         function renderFinancialsSection() {
             const container = document.getElementById('financialsContent');
             if (!container) return '';
-        
+
             return `
                 <div class="bg-white p-6 rounded-lg shadow-lg">
                     <h3 class="text-xl font-bold mb-4">Payment Ledger</h3>
@@ -3517,7 +3747,7 @@
                 </div>
             `;
         }
-        
+
         function renderFinancialRows() {
             return state.orders.map(order => `
                 <div class="border-b py-2">
@@ -3527,7 +3757,7 @@
                 </div>
             `).join('');
         }
-        
+
         function downloadPaymentLedgerCsv() {
             const csvData = [
                 ['Order ID', 'Customer', 'Total', 'Paid', 'Date'].join(','),
@@ -3539,7 +3769,7 @@
                     formatTime(o.createdAt)
                 ].join(','))
             ].join('\n');
-        
+
             const blob = new Blob([csvData], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -3547,11 +3777,11 @@
             a.download = 'payment_ledger.csv';
             a.click();
         }
-        
+
         // ============================================================================
         // SHIPPING MODAL RENDERING
         // ============================================================================
-        
+
         function renderShippingLabelModal(order) {
             return `
                 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -3605,7 +3835,7 @@
         }
 
         function renderAdminPage(userName) {
-    document.getElementById('app').innerHTML = `
+            document.getElementById('app').innerHTML = `
         <header class="flex flex-col sm:flex-row justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600 gap-4">
             <div class="flex items-center space-x-3">
                 <img src="/images/AutoInx logo.png" alt="Logo" class="h-10 w-auto">
@@ -3668,32 +3898,32 @@
         </div>
     `;
 
-    // Re-attach the sign out event listener
-    document.getElementById('signOutButton')?.addEventListener('click', () => {
-        clearTimeout(idleTimer);
-        signOut(auth).then(() => location.href = '/');
-    });
+            // Re-attach the sign out event listener
+            document.getElementById('signOutButton')?.addEventListener('click', () => {
+                clearTimeout(idleTimer);
+                signOut(auth).then(() => location.href = '/');
+            });
 
-    // Post-render data population
-    if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-    if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
-    if (state.activeTab === 'users' && !state.previewMode) { 
-        if (state.allUsers.length === 0) window.module.fetchUsers();
-        else renderUserList();
-    }
-    if (state.activeTab === 'orders' && !state.previewMode) {
-         if (state.orderPage === 'list') window.module.fetchOrders();
-         else window.module.updateAdminCartDisplay();
-    }
-    if (state.activeTab === 'inventory' && !state.previewMode) window.module.renderInventorySection();
-    if (state.activeTab === 'financials' && !state.previewMode) {
-        // Financials uses the already-synced state.orders
-    }
-}
+            // Post-render data population
+            if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+            if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
+            if (state.activeTab === 'users' && !state.previewMode) {
+                if (state.allUsers.length === 0) window.module.fetchUsers();
+                else renderUserList();
+            }
+            if (state.activeTab === 'orders' && !state.previewMode) {
+                if (state.orderPage === 'list') window.module.fetchOrders();
+                else window.module.updateAdminCartDisplay();
+            }
+            if (state.activeTab === 'inventory' && !state.previewMode) window.module.renderInventorySection();
+            if (state.activeTab === 'financials' && !state.previewMode) {
+                // Financials uses the already-synced state.orders
+            }
+        }
 
-        
-                // --- EXPOSE TO WINDOW ---
-          window.module = {
+
+        // --- EXPOSE TO WINDOW ---
+        window.module = {
             // ========================================================================
             // AUTH & USER MANAGEMENT
             // ========================================================================
@@ -3709,7 +3939,7 @@
             deleteUser,
             disableUser,
             handleClearAnonymousUsers,
-        
+
             // ========================================================================
             // CONFIG & SYSTEM
             // ========================================================================
@@ -3721,7 +3951,7 @@
             toggleLanguage,
             logAdminAction,
             loadGoogleMapsScript,
-        
+
             // ========================================================================
             // CATALOG & INVENTORY
             // ========================================================================
@@ -3738,7 +3968,7 @@
             renderInventorySection,
             handleUpdateStock,
             showPurchaseOrderForm,
-        
+
             // ========================================================================
             // ORDER TRACKING
             // ========================================================================
@@ -3763,7 +3993,7 @@
             downloadCategorySalesCsv,
             downloadIndividualItemSalesCsv,
             calculateAdminOrderShippingTax,
-        
+
             // ========================================================================
             // MANUAL ORDER CREATION (ADMIN CART)
             // ========================================================================
@@ -3772,7 +4002,7 @@
             removeAdminCartItem,
             updateAdminCartDisplay,
             updateItemSelector,
-        
+
             // ========================================================================
             // ORDER EDITING & DRAFT CART
             // ========================================================================
@@ -3782,20 +4012,20 @@
             renderOrderEditModal,
             initializeDraftCart,
             handleResendReceipt,
-            
+
             // Enhanced updateDraftCartDisplay with shipping/tax breakdown
-            updateDraftCartDisplay: function() {
+            updateDraftCartDisplay: function () {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
                 const totalEl = document.getElementById('editOrderTotal');
                 const subtotalEl = document.getElementById('editOrderSubtotal');
                 const shippingEl = document.getElementById('editOrderShipping');
                 const taxEl = document.getElementById('editOrderTax');
-                
+
                 if (!cartEl || !totalEl) return;
-            
+
                 let subtotalCents = 0;
                 const itemsInCart = Object.values(state.editingOrderDraftCart);
-                
+
                 if (itemsInCart.length === 0) {
                     cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">No items</p>';
                 } else {
@@ -3816,44 +4046,44 @@
                             </div>`;
                     }).join('');
                 }
-            
+
                 // Get shipping and tax from the original order being edited
                 const currentOrder = state.orders.find(o => o.id === state.editingOrderId);
                 const shippingCents = currentOrder?.shippingCents || 0;
                 const taxCents = currentOrder?.taxCents || 0;
                 const grandTotal = subtotalCents + shippingCents + taxCents;
-            
+
                 // Update all displays
                 if (subtotalEl) subtotalEl.textContent = formatPriceDisplay(subtotalCents);
                 if (shippingEl) shippingEl.textContent = formatPriceDisplay(shippingCents);
                 if (taxEl) taxEl.textContent = formatPriceDisplay(taxCents);
                 totalEl.textContent = formatPriceDisplay(grandTotal);
-                
+
                 this.recalculateBilling();
             },
-            
+
             addDraftCartItem,
             removeDraftCartItem,
             updateDraftItemQuantity,
-        
+
             // ========================================================================
             // FINANCIALS & BILLING
             // ========================================================================
             renderFinancialsSection,
             renderFinancialRows,
             downloadPaymentLedgerCsv,
-            
+
             // Billing recalculation for payment modal
-            recalculateBilling: function() {
+            recalculateBilling: function () {
                 const totalCents = Object.values(state.editingOrderDraftCart).reduce((sum, entry) => sum + entry.item.price * entry.quantity, 0);
                 const paidInput = document.getElementById('edit-paid-amount');
                 const displayPaid = document.getElementById('display-paid-amount');
                 const balanceEl = document.getElementById('edit-remaining-balance');
-        
+
                 const paidDollars = parseFloat(paidInput?.value) || 0;
                 const paidCents = Math.round(paidDollars * 100);
                 const balanceCents = totalCents - paidCents;
-        
+
                 if (document.getElementById('editOrderTotal')) {
                     document.getElementById('editOrderTotal').textContent = formatPriceDisplay(totalCents);
                 }
@@ -3863,7 +4093,7 @@
                     balanceEl.className = balanceCents <= 0 ? 'text-green-600 font-black' : 'text-rose-600 font-black';
                 }
             },
-        
+
             // ========================================================================
             // SHIPPING MODAL FUNCTIONS (Reference the standalone functions defined above)
             // ========================================================================
@@ -3874,8 +4104,9 @@
             updateOrderTracking,
             renderShippingLabelModal
         };
-    
+
         document.addEventListener('DOMContentLoaded', setupFirebase);
     </script>
 </body>
+
 </html>
