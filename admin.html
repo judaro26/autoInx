@@ -1634,41 +1634,54 @@
                 authCheckComplete = true;
                 clearTimeout(timeoutId);
                 
+                console.log("🔍 Auth state changed. User:", user ? user.email : 'null', "Anonymous:", user?.isAnonymous);
+                
                 if (user && !user.isAnonymous) {
                     // User is logged in, now check for admin privileges
-                    user.getIdTokenResult(true).then(idTokenResult => {
-                        if (idTokenResult.claims.admin === true) {
-                            // 1. SET THE GLOBAL userId FIRST
-                            userId = user.uid;
-                            isAuthReady = true; // ✅ Set this to true
+                    console.log("👤 User detected, checking admin status...");
+                    
+                    user.getIdTokenResult(true)
+                        .then(idTokenResult => {
+                            console.log("🎫 Token claims:", idTokenResult.claims);
+                            
+                            if (idTokenResult.claims.admin === true) {
+                                console.log("✅ Admin verified! Loading dashboard...");
+                                
+                                // 1. SET THE GLOBAL userId FIRST
+                                userId = user.uid;
+                                isAuthReady = true;
         
-                            // 2. Start session tracking
-                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer);
-                            resetTimer();
+                                // 2. Start session tracking
+                                document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                                document.addEventListener('touchstart', resetTimer);
+                                resetTimer();
         
-                            // 3. Setup listeners
-                            setupRealtimeListeners();
+                                // 3. Setup listeners
+                                setupRealtimeListeners();
         
-                            // 4. Render page
-                            renderAdminPage(user.email || 'Admin');
+                                // 4. Render page
+                                renderAdminPage(user.email || 'Admin');
         
-                        } else {
-                            // User is logged in but not an admin
-                            console.warn("User lacks admin privileges");
+                            } else {
+                                // User is logged in but not an admin
+                                console.warn("❌ User lacks admin privileges. Claims:", idTokenResult.claims);
+                                signOut(auth).then(() => {
+                                    window.location.href = '/?error=unauthorized';
+                                });
+                            }
+                        })
+                        .catch(err => {
+                            console.error("❌ Token retrieval error:", err);
+                            console.error("Error code:", err.code);
+                            console.error("Error message:", err.message);
+                            
                             signOut(auth).then(() => {
-                                window.location.href = '/?error=unauthorized';
+                                window.location.href = `/?error=auth_failed&details=${encodeURIComponent(err.message)}`;
                             });
-                        }
-                    }).catch(err => {
-                        console.error("Token error:", err);
-                        signOut(auth).then(() => {
-                            window.location.href = '/?error=auth_failed';
                         });
-                    });
                 } else {
                     // No user is logged in OR user is anonymous
-                    console.log("No authenticated user, redirecting to index");
+                    console.log("🚪 No authenticated user, redirecting to index");
                     
                     // Check if we came from index.html with an error parameter
                     const urlParams = new URLSearchParams(window.location.search);
@@ -1686,8 +1699,8 @@
                 // Handle auth state change errors
                 authCheckComplete = true;
                 clearTimeout(timeoutId);
-                console.error("Auth state change error:", error);
-                window.location.href = '/?error=auth_state_error';
+                console.error("❌ Auth state change error:", error);
+                window.location.href = `/?error=auth_state_error&details=${encodeURIComponent(error.message)}`;
             });
         }
         // --- FIRESTORE REALTIME LISTENERS ---
