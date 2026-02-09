@@ -114,7 +114,7 @@
         let salesCharts = { category: null, month: null };
         // import modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signOut, getIdTokenResult, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js";
@@ -270,9 +270,19 @@
         
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
+            
+            // ✅ SET AUTH PERSISTENCE TO LOCAL (persists across browser sessions)
+            try {
+                const { setPersistence, browserLocalPersistence } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                await setPersistence(auth, browserLocalPersistence);
+                console.log("✅ Auth persistence set to LOCAL");
+            } catch (persistErr) {
+                console.warn("⚠️ Could not set auth persistence:", persistErr);
+            }
+            
             db = getFirestore(app);
         
-            // ✅ ADD APP CHECK INITIALIZATION HERE
+            // ✅ APP CHECK
             try {
                 const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js");
                 
@@ -283,7 +293,6 @@
                 console.log("✅ App Check initialized in admin.html");
             } catch (appCheckErr) {
                 console.error("❌ App Check initialization failed:", appCheckErr);
-                // Don't block the app, but log the error
             }
         
             // Start listening for live order updates immediately
@@ -1636,86 +1645,111 @@
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             let authCheckComplete = false;
+            let redirectAttempted = false; // Prevent multiple redirects
             
             // Set a timeout to prevent infinite loading
             const timeoutId = setTimeout(() => {
                 if (!authCheckComplete) {
-                    console.error("Auth check timeout");
+                    console.error("⏱️ Auth check timeout");
                     window.location.href = '/?error=auth_timeout';
                 }
-            }, 10000); // 10 second timeout
+            }, 15000); // Increased to 15 seconds
             
-            onAuthStateChanged(auth, user => {
+            // Wait for auth to be ready before checking state
+            console.log("🔄 Waiting for Firebase Auth to initialize...");
+            
+            const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                // Skip the initial null/anonymous state that fires on page load
+                if (!authCheckComplete && (!user || user.isAnonymous)) {
+                    console.log("⏳ Initial auth state (null/anon), waiting for real user...");
+                    // Wait a bit for the real user to load from persistence
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    return; // Don't process this yet
+                }
+                
                 authCheckComplete = true;
                 clearTimeout(timeoutId);
+                unsubscribe(); // Stop listening after first real check
                 
-                console.log("🔍 Auth state changed. User:", user ? user.email : 'null', "Anonymous:", user?.isAnonymous);
+                console.log("🔍 Auth state final check. User:", user ? user.email : 'null', "Anonymous:", user?.isAnonymous);
                 
                 if (user && !user.isAnonymous) {
                     // User is logged in, now check for admin privileges
-                    console.log("👤 User detected, checking admin status...");
+                    console.log("👤 Authenticated user detected, checking admin status...");
                     
-                    user.getIdTokenResult(true)
-                        .then(idTokenResult => {
-                            console.log("🎫 Token claims:", idTokenResult.claims);
+                    try {
+                        const idTokenResult = await user.getIdTokenResult(true);
+                        console.log("🎫 Token claims:", idTokenResult.claims);
+                        
+                        if (idTokenResult.claims.admin === true) {
+                            console.log("✅ Admin verified! Loading dashboard...");
                             
-                            if (idTokenResult.claims.admin === true) {
-                                console.log("✅ Admin verified! Loading dashboard...");
-                                
-                                // 1. SET THE GLOBAL userId FIRST
-                                userId = user.uid;
-                                isAuthReady = true;
+                            // 1. SET THE GLOBAL userId FIRST
+                            userId = user.uid;
+                            isAuthReady = true;
         
-                                // 2. Start session tracking
-                                document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                                document.addEventListener('touchstart', resetTimer);
-                                resetTimer();
+                            // 2. Start session tracking
+                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
+                            document.addEventListener('touchstart', resetTimer);
+                            resetTimer();
         
-                                // 3. Setup listeners
-                                setupRealtimeListeners();
+                            // 3. Setup listeners
+                            setupRealtimeListeners();
         
-                                // 4. Render page
-                                renderAdminPage(user.email || 'Admin');
+                            // 4. Render page
+                            renderAdminPage(user.email || 'Admin');
         
-                            } else {
-                                // User is logged in but not an admin
-                                console.warn("❌ User lacks admin privileges. Claims:", idTokenResult.claims);
-                                signOut(auth).then(() => {
-                                    window.location.href = '/?error=unauthorized';
-                                });
+                        } else {
+                            // User is logged in but not an admin
+                            console.warn("❌ User lacks admin privileges. Claims:", idTokenResult.claims);
+                            if (!redirectAttempted) {
+                                redirectAttempted = true;
+                                await signOut(auth);
+                                window.location.href = '/?error=unauthorized';
                             }
-                        })
-                        .catch(err => {
-                            console.error("❌ Token retrieval error:", err);
-                            console.error("Error code:", err.code);
-                            console.error("Error message:", err.message);
-                            
-                            signOut(auth).then(() => {
-                                window.location.href = `/?error=auth_failed&details=${encodeURIComponent(err.message)}`;
-                            });
-                        });
+                        }
+                    } catch (err) {
+                        console.error("❌ Token retrieval error:", err);
+                        console.error("Error code:", err.code);
+                        console.error("Error message:", err.message);
+                        
+                        if (!redirectAttempted) {
+                            redirectAttempted = true;
+                            await signOut(auth);
+                            window.location.href = `/?error=auth_failed&details=${encodeURIComponent(err.message)}`;
+                        }
+                    }
                 } else {
                     // No user is logged in OR user is anonymous
-                    console.log("🚪 No authenticated user, redirecting to index");
+                    console.log("🚪 No authenticated user found, redirecting to login...");
                     
-                    // Check if we came from index.html with an error parameter
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const hasError = urlParams.has('error');
-                    
-                    if (!hasError) {
-                        // Redirect to index.html with a message
-                        window.location.href = '/?redirect=admin_login';
-                    } else {
-                        // Already has error, just go to index
-                        window.location.href = '/';
+                    if (!redirectAttempted) {
+                        redirectAttempted = true;
+                        
+                        // Check if we came from index.html with an error parameter
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const hasError = urlParams.has('error');
+                        
+                        if (!hasError) {
+                            // Redirect to index.html with a message
+                            window.location.href = '/?redirect=admin_login';
+                        } else {
+                            // Already has error, just go to index
+                            window.location.href = '/';
+                        }
                     }
                 }
             }, (error) => {
                 // Handle auth state change errors
                 authCheckComplete = true;
                 clearTimeout(timeoutId);
+                unsubscribe();
                 console.error("❌ Auth state change error:", error);
-                window.location.href = `/?error=auth_state_error&details=${encodeURIComponent(error.message)}`;
+                
+                if (!redirectAttempted) {
+                    redirectAttempted = true;
+                    window.location.href = `/?error=auth_state_error&details=${encodeURIComponent(error.message)}`;
+                }
             });
         }
         // --- FIRESTORE REALTIME LISTENERS ---
