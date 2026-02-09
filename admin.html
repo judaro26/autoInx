@@ -1629,61 +1629,47 @@
                 }
             }, 10000); // 10 second timeout
             
-            onAuthStateChanged(auth, user => {
-                authCheckComplete = true;
-                clearTimeout(timeoutId);
-                
-                if (user && !user.isAnonymous) {
-                    // User is logged in, now check for admin privileges
-                    user.getIdTokenResult(true).then(idTokenResult => {
-                        if (idTokenResult.claims.admin === true) {
-                            // 1. SET THE GLOBAL userId FIRST
-                            userId = user.uid;
-        
-                            // 2. Start session tracking
-                            document.onmousemove = document.onkeydown = document.onclick = resetTimer;
-                            document.addEventListener('touchstart', resetTimer);
-                            resetTimer();
-        
-                            // 3. Setup listeners
-                            setupRealtimeListeners();
-        
-                            // 4. Render page
-                            renderAdminPage(user.email || 'Admin');
-        
-                        } else {
-                            // User is logged in but not an admin
-                            console.warn("User lacks admin privileges");
-                            signOut(auth);
-                            window.location.href = '/?error=unauthorized';
-                        }
-                    }).catch(err => {
-                        console.error("Token error:", err);
-                        signOut(auth);
-                        window.location.href = '/?error=auth_failed';
-                    });
-                } else {
-                    // No user is logged in OR user is anonymous
-                    console.log("No authenticated user, redirecting to index");
-                    
-                    // Check if we came from index.html with an error parameter
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const hasError = urlParams.has('error');
-                    
-                    if (!hasError) {
-                        // Redirect to index.html with a message
-                        window.location.href = '/?redirect=admin_login';
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    if (!user.isAnonymous) {
+                        state.userName = user.email || user.displayName || 'User';
+                        if (state.isModalOpen) state.isModalOpen = false;
                     } else {
-                        // Already has error, just go to index
-                        window.location.href = '/';
+                        state.userName = null;
                     }
+                } else {
+                    userId = null;
+                    state.userName = null;
+                    // Sign in anonymously for public data access
+                    await signInAnonymously(auth).catch(e => console.error("Anon login failed:", e));
                 }
-            }, (error) => {
-                // Handle auth state change errors
-                authCheckComplete = true;
-                clearTimeout(timeoutId);
-                console.error("Auth state change error:", error);
-                window.location.href = '/?error=auth_state_error';
+                
+                isAuthReady = true;
+            
+                // Apply chat widget logic
+                state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
+                
+                // Start live data sync and render
+                setupRealtimeListeners();
+                render();
+                
+                // ✅ ADD THIS BLOCK HERE - Check for admin redirect AFTER render()
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('redirect') === 'admin_login') {
+                    console.log("Admin login redirect detected");
+                    
+                    // Show message
+                    showMessage('info', 'Please log in with your admin credentials to access the dashboard.', 5000);
+                    
+                    // Open modal after a short delay to ensure page is rendered
+                    setTimeout(() => {
+                        showLoginModal('admin', 'login');
+                        
+                        // Clean up URL
+                        window.history.replaceState({}, document.title, '/');
+                    }, 300);
+                }
             });
         }
         // --- FIRESTORE REALTIME LISTENERS ---
