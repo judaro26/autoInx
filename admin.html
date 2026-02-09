@@ -102,7 +102,6 @@
     </div>
 
     <div id="editModalContainer"></div> 
-    <div id="shippingModalContainer"></div>
 
     <script type="module">
         // 2. ADDED: Global object to hold Chart.js instances
@@ -219,10 +218,8 @@
             // --- BILLING STATE ---
             editingOrderDraftCart: {},
             editingOrderPaymentTotal: 0,
-            // ✅ NEW: Shipping label modal state
-            shippingModalOrderId: null,
-            shippingModalOpen: false,
-                    
+
+            
             // ✅ CRITICAL FIX: Initialize the sales time filter
             salesTimeFilter: 'last6months', 
             // -------------------------
@@ -274,23 +271,21 @@
         function listenToOrders() {
             // This uses the ORDERS_COLLECTION constant you defined: artifacts/${appId}/public/data/orders
             const ordersRef = collection(db, ORDERS_COLLECTION);
-            onSnapshot(collection(db, ORDERS_COLLECTION), (snapshot) => {
+            
+            onSnapshot(ordersRef, (snapshot) => {
                 state.orders = snapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
                 })).sort((a, b) => {
+                    // Robust sorting: check for createdAt (Timestamp) or timestamp (String)
                     const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.timestamp || 0);
                     const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.timestamp || 0);
-                    return dateB - dateA;
+                    return dateB - dateA; // Newest first
                 });
-            
-                // ✅ FIXED: Call the correct function based on current page
+        
+                // Only re-render if we are currently looking at the Orders tab
                 if (state.activeTab === 'orders') {
-                    if (state.orderPage === 'list') {
-                        window.module.renderOrdersList();
-                    } else if (state.orderPage === 'create') {
-                        window.module.updateAdminCartDisplay();
-                    }
+                    render(); 
                 }
             }, (error) => {
                 console.error("Order Subscription Error:", error);
@@ -2658,211 +2653,6 @@
             }
         }
 
-        // ✅ NEW: Shipping Label Modal Functions
-showShippingModal: function(orderId) {
-    resetTimer();
-    const order = state.orders.find(o => o.id === orderId);
-    if (!order) {
-        showMessage('error', 'Order not found', 3000, 'orders');
-        return;
-    }
-    
-    state.shippingModalOrderId = orderId;
-    state.shippingModalOpen = true;
-    
-    const container = document.getElementById('shippingModalContainer');
-    if (container) {
-        container.innerHTML = renderShippingLabelModal(order);
-        
-        // Attach form submit handler
-        const form = document.getElementById('shippingLabelForm');
-        if (form) {
-            form.onsubmit = (e) => {
-                e.preventDefault();
-                window.module.handleGenerateShippingLabel(orderId);
-            };
-        }
-    }
-},
-
-closeShippingModal: function() {
-    state.shippingModalOrderId = null;
-    state.shippingModalOpen = false;
-    const container = document.getElementById('shippingModalContainer');
-    if (container) {
-        container.innerHTML = '';
-    }
-},
-
-handleGenerateShippingLabel: async function(orderId) {
-    resetTimer();
-    const order = state.orders.find(o => o.id === orderId);
-    if (!order) return;
-    
-    const carrier = document.getElementById('shippingCarrier')?.value;
-    const service = document.getElementById('shippingService')?.value;
-    const weight = document.getElementById('packageWeight')?.value;
-    const value = document.getElementById('packageValue')?.value;
-    const notes = document.getElementById('shippingNotes')?.value;
-    
-    if (!carrier || !service) {
-        showMessage('error', 'Please select carrier and service level', 3000, 'orders');
-        return;
-    }
-    
-    try {
-        showMessage('info', 'Generating shipping label...', 2000, 'orders');
-        
-        // Prepare shipment data
-        const shipmentData = {
-            orderId: orderId,
-            carrier: carrier,
-            service: service,
-            weight: parseFloat(weight),
-            value: parseFloat(value),
-            notes: notes,
-            addressTo: {
-                name: order.buyerName,
-                street1: order.deliveryAddress.split(',')[0]?.trim(),
-                city: order.deliveryAddress.split(',')[1]?.trim(),
-                state: order.deliveryAddress.split(',')[2]?.trim()?.split(' ')[0],
-                zip: order.deliveryAddress.split(',')[2]?.trim()?.split(' ')[1],
-                country: 'US',
-                phone: order.buyerPhone || '',
-                email: order.buyerEmail || ''
-            }
-        };
-        
-        // Call your shipping label generation endpoint
-        const response = await fetch('/.netlify/functions/generateShippingLabel', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
-            },
-            body: JSON.stringify(shipmentData)
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to generate label');
-        }
-        
-        const result = await response.json();
-        
-        // Open label in new window for printing
-        if (result.labelUrl) {
-            window.open(result.labelUrl, '_blank');
-            showMessage('success', 'Label generated! Opening print window...', 5000, 'orders');
-            
-            // Update order status to Processing
-            await window.module.handleOrderStatusUpdate(orderId, 'Processing');
-            
-            this.closeShippingModal();
-        }
-        
-    } catch (error) {
-        console.error('Label generation error:', error);
-        showMessage('error', `Failed to generate label: ${error.message}`, 5000, 'orders');
-    }
-},
-
-    requestShippoLabel: async function(orderId) {
-        resetTimer();
-        showMessage('info', 'Requesting label via Shippo API...', 2000, 'orders');
-        
-        // This will call your existing calculateShipping function to get rates,
-        // then create a transaction with Shippo
-        try {
-            const order = state.orders.find(o => o.id === orderId);
-            if (!order) return;
-            
-            const carrier = document.getElementById('shippingCarrier')?.value;
-            const service = document.getElementById('shippingService')?.value;
-            const weight = document.getElementById('packageWeight')?.value;
-            
-            // Call Shippo to create shipment and get label
-            const response = await fetch('/.netlify/functions/createShippoLabel', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
-                },
-                body: JSON.stringify({
-                    orderId: orderId,
-                    carrier: carrier,
-                    service: service,
-                    weight: parseFloat(weight),
-                    addressTo: {
-                        name: order.buyerName,
-                        street1: order.deliveryAddress.split(',')[0]?.trim(),
-                        city: order.deliveryAddress.split(',')[1]?.trim(),
-                        state: order.deliveryAddress.split(',')[2]?.trim()?.split(' ')[0],
-                        zip: order.deliveryAddress.split(',')[2]?.trim()?.split(' ')[1],
-                        country: 'US',
-                        phone: order.buyerPhone || '',
-                        email: order.buyerEmail || ''
-                    }
-                })
-            });
-            
-            if (!response.ok) throw new Error('Shippo API failed');
-            
-            const result = await response.json();
-            
-            if (result.labelUrl) {
-                window.open(result.labelUrl, '_blank');
-                
-                // Save tracking number to order
-                if (result.trackingNumber) {
-                    await this.updateOrderTracking(orderId, {
-                        trackingNumber: result.trackingNumber,
-                        carrier: result.carrier,
-                        service: result.service,
-                        labelUrl: result.labelUrl
-                    });
-                }
-                
-                showMessage('success', 'Shippo label created! Opening for print...', 5000, 'orders');
-                this.closeShippingModal();
-            }
-            
-        } catch (error) {
-            console.error('Shippo error:', error);
-            showMessage('error', `Shippo request failed: ${error.message}`, 5000, 'orders');
-        }
-    },
-    updateOrderTracking: async function(orderId, trackingData) {
-        try {
-            const order = state.orders.find(o => o.id === orderId);
-            if (!order) return;
-            
-            const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
-            const path = this.getOrdersCollectionPath(targetId);
-            const orderRef = doc(db, path, orderId);
-            
-            await updateDoc(orderRef, {
-                trackingNumber: trackingData.trackingNumber,
-                shippingCarrier: trackingData.carrier,
-                shippingService: trackingData.service,
-                shippingLabelUrl: trackingData.labelUrl,
-                shippedAt: serverTimestamp(),
-                status: 'Shipped',
-                updatedAt: serverTimestamp()
-            });
-            
-            await logAdminAction('TRACKING_ADDED', {
-                orderId,
-                trackingNumber: trackingData.trackingNumber,
-                carrier: trackingData.carrier
-            }, orderId);
-            
-            showMessage('success', 'Tracking number saved!', 3000, 'orders');
-            
-        } catch (error) {
-            console.error('Update tracking error:', error);
-            showMessage('error', 'Failed to save tracking number', 3000, 'orders');
-        }
-    },
     
         // --- ORDERS DATA & ACTIONS (NEW) ---
     
@@ -3428,156 +3218,7 @@ handleGenerateShippingLabel: async function(orderId) {
                     </div>
                 </div>`;
         }
-        
-            function renderShippingLabelModal(order) {
-            if (!order) return '';
-            
-            // Parse address for display
-            const addressParts = (order.deliveryAddress || '').split(',');
-            const street = addressParts[0]?.trim() || '';
-            const city = addressParts[1]?.trim() || '';
-            const stateZip = addressParts[2]?.trim() || '';
-            
-            return `
-                <div id="shippingLabelModal" class="fixed inset-0 bg-gray-900/70 backdrop-blur-sm z-50 flex items-center justify-center" 
-                     onclick="window.module.closeShippingModal()">
-                    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto" 
-                         onclick="event.stopPropagation()">
-                        
-                        <!-- Header -->
-                        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 rounded-t-2xl text-white">
-                            <div class="flex justify-between items-start">
-                                <div>
-                                    <h3 class="text-2xl font-black">📦 Request Shipping Label</h3>
-                                    <p class="text-indigo-100 text-sm mt-1">Order #${order.id.substring(0, 8)}</p>
-                                </div>
-                                <button onclick="window.module.closeShippingModal()" 
-                                        class="text-white/80 hover:text-white text-3xl leading-none">&times;</button>
-                            </div>
-                        </div>
-        
-                        <!-- Content -->
-                        <div class="p-6 space-y-6">
-                            
-                            <!-- Order Summary -->
-                            <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                                <h4 class="font-bold text-gray-700 mb-3 flex items-center gap-2">
-                                    <span>📋</span> Order Details
-                                </h4>
-                                <div class="grid grid-cols-2 gap-4 text-sm">
-                                    <div>
-                                        <p class="text-gray-500 text-xs">Customer</p>
-                                        <p class="font-semibold">${escapeHtml(order.buyerName || 'N/A')}</p>
-                                    </div>
-                                    <div>
-                                        <p class="text-gray-500 text-xs">Total</p>
-                                        <p class="font-semibold text-green-600">${formatPriceDisplay(order.totalCents || 0)}</p>
-                                    </div>
-                                    <div class="col-span-2">
-                                        <p class="text-gray-500 text-xs">Delivery Address</p>
-                                        <p class="font-semibold">${escapeHtml(order.deliveryAddress || 'N/A')}</p>
-                                    </div>
-                                </div>
-                            </div>
-        
-                            <!-- Items in Order -->
-                            <div class="bg-blue-50 rounded-xl p-4 border border-blue-200">
-                                <h4 class="font-bold text-blue-700 mb-3">📦 Items to Ship</h4>
-                                <div class="space-y-2">
-                                    ${(order.items || []).map(item => {
-                                        const itemData = getSafeItemData(item);
-                                        return `
-                                            <div class="flex justify-between items-center bg-white p-2 rounded border">
-                                                <span class="font-medium">${itemData.quantity}x ${escapeHtml(itemData.name)}</span>
-                                                <span class="text-xs text-gray-500">${itemData.sku}</span>
-                                            </div>
-                                        `;
-                                    }).join('')}
-                                </div>
-                            </div>
-        
-                            <!-- Shipping Options -->
-                            <div class="border-2 border-indigo-200 rounded-xl p-4 bg-indigo-50">
-                                <h4 class="font-bold text-indigo-700 mb-4">🚚 Select Shipping Carrier</h4>
-                                
-                                <form id="shippingLabelForm" class="space-y-4">
-                                    <!-- Carrier Selection -->
-                                    <div>
-                                        <label class="block text-sm font-bold text-gray-700 mb-2">Carrier</label>
-                                        <select id="shippingCarrier" required 
-                                                class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 outline-none">
-                                            <option value="">-- Select Carrier --</option>
-                                            <option value="USPS">USPS</option>
-                                            <option value="UPS">UPS</option>
-                                            <option value="FedEx">FedEx</option>
-                                            <option value="DHL">DHL</option>
-                                            <option value="Other">Other</option>
-                                        </select>
-                                    </div>
-        
-                                    <!-- Service Level -->
-                                    <div>
-                                        <label class="block text-sm font-bold text-gray-700 mb-2">Service Level</label>
-                                        <select id="shippingService" required 
-                                                class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 outline-none">
-                                            <option value="">-- Select Service --</option>
-                                            <option value="Ground">Ground (5-7 days)</option>
-                                            <option value="Priority">Priority (2-3 days)</option>
-                                            <option value="Express">Express (1-2 days)</option>
-                                            <option value="Overnight">Overnight</option>
-                                        </select>
-                                    </div>
-        
-                                    <!-- Package Weight -->
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label class="block text-sm font-bold text-gray-700 mb-2">Weight (lbs)</label>
-                                            <input type="number" id="packageWeight" step="0.1" min="0.1" required
-                                                   value="${order.items?.reduce((sum, i) => sum + (getSafeItemData(i).quantity || 1), 0)}"
-                                                   class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 outline-none">
-                                        </div>
-                                        <div>
-                                            <label class="block text-sm font-bold text-gray-700 mb-2">Package Value ($)</label>
-                                            <input type="number" id="packageValue" step="0.01" min="0" required
-                                                   value="${((order.totalCents || 0) / 100).toFixed(2)}"
-                                                   class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 outline-none">
-                                        </div>
-                                    </div>
-        
-                                    <!-- Shipping Notes -->
-                                    <div>
-                                        <label class="block text-sm font-bold text-gray-700 mb-2">Special Instructions (Optional)</label>
-                                        <textarea id="shippingNotes" rows="2" 
-                                                  placeholder="Fragile, signature required, etc."
-                                                  class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 outline-none"></textarea>
-                                    </div>
-        
-                                    <!-- Action Buttons -->
-                                    <div class="flex gap-3 pt-4">
-                                        <button type="submit" 
-                                                class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-xl font-black shadow-lg transition transform active:scale-95">
-                                            🖨️ GENERATE & PRINT LABEL
-                                        </button>
-                                        <button type="button" onclick="window.module.requestShippoLabel('${order.id}')"
-                                                class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-4 rounded-xl font-black shadow-lg transition transform active:scale-95">
-                                            📦 REQUEST VIA SHIPPO
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-        
-                            <!-- Info Notice -->
-                            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
-                                <p class="text-sm text-yellow-800">
-                                    <strong>💡 Note:</strong> After generating the label, you'll be able to enter the tracking number 
-                                    in the order details to keep customers updated.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
+    
 
         function renderDayCheckboxes(activeDays = [1, 2, 3, 4, 5]) {
             const days = [
@@ -4166,12 +3807,12 @@ handleGenerateShippingLabel: async function(orderId) {
                                        order.status === 'Pending' ? 'text-red-600 font-bold' :
                                        order.status === 'Processing' ? 'text-blue-600 font-bold' : 
                                        'text-gray-600';
+                    
                     let deliveryButton = '';
                     if (order.status === 'Pending') {
-                         deliveryButton = `<button onclick="window.module.showShippingModal('${order.id}')" 
+                         deliveryButton = `<button onclick="window.module.handleRequestDelivery('${order.id}')" 
                                             class="px-3 py-1 w-full bg-teal-500 text-white text-xs rounded hover:bg-teal-600 transition">
-                                            🚚 Create Shipping Label</button>`;
-
+                                            Request Delivery</button>`;
                     } else if (order.status === 'Processing') {
                          deliveryButton = `<button disabled 
                                             class="px-3 py-1 w-full bg-gray-400 text-white text-xs rounded">
@@ -4210,17 +3851,10 @@ handleGenerateShippingLabel: async function(orderId) {
                     // FIX 3: Add safety checks and escapeHtml
                     return `
                         <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
-                             <div class="grid grid-cols-12 gap-4 items-center p-3 border-b border-gray-100 hover:bg-gray-50">
-                                <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
-                                    <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
-                                    <p class="text-xs text-gray-500 font-mono">${order.id}</p>
-                                    ${order.trackingNumber ? `
-                                        <div class="mt-1 flex items-center gap-1">
-                                            <span class="text-[9px] bg-green-100 text-green-700 px-1 rounded font-bold">📦</span>
-                                            <span class="text-[10px] text-green-600 font-mono">${order.trackingNumber}</span>
-                                        </div>
-                                    ` : ''}
-                                </div>
+                            <div class="col-span-2 text-sm text-gray-800 font-semibold break-all">
+                                <p class="font-bold text-lg text-indigo-600">#${order.id.substring(0, 5)}</p>
+                                <p class="text-xs text-gray-500 font-mono">${order.id}</p>
+                            </div>
                             <div class="col-span-2 text-sm">
                                 <p class="font-semibold">${escapeHtml(order.buyerName || 'No Name')}</p>
                                 <p class="text-xs text-gray-500 truncate">${escapeHtml(order.buyerEmail || '')}</p>
