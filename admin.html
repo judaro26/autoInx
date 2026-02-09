@@ -117,6 +117,7 @@
         import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js";
         // CORRECTED: Import static IP list directly from the new client-accessible path
         import { ipWhitelist as staticIpWhitelist } from './js/utilities/ipWhitelist.js';
 
@@ -266,14 +267,28 @@
         async function setupFirebase() {
             const firebaseConfig = await loadFirebaseConfig();
             if (Object.keys(firebaseConfig).length === 0) return;
-
+        
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-
+        
+            // ✅ ADD APP CHECK INITIALIZATION HERE
+            try {
+                const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js");
+                
+                initializeAppCheck(app, {
+                    provider: new ReCaptchaEnterpriseProvider('6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'),
+                    isTokenAutoRefreshEnabled: true
+                });
+                console.log("✅ App Check initialized in admin.html");
+            } catch (appCheckErr) {
+                console.error("❌ App Check initialization failed:", appCheckErr);
+                // Don't block the app, but log the error
+            }
+        
             // Start listening for live order updates immediately
             listenToOrders();
-
+        
             checkAuthAndRender();
         }
 
