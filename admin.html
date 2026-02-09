@@ -2889,6 +2889,704 @@
                 showMessage('error', 'Failed to save tracking number', 3000, 'orders');
             }
         }
+        async function fetchUsers(pageToken = null) {
+            resetTimer();
+            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
+            const msgEl = document.getElementById('usersMessage');
+            
+            if (msgEl) msgEl.textContent = pageToken ? 'Loading next batch...' : 'Loading users...';
+            if (loadMoreBtn) loadMoreBtn.disabled = true;
+        
+            if (!pageToken) {
+                state.allUsers = []; 
+                globalNextPageToken = null;
+                state.selectedUsers = [];
+            }
+        
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const params = new URLSearchParams();
+                if (pageToken) params.append('nextPageToken', pageToken);
+                
+                const res = await fetch(`${LIST_USERS_FUNCTION}?${params.toString()}`, {
+                    headers: { 'Authorization': `Bearer ${idToken}` }
+                });
+        
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(errorDetails.details || errorDetails.error || res.statusText);
+                }
+        
+                const data = await res.json();
+                globalNextPageToken = data.nextPageToken;
+                state.allUsers = state.allUsers.concat(data.users); 
+        
+                renderUserList();
+        
+            } catch (error) {
+                console.error('Error fetching users:', error);
+                showMessage('error', `Failed to fetch users: ${error.message}`, 5000, 'users');
+            } finally {
+                if (msgEl) msgEl.textContent = '';
+                if (loadMoreBtn) loadMoreBtn.disabled = false;
+                renderUserControls(); 
+            }
+        }
+
+        function renderUserList() {
+            const grid = document.getElementById('usersGrid');
+            if (!grid) return;
+            const users = getFilteredAuthUsers();
+            
+            Array.from(grid.children).slice(8).forEach(el => el.remove());
+            const selectAll = document.getElementById('selectAllUsers');
+            if (selectAll) selectAll.checked = false;
+            
+            document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
+            document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
+            
+            const userRows = users.map(user => {
+                const disabledClass = user.disabled ? 'bg-red-50 text-red-700' : '';
+                const emailVerifiedIcon = user.emailVerified ? '✅' : '❌';
+                const disabledButtonText = user.disabled ? 'Enable' : 'Disable';
+                const disabledButtonColor = user.disabled ? 'text-green-600 hover:text-green-800' : 'text-yellow-600 hover:text-yellow-800';
+                const isSelected = state.selectedUsers.includes(user.uid);
+                const userEmail = user.email || (user.uid.slice(0, 8) + '... (Anonymous)');
+                
+                return `
+                    <div class="grid-item ${disabledClass}">
+                        <input type="checkbox" onchange="window.module.toggleUserSelection('${user.uid}')" 
+                                    data-uid="${user.uid}" ${isSelected ? 'checked' : ''}>
+                    </div>
+                    <div class="grid-item text-xs font-mono truncate ${disabledClass}">${user.uid.slice(0, 8)}...</div>
+                    <div class="grid-item text-sm font-semibold truncate ${disabledClass}">${userEmail} ${emailVerifiedIcon}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.displayName || 'N/A'}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
+                    <div class="grid-item text-xs text-gray-500 ${disabledClass}">${user.lastSignInTime ? new Date(user.lastSignInTime).toLocaleDateString() : 'N/A'}</div>
+                    <div class="grid-item text-xs font-bold ${disabledClass}">${user.disabled ? 'DISABLED' : 'Active'}</div>
+                    <div class="grid-item space-x-2 ${disabledClass}">
+                        <button onclick="window.module.promptForPasswordReset('${user.uid}', '${userEmail}')" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Reset Pwd</button>
+                        <button onclick="window.module.disableUser('${user.uid}', '${userEmail}', ${user.disabled})" class="${disabledButtonColor} text-sm font-semibold">${disabledButtonText}</button>
+                        <button onclick="window.module.deleteUser('${user.uid}', '${userEmail}')" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                    </div>
+                `;
+            }).join('');
+            
+            grid.insertAdjacentHTML('beforeend', userRows);
+            renderUserControls();
+        }
+        
+        function renderUserControls() {
+            const loadMoreBtn = document.getElementById('loadMoreUsersButton');
+            const userCountEl = document.getElementById('userCount');
+            const filteredCount = getFilteredAuthUsers().length;
+            const totalCount = state.allUsers.length;
+            
+            if (loadMoreBtn) {
+                if (globalNextPageToken && !state.userSearchTerm) {
+                    loadMoreBtn.classList.remove('hidden');
+                    loadMoreBtn.textContent = 'Load More Users (100)';
+                    loadMoreBtn.disabled = false;
+                } else {
+                    loadMoreBtn.classList.add('hidden');
+                }
+            }
+        
+            if (userCountEl) {
+                if (state.userSearchTerm) {
+                    userCountEl.textContent = `Found ${filteredCount} matching users (from ${totalCount} loaded).`;
+                } else {
+                    userCountEl.textContent = `Showing ${filteredCount} users total.`;
+                }
+            }
+        }
+        
+        // ============================================================================
+        // CONFIG FUNCTIONS
+        // ============================================================================
+        
+        async function fetchAdminConfig() {
+            try {
+                if (!auth.currentUser) throw new Error("User not authenticated.");
+                const idToken = await auth.currentUser.getIdToken(true); 
+        
+                const res = await fetch(CONFIG_FUNCTION, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${idToken}` }
+                });
+        
+                if (!res.ok) throw new Error('Config fetch failed.');
+                const config = await res.json();
+                globalConfig = config;
+        
+                const maintenanceToggle = document.getElementById('maintenanceToggle');
+                const chatWidgetToggle = document.getElementById('chatWidgetToggle');
+                const dynamicIpList = document.getElementById('dynamicIpList');
+                const lastUpdatedEl = document.getElementById('configLastUpdated');
+        
+                if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
+                if (chatWidgetToggle) chatWidgetToggle.checked = config.chatWidgetEnabled;
+                if (dynamicIpList) dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
+                
+                if (lastUpdatedEl) {
+                    lastUpdatedEl.textContent = config.lastUpdated ? 
+                        `Last updated: ${formatTime(config.lastUpdated)}` : 'Last updated: Never';
+                }
+        
+                if (chatWidgetToggle) {
+                    chatWidgetToggle.removeEventListener('change', chatToggleHandler);
+                    chatWidgetToggle.addEventListener('change', chatToggleHandler);
+                }
+                if (maintenanceToggle) {
+                    maintenanceToggle.removeEventListener('change', maintenanceToggleHandler);
+                    maintenanceToggle.addEventListener('change', maintenanceToggleHandler);
+                }
+        
+            } catch (error) {
+                console.error("Error fetching admin config:", error);
+                if (document.getElementById('configMessage')) {
+                    showMessage('error', `Failed to load configuration: ${error.message}`, 8000, 'config');
+                }
+            }
+        }
+        
+        function displayStaticIps() {
+            const el = document.getElementById('staticIpListDisplay');
+            if (el) {
+                if (staticIpWhitelist && Array.isArray(staticIpWhitelist)) {
+                    el.textContent = staticIpWhitelist.join('\n');
+                } else {
+                    el.textContent = 'Error: Static IP list not available.';
+                }
+            }
+        }
+        
+        async function handleUpdateConfig(e) {
+            e.preventDefault();
+            
+            const maintenanceToggle = document.getElementById('maintenanceToggle');
+            const chatWidgetToggle = document.getElementById('chatWidgetToggle');
+            const dynamicIpList = document.getElementById('dynamicIpList');
+        
+            const activeDaysCheckboxes = document.querySelectorAll('#chatActiveDays input[name="chatDay"]:checked');
+            const activeDaysValues = Array.from(activeDaysCheckboxes).map(cb => parseInt(cb.value, 10));
+            
+            const chatScheduleUpdates = {
+                enableTime: document.getElementById('chatEnableTime')?.value || '08:00',
+                disableTime: document.getElementById('chatDisableTime')?.value || '20:00',
+                activeDays: activeDaysValues.length > 0 ? activeDaysValues : [1,2,3,4,5]
+            };
+        
+            const updates = {
+                maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
+                chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
+                ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist,
+                chatSchedule: chatScheduleUpdates,
+            };
+            
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const res = await fetch(UPDATE_CONFIG_FUNCTION, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updates)
+                });
+                
+                if (!res.ok) {
+                    const errorDetails = await res.json();
+                    throw new Error(errorDetails.details || 'Update failed on server.');
+                }
+                
+                showMessage('success', 'Configuration updated successfully!', 8000, 'config');
+                await logAdminAction('CONFIG_UPDATE', updates);
+                fetchAdminConfig();
+            } catch (error) {
+                console.error('Error updating config:', error);
+                showMessage('error', `Failed to save configuration: ${error.message}`, 8000, 'config');
+            }
+        }
+        
+        function chatToggleHandler(e) {
+            globalConfig.chatWidgetEnabled = e.target.checked;
+            resetTimer();
+        }
+        
+        function maintenanceToggleHandler(e) {
+            globalConfig.maintenanceMode = e.target.checked;
+            resetTimer();
+        }
+        
+        function togglePreviewMode(enable) {
+            state.previewMode = enable;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer();
+        }
+        
+        function toggleLanguage() {
+            currentLang = (currentLang === 'en') ? 'es' : 'en';
+            localStorage.setItem('adminLang', currentLang);
+            const userEmail = auth.currentUser ? auth.currentUser.email : 'Admin';
+            renderAdminPage(userEmail);
+        }
+        
+        // ============================================================================
+        // ORDER FUNCTIONS
+        // ============================================================================
+        
+        async function fetchOrders() {
+            const ordersMsgEl = document.getElementById('ordersMessage');
+            if (ordersMsgEl) {
+                ordersMsgEl.textContent = 'Fetching and listening for orders...';
+            }
+            renderOrdersList();
+        }
+        
+        function handleStatusFilterChange(e) {
+            state.orderStatusFilter = e.target.value;
+            renderOrdersList();
+            resetTimer();
+        }
+        
+        async function handleOrderStatusUpdate(orderId, newStatus) {
+            resetTimer();
+            const order = state.orders.find(o => o.id === orderId);
+            if (!order) {
+                showMessage('error', 'Order not found.', 3000, 'orders');
+                return;
+            }
+        
+            try {
+                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
+                const path = getOrdersCollectionPath(targetId);
+                const orderRef = doc(db, path, orderId);
+                
+                await updateDoc(orderRef, {
+                    status: newStatus,
+                    updatedAt: serverTimestamp()
+                });
+        
+                await logAdminAction('ORDER_STATUS_UPDATED', {
+                    orderId,
+                    oldStatus: order.status,
+                    newStatus
+                }, orderId);
+        
+                showMessage('success', `Order status updated to: ${newStatus}`, 3000, 'orders');
+            } catch (error) {
+                console.error('Error updating order status:', error);
+                showMessage('error', `Failed to update order status: ${error.message}`, 5000, 'orders');
+            }
+        }
+        
+        function renderOrdersList() {
+            const container = document.getElementById('ordersListContent');
+            if (!container) return;
+        
+            const filteredOrders = state.orders.filter(order => {
+                const matchesStatus = state.orderStatusFilter === 'All' || order.status === state.orderStatusFilter;
+                const matchesDelivery = state.deliveryStatusFilter === 'All' || 
+                    (state.deliveryStatusFilter === 'Delivered' && order.status === 'Delivered') ||
+                    (state.deliveryStatusFilter === 'Pending' && order.status !== 'Delivered' && order.status !== 'Cancelled');
+                
+                const matchesSearch = !state.orderListSearchTerm || 
+                    order.id.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
+                    order.buyerName?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
+                    order.buyerEmail?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase());
+        
+                return matchesStatus && matchesDelivery && matchesSearch;
+            });
+        
+            if (filteredOrders.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 p-8">No orders found matching your filters.</p>';
+                return;
+            }
+        
+            const ordersHtml = filteredOrders.map(order => {
+                const itemsList = order.items.map(item => {
+                    const itemData = getSafeItemData(item);
+                    return `${itemData.quantity}x ${escapeHtml(itemData.name)}`;
+                }).join(', ');
+        
+                const statusColor = {
+                    'Pending': 'bg-yellow-100 text-yellow-800',
+                    'Processing': 'bg-blue-100 text-blue-800',
+                    'Delivered': 'bg-green-100 text-green-800',
+                    'Cancelled': 'bg-red-100 text-red-800'
+                }[order.status] || 'bg-gray-100 text-gray-800';
+        
+                return `
+                    <div class="bg-white p-4 rounded-lg shadow border border-gray-200">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <p class="font-bold text-sm">${order.orderNumber || order.id.substring(0, 8)}</p>
+                                <p class="text-xs text-gray-500">${formatTime(order.createdAt)}</p>
+                            </div>
+                            <span class="px-2 py-1 rounded-full text-xs font-semibold ${statusColor}">${order.status}</span>
+                        </div>
+                        <p class="text-sm mb-1"><strong>Customer:</strong> ${escapeHtml(order.buyerName)}</p>
+                        <p class="text-xs text-gray-600 mb-2">${escapeHtml(order.buyerEmail)}</p>
+                        <p class="text-xs mb-2"><strong>Items:</strong> ${itemsList}</p>
+                        <p class="text-sm font-bold text-green-700">Total: ${formatPriceDisplay(order.totalCents)}</p>
+                        <div class="mt-3 flex gap-2 flex-wrap">
+                            <button onclick="window.module.showOrderEditForm('${order.id}')" 
+                                    class="text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">
+                                Edit Order
+                            </button>
+                            <button onclick="window.module.showShippingModal('${order.id}')" 
+                                    class="text-xs px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600">
+                                Create Shipping Label
+                            </button>
+                            <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value); this.value=''" 
+                                    class="text-xs px-2 py-1 border rounded">
+                                <option value="">Change Status</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Processing">Processing</option>
+                                <option value="Delivered">Delivered</option>
+                                <option value="Cancelled">Cancelled</option>
+                            </select>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        
+            container.innerHTML = ordersHtml;
+        }
+        
+        function renderOrderCreateForm() {
+            return `
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h3 class="text-xl font-bold mb-4">Create Manual Order</h3>
+                    <form id="createOrderForm" onsubmit="window.module.handleAdminOrderSubmit(event)">
+                        <!-- Form fields here -->
+                        <button type="submit" id="submitOrderButton" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold hover:bg-indigo-700">
+                            SUBMIT ORDER & SEND EMAIL
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+        
+        function renderOrdersStats() {
+            const statsContainer = document.getElementById('ordersStatsContainer');
+            if (statsContainer) {
+                statsContainer.innerHTML = getOrdersStatsHtml();
+            }
+            renderSalesCharts();
+        }
+        
+        // ============================================================================
+        // ORDER EDITING FUNCTIONS
+        // ============================================================================
+        
+        function showOrderEditForm(orderId) {
+            resetTimer();
+            const order = state.orders.find(o => o.id === orderId);
+            if (!order) {
+                showMessage('error', 'Order not found', 3000, 'orders');
+                return;
+            }
+        
+            state.editingOrderId = orderId;
+            initializeDraftCart(order.items, order.paidCents || 0);
+        
+            const modalContainer = document.getElementById('editModalContainer');
+            if (modalContainer) {
+                modalContainer.innerHTML = renderOrderEditModal(order);
+            }
+        }
+        
+        function closeEditModal() {
+            state.editingOrderId = null;
+            state.editingOrderDraftCart = {};
+            const modalContainer = document.getElementById('editModalContainer');
+            if (modalContainer) modalContainer.innerHTML = '';
+        }
+        
+        async function updateOrder(orderId) {
+            resetTimer();
+            try {
+                const order = state.orders.find(o => o.id === orderId);
+                if (!order) throw new Error('Order not found');
+        
+                const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
+                    id: entry.item.id,
+                    name: entry.item.name,
+                    price: entry.item.price,
+                    quantity: entry.quantity,
+                    sku: entry.item.sku
+                }));
+        
+                const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                const newTotal = newSubtotal + (order.shippingCents || 0) + (order.taxCents || 0);
+        
+                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
+                const path = getOrdersCollectionPath(targetId);
+                const orderRef = doc(db, path, orderId);
+        
+                await updateDoc(orderRef, {
+                    items: newItems,
+                    subtotalCents: newSubtotal,
+                    totalCents: newTotal,
+                    updatedAt: serverTimestamp()
+                });
+        
+                await logAdminAction('ORDER_UPDATED', { orderId, newItems }, orderId);
+                showMessage('success', 'Order updated successfully!', 3000, 'orders');
+                closeEditModal();
+        
+            } catch (error) {
+                console.error('Error updating order:', error);
+                showMessage('error', `Failed to update order: ${error.message}`, 5000, 'orders');
+            }
+        }
+        
+        function renderOrderEditModal(order) {
+            return `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <h3 class="text-xl font-bold mb-4">Edit Order ${order.orderNumber || order.id.substring(0, 8)}</h3>
+                        <div id="editOrderItemsDisplay" class="mb-4"></div>
+                        <div class="mb-4">
+                            <select id="editItemSelector" class="w-full p-2 border rounded mb-2">
+                                <option value="">-- Add Item --</option>
+                                ${state.items.map(item => `
+                                    <option value="${item.id}">${escapeHtml(item.name)} - ${formatPriceDisplay(item.price)}</option>
+                                `).join('')}
+                            </select>
+                            <input type="number" id="editItemQuantity" value="1" min="1" class="w-20 p-2 border rounded mr-2">
+                            <button onclick="window.module.addDraftCartItem()" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+                                Add Item
+                            </button>
+                        </div>
+                        <div class="border-t pt-4">
+                            <p class="text-xs text-gray-600 mb-1">Subtotal: <span id="editOrderSubtotal"></span></p>
+                            <p class="text-xs text-gray-600 mb-1">Shipping: <span id="editOrderShipping"></span></p>
+                            <p class="text-xs text-gray-600 mb-3">Tax: <span id="editOrderTax"></span></p>
+                            <p class="text-lg font-bold">Total: <span id="editOrderTotal"></span></p>
+                        </div>
+                        <div class="flex gap-2 mt-4">
+                            <button onclick="window.module.updateOrder('${order.id}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                                Save Changes
+                            </button>
+                            <button onclick="window.module.closeEditModal()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        async function handleResendReceipt(orderId) {
+            resetTimer();
+            const order = state.orders.find(o => o.id === orderId);
+            if (!order) return;
+        
+            try {
+                await fetch(RECEIPT_EMAIL_CONFIRMATION_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, order })
+                });
+                showMessage('success', 'Receipt resent successfully!', 3000, 'orders');
+            } catch (error) {
+                showMessage('error', 'Failed to resend receipt', 3000, 'orders');
+            }
+        }
+        
+        // ============================================================================
+        // FINANCIALS FUNCTIONS
+        // ============================================================================
+        
+        function renderFinancialsSection() {
+            const container = document.getElementById('financialsContent');
+            if (!container) return '';
+        
+            return `
+                <div class="bg-white p-6 rounded-lg shadow-lg">
+                    <h3 class="text-xl font-bold mb-4">Payment Ledger</h3>
+                    <div id="financialRowsContainer">
+                        ${renderFinancialRows()}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderFinancialRows() {
+            return state.orders.map(order => `
+                <div class="border-b py-2">
+                    <p><strong>Order:</strong> ${order.id.substring(0, 8)}</p>
+                    <p><strong>Total:</strong> ${formatPriceDisplay(order.totalCents)}</p>
+                    <p><strong>Paid:</strong> ${order.isPaid ? 'Yes' : 'No'}</p>
+                </div>
+            `).join('');
+        }
+        
+        function downloadPaymentLedgerCsv() {
+            const csvData = [
+                ['Order ID', 'Customer', 'Total', 'Paid', 'Date'].join(','),
+                ...state.orders.map(o => [
+                    o.id,
+                    o.buyerName,
+                    (o.totalCents / 100).toFixed(2),
+                    o.isPaid ? 'Yes' : 'No',
+                    formatTime(o.createdAt)
+                ].join(','))
+            ].join('\n');
+        
+            const blob = new Blob([csvData], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'payment_ledger.csv';
+            a.click();
+        }
+        
+        // ============================================================================
+        // SHIPPING MODAL RENDERING
+        // ============================================================================
+        
+        function renderShippingLabelModal(order) {
+            return `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-lg p-6 max-w-lg w-full">
+                        <h3 class="text-xl font-bold mb-4">Create Shipping Label</h3>
+                        <form id="shippingLabelForm">
+                            <div class="mb-3">
+                                <label class="block text-sm font-semibold mb-1">Carrier</label>
+                                <select id="shippingCarrier" class="w-full p-2 border rounded" required>
+                                    <option value="">Select Carrier</option>
+                                    <option value="USPS">USPS</option>
+                                    <option value="UPS">UPS</option>
+                                    <option value="FedEx">FedEx</option>
+                                    <option value="DHL">DHL</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="block text-sm font-semibold mb-1">Service Level</label>
+                                <select id="shippingService" class="w-full p-2 border rounded" required>
+                                    <option value="">Select Service</option>
+                                    <option value="Ground">Ground</option>
+                                    <option value="Priority">Priority</option>
+                                    <option value="Express">Express</option>
+                                    <option value="Overnight">Overnight</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="block text-sm font-semibold mb-1">Package Weight (lbs)</label>
+                                <input type="number" id="packageWeight" step="0.1" value="1.0" class="w-full p-2 border rounded" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="block text-sm font-semibold mb-1">Package Value ($)</label>
+                                <input type="number" id="packageValue" step="0.01" value="${(order.totalCents / 100).toFixed(2)}" class="w-full p-2 border rounded">
+                            </div>
+                            <div class="mb-3">
+                                <label class="block text-sm font-semibold mb-1">Notes</label>
+                                <textarea id="shippingNotes" class="w-full p-2 border rounded" rows="2"></textarea>
+                            </div>
+                            <div class="flex gap-2">
+                                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
+                                    Generate Label
+                                </button>
+                                <button type="button" onclick="window.module.closeShippingModal()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminPage(userName) {
+    document.getElementById('app').innerHTML = `
+        <header class="flex flex-col sm:flex-row justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600 gap-4">
+            <div class="flex items-center space-x-3">
+                <img src="/images/AutoInx logo.png" alt="Logo" class="h-10 w-auto">
+                <h1 class="text-4xl font-extrabold text-indigo-700 tracking-tighter">${t('dashboardTitle')}</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span class="text-gray-600 font-medium text-sm hidden lg:inline">${t('welcome')} ${userName}</span>
+                
+                <button onclick="window.module.toggleLanguage()" 
+                        class="px-3 py-2 rounded-lg border border-gray-300 bg-white text-xs font-bold hover:bg-gray-50 transition shadow-sm">
+                    ${currentLang === 'en' ? '🇪🇸 ES' : '🇺🇸 EN'}
+                </button>
+
+                ${state.previewMode
+                    ? `<button onclick="window.module.togglePreviewMode(false)" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 shadow-md transition">${t('exitPreview')}</button>`
+                    : `<button onclick="window.module.togglePreviewMode(true)" class="px-4 py-2 rounded-lg font-semibold text-white bg-green-500 hover:bg-green-600 shadow-md transition">${t('previewSite')}</button>`
+                }
+                
+                <button id="signOutButton" class="px-4 py-2 rounded-lg font-semibold text-white bg-red-500 hover:bg-red-600 shadow-md transition">
+                    ${t('signOut')}
+                </button>
+            </div>
+        </header>
+
+        <div class="md:flex md:space-x-8">
+            <nav class="w-full md:w-1/4 mb-6 md:mb-0">
+                <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4 ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
+                    <button onclick="window.module.switchAdminTab('catalog')" 
+                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                        ${t('tabCatalog')}
+                    </button>
+                    <button onclick="window.module.switchAdminTab('inventory')" 
+                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'inventory' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                        ${t('tabInventory')}
+                    </button>
+                    <button onclick="window.module.switchAdminTab('orders')" 
+                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                        ${t('tabOrders')}
+                    </button>
+                    
+                    <button onclick="window.module.switchAdminTab('financials')" 
+                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'financials' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                        ${t('tabFinancials')}
+                    </button>
+
+                    <button onclick="window.module.switchAdminTab('users')" 
+                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                        ${t('tabUsers')}
+                    </button>
+                    <button onclick="window.module.switchAdminTab('config')" 
+                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                        ${t('tabConfig')}
+                    </button>
+                </div>
+            </nav>
+
+            <main class="w-full md:w-3/4 pb-20">
+                ${state.previewMode ? renderPreviewSite() : renderAdminTabs()}
+            </main>
+        </div>
+    `;
+
+    // Re-attach the sign out event listener
+    document.getElementById('signOutButton')?.addEventListener('click', () => {
+        clearTimeout(idleTimer);
+        signOut(auth).then(() => location.href = '/');
+    });
+
+    // Post-render data population
+    if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+    if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
+    if (state.activeTab === 'users' && !state.previewMode) { 
+        if (state.allUsers.length === 0) window.module.fetchUsers();
+        else renderUserList();
+    }
+    if (state.activeTab === 'orders' && !state.previewMode) {
+         if (state.orderPage === 'list') window.module.fetchOrders();
+         else window.module.updateAdminCartDisplay();
+    }
+    if (state.activeTab === 'inventory' && !state.previewMode) window.module.renderInventorySection();
+    if (state.activeTab === 'financials' && !state.previewMode) {
+        // Financials uses the already-synced state.orders
+    }
+}
 
         
                 // --- EXPOSE TO WINDOW ---
