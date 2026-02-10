@@ -4611,46 +4611,33 @@
                 return;
             }
         
-            // ✅ ZIP missing — use Google Geocoding to look it up
+            // ✅ ZIP missing — use Netlify Function (Proxy) to look it up
             if (!zip) {
                 try {
-                    console.log('🗺️ window.GOOGLE_MAPS_API_KEY:', window.GOOGLE_MAPS_API_KEY);
-                    
-                    // Get the API key
-                    let mapsKey = window.GOOGLE_MAPS_API_KEY;
-                    if (!mapsKey) {
-                        console.log('🔑 Fetching Maps key from function...');
-                        const keyResponse = await fetch('/.netlify/functions/getGoogleMapsKey');
-                        console.log('🔑 Key response status:', keyResponse.status);
-                        const keyData = await keyResponse.json();
-                        console.log('🔑 Key data received:', keyData);
-                        mapsKey = keyData.key || keyData.apiKey || keyData.googleMapsApiKey || '';
+                    console.log('🗺️ ZIP missing. Asking server to geocode address...');
+            
+                    // Call our new Netlify function
+                    // We send the full address string (street + city + state) for better accuracy
+                    const fullAddressQuery = `${street}, ${city}, ${stateCode}`; 
+            
+                    const geoResponse = await fetch('/.netlify/functions/geocode', {
+                        method: 'POST',
+                        body: JSON.stringify({ address: fullAddressQuery }),
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+            
+                    if (!geoResponse.ok) {
+                        throw new Error(`Geocode server error: ${geoResponse.status}`);
                     }
             
-                    console.log('🔑 Maps key available:', mapsKey ? 'YES' : 'NO');
-            
-                    if (!mapsKey) {
-                        console.warn('⚠️ No Google Maps API key available');
-                        showMessage('error', 'Could not determine ZIP code. Please edit the order and add ZIP to the address (e.g. "CA 95101").', 7000, 'orders');
-                        return;
-                    }
-            
-                    const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(order.deliveryAddress)}&key=${mapsKey}`;
-                    console.log('🗺️ Geocoding URL:', geocodeUrl);
-            
-                    const geoResponse = await fetch(geocodeUrl);
-                    console.log('🗺️ Geocode response status:', geoResponse.status);
-                    
                     const geoData = await geoResponse.json();
-                    console.log('🗺️ Geocode response:', geoData.status, geoData.results?.length, 'results');
+                    console.log('🗺️ Geocode response:', geoData.status);
             
-                    if (geoData.status === 'OK' && geoData.results.length > 0) {
+                    if (geoData.status === 'OK' && geoData.results?.length > 0) {
                         const components = geoData.results[0].address_components;
-                        console.log('🗺️ Address components:', components.map(c => `${c.types[0]}: ${c.short_name}`));
-            
+                        
+                        // Extract ZIP
                         const postalComponent = components.find(c => c.types.includes('postal_code'));
-                        const stateComponent = components.find(c => c.types.includes('administrative_area_level_1'));
-            
                         if (postalComponent) {
                             zip = postalComponent.short_name;
                             console.log('✅ ZIP found:', zip);
@@ -4658,21 +4645,18 @@
                             console.warn('⚠️ No postal_code in geocode results');
                         }
             
+                        // Extract/Confirm State (Optional, but good for data integrity)
+                        const stateComponent = components.find(c => c.types.includes('administrative_area_level_1'));
                         if (stateComponent) {
                             stateCode = stateComponent.short_name;
-                            console.log('✅ State confirmed:', stateCode);
                         }
                     } else {
-                        console.warn('⚠️ Geocode failed:', geoData.status, geoData.error_message);
+                        console.warn('⚠️ Geocode API returned no results or non-OK status:', geoData.status);
                     }
             
                 } catch (geoError) {
                     console.error('❌ Geocoding error:', geoError);
-                }
-            
-                if (!zip) {
-                    showMessage('error', 'Could not determine ZIP code. Please edit the order and add ZIP to the address (e.g. "CA 95101").', 7000, 'orders');
-                    return;
+                    showMessage('error', 'Could not auto-detect ZIP code. Please enter it manually.', 5000, 'orders');
                 }
             }
         
