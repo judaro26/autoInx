@@ -3972,7 +3972,7 @@
                                         <div>
                                             <label class="block text-sm font-semibold mb-1 text-gray-700">State & ZIP *</label>
                                             <input type="text" id="editStateZip" value="${escapeAttribute(stateZip)}" 
-                                                   placeholder="CA 90210"
+                                                   placeholder="CA 95101" 
                                                    class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200" required>
                                         </div>
                                     </div>
@@ -4576,12 +4576,11 @@
         }
         
         // --- SHIPPING FUNCTIONS ---
-        async function fetchShippingRates(orderId) {
+         async function fetchShippingRates(orderId) {
             console.log('🚀 fetchShippingRates called with orderId:', orderId);
             resetTimer();
             
             const order = state.orders.find(o => o.id === orderId);
-            console.log('📋 Order found:', order ? 'YES' : 'NO');
             if (!order) {
                 showMessage('error', 'Order not found', 3000, 'orders');
                 return;
@@ -4591,47 +4590,95 @@
             const length = parseFloat(document.getElementById('packageLength')?.value || 12);
             const width = parseFloat(document.getElementById('packageWidth')?.value || 8);
             const height = parseFloat(document.getElementById('packageHeight')?.value || 6);
-            console.log('📏 Dimensions:', { weight, length, width, height });
         
             if (!weight || weight <= 0) {
-                console.log('❌ EARLY RETURN: invalid weight');
                 showMessage('error', 'Please enter a valid package weight', 3000, 'orders');
                 return;
             }
         
-            // Parse delivery address
-            console.log('🏠 Raw deliveryAddress:', order.deliveryAddress);
-            const addressParts = (order.deliveryAddress || '').split(',');
-            console.log('🏠 addressParts:', addressParts);
-            
-            const street = addressParts[0]?.trim() || '';
-            const city = addressParts[1]?.trim() || '';
-            const stateZipRaw = addressParts[2]?.trim() || '';
-            console.log('🏠 stateZipRaw:', stateZipRaw);
-            
-            const stateZipParts = stateZipRaw.split(' ').filter(s => s.length > 0); // ✅ filter empty strings
-            console.log('🏠 stateZipParts:', stateZipParts);
-            
-            const stateCode = stateZipParts[0] || '';
-            const zip = stateZipParts[1] || '';
-            console.log('🏠 Parsed address:', { street, city, stateCode, zip });
+            // ✅ Parse Google Maps format: "street, city, state, country"
+            const addressParts = (order.deliveryAddress || '').split(',').map(p => p.trim());
+            const street = addressParts[0] || '';
+            const city = addressParts[1] || '';
         
-            if (!street || !city || !stateCode || !zip) {
-                console.log('❌ EARLY RETURN: invalid address', { street, city, stateCode, zip });
+            // Handle "CA" or "CA 95101" in part[2]
+            const stateZipParts = (addressParts[2] || '').split(' ').filter(s => s.length > 0);
+            let stateCode = stateZipParts[0] || '';
+            let zip = stateZipParts[1] || '';
+        
+            if (!street || !city || !stateCode) {
                 showMessage('error', 'Invalid delivery address. Please update the order address first.', 5000, 'orders');
                 return;
             }
         
-            console.log('✅ Address valid, proceeding to fetch...');
+            // ✅ ZIP missing — use Google Geocoding to look it up
+            if (!zip) {
+                try {
+                    showMessage('info', 'Looking up ZIP code...', 2000, 'orders');
+                    console.log('🔍 ZIP missing, geocoding address:', order.deliveryAddress);
+        
+                    const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(order.deliveryAddress)}&key=${window.GOOGLE_MAPS_API_KEY || await getGoogleMapsKey()}`;
+                    const geoResponse = await fetch(geocodeUrl);
+                    const geoData = await geoResponse.json();
+        
+                    if (geoData.status === 'OK' && geoData.results.length > 0) {
+                        const components = geoData.results[0].address_components;
+                        
+                        // Extract ZIP from geocode result
+                        const postalComponent = components.find(c => c.types.includes('postal_code'));
+                        if (postalComponent) {
+                            zip = postalComponent.short_name;
+                            console.log('✅ ZIP found via geocoding:', zip);
+                        }
+        
+                        // Also correct state if needed
+                        const stateComponent = components.find(c => c.types.includes('administrative_area_level_1'));
+                        if (stateComponent) {
+                            stateCode = stateComponent.short_name;
+                        }
+                    }
+                } catch (geoError) {
+                    console.warn('⚠️ Geocoding failed:', geoError);
+                }
+        
+                // Still no ZIP after geocoding
+                if (!zip) {
+                    showMessage('error', 'Could not determine ZIP code. Please edit the order and add ZIP to the address (e.g. "CA 95101").', 7000, 'orders');
+                    return;
+                }
+            }
+        
+            console.log('✅ Final address:', { street, city, stateCode, zip });
+        
+            const addressTo = {
+                name: order.buyerName,
+                street1: street,
+                city: city,
+                state: stateCode,
+                zip: zip,
+                country: 'US',
+                phone: order.buyerPhone || '',
+                email: order.buyerEmail || ''
+            };
+        
+            const parcels = [{
+                length: length.toString(),
+                width: width.toString(),
+                height: height.toString(),
+                distance_unit: "in",
+                weight: weight.toString(),
+                mass_unit: "lb"
+            }];
+        
+            // Show loading state
+            document.getElementById('shippingLoadingState')?.classList.remove('hidden');
+            document.getElementById('shippingRatesContainer')?.classList.add('hidden');
+            const ratesBtn = document.getElementById('getRatesButton');
+            if (ratesBtn) { ratesBtn.disabled = true; ratesBtn.textContent = 'Fetching rates...'; }
         
             try {
-                console.log('📡 Making fetch request to getShippingRates...');
-                
+                console.log('📡 Calling getShippingRates function...');
                 const token = await auth.currentUser.getIdToken();
-                console.log('🔑 Got auth token:', token ? 'YES' : 'NO');
-        
-                const payload = { orderId, addressTo, parcels };
-                console.log('📦 Sending payload:', JSON.stringify(payload));
         
                 const response = await fetch('/.netlify/functions/getShippingRates', {
                     method: 'POST',
@@ -4639,21 +4686,17 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify({ orderId, addressTo, parcels })
                 });
         
                 console.log('📬 Response status:', response.status);
-                console.log('📬 Response ok:', response.ok);
-        
                 const responseText = await response.text();
-                console.log('📬 Raw response body:', responseText);
+                console.log('📬 Raw response:', responseText);
         
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${responseText}`);
-                }
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${responseText}`);
         
                 const data = JSON.parse(responseText);
-                
+        
                 if (!data.rates || data.rates.length === 0) {
                     throw new Error('No shipping rates available for this destination');
                 }
@@ -4663,16 +4706,22 @@
                 displayShippingRates(data.rates, orderId);
         
             } catch (error) {
-                console.error('❌ Error fetching rates:', error.message);
-                console.error('❌ Full error:', error);
+                console.error('❌ Error fetching rates:', error);
                 showMessage('error', `Failed to get shipping rates: ${error.message}`, 5000, 'orders');
             } finally {
                 document.getElementById('shippingLoadingState')?.classList.add('hidden');
-                const btn = document.getElementById('getRatesButton');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.textContent = '🔍 Get Real-Time Shipping Quotes';
-                }
+                if (ratesBtn) { ratesBtn.disabled = false; ratesBtn.textContent = '🔍 Get Real-Time Shipping Quotes'; }
+            }
+        }
+
+        async function getGoogleMapsKey() {
+            try {
+                const response = await fetch('/.netlify/functions/getGoogleMapsKey');
+                const data = await response.json();
+                return data.key || data.apiKey || '';
+            } catch (e) {
+                console.warn('Could not fetch Maps key:', e);
+                return '';
             }
         }
         
