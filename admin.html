@@ -3603,6 +3603,11 @@
                         <p class="text-xs text-gray-600 mb-2">${escapeHtml(order.buyerEmail)}</p>
                         <p class="text-xs mb-2"><strong>Items:</strong> ${itemsList}</p>
                         <p class="text-sm font-bold text-green-700">Total: ${formatPriceDisplay(order.totalCents)}</p>
+                        <p class="text-sm font-bold text-green-700">Total: ${formatPriceDisplay(order.totalCents)}</p>
+                        <p class="text-xs text-gray-500 mt-1 flex items-start gap-1">
+                            <span>📍</span>
+                            <span class="truncate">${escapeHtml(order.deliveryAddress || 'No address on file')}</span>
+                        </p>
                         <div class="mt-3 flex gap-2 flex-wrap">
                             <button onclick="window.module.showOrderEditForm('${order.id}')" 
                                     class="text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">
@@ -3706,6 +3711,8 @@
                 const buyerEmail = document.getElementById('editBuyerEmail')?.value?.trim();
                 const buyerPhone = document.getElementById('editBuyerPhone')?.value?.trim();
                 const language = document.getElementById('editLanguage')?.value;
+                const whatsappConsent = document.getElementById('editWhatsappConsent')?.checked || false;
+                const smsConsent = document.getElementById('editSmsConsent')?.checked || false;
                 
                 // Address
                 const street = document.getElementById('editStreet')?.value?.trim();
@@ -3740,6 +3747,13 @@
                     language: language,
                     communicationLang: language,
                     adminNotes: orderNotes,
+                    whatsappConsent: whatsappConsent,
+                    smsConsent: smsConsent,
+                    notificationPreferences: {
+                        whatsapp: whatsappConsent,
+                        sms: smsConsent,
+                        email: true
+                    },
                     updatedAt: serverTimestamp()
                 };
         
@@ -3955,11 +3969,38 @@
                                                class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
                                     </div>
                                     <div>
-                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Language</label>
+                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Preferred Language</label>
                                         <select id="editLanguage" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
                                             <option value="en" ${(order.language || 'en') === 'en' ? 'selected' : ''}>English</option>
                                             <option value="es" ${(order.language || 'en') === 'es' ? 'selected' : ''}>Español</option>
                                         </select>
+                                    </div>
+                                </div>
+                                
+                                <!-- ✅ NEW: Notification Preferences -->
+                                <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                    <p class="text-sm font-bold text-blue-800 mb-3">📱 Notification Preferences</p>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <label class="flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-green-400 transition ${order.whatsappConsent ? 'border-green-500 bg-green-50' : 'border-gray-200'}">
+                                            <input type="checkbox" id="editWhatsappConsent" 
+                                                   ${order.whatsappConsent ? 'checked' : ''}
+                                                   onchange="this.closest('label').className = this.checked ? 'flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-green-400 transition border-green-500 bg-green-50' : 'flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-green-400 transition border-gray-200'"
+                                                   class="w-5 h-5 text-green-600 rounded">
+                                            <div>
+                                                <p class="font-semibold text-sm text-gray-800">WhatsApp Updates</p>
+                                                <p class="text-xs text-gray-500">Send order updates via WhatsApp</p>
+                                            </div>
+                                        </label>
+                                        <label class="flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-blue-400 transition ${order.smsConsent ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}">
+                                            <input type="checkbox" id="editSmsConsent" 
+                                                   ${order.smsConsent ? 'checked' : ''}
+                                                   onchange="this.closest('label').className = this.checked ? 'flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-blue-400 transition border-blue-500 bg-blue-50' : 'flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-blue-400 transition border-gray-200'"
+                                                   class="w-5 h-5 text-blue-600 rounded">
+                                            <div>
+                                                <p class="font-semibold text-sm text-gray-800">SMS Updates</p>
+                                                <p class="text-xs text-gray-500">Send order updates via SMS</p>
+                                            </div>
+                                        </label>
                                     </div>
                                 </div>
                             </div>
