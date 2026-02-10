@@ -4614,34 +4614,62 @@
             // ✅ ZIP missing — use Google Geocoding to look it up
             if (!zip) {
                 try {
-                    showMessage('info', 'Looking up ZIP code...', 2000, 'orders');
-                    console.log('🔍 ZIP missing, geocoding address:', order.deliveryAddress);
-        
-                    const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(order.deliveryAddress)}&key=${window.GOOGLE_MAPS_API_KEY || await getGoogleMapsKey()}`;
+                    console.log('🗺️ window.GOOGLE_MAPS_API_KEY:', window.GOOGLE_MAPS_API_KEY);
+                    
+                    // Get the API key
+                    let mapsKey = window.GOOGLE_MAPS_API_KEY;
+                    if (!mapsKey) {
+                        console.log('🔑 Fetching Maps key from function...');
+                        const keyResponse = await fetch('/.netlify/functions/getGoogleMapsKey');
+                        console.log('🔑 Key response status:', keyResponse.status);
+                        const keyData = await keyResponse.json();
+                        console.log('🔑 Key data received:', keyData);
+                        mapsKey = keyData.key || keyData.apiKey || keyData.googleMapsApiKey || '';
+                    }
+            
+                    console.log('🔑 Maps key available:', mapsKey ? 'YES' : 'NO');
+            
+                    if (!mapsKey) {
+                        console.warn('⚠️ No Google Maps API key available');
+                        showMessage('error', 'Could not determine ZIP code. Please edit the order and add ZIP to the address (e.g. "CA 95101").', 7000, 'orders');
+                        return;
+                    }
+            
+                    const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(order.deliveryAddress)}&key=${mapsKey}`;
+                    console.log('🗺️ Geocoding URL:', geocodeUrl);
+            
                     const geoResponse = await fetch(geocodeUrl);
+                    console.log('🗺️ Geocode response status:', geoResponse.status);
+                    
                     const geoData = await geoResponse.json();
-        
+                    console.log('🗺️ Geocode response:', geoData.status, geoData.results?.length, 'results');
+            
                     if (geoData.status === 'OK' && geoData.results.length > 0) {
                         const components = geoData.results[0].address_components;
-                        
-                        // Extract ZIP from geocode result
+                        console.log('🗺️ Address components:', components.map(c => `${c.types[0]}: ${c.short_name}`));
+            
                         const postalComponent = components.find(c => c.types.includes('postal_code'));
+                        const stateComponent = components.find(c => c.types.includes('administrative_area_level_1'));
+            
                         if (postalComponent) {
                             zip = postalComponent.short_name;
-                            console.log('✅ ZIP found via geocoding:', zip);
+                            console.log('✅ ZIP found:', zip);
+                        } else {
+                            console.warn('⚠️ No postal_code in geocode results');
                         }
-        
-                        // Also correct state if needed
-                        const stateComponent = components.find(c => c.types.includes('administrative_area_level_1'));
+            
                         if (stateComponent) {
                             stateCode = stateComponent.short_name;
+                            console.log('✅ State confirmed:', stateCode);
                         }
+                    } else {
+                        console.warn('⚠️ Geocode failed:', geoData.status, geoData.error_message);
                     }
+            
                 } catch (geoError) {
-                    console.warn('⚠️ Geocoding failed:', geoError);
+                    console.error('❌ Geocoding error:', geoError);
                 }
-        
-                // Still no ZIP after geocoding
+            
                 if (!zip) {
                     showMessage('error', 'Could not determine ZIP code. Please edit the order and add ZIP to the address (e.g. "CA 95101").', 7000, 'orders');
                     return;
