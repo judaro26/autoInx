@@ -1,12 +1,27 @@
 const Telnyx = require('telnyx');
 
-// Initialize with your API Key
-const telnyx = Telnyx(process.env.TELNYX_API_KEY);
+// ─── CONFIGURATION CHECK ──────────────────────────────────────────────────────
+const API_KEY = process.env.TELNYX_API_KEY;
+const SENDER_NUMBER = process.env.TELNYX_PHONE_NUMBER;
 
-// Your Telnyx Phone Number (Must be WhatsApp enabled in portal for WA to work)
-const SENDER_NUMBER = process.env.TELNYX_PHONE_NUMBER; 
+if (!API_KEY) {
+    console.error("🚨 CRITICAL ERROR: TELNYX_API_KEY is missing from Netlify environment variables.");
+}
+if (!SENDER_NUMBER) {
+    console.error("🚨 CRITICAL ERROR: TELNYX_PHONE_NUMBER is missing from Netlify environment variables.");
+}
 
-// ─── Message templates (Kept exactly the same) ────────────────────────────────
+// Initialize Telnyx
+const telnyx = Telnyx(API_KEY);
+
+// ─── HELPER: SAFE ERROR LOGGER ────────────────────────────────────────────────
+// This fixes the "undefined" error in your logs by handling different error types
+function logError(context, err) {
+    const errorDetails = err.raw || err.response || err.message || err;
+    console.error(`❌ ${context} Failed:`, JSON.stringify(errorDetails, null, 2));
+}
+
+// ─── MESSAGE TEMPLATES ────────────────────────────────────────────────────────
 function buildMessage(order, lang) {
     const name     = order.buyerName?.split(' ')[0] || 'Cliente';
     const orderId  = order.id?.slice(-6).toUpperCase() || '------';
@@ -40,45 +55,41 @@ function buildMessage(order, lang) {
     return lang_templates[statusKey] || lang_templates['confirmed'];
 }
 
-// ─── Send via WhatsApp (Telnyx) ───────────────────────────────────────────────
+// ─── SEND VIA WHATSAPP (TELNYX) ───────────────────────────────────────────────
 async function sendWhatsApp(toPhone, message) {
     const normalized = toPhone.replace(/\D/g, '');
     
-    // Telnyx handles WhatsApp via the same messages API if configured, 
-    // but you must specify the type or profile. 
-    // *Important*: Ensure your Telnyx Messaging Profile has WhatsApp enabled.
-    
     return telnyx.messages.create({
-        from: SENDER_NUMBER, // Must be your WhatsApp-enabled Telnyx number
+        from: SENDER_NUMBER,
         to: `+${normalized}`,
-        text: message,
-        type: 'whatsapp' // Explicitly set type to WhatsApp
+        text: message, // Telnyx uses 'text', Twilio uses 'body'
+        type: 'whatsapp'
     });
 }
 
-// ─── Send via SMS (Telnyx) ────────────────────────────────────────────────────
+// ─── SEND VIA SMS (TELNYX) ────────────────────────────────────────────────────
 async function sendSMS(toPhone, message) {
     const normalized = toPhone.replace(/\D/g, '');
-    // Strip bold markdown for SMS
-    const plainText = message.replace(/\*/g, '');
+    const plainText = message.replace(/\*/g, ''); // Strip Markdown
 
     return telnyx.messages.create({
         from: SENDER_NUMBER,
         to: `+${normalized}`,
-        text: plainText,
-        type: 'sms' // Explicitly set type to SMS
+        text: plainText, // Telnyx uses 'text', Twilio uses 'body'
+        type: 'sms'
     });
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
+// ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 exports.handler = async (event) => {
+    // 1. Method Check
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
 
     try {
+        // 2. Parse Body
         const { order } = JSON.parse(event.body);
-
         if (!order) {
             return { statusCode: 400, body: JSON.stringify({ error: 'Missing order data' }) };
         }
@@ -88,6 +99,7 @@ exports.handler = async (event) => {
         const wantsSMS       = order.smsConsent === true;
         const lang           = order.language || 'es';
 
+        // 3. Early Exit
         if (!phone || (!wantsWhatsApp && !wantsSMS)) {
             return {
                 statusCode: 200,
@@ -95,41 +107,43 @@ exports.handler = async (event) => {
             };
         }
 
+        // 4. Send Logic
         const message = buildMessage(order, lang);
         const results = [];
 
-        // WhatsApp Priority Logic
+        // WhatsApp Priority
         if (wantsWhatsApp) {
             try {
                 const msg = await sendWhatsApp(phone, message);
-                // Telnyx returns an ID in msg.data.id or msg.id depending on response structure
-                const sid = msg.data ? msg.data.id : msg.id; 
-                
+                const sid = msg.data ? msg.data.id : msg.id;
                 results.push({ channel: 'whatsapp', sid: sid, status: 'queued' });
                 console.log(`✅ WhatsApp sent to ${phone} | ID: ${sid}`);
             } catch (err) {
-                console.error(`❌ WhatsApp failed for ${phone}:`, err.message); // err.raw can give more info
+                logError("WhatsApp", err);
                 
-                // Fallback to SMS
+                // Fallback to SMS if WhatsApp fails
                 if (wantsSMS) {
                     try {
+                        console.log(`⚠️ Attempting SMS Fallback for ${phone}...`);
                         const msg = await sendSMS(phone, message);
                         const sid = msg.data ? msg.data.id : msg.id;
                         results.push({ channel: 'sms_fallback', sid: sid, status: 'queued' });
                         console.log(`✅ SMS fallback sent to ${phone} | ID: ${sid}`);
                     } catch (smsErr) {
-                         console.error(`❌ SMS Fallback failed for ${phone}:`, smsErr.message);
+                         logError("SMS Fallback", smsErr);
                     }
                 }
             }
-        } else if (wantsSMS) {
+        } 
+        // SMS Only
+        else if (wantsSMS) {
             try {
                 const msg = await sendSMS(phone, message);
                 const sid = msg.data ? msg.data.id : msg.id;
                 results.push({ channel: 'sms', sid: sid, status: 'queued' });
                 console.log(`✅ SMS sent to ${phone} | ID: ${sid}`);
             } catch (err) {
-                 console.error(`❌ SMS failed for ${phone}:`, err.message);
+                 logError("SMS", err);
             }
         }
 
@@ -139,10 +153,10 @@ exports.handler = async (event) => {
         };
 
     } catch (error) {
-        console.error('sendOrderNotification error:', error);
+        console.error('🚨 Global Handler Error:', error);
         return {
             statusCode: 500,
-            body: JSON.stringify({ error: 'Failed to send notification', details: error.message })
+            body: JSON.stringify({ error: 'Failed to send notification', details: error.toString() })
         };
     }
 };
