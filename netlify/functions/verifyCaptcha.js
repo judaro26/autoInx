@@ -58,6 +58,14 @@ exports.handler = async (event, context) => {
         const scorePasses = data.riskAnalysis.score >= 0.5;
         const success = isTokenValid && actionMatches && scorePasses;
 
+
+        // ✅ Add this debug block temporarily
+        console.log("Token valid:", isTokenValid);
+        console.log("Action received:", data.tokenProperties.action, "| Expected:", ACTION);
+        console.log("Score:", data.riskAnalysis.score);
+        console.log("Invalid reason:", data.tokenProperties.invalidReason);
+        console.log("Site key used for verification:", RECAPTCHA_SITE_KEY);
+
         if (success) {
             // ✅ Fixed: added opening parenthesis
             console.log(`Verification successful. Score: ${data.riskAnalysis.score}`);
