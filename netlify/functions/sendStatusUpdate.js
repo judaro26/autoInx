@@ -34,12 +34,23 @@ async function getTemplateHtml(languageCode) {
         ? "orderConfirmationTemplateSpanish.html" 
         : "orderConfirmationTemplate.html";
     try {
-        const templatePath = path.resolve(__dirname, "emailTemplates", filename);
+        // ✅ FIXED: Point to the correct template location
+        const templatePath = path.resolve(__dirname, "..", "sendOrderConfirmation", "emailTemplates", filename);
+        console.log('📂 Looking for template at:', templatePath);
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
-        console.warn(`Template ${filename} not found, falling back to English.`);
-        const fallbackPath = path.resolve(__dirname, "emailTemplates", "orderConfirmationTemplate.html");
-        return await fs.readFile(fallbackPath, "utf8");
+        console.warn(`❌ Template ${filename} not found at expected path, trying fallback...`);
+        console.error('Template error:', error.message);
+        
+        // Try fallback path
+        try {
+            const fallbackPath = path.resolve(__dirname, "..", "sendOrderConfirmation", "emailTemplates", "orderConfirmationTemplate.html");
+            console.log('📂 Trying fallback at:', fallbackPath);
+            return await fs.readFile(fallbackPath, "utf8");
+        } catch (fallbackError) {
+            console.error('❌ Fallback also failed:', fallbackError.message);
+            throw new Error(`Could not load email template: ${filename}`);
+        }
     }
 }
 
