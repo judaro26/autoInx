@@ -4577,10 +4577,11 @@
         
         // --- SHIPPING FUNCTIONS ---
         async function fetchShippingRates(orderId) {
-            console.log('🚀 fetchShippingRates called with orderId:', orderId); // ADD THIS
+            console.log('🚀 fetchShippingRates called with orderId:', orderId);
             resetTimer();
             
             const order = state.orders.find(o => o.id === orderId);
+            console.log('📋 Order found:', order ? 'YES' : 'NO');
             if (!order) {
                 showMessage('error', 'Order not found', 3000, 'orders');
                 return;
@@ -4590,50 +4591,38 @@
             const length = parseFloat(document.getElementById('packageLength')?.value || 12);
             const width = parseFloat(document.getElementById('packageWidth')?.value || 8);
             const height = parseFloat(document.getElementById('packageHeight')?.value || 6);
+            console.log('📏 Dimensions:', { weight, length, width, height });
         
             if (!weight || weight <= 0) {
+                console.log('❌ EARLY RETURN: invalid weight');
                 showMessage('error', 'Please enter a valid package weight', 3000, 'orders');
                 return;
             }
         
             // Parse delivery address
+            console.log('🏠 Raw deliveryAddress:', order.deliveryAddress);
             const addressParts = (order.deliveryAddress || '').split(',');
+            console.log('🏠 addressParts:', addressParts);
+            
             const street = addressParts[0]?.trim() || '';
             const city = addressParts[1]?.trim() || '';
-            const stateZipParts = addressParts[2]?.trim().split(' ') || [];
-            const stateCode = stateZipParts[0] || '';  // ✅ Renamed from 'state'
+            const stateZipRaw = addressParts[2]?.trim() || '';
+            console.log('🏠 stateZipRaw:', stateZipRaw);
+            
+            const stateZipParts = stateZipRaw.split(' ').filter(s => s.length > 0); // ✅ filter empty strings
+            console.log('🏠 stateZipParts:', stateZipParts);
+            
+            const stateCode = stateZipParts[0] || '';
             const zip = stateZipParts[1] || '';
+            console.log('🏠 Parsed address:', { street, city, stateCode, zip });
         
             if (!street || !city || !stateCode || !zip) {
+                console.log('❌ EARLY RETURN: invalid address', { street, city, stateCode, zip });
                 showMessage('error', 'Invalid delivery address. Please update the order address first.', 5000, 'orders');
                 return;
             }
         
-            const addressTo = {
-                name: order.buyerName,
-                street1: street,
-                city: city,
-                state: stateCode,  // ✅ Use stateCode here
-                zip: zip,
-                country: 'US',
-                phone: order.buyerPhone || '',
-                email: order.buyerEmail || ''
-            };
-        
-            const parcels = [{
-                length: length.toString(),
-                width: width.toString(),
-                height: height.toString(),
-                distance_unit: "in",
-                weight: weight.toString(),
-                mass_unit: "lb"
-            }];
-        
-            // Show loading state
-            document.getElementById('shippingLoadingState').classList.remove('hidden');
-            document.getElementById('shippingRatesContainer').classList.add('hidden');
-            document.getElementById('getRatesButton').disabled = true;
-            document.getElementById('getRatesButton').textContent = 'Fetching rates...';
+            console.log('✅ Address valid, proceeding to fetch...');
         
             try {
                 console.log('📡 Making fetch request to getShippingRates...');
