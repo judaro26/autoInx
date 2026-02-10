@@ -3223,196 +3223,7 @@
         }
 
         // --- SHIPPING MODAL FUNCTIONS (Standalone) ---
-        function showShippingModal(orderId) {
-            resetTimer();
-            const order = state.orders.find(o => o.id === orderId);
-            if (!order) {
-                showMessage('error', 'Order not found', 3000, 'orders');
-                return;
-            }
 
-            state.shippingModalOrderId = orderId;
-            state.shippingModalOpen = true;
-
-            const container = document.getElementById('shippingModalContainer');
-            if (container) {
-                container.innerHTML = renderShippingLabelModal(order);
-
-                const form = document.getElementById('shippingLabelForm');
-                if (form) {
-                    form.onsubmit = (e) => {
-                        e.preventDefault();
-                        handleGenerateShippingLabel(orderId);
-                    };
-                }
-            }
-        }
-
-        function closeShippingModal() {
-            state.shippingModalOpen = false;
-            state.shippingModalOrderId = null;
-            const container = document.getElementById('shippingModalContainer');
-            if (container) container.innerHTML = '';
-        }
-
-        async function handleGenerateShippingLabel(orderId) {
-            resetTimer();
-            const order = state.orders.find(o => o.id === orderId);
-            if (!order) return;
-
-            const carrier = document.getElementById('shippingCarrier')?.value;
-            const service = document.getElementById('shippingService')?.value;
-            const weight = document.getElementById('packageWeight')?.value;
-            const value = document.getElementById('packageValue')?.value;
-            const notes = document.getElementById('shippingNotes')?.value;
-
-            if (!carrier || !service) {
-                showMessage('error', 'Please select carrier and service level', 3000, 'orders');
-                return;
-            }
-
-            try {
-                showMessage('info', 'Generating shipping label...', 2000, 'orders');
-
-                const shipmentData = {
-                    orderId: orderId,
-                    carrier: carrier,
-                    service: service,
-                    weight: parseFloat(weight),
-                    value: parseFloat(value),
-                    notes: notes,
-                    addressTo: {
-                        name: order.buyerName,
-                        street1: order.deliveryAddress.split(',')[0]?.trim(),
-                        city: order.deliveryAddress.split(',')[1]?.trim(),
-                        state: order.deliveryAddress.split(',')[2]?.trim()?.split(' ')[0],
-                        zip: order.deliveryAddress.split(',')[2]?.trim()?.split(' ')[1],
-                        country: 'US',
-                        phone: order.buyerPhone || '',
-                        email: order.buyerEmail || ''
-                    }
-                };
-
-                const response = await fetch('/.netlify/functions/generateShippingLabel', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
-                    },
-                    body: JSON.stringify(shipmentData)
-                });
-
-                if (!response.ok) throw new Error('Failed to generate label');
-
-                const result = await response.json();
-
-                if (result.labelUrl) {
-                    window.open(result.labelUrl, '_blank');
-                    showMessage('success', 'Label generated! Opening print window...', 5000, 'orders');
-                    await window.module.handleOrderStatusUpdate(orderId, 'Processing');
-                    closeShippingModal();
-                }
-
-            } catch (error) {
-                console.error('Label generation error:', error);
-                showMessage('error', `Failed to generate label: ${error.message}`, 5000, 'orders');
-            }
-        }
-
-        async function requestShippoLabel(orderId) {
-            resetTimer();
-            showMessage('info', 'Requesting label via Shippo API...', 2000, 'orders');
-
-            try {
-                const order = state.orders.find(o => o.id === orderId);
-                if (!order) return;
-
-                const carrier = document.getElementById('shippingCarrier')?.value;
-                const service = document.getElementById('shippingService')?.value;
-                const weight = document.getElementById('packageWeight')?.value;
-
-                const response = await fetch('/.netlify/functions/createShippoLabel', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
-                    },
-                    body: JSON.stringify({
-                        orderId: orderId,
-                        carrier: carrier,
-                        service: service,
-                        weight: parseFloat(weight),
-                        addressTo: {
-                            name: order.buyerName,
-                            street1: order.deliveryAddress.split(',')[0]?.trim(),
-                            city: order.deliveryAddress.split(',')[1]?.trim(),
-                            state: order.deliveryAddress.split(',')[2]?.trim()?.split(' ')[0],
-                            zip: order.deliveryAddress.split(',')[2]?.trim()?.split(' ')[1],
-                            country: 'US',
-                            phone: order.buyerPhone || '',
-                            email: order.buyerEmail || ''
-                        }
-                    })
-                });
-
-                if (!response.ok) throw new Error('Shippo API failed');
-
-                const result = await response.json();
-
-                if (result.labelUrl) {
-                    window.open(result.labelUrl, '_blank');
-
-                    if (result.trackingNumber) {
-                        await updateOrderTracking(orderId, {
-                            trackingNumber: result.trackingNumber,
-                            carrier: result.carrier,
-                            service: result.service,
-                            labelUrl: result.labelUrl
-                        });
-                    }
-
-                    showMessage('success', 'Shippo label created! Opening for print...', 5000, 'orders');
-                    closeShippingModal();
-                }
-
-            } catch (error) {
-                console.error('Shippo error:', error);
-                showMessage('error', `Shippo request failed: ${error.message}`, 5000, 'orders');
-            }
-        }
-
-        async function updateOrderTracking(orderId, trackingData) {
-            try {
-                const order = state.orders.find(o => o.id === orderId);
-                if (!order) return;
-
-                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
-                const path = getOrdersCollectionPath(targetId);
-                const orderRef = doc(db, path, orderId);
-
-                await updateDoc(orderRef, {
-                    trackingNumber: trackingData.trackingNumber,
-                    shippingCarrier: trackingData.carrier,
-                    shippingService: trackingData.service,
-                    shippingLabelUrl: trackingData.labelUrl,
-                    shippedAt: serverTimestamp(),
-                    status: 'Shipped',
-                    updatedAt: serverTimestamp()
-                });
-
-                await logAdminAction('TRACKING_ADDED', {
-                    orderId,
-                    trackingNumber: trackingData.trackingNumber,
-                    carrier: trackingData.carrier
-                }, orderId);
-
-                showMessage('success', 'Tracking number saved!', 3000, 'orders');
-
-            } catch (error) {
-                console.error('Update tracking error:', error);
-                showMessage('error', 'Failed to save tracking number', 3000, 'orders');
-            }
-        }
         async function fetchUsers(pageToken = null) {
             resetTimer();
             const loadMoreBtn = document.getElementById('loadMoreUsersButton');
@@ -4964,7 +4775,7 @@
         
                 showMessage('success', `Label generated! Tracking: ${result.trackingNumber}`, 8000, 'orders');
                 
-                closeShippingModal();
+                window.module.closeShippingModal();
         
             } catch (error) {
                 console.error('❌ Label generation error:', error);
@@ -5196,29 +5007,26 @@
             // ========================================================================
             // SHIPPING MODAL FUNCTIONS (Reference the standalone functions defined above)
             // ========================================================================
-            showShippingModal,
-            closeShippingModal,
-            handleGenerateShippingLabel,
-            requestShippoLabel,
-            updateOrderTracking,
-            renderShippingLabelModal,
-            renderFinancialsContent: function() {
-                const container = document.getElementById('app').querySelector('main');
-                if (container && state.activeTab === 'financials') {
-                    container.innerHTML = renderFinancialsSection();
+            showShippingModal: function(orderId) {
+                const order = state.orders.find(o => o.id === orderId);
+                if (!order) return;
+            
+                let modalContainer = document.getElementById('shippingModalContainer');
+                if (!modalContainer) {
+                    modalContainer = document.createElement('div');
+                    modalContainer.id = 'shippingModalContainer';
+                    document.body.appendChild(modalContainer);
                 }
+            
+                modalContainer.innerHTML = renderShippingLabelModal(order);
             },
-            adjustDraftItemQuantity: function(itemId, delta) {
-                const currentEntry = state.editingOrderDraftCart[itemId];
-                if (!currentEntry) return;
-                
-                const newQuantity = currentEntry.quantity + delta;
-                if (newQuantity <= 0) {
-                    this.removeDraftCartItem(itemId);
-                } else {
-                    this.updateDraftItemQuantity(newQuantity, itemId);
-                }
-            }
+            closeShippingModal: function() {
+                const modal = document.getElementById('shippingModalContainer');
+                if (modal) modal.innerHTML = '';
+            },
+            fetchShippingRates,       // ✅ Only appears here
+            selectShippingRate,
+            updateOrderWithTracking
         };
 
         
