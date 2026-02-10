@@ -3698,27 +3698,24 @@
                     newStatus
                 }, orderId);
         
-                // ✅ Send status update email with full order details
+                // ✅ USE sendOrderConfirmation with newStatus parameter
                 try {
-                    await fetch('/.netlify/functions/sendOrderConfirmation/sendStatusUpdate', {
+                    await fetch('/.netlify/functions/sendOrderConfirmation', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             orderId: orderId,
-                            orderNumber: order.orderNumber || orderId.substring(0, 8),
                             buyerEmail: order.buyerEmail,
                             buyerName: order.buyerName,
-                            oldStatus: order.status,
-                            newStatus: newStatus,
-                            language: order.language || order.communicationLang || 'en',
+                            newStatus: newStatus,  // ✅ This tells it to send a status update
+                            communicationLang: order.language || order.communicationLang || 'en',
                             items: order.items || [],
                             totalCents: order.totalCents || 0,
                             subtotalCents: order.subtotalCents || order.totalCents || 0,
                             shippingCents: order.shippingCents || 0,
                             taxCents: order.taxCents || 0,
                             shippingDetails: order.shippingDetails || null,
-                            taxDetails: order.taxDetails || null,
-                            orderDate: order.createdAt ? formatTime(order.createdAt) : new Date().toLocaleDateString()
+                            taxDetails: order.taxDetails || null
                         })
                     });
                     console.log('✅ Status update email sent');
@@ -3733,7 +3730,7 @@
                 showMessage('error', `Failed to update order status: ${error.message}`, 5000, 'orders');
             }
         }
-
+        
         function renderOrdersList() {
             const container = document.getElementById('ordersListContent');
             if (!container) return;
@@ -3928,25 +3925,22 @@
                 // Send email if status changed
                 if (newStatus !== order.status) {
                     try {
-                        await fetch('/.netlify/functions/sendOrderConfirmation/sendStatusUpdate', {
+                        await fetch('/.netlify/functions/sendOrderConfirmation', {  // ✅ Changed
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 orderId: orderId,
-                                orderNumber: order.orderNumber || orderId.substring(0, 8),
                                 buyerEmail: buyerEmail,
                                 buyerName: buyerName,
-                                oldStatus: order.status,
-                                newStatus: newStatus,
-                                language: language,
+                                newStatus: newStatus,  // ✅ This triggers status update mode
+                                communicationLang: language,
                                 items: newItems,
                                 totalCents: newTotal,
                                 subtotalCents: newSubtotal,
                                 shippingCents: shippingCents,
                                 taxCents: taxCents,
                                 shippingDetails: order.shippingDetails || null,
-                                taxDetails: order.taxDetails || null,
-                                orderDate: order.createdAt ? formatTime(order.createdAt) : new Date().toLocaleDateString()
+                                taxDetails: order.taxDetails || null
                             })
                         });
                         console.log('✅ Status update email sent');
