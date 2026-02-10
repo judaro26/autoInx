@@ -24,14 +24,14 @@ exports.handler = async function(event) {
 
         // Your warehouse/sender address
         const addressFrom = {
-            name: "AutoInx Warehouse",
-            street1: process.env.WAREHOUSE_STREET || "123 Warehouse Blvd",
-            city: process.env.WAREHOUSE_CITY || "Miami",
-            state: process.env.WAREHOUSE_STATE || "FL",
-            zip: process.env.WAREHOUSE_ZIP || "33101",
+            name: "AutoInx USA",
+            street1: "587 Paradise Blvd",
+            city: "Hayward",
+            state: "CA",
+            zip: "94542",
             country: "US",
-            phone: process.env.WAREHOUSE_PHONE || "+1 305 555 0100",
-            email: process.env.WAREHOUSE_EMAIL || "warehouse@autoinx.com"
+            phone: "+13412227912",
+            email: process.env.BREVO_SMTP_USER  // ✅ Reuse your existing email env var
         };
 
         console.log('📦 Fetching rates for order:', orderId?.substring(0, 8));
