@@ -7,14 +7,14 @@ exports.handler = async (event, context) => {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
-  try {
+try {
     const { address } = JSON.parse(event.body);
     
-    // 1. Get the Key from Netlify Environment Variables
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    // CHANGE THIS LINE: Use the new server-specific key variable
+    const apiKey = process.env.GEOCODING_API_KEY; 
 
     if (!apiKey) {
-      console.error('SERVER ERROR: Missing GOOGLE_MAPS_API_KEY env var');
+      console.error('SERVER ERROR: Missing GEOCODING_API_KEY env var');
       return { statusCode: 500, body: JSON.stringify({ error: 'Server configuration error' }) };
     }
 
