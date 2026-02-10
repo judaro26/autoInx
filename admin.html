@@ -2028,36 +2028,38 @@
             state.previewMode = false;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
-
+        
             if (tab === 'config') {
                 window.module.fetchAdminConfig();
                 window.module.displayStaticIps();
             } else if (tab === 'users') {
-                // Clear old data but keep headers before fetching new page. 
                 const grid = document.getElementById('usersGrid');
-                // The grid header now contains 8 elements (including the master checkbox)
                 if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove());
                 window.module.fetchUsers(null);
-                state.selectedUsers = []; // Clear selection when switching tab
+                state.selectedUsers = [];
             } else if (tab === 'orders') {
-                state.orderPage = 'list'; // Default to list view
-                window.module.fetchOrders(); // Fetch initial orders
-                window.module.updateAdminCartDisplay(); // For the Create Order sub-view
-                window.module.updateItemSelector(); // For the Create Order sub-view
-                // CRITICAL FIX: Load Maps script only when the orders tab is rendered
+                state.orderPage = 'list';
+                window.module.fetchOrders();
+                
+                // ✅ ADD THIS: Render stats and charts after DOM is ready
+                setTimeout(() => {
+                    window.module.renderOrdersStats();
+                }, 100);
+                
+                window.module.updateAdminCartDisplay();
+                window.module.updateItemSelector();
                 if (typeof google === 'undefined' || !autocomplete) {
                     window.module.loadGoogleMapsScript();
                 } else {
-                    // Re-initialize the autocomplete object and set up listeners for the new input field
                     window.initGooglePlaces();
                 }
-            } else if (tab === 'inventory') { // NEW: Inventory tab initialization
+            } else if (tab === 'inventory') {
                 window.module.renderInventorySection();
-            }
-            else if (tab === 'financials') {
-                // Since state.orders is already synced via realtime listener, 
-                // we just need to ensure the view renders.
-                renderAdminPage(auth.currentUser?.email || 'Admin');
+            } else if (tab === 'financials') {
+                // ✅ ADD THIS: Render financials after DOM is ready
+                setTimeout(() => {
+                    window.module.renderFinancialsContent();
+                }, 100);
             }
         }
 
@@ -3679,23 +3681,43 @@
                 showMessage('error', 'Order not found.', 3000, 'orders');
                 return;
             }
-
+        
             try {
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-
+        
                 await updateDoc(orderRef, {
                     status: newStatus,
                     updatedAt: serverTimestamp()
                 });
-
+        
                 await logAdminAction('ORDER_STATUS_UPDATED', {
                     orderId,
                     oldStatus: order.status,
                     newStatus
                 }, orderId);
-
+        
+                // ✅ ADD THIS: Send status update email
+                try {
+                    await fetch('/.netlify/functions/sendStatusUpdate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            orderId: orderId,
+                            orderNumber: order.orderNumber || orderId.substring(0, 8),
+                            buyerEmail: order.buyerEmail,
+                            buyerName: order.buyerName,
+                            newStatus: newStatus,
+                            language: order.language || order.communicationLang || 'en'
+                        })
+                    });
+                    console.log('✅ Status update email sent');
+                } catch (emailError) {
+                    console.warn('⚠️ Email notification failed:', emailError);
+                    // Don't fail the status update if email fails
+                }
+        
                 showMessage('success', `Order status updated to: ${newStatus}`, 3000, 'orders');
             } catch (error) {
                 console.error('Error updating order status:', error);
@@ -3832,7 +3854,7 @@
             try {
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) throw new Error('Order not found');
-
+        
                 const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
                     id: entry.item.id,
                     name: entry.item.name,
@@ -3840,25 +3862,49 @@
                     quantity: entry.quantity,
                     sku: entry.item.sku
                 }));
-
+        
                 const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
                 const newTotal = newSubtotal + (order.shippingCents || 0) + (order.taxCents || 0);
-
+        
+                // ✅ Get the new status from dropdown
+                const newStatus = document.getElementById('editOrderStatus')?.value || order.status;
+        
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-
+        
                 await updateDoc(orderRef, {
                     items: newItems,
                     subtotalCents: newSubtotal,
                     totalCents: newTotal,
+                    status: newStatus, // ✅ Update status
                     updatedAt: serverTimestamp()
                 });
-
-                await logAdminAction('ORDER_UPDATED', { orderId, newItems }, orderId);
+        
+                // ✅ Send email if status changed
+                if (newStatus !== order.status) {
+                    try {
+                        await fetch('/.netlify/functions/sendStatusUpdate', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                orderId: orderId,
+                                orderNumber: order.orderNumber || orderId.substring(0, 8),
+                                buyerEmail: order.buyerEmail,
+                                buyerName: order.buyerName,
+                                newStatus: newStatus,
+                                language: order.language || 'en'
+                            })
+                        });
+                    } catch (emailError) {
+                        console.warn('Email failed:', emailError);
+                    }
+                }
+        
+                await logAdminAction('ORDER_UPDATED', { orderId, newItems, newStatus }, orderId);
                 showMessage('success', 'Order updated successfully!', 3000, 'orders');
                 closeEditModal();
-
+        
             } catch (error) {
                 console.error('Error updating order:', error);
                 showMessage('error', `Failed to update order: ${error.message}`, 5000, 'orders');
@@ -3866,32 +3912,57 @@
         }
 
         function renderOrderEditModal(order) {
+            const statusOptions = ['Pending', 'Processing', 'Delivered', 'Cancelled'];
+            const statusDropdown = statusOptions.map(status => 
+                `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`
+            ).join('');
+        
             return `
                 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                         <h3 class="text-xl font-bold mb-4">Edit Order ${order.orderNumber || order.id.substring(0, 8)}</h3>
-                        <div id="editOrderItemsDisplay" class="mb-4"></div>
-                        <div class="mb-4">
-                            <select id="editItemSelector" class="w-full p-2 border rounded mb-2">
-                                <option value="">-- Add Item --</option>
-                                ${state.items.map(item => `
-                                    <option value="${item.id}">${escapeHtml(item.name)} - ${formatPriceDisplay(item.price)}</option>
-                                `).join('')}
+                        
+                        <!-- ✅ ADD Status Dropdown -->
+                        <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                            <label class="block text-sm font-semibold mb-2">Order Status</label>
+                            <select id="editOrderStatus" class="w-full p-2 border rounded-lg">
+                                ${statusDropdown}
                             </select>
-                            <input type="number" id="editItemQuantity" value="1" min="1" class="w-20 p-2 border rounded mr-2">
-                            <button onclick="window.module.addDraftCartItem()" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
-                                Add Item
-                            </button>
                         </div>
-                        <div class="border-t pt-4">
+        
+                        <!-- Order Items -->
+                        <div class="mb-4">
+                            <h4 class="font-semibold mb-2">Order Items</h4>
+                            <div id="editOrderItemsDisplay" class="mb-4"></div>
+                            
+                            <div class="border-t pt-4">
+                                <select id="editItemSelector" class="w-full p-2 border rounded mb-2">
+                                    <option value="">-- Add Item --</option>
+                                    ${state.items.map(item => `
+                                        <option value="${item.id}">${escapeHtml(item.name)} - ${formatPriceDisplay(item.price)}</option>
+                                    `).join('')}
+                                </select>
+                                <div class="flex gap-2">
+                                    <input type="number" id="editItemQuantity" value="1" min="1" class="w-20 p-2 border rounded">
+                                    <button onclick="window.module.addDraftCartItem()" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+                                        Add Item
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+        
+                        <!-- Totals -->
+                        <div class="border-t pt-4 mb-4">
                             <p class="text-xs text-gray-600 mb-1">Subtotal: <span id="editOrderSubtotal"></span></p>
                             <p class="text-xs text-gray-600 mb-1">Shipping: <span id="editOrderShipping"></span></p>
                             <p class="text-xs text-gray-600 mb-3">Tax: <span id="editOrderTax"></span></p>
                             <p class="text-lg font-bold">Total: <span id="editOrderTotal"></span></p>
                         </div>
+        
+                        <!-- Action Buttons -->
                         <div class="flex gap-2 mt-4">
                             <button onclick="window.module.updateOrder('${order.id}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-                                Save Changes
+                                💾 Save Changes
                             </button>
                             <button onclick="window.module.closeEditModal()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
                                 Cancel
@@ -3924,16 +3995,107 @@
         // ============================================================================
 
         function renderFinancialsSection() {
-            const container = document.getElementById('financialsContent');
-            if (!container) return '';
-
+            const totalRevenue = state.orders.reduce((sum, o) => sum + (o.status !== 'Cancelled' ? o.totalCents : 0), 0);
+            const paidOrders = state.orders.filter(o => o.isPaid && o.status !== 'Cancelled');
+            const unpaidOrders = state.orders.filter(o => !o.isPaid && o.status !== 'Cancelled');
+            
+            const totalPaid = paidOrders.reduce((sum, o) => sum + o.totalCents, 0);
+            const totalUnpaid = unpaidOrders.reduce((sum, o) => sum + o.totalCents, 0);
+        
             return `
-                <div class="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 class="text-xl font-bold mb-4">Payment Ledger</h3>
-                    <div id="financialRowsContainer">
-                        ${renderFinancialRows()}
+                <section class="space-y-8">
+                    <h2 class="text-2xl font-bold text-indigo-700">${t('tabFinancials')}</h2>
+                    <div id="financialsMessage"></div>
+                    
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="bg-green-50 p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                            <h3 class="text-sm font-semibold text-green-700 mb-2">Total Revenue</h3>
+                            <p class="text-3xl font-bold text-green-900">${formatPriceDisplay(totalRevenue)}</p>
+                            <p class="text-xs text-green-600 mt-2">${state.orders.length} total orders</p>
+                        </div>
+                        
+                        <div class="bg-blue-50 p-6 rounded-xl shadow-lg border-t-4 border-blue-500">
+                            <h3 class="text-sm font-semibold text-blue-700 mb-2">Paid Orders</h3>
+                            <p class="text-3xl font-bold text-blue-900">${formatPriceDisplay(totalPaid)}</p>
+                            <p class="text-xs text-blue-600 mt-2">${paidOrders.length} orders</p>
+                        </div>
+                        
+                        <div class="bg-red-50 p-6 rounded-xl shadow-lg border-t-4 border-red-500">
+                            <h3 class="text-sm font-semibold text-red-700 mb-2">Unpaid Balance</h3>
+                            <p class="text-3xl font-bold text-red-900">${formatPriceDisplay(totalUnpaid)}</p>
+                            <p class="text-xs text-red-600 mt-2">${unpaidOrders.length} orders</p>
+                        </div>
                     </div>
-                </div>
+        
+                    <!-- Payment Ledger -->
+                    <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-600">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-bold text-indigo-700">${t('ledgerTitle')}</h3>
+                            <button onclick="window.module.downloadPaymentLedgerCsv()" 
+                                    class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">
+                                ⬇️ Download CSV
+                            </button>
+                        </div>
+                        
+                        <div id="financialRowsContainer" class="overflow-x-auto">
+                            ${renderFinancialRows()}
+                        </div>
+                    </div>
+                </section>
+            `;
+        }
+        
+        function renderFinancialRows() {
+            if (state.orders.length === 0) {
+                return '<p class="text-center text-gray-500 p-8">No orders found.</p>';
+            }
+        
+            const rows = state.orders
+                .filter(o => o.status !== 'Cancelled')
+                .map(order => {
+                    const paidClass = order.isPaid ? 'bg-green-50' : 'bg-red-50';
+                    const paidBadge = order.isPaid 
+                        ? '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">✓ Paid</span>'
+                        : '<span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">✗ Unpaid</span>';
+        
+                    return `
+                        <tr class="${paidClass}">
+                            <td class="p-3 text-sm">${order.orderNumber || order.id.substring(0, 8)}</td>
+                            <td class="p-3 text-sm">${escapeHtml(order.buyerName || 'N/A')}</td>
+                            <td class="p-3 text-sm">${escapeHtml(order.buyerEmail || 'N/A')}</td>
+                            <td class="p-3 text-sm font-bold text-green-700">${formatPriceDisplay(order.totalCents)}</td>
+                            <td class="p-3 text-sm">${paidBadge}</td>
+                            <td class="p-3 text-sm">${formatTime(order.createdAt)}</td>
+                            <td class="p-3 text-sm">
+                                <span class="px-2 py-1 rounded-full text-xs ${
+                                    order.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                                    order.status === 'Processing' ? 'bg-blue-100 text-blue-800' :
+                                    order.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-gray-100 text-gray-800'
+                                }">${order.status}</span>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+        
+            return `
+                <table class="w-full">
+                    <thead>
+                        <tr class="bg-gray-100 border-b-2 border-gray-300">
+                            <th class="p-3 text-left text-sm font-bold">Order ID</th>
+                            <th class="p-3 text-left text-sm font-bold">Customer</th>
+                            <th class="p-3 text-left text-sm font-bold">Email</th>
+                            <th class="p-3 text-left text-sm font-bold">Total</th>
+                            <th class="p-3 text-left text-sm font-bold">Payment</th>
+                            <th class="p-3 text-left text-sm font-bold">Date</th>
+                            <th class="p-3 text-left text-sm font-bold">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
             `;
         }
 
@@ -4281,7 +4443,7 @@
                     balanceEl.textContent = formatPriceDisplay(balanceCents);
                     balanceEl.className = balanceCents <= 0 ? 'text-green-600 font-black' : 'text-rose-600 font-black';
                 }
-            },
+            },      
 
             // ========================================================================
             // SHIPPING MODAL FUNCTIONS (Reference the standalone functions defined above)
@@ -4292,7 +4454,15 @@
             requestShippoLabel,
             updateOrderTracking,
             renderShippingLabelModal
+            renderFinancialsContent: function() {
+                const container = document.getElementById('app').querySelector('main');
+                if (container && state.activeTab === 'financials') {
+                    container.innerHTML = renderFinancialsSection();
+                }
+            }
         };
+
+        
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
     </script>
