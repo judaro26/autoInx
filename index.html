@@ -61,7 +61,7 @@
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        const RECAPTCHA_SITE_KEY = '6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J';
+        const RECAPTCHA_SITE_KEY = '6LeUvWYsAAAAACWjFxTy9B4jTER2iiKzyJEuckgd';
         const CAPTCHA_VERIFY_FUNCTION = '/.netlify/functions/verifyCaptcha';
 
         let app, db, auth;
@@ -996,15 +996,26 @@
                     // Registration logic requires manual captcha for your Netlify verify function
                     let captchaToken = null;
                     if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
-                        captchaToken = await grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, { action: 'register' });
-                    }
-
-                    const captchaVerified = await verifyCaptcha(captchaToken);
-                    if (!captchaVerified) {
-                        if (messageEl) messageEl.textContent = "❌ Bot verification failed.";
+                        try {
+                            captchaToken = await grecaptcha.enterprise.execute('6LeUvWYsAAAAACWjFxTy9B4jTER2iiKzyJEuckgd', { action: 'register' });
+                            console.log("Captcha token generated:", captchaToken ? "yes" : "no");
+                        } catch(e) {
+                            console.error("grecaptcha.execute failed:", e);
+                            if (messageEl) messageEl.textContent = "❌ Bot check failed. Please refresh and try again.";
+                            return;
+                        }
+                    } else {
+                        console.error("grecaptcha.enterprise not available");
+                        if (messageEl) messageEl.textContent = "❌ Security check not loaded. Please refresh and try again.";
                         return;
                     }
-
+                    
+                    if (!captchaToken) {
+                        if (messageEl) messageEl.textContent = "❌ Could not generate security token. Please refresh.";
+                        return;
+                    }
+                    
+                    const captchaVerified = await verifyCaptcha(captchaToken);
                     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                     await logEconsent(userCredential.user.uid, email, state.clientIp);
                     showMessage('success', t('registerSuccessful'), 2000);
@@ -1214,7 +1225,7 @@
                 // 7. Initialize App Check
                 try {
                     initializeAppCheck(app, {
-                        provider: new ReCaptchaEnterpriseProvider('6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'),
+                        provider: new ReCaptchaEnterpriseProvider('6LeUvWYsAAAAACWjFxTy9B4jTER2iiKzyJEuckgd'),
                         isTokenAutoRefreshEnabled: true 
                     });
                     console.log("App Check initialized with reCAPTCHA Enterprise.");
