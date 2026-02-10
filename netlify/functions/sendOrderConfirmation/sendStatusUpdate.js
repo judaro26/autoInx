@@ -35,7 +35,7 @@ async function getTemplateHtml(languageCode) {
         : "orderConfirmationTemplate.html";
     
     try {
-        // ✅ NOW: Templates are in the sibling emailTemplates folder
+        // ✅ With included_files configured, templates will be in emailTemplates folder
         const templatePath = path.resolve(__dirname, "emailTemplates", filename);
         console.log('📂 Loading template from:', templatePath);
         
@@ -45,15 +45,16 @@ async function getTemplateHtml(languageCode) {
         
     } catch (error) {
         console.error(`❌ Failed to load template ${filename}:`, error.message);
+        console.error('Available __dirname:', __dirname);
         
-        // Try fallback to English template
+        // Try fallback to English
         if (languageCode === 'es') {
             console.log('⚠️ Falling back to English template...');
             try {
                 const fallbackPath = path.resolve(__dirname, "emailTemplates", "orderConfirmationTemplate.html");
                 return await fs.readFile(fallbackPath, "utf8");
             } catch (fallbackError) {
-                console.error('❌ Fallback failed:', fallbackError.message);
+                console.error('❌ Fallback also failed:', fallbackError.message);
             }
         }
         
