@@ -4,6 +4,8 @@
  */
 
 exports.handler = async function(event) {
+    console.log('📦 getShippingRates called'); // ADD THIS
+    console.log('Body received:', event.body);  // ADD THIS
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
