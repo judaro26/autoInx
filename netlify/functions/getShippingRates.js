@@ -64,7 +64,7 @@ exports.handler = async function(event) {
         console.log('✅ Shipment created:', shipmentResult.object_id);
 
         const rates = shipmentResult.rates
-            .filter(rate => rate.available)
+            .filter(rate => rate.amount && parseFloat(rate.amount) > 0)  // ✅ Fixed filter
             .map(rate => ({
                 object_id: rate.object_id,
                 provider: rate.provider,
@@ -76,11 +76,10 @@ exports.handler = async function(event) {
                 currency: rate.currency,
                 estimated_days: rate.estimated_days,
                 duration_terms: rate.duration_terms,
-                carrier_account: rate.carrier_account
+                attributes: rate.attributes || []  // ✅ Include CHEAPEST/FASTEST attributes
             }))
             .sort((a, b) => a.amount - b.amount);
-
-        // ✅ FIX 2: Added missing opening parenthesis
+        
         console.log(`✅ Found ${rates.length} available rates`);
 
         return {
