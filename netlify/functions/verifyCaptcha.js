@@ -4,7 +4,7 @@ const GCP_PROJECT_ID = process.env.GCP_PROJECT_ID;
 const GCP_API_KEY = process.env.GCP_API_KEY;
 
 // ✅ Must match the key used in index.html exactly
-const RECAPTCHA_SITE_KEY = 'AIzaSyBx26gUu65CUPbyvPfcWzUbVm4S0K9eeIg';
+const RECAPTCHA_SITE_KEY = process.env.RECAPTCHA_SECRET_KEY;
 const ACTION = 'register';
 
 exports.handler = async (event, context) => {
