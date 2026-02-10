@@ -29,39 +29,37 @@ function formatPrice(cents) {
     }).format(cents / 100);
 }
 
-    async function getTemplateHtml(languageCode) {
-        const filename = (languageCode === 'es') 
-            ? "orderConfirmationTemplateSpanish.html" 
-            : "orderConfirmationTemplate.html";
+async function getTemplateHtml(languageCode) {
+    const filename = (languageCode === 'es') 
+        ? "orderConfirmationTemplateSpanish.html" 
+        : "orderConfirmationTemplate.html";
+    
+    try {
+        // ✅ NOW: Templates are in the sibling emailTemplates folder
+        const templatePath = path.resolve(__dirname, "emailTemplates", filename);
+        console.log('📂 Loading template from:', templatePath);
         
-        try {
-            // ✅ CORRECT PATH: From netlify/functions/ go into sendOrderConfirmation/emailTemplates/
-            const templatePath = path.resolve(__dirname, "sendOrderConfirmation", "emailTemplates", filename);
-            console.log('📂 Attempting to load template from:', templatePath);
-            
-            const templateContent = await fs.readFile(templatePath, "utf8");
-            console.log('✅ Template loaded successfully');
-            return templateContent;
-            
-        } catch (error) {
-            console.error(`❌ Failed to load template ${filename}:`, error.message);
-            console.error('__dirname is:', __dirname);
-            console.error('Attempted path was:', path.resolve(__dirname, "sendOrderConfirmation", "emailTemplates", filename));
-            
-            // Try fallback to English template
-            if (languageCode === 'es') {
-                console.log('⚠️ Falling back to English template...');
-                try {
-                    const fallbackPath = path.resolve(__dirname, "sendOrderConfirmation", "emailTemplates", "orderConfirmationTemplate.html");
-                    return await fs.readFile(fallbackPath, "utf8");
-                } catch (fallbackError) {
-                    console.error('❌ Fallback to English also failed:', fallbackError.message);
-                }
+        const templateContent = await fs.readFile(templatePath, "utf8");
+        console.log('✅ Template loaded successfully');
+        return templateContent;
+        
+    } catch (error) {
+        console.error(`❌ Failed to load template ${filename}:`, error.message);
+        
+        // Try fallback to English template
+        if (languageCode === 'es') {
+            console.log('⚠️ Falling back to English template...');
+            try {
+                const fallbackPath = path.resolve(__dirname, "emailTemplates", "orderConfirmationTemplate.html");
+                return await fs.readFile(fallbackPath, "utf8");
+            } catch (fallbackError) {
+                console.error('❌ Fallback failed:', fallbackError.message);
             }
-            
-            throw new Error(`Could not load email template: ${filename}. Check that netlify/functions/sendOrderConfirmation/emailTemplates/ exists and contains the template files.`);
         }
+        
+        throw new Error(`Could not load email template: ${filename}`);
     }
+}
 
 function generateTableRows(items) {
     return items.map(item => {
