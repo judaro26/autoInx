@@ -415,6 +415,11 @@
                 if (!res.ok) throw new Error("Config fetch failed");
                 const config = await res.json();
                 chatWidgetEnabled = !!config.chatWidgetEnabled && !config.maintenanceMode;
+                
+                // ✅ NEW: Store schedule from config
+                if (config.chatSchedule) {
+                    window.businessSchedule = config.chatSchedule;
+                }
             } catch (err) {
                 console.warn("Config error:", err);
                 chatWidgetEnabled = false;
@@ -465,6 +470,50 @@
             $('header-container').innerHTML = headerHtml;
         }
 
+        function getBusinessHoursDisplay() {
+            const schedule = window.businessSchedule;
+            if (!schedule) return null;
+        
+            const DAY_NAMES = {
+                es: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+                en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+            };
+        
+            const days = (schedule.activeDays || [1,2,3,4,5]).sort();
+            const names = days.map(d => DAY_NAMES[currentLang][d]);
+        
+            // Format as range if consecutive (e.g. Mon-Fri), otherwise list them
+            let daysStr;
+            const isConsecutive = days.every((d, i) => i === 0 || d === days[i-1] + 1);
+            if (isConsecutive && days.length > 2) {
+                daysStr = currentLang === 'es'
+                    ? `${names[0]} a ${names[names.length - 1]}`
+                    : `${names[0]} to ${names[names.length - 1]}`;
+            } else if (days.length === 1) {
+                daysStr = names[0];
+            } else {
+                daysStr = names.join(', ');
+            }
+        
+            // Format times (convert 24h "08:00" → "8:00 AM")
+            function fmt24to12(timeStr) {
+                if (!timeStr) return '';
+                const [h, m] = timeStr.split(':').map(Number);
+                const period = h >= 12 ? 'PM' : 'AM';
+                const hour12 = h % 12 || 12;
+                return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+            }
+        
+            const openTime = fmt24to12(schedule.enableTime || '08:00');
+            const closeTime = fmt24to12(schedule.disableTime || '20:00');
+        
+            return {
+                days: daysStr,
+                hours: `${openTime} - ${closeTime}`
+            };
+        }
+        
+
         function renderContent() {
             $('main-heading').textContent = t('heading');
             $('response-guarantee').textContent = t('guarantee');
@@ -484,8 +533,9 @@
             $('buttonText').textContent = t('sendBtn');
             $('sidebar-title').innerHTML = `<i class="fas fa-bolt mr-4 text-4xl sm:text-5xl"></i>${t('immediateResponse')}`;
             $('hours-title').textContent = t('hoursTitle');
-            $('hours-days').textContent = t('hoursDays');
-            $('hours-time').textContent = t('hoursTime');
+            const liveHours = getBusinessHoursDisplay();
+            $('hours-days').textContent = liveHours ? liveHours.days : t('hoursDays');
+            $('hours-time').textContent = liveHours ? liveHours.hours : t('hoursTime');
             $('hours-zone').textContent = t('hoursZone');
             $('footer-tagline').textContent = t('footerTagline');
             if ($('langButtonFallback')) {
