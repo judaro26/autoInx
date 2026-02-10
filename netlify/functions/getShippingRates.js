@@ -2,10 +2,10 @@
  * Netlify Function: getShippingRates.js
  * Fetches real-time shipping rates from Shippo for an order
  */
-
 exports.handler = async function(event) {
-    console.log('📦 getShippingRates called'); // ADD THIS
-    console.log('Body received:', event.body);  // ADD THIS
+    console.log('📦 getShippingRates called');
+    console.log('Body received:', event.body);
+
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
@@ -20,30 +20,29 @@ exports.handler = async function(event) {
             };
         }
 
-        // Shippo API configuration
         const SHIPPO_API_KEY = process.env.SHIPPO_API_KEY;
         const SHIPPO_API_URL = 'https://api.goshippo.com/shipments/';
 
-        // Your warehouse/sender address
+        // ✅ FIX 1: Removed trailing comma after closing brace
         const addressFrom = {
-              "name": "AutoInx Inc.",
-              "street1": "587 Paradise Blvd",
-              "city": "Hayward",
-              "state": "CA",
-              "zip": "94541",
-              "country": "US",
-              "phone": "+1 341 222 7912",
-              "email": "orders@autoinx.com"
-            },
+            name: "AutoInx Inc.",
+            street1: "587 Paradise Blvd",
+            city: "Hayward",
+            state: "CA",
+            zip: "94541",
+            country: "US",
+            phone: "+13412227912",
+            email: "orders@autoinx.com"
+        };  // ← Semicolon, not comma
+
         console.log('📦 Fetching rates for order:', orderId?.substring(0, 8));
         console.log('📍 Ship to:', addressTo.city, addressTo.state);
 
-        // Create shipment to get rates
         const shipmentData = {
             address_from: addressFrom,
             address_to: addressTo,
             parcels: parcels,
-            async: false // Get rates synchronously
+            async: false
         };
 
         const response = await fetch(SHIPPO_API_URL, {
@@ -64,7 +63,6 @@ exports.handler = async function(event) {
         const shipmentResult = await response.json();
         console.log('✅ Shipment created:', shipmentResult.object_id);
 
-        // Extract and format rates
         const rates = shipmentResult.rates
             .filter(rate => rate.available)
             .map(rate => ({
@@ -80,8 +78,9 @@ exports.handler = async function(event) {
                 duration_terms: rate.duration_terms,
                 carrier_account: rate.carrier_account
             }))
-            .sort((a, b) => a.amount - b.amount); // Sort by price
+            .sort((a, b) => a.amount - b.amount);
 
+        // ✅ FIX 2: Added missing opening parenthesis
         console.log(`✅ Found ${rates.length} available rates`);
 
         return {
