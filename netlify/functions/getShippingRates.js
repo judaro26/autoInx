@@ -26,16 +26,15 @@ exports.handler = async function(event) {
 
         // Your warehouse/sender address
         const addressFrom = {
-            name: "AutoInx USA",
-            street1: "587 Paradise Blvd",
-            city: "Hayward",
-            state: "CA",
-            zip: "94542",
-            country: "US",
-            phone: "+13412227912",
-            email: "orders@autoinx.com"  // ✅ Reuse your existing email env var
-        };
-
+              "name": "AutoInx Inc.",
+              "street1": "587 Paradise Blvd",
+              "city": "Hayward",
+              "state": "CA",
+              "zip": "94541",
+              "country": "US",
+              "phone": "+1 341 222 7912",
+              "email": "orders@autoinx.com"
+            },
         console.log('📦 Fetching rates for order:', orderId?.substring(0, 8));
         console.log('📍 Ship to:', addressTo.city, addressTo.state);
 
