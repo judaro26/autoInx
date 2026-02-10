@@ -1,162 +1,83 @@
 const Telnyx = require('telnyx');
 
-// ─── CONFIGURATION CHECK ──────────────────────────────────────────────────────
 const API_KEY = process.env.TELNYX_API_KEY;
 const SENDER_NUMBER = process.env.TELNYX_PHONE_NUMBER;
-
-if (!API_KEY) {
-    console.error("🚨 CRITICAL ERROR: TELNYX_API_KEY is missing from Netlify environment variables.");
-}
-if (!SENDER_NUMBER) {
-    console.error("🚨 CRITICAL ERROR: TELNYX_PHONE_NUMBER is missing from Netlify environment variables.");
-}
 
 // Initialize Telnyx
 const telnyx = Telnyx(API_KEY);
 
-// ─── HELPER: SAFE ERROR LOGGER ────────────────────────────────────────────────
-// This fixes the "undefined" error in your logs by handling different error types
-function logError(context, err) {
-    const errorDetails = err.raw || err.response || err.message || err;
-    console.error(`❌ ${context} Failed:`, JSON.stringify(errorDetails, null, 2));
-}
-
-// ─── MESSAGE TEMPLATES ────────────────────────────────────────────────────────
 function buildMessage(order, lang) {
+    // ... (Keep your existing buildMessage function) ...
     const name     = order.buyerName?.split(' ')[0] || 'Cliente';
     const orderId  = order.id?.slice(-6).toUpperCase() || '------';
-    const total    = order.totalCents ? `$${(order.totalCents / 100).toFixed(2)}` : '';
     const status   = order.status || 'Processing';
     const tracking = order.trackingNumber || null;
 
     const templates = {
         es: {
-            confirmed: `✅ *AutoInx* - Hola ${name}! Tu pedido #${orderId} fue confirmado por ${total}. Te avisaremos cuando sea enviado. ¿Preguntas? Escríbenos aquí.`,
-            processing: `📦 *AutoInx* - Hola ${name}! Tu pedido #${orderId} está siendo preparado. Te notificaremos cuando salga.`,
+            confirmed: `✅ AutoInx: Hola ${name}! Pedido #${orderId} confirmado. Te avisaremos cuando sea enviado.`,
             shipped: tracking
-                ? `🚚 *AutoInx* - Hola ${name}! Tu pedido #${orderId} fue enviado. Rastréalo con: ${tracking}`
-                : `🚚 *AutoInx* - Hola ${name}! Tu pedido #${orderId} fue enviado y está en camino.`,
-            delivered: `🎉 *AutoInx* - Hola ${name}! Tu pedido #${orderId} fue entregado. ¡Gracias por tu compra!`,
-            cancelled: `❌ *AutoInx* - Hola ${name}. Tu pedido #${orderId} fue cancelado. Contáctanos si tienes dudas.`,
+                ? `🚚 AutoInx: Hola ${name}! Pedido #${orderId} enviado. Tracking: ${tracking}`
+                : `🚚 AutoInx: Hola ${name}! Pedido #${orderId} enviado.`,
+            delivered: `🎉 AutoInx: Pedido #${orderId} entregado. Gracias!`,
+            cancelled: `❌ AutoInx: Pedido #${orderId} cancelado.`,
         },
         en: {
-            confirmed: `✅ *AutoInx* - Hi ${name}! Your order #${orderId} has been confirmed for ${total}. We'll notify you when it ships. Questions? Reply here.`,
-            processing: `📦 *AutoInx* - Hi ${name}! Your order #${orderId} is being prepared. We'll notify you when it's on its way.`,
+            confirmed: `✅ AutoInx: Hi ${name}! Order #${orderId} confirmed. We'll notify you when it ships.`,
             shipped: tracking
-                ? `🚚 *AutoInx* - Hi ${name}! Your order #${orderId} has shipped. Track it: ${tracking}`
-                : `🚚 *AutoInx* - Hi ${name}! Your order #${orderId} has shipped and is on its way.`,
-            delivered: `🎉 *AutoInx* - Hi ${name}! Your order #${orderId} was delivered. Thank you for your purchase!`,
-            cancelled: `❌ *AutoInx* - Hi ${name}. Your order #${orderId} was cancelled. Contact us if you have questions.`,
+                ? `🚚 AutoInx: Hi ${name}! Order #${orderId} shipped. Track: ${tracking}`
+                : `🚚 AutoInx: Hi ${name}! Order #${orderId} shipped.`,
+            delivered: `🎉 AutoInx: Order #${orderId} delivered. Thanks!`,
+            cancelled: `❌ AutoInx: Order #${orderId} cancelled.`,
         }
     };
 
     const lang_templates = templates[lang] || templates['es'];
     const statusKey = status.toLowerCase();
+    // Default to 'confirmed' if status not found
     return lang_templates[statusKey] || lang_templates['confirmed'];
 }
 
-// ─── SEND VIA WHATSAPP (TELNYX) ───────────────────────────────────────────────
-async function sendWhatsApp(toPhone, message) {
-    const normalized = toPhone.replace(/\D/g, '');
-    
-    return telnyx.messages.create({
-        from: SENDER_NUMBER,
-        to: `+${normalized}`,
-        text: message, // Telnyx uses 'text', Twilio uses 'body'
-        type: 'whatsapp'
-    });
-}
-
-// ─── SEND VIA SMS (TELNYX) ────────────────────────────────────────────────────
-async function sendSMS(toPhone, message) {
-    const normalized = toPhone.replace(/\D/g, '');
-    const plainText = message.replace(/\*/g, ''); // Strip Markdown
-
-    return telnyx.messages.create({
-        from: SENDER_NUMBER,
-        to: `+${normalized}`,
-        text: plainText, // Telnyx uses 'text', Twilio uses 'body'
-        type: 'sms'
-    });
-}
-
-// ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 exports.handler = async (event) => {
-    // 1. Method Check
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+        return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
     try {
-        // 2. Parse Body
         const { order } = JSON.parse(event.body);
-        if (!order) {
-            return { statusCode: 400, body: JSON.stringify({ error: 'Missing order data' }) };
+        if (!order || !order.buyerPhone) {
+            return { statusCode: 200, body: JSON.stringify({ skipped: true }) };
         }
 
-        const phone          = order.buyerPhone;
-        const wantsWhatsApp  = order.whatsappConsent === true;
-        const wantsSMS       = order.smsConsent === true;
-        const lang           = order.language || 'es';
+        // 1. Build Message
+        // SMS doesn't support bolding (*), so we strip it out
+        const rawMessage = buildMessage(order, order.language || 'es');
+        const smsMessage = rawMessage.replace(/\*/g, ''); 
 
-        // 3. Early Exit
-        if (!phone || (!wantsWhatsApp && !wantsSMS)) {
+        // 2. Send SMS (The part we know works!)
+        try {
+            const normalized = order.buyerPhone.replace(/\D/g, '');
+            const msg = await telnyx.messages.create({
+                from: SENDER_NUMBER,
+                to: `+${normalized}`,
+                text: smsMessage,
+                type: 'sms'
+            });
+
+            console.log(`✅ SMS sent to ${order.buyerPhone} | ID: ${msg.data.id}`);
+            
             return {
                 statusCode: 200,
-                body: JSON.stringify({ success: true, skipped: true, reason: 'No phone or no notification consent' })
+                body: JSON.stringify({ success: true, sid: msg.data.id })
             };
+
+        } catch (err) {
+            console.error('❌ SMS Failed:', JSON.stringify(err, null, 2));
+            return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
         }
-
-        // 4. Send Logic
-        const message = buildMessage(order, lang);
-        const results = [];
-
-        // WhatsApp Priority
-        if (wantsWhatsApp) {
-            try {
-                const msg = await sendWhatsApp(phone, message);
-                const sid = msg.data ? msg.data.id : msg.id;
-                results.push({ channel: 'whatsapp', sid: sid, status: 'queued' });
-                console.log(`✅ WhatsApp sent to ${phone} | ID: ${sid}`);
-            } catch (err) {
-                logError("WhatsApp", err);
-                
-                // Fallback to SMS if WhatsApp fails
-                if (wantsSMS) {
-                    try {
-                        console.log(`⚠️ Attempting SMS Fallback for ${phone}...`);
-                        const msg = await sendSMS(phone, message);
-                        const sid = msg.data ? msg.data.id : msg.id;
-                        results.push({ channel: 'sms_fallback', sid: sid, status: 'queued' });
-                        console.log(`✅ SMS fallback sent to ${phone} | ID: ${sid}`);
-                    } catch (smsErr) {
-                         logError("SMS Fallback", smsErr);
-                    }
-                }
-            }
-        } 
-        // SMS Only
-        else if (wantsSMS) {
-            try {
-                const msg = await sendSMS(phone, message);
-                const sid = msg.data ? msg.data.id : msg.id;
-                results.push({ channel: 'sms', sid: sid, status: 'queued' });
-                console.log(`✅ SMS sent to ${phone} | ID: ${sid}`);
-            } catch (err) {
-                 logError("SMS", err);
-            }
-        }
-
-        return {
-            statusCode: 200,
-            body: JSON.stringify({ success: true, results })
-        };
 
     } catch (error) {
-        console.error('🚨 Global Handler Error:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Failed to send notification', details: error.toString() })
-        };
+        console.error('Handler Error:', error);
+        return { statusCode: 500, body: error.toString() };
     }
 };
