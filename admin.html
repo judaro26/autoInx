@@ -3855,6 +3855,7 @@
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) throw new Error('Order not found');
         
+                // Get all updated values
                 const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
                     id: entry.item.id,
                     name: entry.item.name,
@@ -3864,24 +3865,58 @@
                 }));
         
                 const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                const newTotal = newSubtotal + (order.shippingCents || 0) + (order.taxCents || 0);
+                const shippingCents = Math.round(parseFloat(document.getElementById('editShippingCents')?.value || 0) * 100);
+                const taxCents = Math.round(parseFloat(document.getElementById('editTaxCents')?.value || 0) * 100);
+                const newTotal = newSubtotal + shippingCents + taxCents;
         
-                // ✅ Get the new status from dropdown
                 const newStatus = document.getElementById('editOrderStatus')?.value || order.status;
+                const newPaymentStatus = document.getElementById('editPaymentStatus')?.value === 'true';
+                
+                // Customer info
+                const buyerName = document.getElementById('editBuyerName')?.value?.trim();
+                const buyerEmail = document.getElementById('editBuyerEmail')?.value?.trim();
+                const buyerPhone = document.getElementById('editBuyerPhone')?.value?.trim();
+                const language = document.getElementById('editLanguage')?.value;
+                
+                // Address
+                const street = document.getElementById('editStreet')?.value?.trim();
+                const city = document.getElementById('editCity')?.value?.trim();
+                const stateZip = document.getElementById('editStateZip')?.value?.trim();
+                const deliveryAddress = `${street}, ${city}, ${stateZip}`;
+                
+                const orderNotes = document.getElementById('editOrderNotes')?.value?.trim();
+        
+                // Validation
+                if (!buyerName || !buyerEmail || !street || !city || !stateZip) {
+                    showMessage('error', 'Please fill in all required fields (marked with *)', 5000, 'orders');
+                    return;
+                }
         
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
         
-                await updateDoc(orderRef, {
+                const updates = {
                     items: newItems,
                     subtotalCents: newSubtotal,
+                    shippingCents: shippingCents,
+                    taxCents: taxCents,
                     totalCents: newTotal,
-                    status: newStatus, // ✅ Update status
+                    status: newStatus,
+                    isPaid: newPaymentStatus,
+                    buyerName: buyerName,
+                    buyerEmail: buyerEmail,
+                    buyerPhone: buyerPhone,
+                    deliveryAddress: deliveryAddress,
+                    language: language,
+                    communicationLang: language,
+                    adminNotes: orderNotes,
                     updatedAt: serverTimestamp()
-                });
+                };
         
-                // ✅ Send email if status changed
+                await updateDoc(orderRef, updates);
+        
+                // Send email if status changed
                 if (newStatus !== order.status) {
                     try {
                         await fetch('/.netlify/functions/sendStatusUpdate', {
@@ -3890,19 +3925,25 @@
                             body: JSON.stringify({
                                 orderId: orderId,
                                 orderNumber: order.orderNumber || orderId.substring(0, 8),
-                                buyerEmail: order.buyerEmail,
-                                buyerName: order.buyerName,
+                                buyerEmail: buyerEmail,
+                                buyerName: buyerName,
+                                oldStatus: order.status,
                                 newStatus: newStatus,
-                                language: order.language || 'en'
+                                language: language
                             })
                         });
+                        console.log('✅ Status update email sent');
                     } catch (emailError) {
-                        console.warn('Email failed:', emailError);
+                        console.warn('⚠️ Email notification failed:', emailError);
                     }
                 }
         
-                await logAdminAction('ORDER_UPDATED', { orderId, newItems, newStatus }, orderId);
-                showMessage('success', 'Order updated successfully!', 3000, 'orders');
+                await logAdminAction('ORDER_UPDATED', { 
+                    orderId, 
+                    changes: { newItems, newStatus, newPaymentStatus, buyerEmail, deliveryAddress } 
+                }, orderId);
+                
+                showMessage('success', 'Order updated successfully! Email sent if status changed.', 5000, 'orders');
                 closeEditModal();
         
             } catch (error) {
@@ -3917,62 +3958,199 @@
                 `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`
             ).join('');
         
+            // Parse address for editing
+            const addressParts = (order.deliveryAddress || '').split(',');
+            const street = addressParts[0]?.trim() || '';
+            const city = addressParts[1]?.trim() || '';
+            const stateZip = addressParts[2]?.trim() || '';
+        
             return `
-                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                        <h3 class="text-xl font-bold mb-4">Edit Order ${order.orderNumber || order.id.substring(0, 8)}</h3>
-                        
-                        <!-- ✅ ADD Status Dropdown -->
-                        <div class="mb-4 p-4 bg-gray-50 rounded-lg">
-                            <label class="block text-sm font-semibold mb-2">Order Status</label>
-                            <select id="editOrderStatus" class="w-full p-2 border rounded-lg">
-                                ${statusDropdown}
-                            </select>
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                        <!-- Header -->
+                        <div class="sticky top-0 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-lg">
+                            <h3 class="text-2xl font-bold">📝 Edit Order #${order.orderNumber || order.id.substring(0, 8)}</h3>
+                            <p class="text-sm opacity-90 mt-1">Created: ${formatTime(order.createdAt)}</p>
                         </div>
         
-                        <!-- Order Items -->
-                        <div class="mb-4">
-                            <h4 class="font-semibold mb-2">Order Items</h4>
-                            <div id="editOrderItemsDisplay" class="mb-4"></div>
-                            
-                            <div class="border-t pt-4">
-                                <select id="editItemSelector" class="w-full p-2 border rounded mb-2">
-                                    <option value="">-- Add Item --</option>
-                                    ${state.items.map(item => `
-                                        <option value="${item.id}">${escapeHtml(item.name)} - ${formatPriceDisplay(item.price)}</option>
-                                    `).join('')}
-                                </select>
-                                <div class="flex gap-2">
-                                    <input type="number" id="editItemQuantity" value="1" min="1" class="w-20 p-2 border rounded">
-                                    <button onclick="window.module.addDraftCartItem()" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
-                                        Add Item
-                                    </button>
+                        <div class="p-6 space-y-6">
+                            <!-- Status & Payment -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                                <div>
+                                    <label class="block text-sm font-bold mb-2 text-gray-700">Order Status</label>
+                                    <select id="editOrderStatus" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
+                                        ${statusDropdown}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold mb-2 text-gray-700">Payment Status</label>
+                                    <select id="editPaymentStatus" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
+                                        <option value="false" ${!order.isPaid ? 'selected' : ''}>❌ Unpaid</option>
+                                        <option value="true" ${order.isPaid ? 'selected' : ''}>✅ Paid</option>
+                                    </select>
                                 </div>
                             </div>
+        
+                            <!-- Customer Information -->
+                            <div class="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
+                                <h4 class="font-bold text-lg mb-3 text-blue-800 flex items-center">
+                                    👤 Customer Information
+                                </h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Full Name *</label>
+                                        <input type="text" id="editBuyerName" value="${escapeAttribute(order.buyerName || '')}" 
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Email *</label>
+                                        <input type="email" id="editBuyerEmail" value="${escapeAttribute(order.buyerEmail || '')}" 
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Phone</label>
+                                        <input type="tel" id="editBuyerPhone" value="${escapeAttribute(order.buyerPhone || '')}" 
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Language</label>
+                                        <select id="editLanguage" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
+                                            <option value="en" ${(order.language || 'en') === 'en' ? 'selected' : ''}>English</option>
+                                            <option value="es" ${(order.language || 'en') === 'es' ? 'selected' : ''}>Español</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+        
+                            <!-- Delivery Address -->
+                            <div class="border-2 border-green-200 rounded-lg p-4 bg-green-50">
+                                <h4 class="font-bold text-lg mb-3 text-green-800 flex items-center">
+                                    🚚 Delivery Address
+                                </h4>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Street Address *</label>
+                                        <input type="text" id="editStreet" value="${escapeAttribute(street)}" 
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200" required>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-semibold mb-1 text-gray-700">City *</label>
+                                            <input type="text" id="editCity" value="${escapeAttribute(city)}" 
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200" required>
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-semibold mb-1 text-gray-700">State & ZIP *</label>
+                                            <input type="text" id="editStateZip" value="${escapeAttribute(stateZip)}" 
+                                                   placeholder="CA 90210"
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200" required>
+                                        </div>
+                                    </div>
+                                    ${order.geolocation ? `
+                                        <div class="text-xs text-gray-600 bg-white p-2 rounded border border-gray-200">
+                                            📍 Coordinates: ${order.geolocation.lat.toFixed(6)}, ${order.geolocation.lng.toFixed(6)}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+        
+                            <!-- Order Items -->
+                            <div class="border-2 border-purple-200 rounded-lg p-4 bg-purple-50">
+                                <h4 class="font-bold text-lg mb-3 text-purple-800 flex items-center">
+                                    🛒 Order Items
+                                </h4>
+                                <div id="editOrderItemsDisplay" class="mb-4 space-y-2"></div>
+                                
+                                <!-- Add Item -->
+                                <div class="border-t-2 border-purple-200 pt-4 mt-4">
+                                    <p class="text-sm font-semibold text-gray-700 mb-2">Add Item to Order</p>
+                                    <div class="flex gap-2 flex-wrap">
+                                        <select id="editItemSelector" class="flex-1 min-w-[200px] p-2 border-2 border-gray-300 rounded-lg focus:border-purple-500">
+                                            <option value="">-- Select Product --</option>
+                                            ${state.items.map(item => `
+                                                <option value="${item.id}">${escapeHtml(item.name)} - ${formatPriceDisplay(item.price)}</option>
+                                            `).join('')}
+                                        </select>
+                                        <input type="number" id="editItemQuantity" value="1" min="1" 
+                                               class="w-20 p-2 border-2 border-gray-300 rounded-lg focus:border-purple-500">
+                                        <button onclick="window.module.addDraftCartItem()" 
+                                                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold shadow-md">
+                                            + Add
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+        
+                            <!-- Pricing Breakdown -->
+                            <div class="border-2 border-indigo-200 rounded-lg p-4 bg-indigo-50">
+                                <h4 class="font-bold text-lg mb-3 text-indigo-800">💰 Pricing Breakdown</h4>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center text-sm">
+                                        <span class="font-semibold text-gray-700">Subtotal:</span>
+                                        <span id="editOrderSubtotal" class="font-bold text-gray-900"></span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-sm">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-semibold text-gray-700">Shipping:</span>
+                                            <input type="number" id="editShippingCents" step="0.01" 
+                                                   value="${((order.shippingCents || 0) / 100).toFixed(2)}"
+                                                   onchange="window.module.updateDraftCartDisplay()"
+                                                   class="w-24 p-1 border rounded text-right text-xs" placeholder="0.00">
+                                        </div>
+                                        <span id="editOrderShipping" class="font-bold text-gray-900"></span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-sm">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-semibold text-gray-700">Tax:</span>
+                                            <input type="number" id="editTaxCents" step="0.01" 
+                                                   value="${((order.taxCents || 0) / 100).toFixed(2)}"
+                                                   onchange="window.module.updateDraftCartDisplay()"
+                                                   class="w-24 p-1 border rounded text-right text-xs" placeholder="0.00">
+                                        </div>
+                                        <span id="editOrderTax" class="font-bold text-gray-900"></span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-lg border-t-2 border-indigo-300 pt-3">
+                                        <span class="font-black text-indigo-900">TOTAL:</span>
+                                        <span id="editOrderTotal" class="font-black text-indigo-900"></span>
+                                    </div>
+                                </div>
+                            </div>
+        
+                            <!-- Order Notes -->
+                            <div class="border-2 border-yellow-200 rounded-lg p-4 bg-yellow-50">
+                                <h4 class="font-bold text-lg mb-2 text-yellow-800">📝 Order Notes</h4>
+                                <textarea id="editOrderNotes" rows="3" 
+                                          class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:ring-2 focus:ring-yellow-200"
+                                          placeholder="Internal notes about this order...">${escapeHtml(order.adminNotes || order.notes || '')}</textarea>
+                            </div>
+        
+                            ${order.trackingNumber ? `
+                                <div class="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
+                                    <h4 class="font-bold text-lg mb-2 text-blue-800">📦 Shipping Information</h4>
+                                    <div class="space-y-2 text-sm">
+                                        <p><span class="font-semibold">Tracking #:</span> ${order.trackingNumber}</p>
+                                        ${order.shippingCarrier ? `<p><span class="font-semibold">Carrier:</span> ${order.shippingCarrier}</p>` : ''}
+                                        ${order.shippingService ? `<p><span class="font-semibold">Service:</span> ${order.shippingService}</p>` : ''}
+                                    </div>
+                                </div>
+                            ` : ''}
                         </div>
         
-                        <!-- Totals -->
-                        <div class="border-t pt-4 mb-4">
-                            <p class="text-xs text-gray-600 mb-1">Subtotal: <span id="editOrderSubtotal"></span></p>
-                            <p class="text-xs text-gray-600 mb-1">Shipping: <span id="editOrderShipping"></span></p>
-                            <p class="text-xs text-gray-600 mb-3">Tax: <span id="editOrderTax"></span></p>
-                            <p class="text-lg font-bold">Total: <span id="editOrderTotal"></span></p>
-                        </div>
-        
-                        <!-- Action Buttons -->
-                        <div class="flex gap-2 mt-4">
-                            <button onclick="window.module.updateOrder('${order.id}')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-                                💾 Save Changes
+                        <!-- Footer Actions -->
+                        <div class="sticky bottom-0 bg-gray-100 p-6 rounded-b-lg border-t-2 border-gray-300 flex gap-3">
+                            <button onclick="window.module.updateOrder('${order.id}')" 
+                                    class="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-bold shadow-lg transform hover:scale-105 transition">
+                                💾 Save All Changes
                             </button>
-                            <button onclick="window.module.closeEditModal()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
-                                Cancel
+                            <button onclick="window.module.closeEditModal()" 
+                                    class="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-bold shadow-lg">
+                                ✖ Cancel
                             </button>
                         </div>
                     </div>
                 </div>
             `;
         }
-
         async function handleResendReceipt(orderId) {
             resetTimer();
             const order = state.orders.find(o => o.id === orderId);
@@ -4361,48 +4539,56 @@
                 const subtotalEl = document.getElementById('editOrderSubtotal');
                 const shippingEl = document.getElementById('editOrderShipping');
                 const taxEl = document.getElementById('editOrderTax');
-
+            
                 if (!cartEl || !totalEl) return;
-
+            
                 let subtotalCents = 0;
                 const itemsInCart = Object.values(state.editingOrderDraftCart);
-
+            
                 if (itemsInCart.length === 0) {
-                    cartEl.innerHTML = '<p class="text-gray-500 italic text-xs">No items</p>';
+                    cartEl.innerHTML = '<p class="text-gray-500 italic text-sm text-center py-4">No items in order</p>';
                 } else {
                     cartEl.innerHTML = itemsInCart.map(entry => {
                         const itemSubtotal = entry.item.price * entry.quantity;
                         subtotalCents += itemSubtotal;
                         return `
-                            <div class="flex justify-between items-center py-2 border-b text-xs">
-                                <span class="truncate font-semibold">${escapeHtml(entry.item.name)}</span>
-                                <div class="flex items-center space-x-2">
-                                    <input type="number" value="${entry.quantity}" min="1" 
-                                           onchange="window.module.updateDraftItemQuantity(this.value, '${escapeAttribute(entry.item.id)}')"
-                                           class="w-10 border rounded text-center">
-                                    <span class="font-bold">${formatPriceDisplay(itemSubtotal)}</span>
-                                    <button type="button" onclick="window.module.removeDraftCartItem('${escapeAttribute(entry.item.id)}')" 
-                                            class="text-red-500">×</button>
+                            <div class="flex justify-between items-center p-3 bg-white border border-gray-200 rounded-lg hover:shadow-md transition">
+                                <div class="flex-1 min-w-0">
+                                    <p class="font-semibold text-gray-900 truncate">${escapeHtml(entry.item.name)}</p>
+                                    <p class="text-xs text-gray-500">SKU: ${entry.item.sku || 'N/A'} • ${formatPriceDisplay(entry.item.price)} each</p>
+                                </div>
+                                <div class="flex items-center gap-3 ml-4">
+                                    <div class="flex items-center gap-1">
+                                        <button onclick="window.module.adjustDraftItemQuantity('${escapeAttribute(entry.item.id)}', -1)" 
+                                                class="w-6 h-6 bg-red-100 hover:bg-red-200 text-red-600 rounded font-bold">−</button>
+                                        <input type="number" value="${entry.quantity}" min="1" 
+                                               onchange="window.module.updateDraftItemQuantity(this.value, '${escapeAttribute(entry.item.id)}')"
+                                               class="w-14 p-1 border-2 border-gray-300 rounded text-center font-semibold">
+                                        <button onclick="window.module.adjustDraftItemQuantity('${escapeAttribute(entry.item.id)}', 1)" 
+                                                class="w-6 h-6 bg-green-100 hover:bg-green-200 text-green-600 rounded font-bold">+</button>
+                                    </div>
+                                    <span class="font-bold text-purple-700 min-w-[60px] text-right">${formatPriceDisplay(itemSubtotal)}</span>
+                                    <button onclick="window.module.removeDraftCartItem('${escapeAttribute(entry.item.id)}')" 
+                                            class="text-red-500 hover:text-red-700 font-bold text-lg">×</button>
                                 </div>
                             </div>`;
                     }).join('');
                 }
-
-                // Get shipping and tax from the original order being edited
-                const currentOrder = state.orders.find(o => o.id === state.editingOrderId);
-                const shippingCents = currentOrder?.shippingCents || 0;
-                const taxCents = currentOrder?.taxCents || 0;
+            
+                // Get shipping and tax from inputs or original order
+                const shippingInput = document.getElementById('editShippingCents');
+                const taxInput = document.getElementById('editTaxCents');
+                
+                const shippingCents = shippingInput ? Math.round(parseFloat(shippingInput.value || 0) * 100) : 0;
+                const taxCents = taxInput ? Math.round(parseFloat(taxInput.value || 0) * 100) : 0;
                 const grandTotal = subtotalCents + shippingCents + taxCents;
-
+            
                 // Update all displays
                 if (subtotalEl) subtotalEl.textContent = formatPriceDisplay(subtotalCents);
                 if (shippingEl) shippingEl.textContent = formatPriceDisplay(shippingCents);
                 if (taxEl) taxEl.textContent = formatPriceDisplay(taxCents);
                 totalEl.textContent = formatPriceDisplay(grandTotal);
-
-                this.recalculateBilling();
             },
-
             addDraftCartItem,
             removeDraftCartItem,
             updateDraftItemQuantity,
@@ -4448,6 +4634,17 @@
                 const container = document.getElementById('app').querySelector('main');
                 if (container && state.activeTab === 'financials') {
                     container.innerHTML = renderFinancialsSection();
+                }
+            },
+            adjustDraftItemQuantity: function(itemId, delta) {
+                const currentEntry = state.editingOrderDraftCart[itemId];
+                if (!currentEntry) return;
+                
+                const newQuantity = currentEntry.quantity + delta;
+                if (newQuantity <= 0) {
+                    this.removeDraftCartItem(itemId);
+                } else {
+                    this.updateDraftItemQuantity(newQuantity, itemId);
                 }
             }
         };
