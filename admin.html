@@ -4449,51 +4449,97 @@
 
         function renderShippingLabelModal(order) {
             return `
-                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div class="bg-white rounded-lg p-6 max-w-lg w-full">
-                        <h3 class="text-xl font-bold mb-4">Create Shipping Label</h3>
-                        <form id="shippingLabelForm">
-                            <div class="mb-3">
-                                <label class="block text-sm font-semibold mb-1">Carrier</label>
-                                <select id="shippingCarrier" class="w-full p-2 border rounded" required>
-                                    <option value="">Select Carrier</option>
-                                    <option value="USPS">USPS</option>
-                                    <option value="UPS">UPS</option>
-                                    <option value="FedEx">FedEx</option>
-                                    <option value="DHL">DHL</option>
-                                </select>
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-lg shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                        <!-- Header -->
+                        <div class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6 rounded-t-lg">
+                            <h3 class="text-2xl font-bold">📦 Generate Shipping Label</h3>
+                            <p class="text-sm opacity-90 mt-1">Order #${order.orderNumber || order.id.substring(0, 8)}</p>
+                        </div>
+        
+                        <div class="p-6 space-y-6">
+                            <!-- Delivery Address Display -->
+                            <div class="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
+                                <h4 class="font-bold text-blue-800 mb-2">📍 Delivery Address</h4>
+                                <div class="text-sm text-gray-700">
+                                    <p class="font-semibold">${escapeHtml(order.buyerName)}</p>
+                                    <p>${escapeHtml(order.deliveryAddress)}</p>
+                                    ${order.buyerPhone ? `<p>📞 ${escapeHtml(order.buyerPhone)}</p>` : ''}
+                                    <p>📧 ${escapeHtml(order.buyerEmail)}</p>
+                                </div>
                             </div>
-                            <div class="mb-3">
-                                <label class="block text-sm font-semibold mb-1">Service Level</label>
-                                <select id="shippingService" class="w-full p-2 border rounded" required>
-                                    <option value="">Select Service</option>
-                                    <option value="Ground">Ground</option>
-                                    <option value="Priority">Priority</option>
-                                    <option value="Express">Express</option>
-                                    <option value="Overnight">Overnight</option>
-                                </select>
-                            </div>
-                            <div class="mb-3">
-                                <label class="block text-sm font-semibold mb-1">Package Weight (lbs)</label>
-                                <input type="number" id="packageWeight" step="0.1" value="1.0" class="w-full p-2 border rounded" required>
-                            </div>
-                            <div class="mb-3">
-                                <label class="block text-sm font-semibold mb-1">Package Value ($)</label>
-                                <input type="number" id="packageValue" step="0.01" value="${(order.totalCents / 100).toFixed(2)}" class="w-full p-2 border rounded">
-                            </div>
-                            <div class="mb-3">
-                                <label class="block text-sm font-semibold mb-1">Notes</label>
-                                <textarea id="shippingNotes" class="w-full p-2 border rounded" rows="2"></textarea>
-                            </div>
-                            <div class="flex gap-2">
-                                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
-                                    Generate Label
+        
+                            <!-- Package Details -->
+                            <div class="bg-gray-50 p-4 rounded-lg border-2 border-gray-200">
+                                <h4 class="font-bold text-gray-800 mb-3">📏 Package Details</h4>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-semibold mb-1 text-gray-700">Weight (lbs)</label>
+                                        <input type="number" id="packageWeight" step="0.1" value="1.0" min="0.1" required
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold mb-1 text-gray-700">Declared Value ($)</label>
+                                        <input type="number" id="packageValue" step="0.01" value="${((order.totalCents || 0) / 100).toFixed(2)}"
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-3 gap-4 mt-4">
+                                    <div>
+                                        <label class="block text-xs font-semibold mb-1 text-gray-700">Length (in)</label>
+                                        <input type="number" id="packageLength" value="12" min="1" required
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold mb-1 text-gray-700">Width (in)</label>
+                                        <input type="number" id="packageWidth" value="8" min="1" required
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold mb-1 text-gray-700">Height (in)</label>
+                                        <input type="number" id="packageHeight" value="6" min="1" required
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500">
+                                    </div>
+                                </div>
+                                <button onclick="window.module.fetchShippingRates('${order.id}')" 
+                                        id="getRatesButton"
+                                        class="w-full mt-4 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold shadow-md">
+                                    🔍 Get Real-Time Shipping Quotes
                                 </button>
-                                <button type="button" onclick="window.module.closeShippingModal()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
-                                    Cancel
-                                </button>
                             </div>
-                        </form>
+        
+                            <!-- Shipping Rates Display -->
+                            <div id="shippingRatesContainer" class="hidden">
+                                <div class="bg-green-50 p-4 rounded-lg border-2 border-green-200">
+                                    <h4 class="font-bold text-green-800 mb-3">💵 Available Shipping Options</h4>
+                                    <div id="ratesList" class="space-y-2 max-h-96 overflow-y-auto">
+                                        <!-- Rates will be populated here -->
+                                    </div>
+                                </div>
+                            </div>
+        
+                            <!-- Loading State -->
+                            <div id="shippingLoadingState" class="hidden text-center py-8">
+                                <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-indigo-500 border-t-transparent"></div>
+                                <p class="mt-4 text-gray-600 font-semibold">Fetching shipping rates...</p>
+                            </div>
+        
+                            <!-- Notes -->
+                            <div>
+                                <label class="block text-sm font-semibold mb-2 text-gray-700">📝 Shipping Notes (Optional)</label>
+                                <textarea id="shippingNotes" rows="2" 
+                                          class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500"
+                                          placeholder="Special handling instructions..."></textarea>
+                            </div>
+                        </div>
+        
+                        <!-- Footer -->
+                        <div class="bg-gray-100 p-6 rounded-b-lg border-t-2 border-gray-300 flex gap-3">
+                            <button onclick="window.module.closeShippingModal()" 
+                                    class="flex-1 px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-bold shadow-lg">
+                                Cancel
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -4718,7 +4764,252 @@
             }
         }
         
-
+        // --- SHIPPING FUNCTIONS ---
+        
+        async function fetchShippingRates(orderId) {
+            resetTimer();
+            
+            const order = state.orders.find(o => o.id === orderId);
+            if (!order) {
+                showMessage('error', 'Order not found', 3000, 'orders');
+                return;
+            }
+        
+            // Get package dimensions
+            const weight = parseFloat(document.getElementById('packageWeight')?.value || 1);
+            const length = parseFloat(document.getElementById('packageLength')?.value || 12);
+            const width = parseFloat(document.getElementById('packageWidth')?.value || 8);
+            const height = parseFloat(document.getElementById('packageHeight')?.value || 6);
+        
+            if (!weight || weight <= 0) {
+                showMessage('error', 'Please enter a valid package weight', 3000, 'orders');
+                return;
+            }
+        
+            // Parse delivery address
+            const addressParts = (order.deliveryAddress || '').split(',');
+            const street = addressParts[0]?.trim() || '';
+            const city = addressParts[1]?.trim() || '';
+            const stateZipParts = addressParts[2]?.trim().split(' ') || [];
+            const state = stateZipParts[0] || '';
+            const zip = stateZipParts[1] || '';
+        
+            if (!street || !city || !state || !zip) {
+                showMessage('error', 'Invalid delivery address. Please update the order address first.', 5000, 'orders');
+                return;
+            }
+        
+            const addressTo = {
+                name: order.buyerName,
+                street1: street,
+                city: city,
+                state: state,
+                zip: zip,
+                country: 'US',
+                phone: order.buyerPhone || '',
+                email: order.buyerEmail || ''
+            };
+        
+            const parcels = [{
+                length: length.toString(),
+                width: width.toString(),
+                height: height.toString(),
+                distance_unit: "in",
+                weight: weight.toString(),
+                mass_unit: "lb"
+            }];
+        
+            // Show loading state
+            document.getElementById('shippingLoadingState').classList.remove('hidden');
+            document.getElementById('shippingRatesContainer').classList.add('hidden');
+            document.getElementById('getRatesButton').disabled = true;
+            document.getElementById('getRatesButton').textContent = 'Fetching rates...';
+        
+            try {
+                const response = await fetch('/.netlify/functions/getShippingRates', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
+                    },
+                    body: JSON.stringify({
+                        orderId: orderId,
+                        addressTo: addressTo,
+                        parcels: parcels
+                    })
+                });
+        
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.details || 'Failed to fetch rates');
+                }
+        
+                const data = await response.json();
+                
+                if (!data.rates || data.rates.length === 0) {
+                    throw new Error('No shipping rates available for this destination');
+                }
+        
+                console.log('✅ Received shipping rates:', data.rates);
+                
+                // Store shipment ID for later use
+                state.currentShipmentId = data.shipmentId;
+                
+                // Display rates
+                displayShippingRates(data.rates, orderId);
+                
+            } catch (error) {
+                console.error('❌ Error fetching rates:', error);
+                showMessage('error', `Failed to get shipping rates: ${error.message}`, 5000, 'orders');
+            } finally {
+                document.getElementById('shippingLoadingState').classList.add('hidden');
+                document.getElementById('getRatesButton').disabled = false;
+                document.getElementById('getRatesButton').textContent = '🔍 Get Real-Time Shipping Quotes';
+            }
+        }
+        
+        function displayShippingRates(rates, orderId) {
+            const container = document.getElementById('ratesList');
+            const ratesContainer = document.getElementById('shippingRatesContainer');
+            
+            if (!container || !ratesContainer) return;
+        
+            const ratesHtml = rates.map((rate, index) => {
+                const isCheapest = index === 0;
+                const isFastest = rate.estimated_days === Math.min(...rates.map(r => r.estimated_days));
+                
+                return `
+                    <div class="relative bg-white p-4 rounded-lg border-2 hover:border-indigo-500 transition cursor-pointer ${isCheapest ? 'border-green-500 ring-2 ring-green-200' : 'border-gray-300'}"
+                         onclick="window.module.selectShippingRate('${rate.object_id}', '${orderId}', ${rate.amount}, '${rate.provider}', '${rate.servicelevel.name}')">
+                        
+                        <!-- Best Value Badge -->
+                        ${isCheapest ? '<div class="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">💰 BEST VALUE</div>' : ''}
+                        ${isFastest && !isCheapest ? '<div class="absolute -top-2 -right-2 bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">⚡ FASTEST</div>' : ''}
+                        
+                        <div class="flex justify-between items-center">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="font-bold text-lg">${rate.provider.toUpperCase()}</span>
+                                    <span class="text-sm text-gray-600">${rate.servicelevel.name}</span>
+                                </div>
+                                <div class="flex items-center gap-3 text-sm text-gray-600">
+                                    <span>📦 ${rate.estimated_days} ${rate.estimated_days === 1 ? 'day' : 'days'}</span>
+                                    ${rate.duration_terms ? `<span class="text-xs">• ${rate.duration_terms}</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-2xl font-black text-indigo-700">$${rate.amount.toFixed(2)}</div>
+                                <div class="text-xs text-gray-500">${rate.currency}</div>
+                            </div>
+                        </div>
+                        
+                        <button class="w-full mt-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold text-sm shadow-md"
+                                onclick="event.stopPropagation(); window.module.selectShippingRate('${rate.object_id}', '${orderId}', ${rate.amount}, '${rate.provider}', '${rate.servicelevel.name}')">
+                            Select This Rate & Generate Label
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        
+            container.innerHTML = ratesHtml;
+            ratesContainer.classList.remove('hidden');
+            
+            // Scroll to rates
+            ratesContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        
+        async function selectShippingRate(rateId, orderId, amount, provider, servicelevel) {
+            resetTimer();
+            
+            if (!confirm(`Generate shipping label with ${provider} ${servicelevel} for $${amount.toFixed(2)}?`)) {
+                return;
+            }
+        
+            // Show loading
+            showMessage('info', 'Generating shipping label... Please wait.', 0, 'orders');
+        
+            try {
+                const response = await fetch('/.netlify/functions/generateShippingLabel', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
+                    },
+                    body: JSON.stringify({
+                        rateId: rateId,
+                        orderId: orderId
+                    })
+                });
+        
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.details || 'Failed to generate label');
+                }
+        
+                const result = await response.json();
+                
+                console.log('✅ Label generated:', result);
+        
+                // Update order with tracking info
+                await updateOrderWithTracking(orderId, {
+                    trackingNumber: result.trackingNumber,
+                    trackingUrl: result.trackingUrlProvider,
+                    carrier: result.carrier,
+                    servicelevel: servicelevel,
+                    shippingCost: Math.round(amount * 100), // Convert to cents
+                    labelUrl: result.labelUrl,
+                    transactionId: result.transactionId
+                });
+        
+                // Open label in new window
+                window.open(result.labelUrl, '_blank');
+        
+                showMessage('success', `Label generated! Tracking: ${result.trackingNumber}`, 8000, 'orders');
+                
+                closeShippingModal();
+        
+            } catch (error) {
+                console.error('❌ Label generation error:', error);
+                showMessage('error', `Failed to generate label: ${error.message}`, 8000, 'orders');
+            }
+        }
+        
+        async function updateOrderWithTracking(orderId, trackingData) {
+            try {
+                const order = state.orders.find(o => o.id === orderId);
+                if (!order) return;
+        
+                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
+                const path = getOrdersCollectionPath(targetId);
+                const orderRef = doc(db, path, orderId);
+        
+                await updateDoc(orderRef, {
+                    trackingNumber: trackingData.trackingNumber,
+                    trackingUrl: trackingData.trackingUrl,
+                    shippingCarrier: trackingData.carrier,
+                    shippingService: trackingData.servicelevel,
+                    shippingCostCents: trackingData.shippingCost,
+                    shippingLabelUrl: trackingData.labelUrl,
+                    shippoTransactionId: trackingData.transactionId,
+                    shippedAt: serverTimestamp(),
+                    status: 'Processing',
+                    updatedAt: serverTimestamp()
+                });
+        
+                await logAdminAction('SHIPPING_LABEL_GENERATED', {
+                    orderId,
+                    trackingNumber: trackingData.trackingNumber,
+                    carrier: trackingData.carrier,
+                    cost: trackingData.shippingCost
+                }, orderId);
+        
+                console.log('✅ Order updated with tracking info');
+        
+            } catch (error) {
+                console.error('❌ Failed to update order:', error);
+                throw error;
+            }
+        }
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
@@ -4738,7 +5029,9 @@
             disableUser,
             handleClearAnonymousUsers,
             addPaymentToOrder,
-            removePayment,    
+            removePayment,
+            fetchShippingRates,
+            selectShippingRate,
 
             // ========================================================================
             // CONFIG & SYSTEM
