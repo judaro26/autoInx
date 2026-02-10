@@ -1,84 +1,63 @@
-/**
- * Netlify Function (Admin Only) to get or initialize Admin configuration from Firestore.
- * This includes the dynamic IP Whitelist and Maintenance Mode status.
- */
-const admin = require('firebase-admin');
-
-// Ensure Firebase Admin is initialized once
-if (!admin.apps.length) {
-    
-    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
-    let cleanedPrivateKey = undefined;
-
-    if (privateKeyString) {
-        // Handle escaped newlines from environment variables
-        cleanedPrivateKey = privateKeyString
-                                .replace(/\\n/g, '\n')
-                                .replace(/\n/g, '\n')
-                                .trim(); 
-    }
-
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: cleanedPrivateKey,
-        }),
-    });
-}
-
-const db = admin.firestore();
-// Path: Collection 'admin', Document 'config'
-const CONFIG_DOC_PATH = 'admin/config';
-
 exports.handler = async function (event) {
     
-    // --- START SECURITY CHECK: Validate Admin Token ---
-    // This blocks public access to the IP Whitelist and other settings.
     const authHeader = event.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        // Return 401 if no token is present
-        return { statusCode: 401, body: JSON.stringify({ error: 'Authorization token required for admin configuration access.' }) };
-    }
+    let isAdmin = false;
 
-    const idToken = authHeader.split('Bearer ')[1];
-    try {
-        const decodedToken = await admin.auth().verifyIdToken(idToken);
-        if (decodedToken.admin !== true) {
-            // Return 403 if token is present but lacks admin claim
-            return { statusCode: 403, body: JSON.stringify({ error: 'Access denied: Admin privileges required.' }) };
+    // ✅ Auth is now optional — only attempt verification if a token is present
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const idToken = authHeader.split('Bearer ')[1];
+        try {
+            const decodedToken = await admin.auth().verifyIdToken(idToken);
+            isAdmin = decodedToken.admin === true;
+        } catch (e) {
+            // Invalid token — treat as unauthenticated, not an error
+            isAdmin = false;
         }
-    } catch (e) {
-        // Return 401 if token is invalid or expired
-        return { statusCode: 401, body: JSON.stringify({ error: 'Invalid or expired token.' }) };
     }
-    // --- END SECURITY CHECK ---
 
     try {
         const configRef = db.doc(CONFIG_DOC_PATH);
         const configDoc = await configRef.get();
 
         if (!configDoc.exists) {
-            // Initialize config if it doesn't exist
             const initialConfig = {
-                ipWhitelist: ["127.0.0.1"], // Default IP
+                ipWhitelist: ["127.0.0.1"],
                 maintenanceMode: false,
-                chatWidgetEnabled: true, 
+                chatWidgetEnabled: true,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             };
             await configRef.set(initialConfig);
             console.log('Admin config initialized.');
+            
+            // ✅ Return only public fields to unauthenticated callers
+            if (!isAdmin) {
+                const { ipWhitelist, ...publicConfig } = initialConfig;
+                return {
+                    statusCode: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(publicConfig),
+                };
+            }
             return {
                 statusCode: 200,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(initialConfig),
             };
         }
-        
+
         const configData = configDoc.data();
         if (configData.chatWidgetEnabled === undefined) {
-             configData.chatWidgetEnabled = true;
+            configData.chatWidgetEnabled = true;
+        }
+
+        // ✅ Strip sensitive fields for public callers
+        if (!isAdmin) {
+            const { ipWhitelist, ...publicConfig } = configData;
+            return {
+                statusCode: 200,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(publicConfig),
+            };
         }
 
         return {
@@ -90,7 +69,7 @@ exports.handler = async function (event) {
     } catch (error) {
         console.error('Error fetching admin config:', error);
         return {
-            statusCode: 500, // Return 500 on server error
+            statusCode: 500,
             body: JSON.stringify({ error: 'Failed to fetch admin configuration', details: error.message }),
         };
     }
