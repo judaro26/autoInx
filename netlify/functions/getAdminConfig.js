@@ -1,16 +1,38 @@
+const admin = require('firebase-admin');
+
+if (!admin.apps.length) {
+    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
+    let cleanedPrivateKey = undefined;
+    if (privateKeyString) {
+        cleanedPrivateKey = privateKeyString
+            .replace(/\\n/g, '\n')
+            .replace(/\n/g, '\n')
+            .trim();
+    }
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: cleanedPrivateKey,
+        }),
+    });
+}
+
+// ✅ db must be declared HERE at module level, outside the handler
+const db = admin.firestore();
+const CONFIG_DOC_PATH = 'admin/config';
+
 exports.handler = async function (event) {
-    
+
     const authHeader = event.headers.authorization;
     let isAdmin = false;
 
-    // ✅ Auth is now optional — only attempt verification if a token is present
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const idToken = authHeader.split('Bearer ')[1];
         try {
             const decodedToken = await admin.auth().verifyIdToken(idToken);
             isAdmin = decodedToken.admin === true;
         } catch (e) {
-            // Invalid token — treat as unauthenticated, not an error
             isAdmin = false;
         }
     }
@@ -27,9 +49,7 @@ exports.handler = async function (event) {
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             };
             await configRef.set(initialConfig);
-            console.log('Admin config initialized.');
-            
-            // ✅ Return only public fields to unauthenticated callers
+
             if (!isAdmin) {
                 const { ipWhitelist, ...publicConfig } = initialConfig;
                 return {
@@ -50,7 +70,6 @@ exports.handler = async function (event) {
             configData.chatWidgetEnabled = true;
         }
 
-        // ✅ Strip sensitive fields for public callers
         if (!isAdmin) {
             const { ipWhitelist, ...publicConfig } = configData;
             return {
