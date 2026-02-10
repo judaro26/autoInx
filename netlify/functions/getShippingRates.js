@@ -33,7 +33,7 @@ exports.handler = async function(event) {
             zip: "94542",
             country: "US",
             phone: "+13412227912",
-            email: process.env.BREVO_SMTP_USER  // ✅ Reuse your existing email env var
+            email: "orders@autoinx.com"  // ✅ Reuse your existing email env var
         };
 
         console.log('📦 Fetching rates for order:', orderId?.substring(0, 8));
