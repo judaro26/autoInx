@@ -177,6 +177,7 @@ exports.handler = async function (event) {
             taxDetails,         // ✅ NEW
             communicationLang, 
             appId, 
+            paymentUrl,
             newStatus 
         } = orderData;
 
@@ -245,6 +246,9 @@ exports.handler = async function (event) {
             .replace(/{{params\.orderTableRows}}/g, generateTableRows(items))
             .replace(/{{params\.costBreakdown}}/g, costBreakdown)  // ✅ NEW
             .replace(/{{params\.totalPrice}}/g, formatPrice(totalCents))
+            .replace(/{{params\.paymentUrl}}/g, paymentUrl || '')
+            .replace(/{{params\.showPaymentButton}}/g, paymentUrl ? 'block' : 'none') 
+            .replace(/{{params\.paymentButtonText}}/g, languageCode === 'es' ? `🔒 Pagar Ahora - ${formatPrice(totalCents)}` : `🔒 Pay Now - ${formatPrice(totalCents)}`)
             .replace(/{{params\.closeMessage}}/g, closeMsg)
             .replace(/{{contact\.EMAIL}}/g, buyerEmail);
 
