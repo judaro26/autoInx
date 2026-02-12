@@ -1,8 +1,3 @@
-/**
- * Netlify Function: resendPaymentLink.js
- * Generates/retrieves Stripe Payment Link and sends email to customer
- * Requires Admin Authentication
- */
 const admin = require("firebase-admin");
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const nodemailer = require("nodemailer");
@@ -12,12 +7,18 @@ const path = require("path");
 // --- 1. Initialize Firebase Admin ---
 if (!admin.apps.length) {
     try {
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        // ✅ FIX: Use individual environment variables (matching your setup)
         admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount)
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+            })
         });
+        console.log('✅ Firebase Admin initialized successfully');
     } catch (err) {
-        console.error("Firebase Admin initialization failed. Check FIREBASE_SERVICE_ACCOUNT env var.");
+        console.error("❌ Firebase Admin initialization failed:", err.message);
+        throw new Error("Firebase initialization failed. Check environment variables.");
     }
 }
 const db = admin.firestore();
@@ -51,10 +52,81 @@ async function getPaymentTemplateHtml(languageCode) {
         const templatePath = path.resolve(__dirname, "emailTemplates", filename);
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
-        console.error(`Failed to load payment template: ${filename}`, error);
+        console.warn(`Template ${filename} not found, using fallback`);
         if (languageCode !== 'en') return getPaymentTemplateHtml('en');
-        throw new Error(`Failed to load email template: ${filename}`);
+        // Return fallback inline template if file doesn't exist
+        return getFallbackTemplate();
     }
+}
+
+function getFallbackTemplate() {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); padding: 40px; text-align: center;">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">
+                                💳 {{params.mainTitle}}
+                            </h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 40px;">
+                            <p style="font-size: 16px; color: #333; margin: 0 0 20px;">
+                                {{params.mainIntro}}
+                            </p>
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{params.paymentUrl}}" 
+                                           style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 18px; font-weight: bold; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);">
+                                            🔒 {{params.buttonText}}
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="font-size: 14px; color: #666; text-align: center; margin: 20px 0;">
+                                {{params.secureText}}
+                            </p>
+                            <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                                <h3 style="margin: 0 0 15px; color: #333; font-size: 18px;">
+                                    📦 {{params.summaryTitle}}
+                                </h3>
+                                <p style="margin: 5px 0; color: #666; font-size: 14px;">
+                                    <strong>{{params.orderLabel}}:</strong> #{{params.orderId}}
+                                </p>
+                                <p style="margin: 5px 0; color: #666; font-size: 14px;">
+                                    <strong>{{params.totalLabel}}:</strong> {{params.totalPrice}}
+                                </p>
+                            </div>
+                            <p style="font-size: 14px; color: #666; margin: 20px 0 0;">
+                                {{params.closeMessage}}
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+                            <p style="margin: 0; color: #999; font-size: 12px;">
+                                © 2025 AutoInx. {{params.rightsText}}
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+    `;
 }
 
 async function populatePaymentTemplate(orderData, paymentUrl) {
