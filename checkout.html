@@ -54,6 +54,16 @@
     let taxCents = 0;
     let shippingDetails = null;
     let taxDetails = null;
+    
+    // ✅ NEW: Store the selected place globally
+    let selectedPlace = null;
+    let selectedAddressComponents = {
+        street: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        country: 'US'
+    };
 
     const TEXT = {
         es: {
@@ -354,84 +364,144 @@
         };
     }
 
-         async function initMaps() {
-            try {
-                const res = await fetch('/.netlify/functions/getGoogleMapsKey');
-                const { apiKey } = await res.json();
-                const s = document.createElement('script');
-                s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-                s.onload = () => {
-                    const inp = $('delivery-address');
-                    autocomplete = new google.maps.places.Autocomplete(inp, { 
-                        types: ['address'],
-                        componentRestrictions: { country: ['us', 'co'] }
-                    });
+    async function initMaps() {
+        try {
+            const res = await fetch('/.netlify/functions/getGoogleMapsKey');
+            const { apiKey } = await res.json();
+            const s = document.createElement('script');
+            s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+            s.onload = () => {
+                const inp = $('delivery-address');
+                autocomplete = new google.maps.places.Autocomplete(inp, { 
+                    types: ['address'],
+                    componentRestrictions: { country: ['us', 'co'] }
+                });
+                
+                map = new google.maps.Map($('map-container'), { 
+                    center: { lat: 4.711, lng: -74.072 }, 
+                    zoom: 12, 
+                    disableDefaultUI: true 
+                });
+                
+                marker = new google.maps.Marker({ 
+                    position: { lat: 4.711, lng: -74.072 }, 
+                    map, 
+                    draggable: true 
+                });
+    
+                autocomplete.addListener('place_changed', async () => {
+                    const place = autocomplete.getPlace();
                     
-                    map = new google.maps.Map($('map-container'), { 
-                        center: { lat: 4.711, lng: -74.072 }, 
-                        zoom: 12, 
-                        disableDefaultUI: true 
-                    });
+                    console.log('📍 Place selected:', place);
                     
-                    marker = new google.maps.Marker({ 
-                        position: { lat: 4.711, lng: -74.072 }, 
-                        map, 
-                        draggable: true 
-                    });
-        
-                    autocomplete.addListener('place_changed', async () => {
-                        const place = autocomplete.getPlace();
+                    if (!place.geometry || !place.address_components) {
+                        console.warn('⚠️ Invalid place data');
+                        inp.dataset.validated = 'false';
+                        return;
+                    }
+                    
+                    // ✅ STORE PLACE GLOBALLY
+                    selectedPlace = place;
+                    
+                    // ✅ EXTRACT AND STORE ADDRESS COMPONENTS
+                    selectedAddressComponents = extractAddressComponents(place);
+                    
+                    console.log('✅ Extracted components:', selectedAddressComponents);
+                    
+                    // Validate we have required fields
+                    if (!selectedAddressComponents.zipCode || selectedAddressComponents.zipCode === '00000') {
+                        alert('Unable to extract ZIP code from this address. Please select a complete address from the dropdown.');
+                        inp.dataset.validated = 'false';
+                        return;
+                    }
+                    
+                    // Update map
+                    map.setCenter(place.geometry.location);
+                    map.setZoom(17);
+                    marker.setPosition(place.geometry.location);
+                    
+                    // Mark as validated
+                    inp.dataset.validated = 'true';
+                    $('addressStatus').innerHTML = `<span class="text-green-600">${t('valid')}</span>`;
+                    
+                    // ✅ Show debug info if available
+                    const debugDiv = $('addressDebug');
+                    if (debugDiv) {
+                        debugDiv.classList.remove('hidden');
+                        $('debug-street').textContent = selectedAddressComponents.street || '❌';
+                        $('debug-city').textContent = selectedAddressComponents.city || '❌';
+                        $('debug-state').textContent = selectedAddressComponents.state || '❌';
+                        $('debug-zip').textContent = selectedAddressComponents.zipCode || '❌';
                         
-                        console.log('📍 Place changed event:', place);
-                        
-                        if (!place.geometry) {
-                            console.warn('⚠️ No geometry');
-                            return;
+                        if (selectedAddressComponents.zipCode && selectedAddressComponents.zipCode !== '00000') {
+                            $('debug-zip').classList.remove('text-red-600');
+                            $('debug-zip').classList.add('text-green-600', 'font-bold');
                         }
-                        
-                        map.setCenter(place.geometry.location);
-                        map.setZoom(17);
-                        marker.setPosition(place.geometry.location);
-                        inp.dataset.validated = 'true';
-                        $('addressStatus').innerHTML = `<span class="text-green-600">${t('valid')}</span>`;
-                        
-                        // ✅ Show debug info
-                        const debugDiv = $('addressDebug');
-                        if (debugDiv && place.address_components) {
-                            debugDiv.classList.remove('hidden');
-                            
-                            let debugStreet = '', debugCity = '', debugState = '', debugZip = '';
-                            
-                            place.address_components.forEach(c => {
-                                if (c.types.includes('street_number')) debugStreet = c.long_name + ' ';
-                                if (c.types.includes('route')) debugStreet += c.long_name;
-                                if (c.types.includes('locality')) debugCity = c.long_name;
-                                if (c.types.includes('administrative_area_level_1')) debugState = c.short_name;
-                                if (c.types.includes('postal_code')) debugZip = c.long_name;
-                            });
-                            
-                            $('debug-street').textContent = debugStreet || '❌ Missing';
-                            $('debug-city').textContent = debugCity || '❌ Missing';
-                            $('debug-state').textContent = debugState || '❌ Missing';
-                            $('debug-zip').textContent = debugZip || '❌ MISSING - Try selecting from dropdown';
-                            
-                            // Highlight missing ZIP
-                            if (!debugZip) {
-                                $('debug-zip').classList.add('text-red-600', 'font-bold');
-                            } else {
-                                $('debug-zip').classList.remove('text-red-600');
-                                $('debug-zip').classList.add('text-green-600');
-                            }
-                        }
-                        
-                        await calculateShippingAndTax();
-                    });
-                };
-                document.head.appendChild(s);
-            } catch (err) {
-                console.error('Maps error:', err);
-            }
+                    }
+                    
+                    // Calculate shipping and tax
+                    await calculateShippingAndTax();
+                });
+            };
+            document.head.appendChild(s);
+        } catch (err) {
+            console.error('Maps initialization error:', err);
         }
+    }
+
+    // ✅ NEW: Helper function to extract address components from Google Place
+    function extractAddressComponents(place) {
+        const components = {
+            street: '',
+            city: '',
+            state: '',
+            zipCode: '',
+            country: 'US'
+        };
+        
+        if (!place.address_components) {
+            console.warn('⚠️ No address_components in place object');
+            return components;
+        }
+        
+        place.address_components.forEach(component => {
+            const types = component.types;
+            
+            if (types.includes('street_number')) {
+                components.street = component.long_name + ' ';
+            }
+            if (types.includes('route')) {
+                components.street += component.long_name;
+            }
+            if (types.includes('locality')) {
+                components.city = component.long_name;
+            }
+            if (types.includes('sublocality_level_1') && !components.city) {
+                components.city = component.long_name;
+            }
+            if (types.includes('administrative_area_level_1')) {
+                components.state = component.short_name;
+            }
+            if (types.includes('postal_code')) {
+                components.zipCode = component.long_name;
+            }
+            if (types.includes('country')) {
+                components.country = component.short_name;
+            }
+        });
+        
+        // Trim and validate
+        components.street = components.street.trim();
+        components.city = components.city.trim();
+        components.state = components.state.trim();
+        components.zipCode = components.zipCode.trim();
+        
+        // Log for debugging
+        console.log('📍 Extracted components:', components);
+        
+        return components;
+    }
+    
     // ✅ Calculate shipping and tax - NOW UPDATES WITHOUT FULL RE-RENDER
     function buildParcelsFromCart() {
         const cart = Object.values(cartData);
@@ -510,154 +580,54 @@
             return;
         }
     
+        // ✅ USE STORED ADDRESS COMPONENTS
+        if (!selectedAddressComponents.zipCode || selectedAddressComponents.zipCode === '00000') {
+            console.error('❌ No valid ZIP code stored');
+            alert('Please select a complete address from the Google dropdown (not just type it).');
+            return;
+        }
+        
+        const { street, city, state, zipCode, country } = selectedAddressComponents;
+        
+        console.log('✅ Using stored address:', { street, city, state, zipCode, country });
+    
         $('btnSubmit').disabled = true;
         $('btnSubmit').innerHTML = `${t('calculatingShipping')} <span class="calculating-spinner"></span>`;
     
         try {
-            let street = '';
-            let city = '';
-            let orderState = '';
-            let zipCode = '';
-            
-            // ✅ STRATEGY 1: Extract from Google Places autocomplete (MOST RELIABLE)
-            if (autocomplete && autocomplete.getPlace) {
-                const place = autocomplete.getPlace();
-                
-                console.log('🔍 Google Place object:', place);
-                
-                if (place.address_components) {
-                    place.address_components.forEach(component => {
-                        const types = component.types;
-                        
-                        if (types.includes('street_number')) {
-                            street = component.long_name + ' ';
-                        }
-                        if (types.includes('route')) {
-                            street += component.long_name;
-                        }
-                        if (types.includes('locality') || types.includes('sublocality')) {
-                            city = component.long_name;
-                        }
-                        if (types.includes('administrative_area_level_1')) {
-                            orderState = component.short_name;
-                        }
-                        if (types.includes('postal_code')) {
-                            zipCode = component.long_name;
-                            console.log('✅ ZIP from postal_code component:', zipCode);
-                        }
-                    });
-                    
-                    console.log('📍 Extracted from Google Places:', { street, city, orderState, zipCode });
-                }
-                
-                // ✅ STRATEGY 2: Parse from formatted_address if postal_code component missing
-                if (!zipCode && place.formatted_address) {
-                    console.log('🔍 Trying to extract ZIP from formatted_address:', place.formatted_address);
-                    
-                    const zipMatch = place.formatted_address.match(/\b(\d{5})(?:-\d{4})?\b/);
-                    if (zipMatch) {
-                        zipCode = zipMatch[1];
-                        console.log('✅ ZIP from formatted_address regex:', zipCode);
-                    }
-                }
-            }
-            
-            // ✅ STRATEGY 3: Parse from the input value itself
-            if (!zipCode) {
-                console.log('🔍 Parsing from address input value:', address);
-                
-                // Try multiple regex patterns
-                const patterns = [
-                    /\b(\d{5})(?:-\d{4})?\b/,           // Standard: 95205 or 95205-1234
-                    /,\s*([A-Z]{2})\s+(\d{5})/,         // ", CA 95205"
-                    /([A-Z]{2})\s+(\d{5})\s*,/,         // "CA 95205,"
-                    /\s+(\d{5})\s*,?\s*USA?\s*$/i       // " 95205 USA" or " 95205, US"
-                ];
-                
-                for (const pattern of patterns) {
-                    const match = address.match(pattern);
-                    if (match) {
-                        zipCode = match[match.length - 1]; // Get last capture group
-                        if (/^\d{5}$/.test(zipCode)) { // Validate it's 5 digits
-                            console.log('✅ ZIP from pattern regex:', zipCode);
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            // ✅ STRATEGY 4: Parse state from address if not found
-            if (!orderState) {
-                const stateMatch = address.match(/\b([A-Z]{2})\b/);
-                if (stateMatch) {
-                    orderState = stateMatch[1];
-                    console.log('✅ State from regex:', orderState);
-                }
-            }
-            
-            // ✅ STRATEGY 5: Parse city from address parts
-            if (!city) {
-                const parts = address.split(',').map(p => p.trim());
-                if (parts.length >= 2) {
-                    city = parts[1];
-                    console.log('✅ City from split:', city);
-                }
-            }
-            
-            // ✅ STRATEGY 6: Parse street from address parts
-            if (!street) {
-                const parts = address.split(',').map(p => p.trim());
-                if (parts.length >= 1) {
-                    street = parts[0];
-                    console.log('✅ Street from split:', street);
-                }
-            }
-            
-            // ✅ FINAL VALIDATION
-            if (!zipCode || zipCode === '00000') {
-                console.error('❌ ZIP CODE EXTRACTION FAILED');
-                console.log('Address input:', address);
-                console.log('Place object:', autocomplete?.getPlace());
-                
-                // Show error to user
-                alert(`Unable to extract ZIP code from address: "${address}"\n\nPlease make sure to select an address from the Google dropdown, not just type it manually.`);
-                
-                $('btnSubmit').disabled = false;
-                $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(cartTotalCents)}`;
-                return;
-            }
-            
-            console.log('✅ FINAL ADDRESS DATA:', { street, city, orderState, zipCode });
-    
             // Calculate total weight from cart
             const totalItems = Object.values(cartData).reduce((sum, e) => sum + e.quantity, 0);
             const totalWeight = Math.max(1, totalItems);
     
             // 1. Calculate Shipping
             try {
-                console.log('📦 Calling shipping API...');
+                console.log('📦 Calculating shipping...');
+                
+                const shippingPayload = {
+                    addressTo: {
+                        name: $('buyer-name')?.value || 'Customer',
+                        street1: street,
+                        city: city,
+                        state: state,
+                        zip: zipCode,
+                        country: country
+                    },
+                    parcels: buildParcelsFromCart() || [{
+                        length: "12",
+                        width: "8",
+                        height: "6",
+                        distance_unit: "in",
+                        weight: totalWeight.toString(),
+                        mass_unit: "lb"
+                    }]
+                };
+                
+                console.log('📦 Shipping payload:', shippingPayload);
                 
                 const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        addressTo: {
-                            name: $('buyer-name')?.value || 'Customer',
-                            street1: street,
-                            city: city,
-                            state: orderState,
-                            zip: zipCode,
-                            country: 'US'
-                        },
-                        parcels: buildParcelsFromCart() || [{
-                            length: "12",
-                            width: "8",
-                            height: "6",
-                            distance_unit: "in",
-                            weight: totalWeight.toString(),
-                            mass_unit: "lb"
-                        }]
-                    })
+                    body: JSON.stringify(shippingPayload)
                 });
     
                 if (shippingRes.ok) {
@@ -679,7 +649,6 @@
                             amount: shippingData.displayRate.amount,
                             estimated_days: shippingData.displayRate.estimated_days
                         };
-                        console.log('✅ Shipping cost:', formatPrice(shippingCents));
                     } else if (shippingData.bestRate) {
                         shippingCents = Math.round(shippingData.bestRate.amount * 100);
                         shippingDetails = {
@@ -687,6 +656,8 @@
                             amount: shippingData.bestRate.amount
                         };
                     }
+                    
+                    console.log('✅ Shipping calculated:', formatPrice(shippingCents));
                 } else {
                     const errorData = await shippingRes.json();
                     console.warn('⚠️ Shipping API failed:', errorData);
@@ -705,14 +676,14 @@
             try {
                 const taxPayload = {
                     subtotalCents: cartTotalCents,
-                    state: orderState,
-                    zipCode: zipCode, // ✅ Should now have real ZIP
+                    state: state,
+                    zipCode: zipCode,
                     street: street,
                     city: city,
-                    country: 'US'
+                    country: country
                 };
                 
-                console.log('📋 Calling tax API with:', taxPayload);
+                console.log('📋 Tax payload:', taxPayload);
                 
                 const taxRes = await fetch('/.netlify/functions/calculateTax', {
                     method: 'POST',
@@ -729,8 +700,8 @@
                         ratePercent: taxData.taxRatePercent
                     };
                 } else {
-                    const errorData = await taxRes.json();
-                    console.warn('⚠️ Tax API failed:', errorData);
+                    const errorText = await taxRes.text();
+                    console.error('❌ Tax API failed:', errorText);
                     taxCents = 0;
                 }
             } catch (taxError) {
@@ -893,7 +864,7 @@
     
      // Replace the existing handleSubmit function with this version:
     
-    async function handleSubmit(event) {
+     async function handleSubmit(event) {
         event.preventDefault();
         
         if (!db) {
@@ -908,6 +879,12 @@
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert(t('errorEmail'));
         if (phone.length < 7) return alert(t('errorPhone'));
         if (!validAddr) return alert(t('errorAddress'));
+        
+        // ✅ Validate we have proper address components
+        if (!selectedAddressComponents.zipCode || selectedAddressComponents.zipCode === '00000') {
+            alert('Invalid address data. Please re-select your address from the dropdown.');
+            return;
+        }
     
         $('btnSubmit').disabled = true;
         $('btnSubmit').innerText = "...";
@@ -924,7 +901,9 @@
                 sms: $('sms-opt').checked,
                 email: true
             },
-            deliveryAddress: $('delivery-address').value,
+            deliveryAddress: $('delivery-address').value, // Full formatted address
+            // ✅ Store structured address components
+            addressComponents: selectedAddressComponents,
             items: Object.values(cartData).map(cartItem => ({
                 id: cartItem.item.id,
                 name: cartItem.item.name,
@@ -939,25 +918,29 @@
             shippingDetails: shippingDetails,
             taxDetails: taxDetails,
             status: "Pending",
-            paymentStatus: "Unpaid", // ✅ NEW
+            paymentStatus: "Unpaid",
             createdAt: serverTimestamp(),
             timestamp: new Date().toISOString()
         };
     
         console.log("=== ORDER BEING SUBMITTED ===");
-        console.log("subtotalCents:", order.subtotalCents);
-        console.log("shippingCents:", order.shippingCents);
-        console.log("taxCents:", order.taxCents);
-        console.log("totalCents:", order.totalCents);
+        console.log("Order data:", order);
+        console.log("Subtotal:", formatPrice(order.subtotalCents));
+        console.log("Shipping:", formatPrice(order.shippingCents));
+        console.log("Tax:", formatPrice(order.taxCents));
+        console.log("Total:", formatPrice(order.totalCents));
         console.log("=============================");
     
         try {
+            // 1. Create order in Firestore
             const docRef = await addDoc(collection(db, "artifacts", "default-app-id", "public", "data", "orders"), order);
-            console.log("✅ Order created successfully with ID:", docRef.id);
+            console.log("✅ Order created with ID:", docRef.id);
             
-            // ✅ STEP 1: Generate Stripe Payment Link
+            // 2. Generate Stripe Payment Link
             let paymentUrl = null;
             try {
+                console.log('💳 Creating Stripe payment link...');
+                
                 const paymentResponse = await fetch('/.netlify/functions/createStripePaymentLink', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -986,15 +969,18 @@
                     
                     console.log('✅ Payment link created:', paymentUrl);
                 } else {
-                    console.error('❌ Payment link creation failed');
+                    const errorData = await paymentResponse.json();
+                    console.error('❌ Payment link creation failed:', errorData);
                 }
             } catch (paymentError) {
-                console.error('Payment link error:', paymentError);
+                console.error('❌ Payment link error:', paymentError);
                 // Continue anyway - we can send payment link later from admin
             }
             
-            // Adjust inventory
+            // 3. Adjust inventory
             try {
+                console.log('📦 Adjusting inventory...');
+                
                 for (const item of order.items) {
                     const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
                     const itemSnap = await getDoc(itemRef);
@@ -1002,16 +988,22 @@
                     if (itemSnap.exists()) {
                         const currentStock = itemSnap.data().stock || 0;
                         const newStock = Math.max(0, currentStock - item.quantity);
-                        await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
+                        await updateDoc(itemRef, { 
+                            stock: newStock, 
+                            updatedAt: serverTimestamp() 
+                        });
                         console.log(`✅ ${item.name}: ${currentStock} → ${newStock}`);
                     }
                 }
             } catch (inventoryError) {
                 console.error("❌ Inventory adjustment failed:", inventoryError);
+                // Don't fail the order if inventory update fails
             }
             
-            // ✅ STEP 2: Send email with payment link
+            // 4. Send confirmation email with payment link
             try {
+                console.log('📧 Sending confirmation email...');
+                
                 await fetch('/.netlify/functions/sendOrderConfirmation', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1027,134 +1019,214 @@
                         taxCents: order.taxCents,
                         totalCents: order.totalCents,
                         status: order.status,
-                        paymentUrl: paymentUrl, // ✅ NEW: Include payment link
+                        paymentUrl: paymentUrl, // Include payment link
                         language: currentLang,
                         communicationLang: currentLang,
                         whatsappConsent: order.whatsappConsent,
                         smsConsent: order.smsConsent
                     })
                 });
+                
+                console.log('✅ Confirmation email sent');
             } catch (emailError) {
-                console.error("Email Error:", emailError);
+                console.error("❌ Email error:", emailError);
+                // Don't fail the order if email fails
             }
             
-            // ✅ Lock rendering to prevent page refresh
+            // 5. Lock rendering to prevent page refresh
             orderCompleted = true;
             sessionStorage.removeItem('autoInxCart');
             
+            // 6. Show success page
             const successMessage = currentLang === 'es' 
                 ? `<div class="text-center py-20">
                     ${renderHeader()}
-                    <div class="max-w-2xl mx-auto">
+                    <div class="max-w-2xl mx-auto bg-white rounded-3xl shadow-2xl p-8">
                         <div class="mb-6">
-                            <div class="text-6xl mb-4">✅</div>
-                            <h2 class="text-4xl font-black text-green-600 mb-2">¡Pedido Recibido!</h2>
-                            <p class="text-lg text-gray-700 mb-1">Gracias por tu compra</p>
-                            <p class="text-sm text-gray-500">Número de pedido: <span class="font-mono font-bold">#${docRef.id.substring(0, 8)}</span></p>
+                            <div class="text-6xl mb-4 animate-bounce">✅</div>
+                            <h2 class="text-4xl font-black text-green-600 mb-3">¡Pedido Recibido!</h2>
+                            <p class="text-lg text-gray-700 mb-2">Gracias por tu compra, <strong>${order.buyerName}</strong></p>
+                            <p class="text-sm text-gray-500">Número de pedido: <span class="font-mono font-bold text-indigo-600">#${docRef.id.substring(0, 8)}</span></p>
                         </div>
                         
                         ${paymentUrl ? `
-                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-6 mb-6">
-                            <p class="font-bold text-blue-900 mb-3 flex items-center justify-center gap-2">
-                                <span class="text-2xl">💳</span> Completa tu Pago
+                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-4 border-blue-400 rounded-2xl p-6 mb-6 shadow-lg">
+                            <p class="font-black text-blue-900 mb-3 flex items-center justify-center gap-2 text-xl">
+                                <span class="text-3xl">💳</span> Completa tu Pago
                             </p>
                             <p class="text-sm text-blue-800 mb-4">
                                 Por favor completa el pago para procesar tu pedido
                             </p>
-                            <a href="${paymentUrl}" target="_blank" class="inline-block bg-blue-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-blue-700 transition shadow-lg transform hover:scale-105">
+                            <a href="${paymentUrl}" 
+                               class="inline-block bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition shadow-xl transform hover:scale-105 hover:shadow-2xl">
                                 🔒 Pagar Ahora - ${formatPrice(order.totalCents)}
                             </a>
+                            <p class="text-xs text-gray-600 mt-3">
+                                🔐 Pago seguro procesado por Stripe
+                            </p>
                         </div>
                         ` : ''}
                         
-                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-left mb-4">
+                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-5 text-left mb-5">
                             <p class="font-bold text-blue-900 mb-2 flex items-center gap-2">
                                 <span>📧</span> Confirmación Enviada
                             </p>
                             <p class="text-sm text-blue-800">
-                                Hemos enviado una confirmación${paymentUrl ? ' con el enlace de pago' : ''} a <strong>${order.buyerEmail}</strong>
+                                Hemos enviado un email de confirmación${paymentUrl ? ' con el enlace de pago' : ''} a:
                             </p>
-                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2">💬 También te enviaremos actualizaciones por WhatsApp</p>' : ''}
-                            ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2">💬 También te enviaremos actualizaciones por SMS</p>' : ''}
+                            <p class="text-sm font-bold text-blue-900 mt-1">${order.buyerEmail}</p>
+                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2 flex items-center gap-1"><span>💬</span> También recibirás actualizaciones por WhatsApp</p>' : ''}
+                            ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2 flex items-center gap-1"><span>📱</span> También recibirás actualizaciones por SMS</p>' : ''}
                         </div>
                         
-                        <div class="bg-gray-50 rounded-xl p-6 mb-6">
-                            <h3 class="font-bold text-gray-700 mb-3">Resumen del Pedido</h3>
-                            <div class="space-y-2 text-sm">
-                                <div class="flex justify-between"><span>Subtotal:</span><span>${formatPrice(order.subtotalCents)}</span></div>
-                                <div class="flex justify-between"><span>Envío:</span><span>${formatPrice(order.shippingCents)}</span></div>
-                                <div class="flex justify-between"><span>Impuesto:</span><span>${formatPrice(order.taxCents)}</span></div>
-                                <div class="flex justify-between font-bold text-lg border-t pt-2"><span>Total:</span><span>${formatPrice(order.totalCents)}</span></div>
+                        <div class="bg-gray-50 rounded-xl p-5 mb-6 border-2 border-gray-200">
+                            <h3 class="font-bold text-gray-800 mb-4 text-lg">📋 Resumen del Pedido</h3>
+                            <div class="space-y-2 text-sm mb-4">
+                                ${order.items.map(item => `
+                                    <div class="flex justify-between py-2 border-b border-gray-200">
+                                        <span>${item.quantity}x ${item.name}</span>
+                                        <span class="font-semibold">${formatPrice(item.price * item.quantity)}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="space-y-2 text-sm border-t-2 border-gray-300 pt-3">
+                                <div class="flex justify-between">
+                                    <span>Subtotal:</span>
+                                    <span class="font-semibold">${formatPrice(order.subtotalCents)}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Envío:</span>
+                                    <span class="font-semibold">${formatPrice(order.shippingCents)}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Impuesto:</span>
+                                    <span class="font-semibold">${formatPrice(order.taxCents)}</span>
+                                </div>
+                                <div class="flex justify-between font-bold text-lg border-t-2 pt-2 text-indigo-700">
+                                    <span>Total:</span>
+                                    <span>${formatPrice(order.totalCents)}</span>
+                                </div>
                             </div>
                         </div>
                         
-                        <div class="mt-8">
-                            <a href="/" class="inline-block bg-indigo-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-indigo-700 transition">
-                                Volver a la Tienda
+                        <div class="bg-green-50 border-2 border-green-200 rounded-xl p-5 mb-6">
+                            <p class="font-bold text-green-900 mb-2 flex items-center gap-2">
+                                <span>🚚</span> Dirección de Entrega
+                            </p>
+                            <p class="text-sm text-green-800">${order.deliveryAddress}</p>
+                        </div>
+                        
+                        <div class="mt-8 space-y-3">
+                            <a href="/" class="block w-full bg-indigo-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition shadow-lg">
+                                ← Volver a la Tienda
                             </a>
+                            ${paymentUrl ? `
+                            <a href="${paymentUrl}" class="block w-full bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition shadow-lg">
+                                💳 Pagar Ahora
+                            </a>
+                            ` : ''}
                         </div>
                     </div>
                 </div>`
                 : `<div class="text-center py-20">
                     ${renderHeader()}
-                    <div class="max-w-2xl mx-auto">
+                    <div class="max-w-2xl mx-auto bg-white rounded-3xl shadow-2xl p-8">
                         <div class="mb-6">
-                            <div class="text-6xl mb-4">✅</div>
-                            <h2 class="text-4xl font-black text-green-600 mb-2">Order Received!</h2>
-                            <p class="text-lg text-gray-700 mb-1">Thank you for your purchase</p>
-                            <p class="text-sm text-gray-500">Order number: <span class="font-mono font-bold">#${docRef.id.substring(0, 8)}</span></p>
+                            <div class="text-6xl mb-4 animate-bounce">✅</div>
+                            <h2 class="text-4xl font-black text-green-600 mb-3">Order Received!</h2>
+                            <p class="text-lg text-gray-700 mb-2">Thank you for your purchase, <strong>${order.buyerName}</strong></p>
+                            <p class="text-sm text-gray-500">Order number: <span class="font-mono font-bold text-indigo-600">#${docRef.id.substring(0, 8)}</span></p>
                         </div>
                         
                         ${paymentUrl ? `
-                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-6 mb-6">
-                            <p class="font-bold text-blue-900 mb-3 flex items-center justify-center gap-2">
-                                <span class="text-2xl">💳</span> Complete Your Payment
+                        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-4 border-blue-400 rounded-2xl p-6 mb-6 shadow-lg">
+                            <p class="font-black text-blue-900 mb-3 flex items-center justify-center gap-2 text-xl">
+                                <span class="text-3xl">💳</span> Complete Your Payment
                             </p>
                             <p class="text-sm text-blue-800 mb-4">
                                 Please complete payment to process your order
                             </p>
-                            <a href="${paymentUrl}" target="_blank" class="inline-block bg-blue-600 text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-blue-700 transition shadow-lg transform hover:scale-105">
+                            <a href="${paymentUrl}" 
+                               class="inline-block bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition shadow-xl transform hover:scale-105 hover:shadow-2xl">
                                 🔒 Pay Now - ${formatPrice(order.totalCents)}
                             </a>
+                            <p class="text-xs text-gray-600 mt-3">
+                                🔐 Secure payment powered by Stripe
+                            </p>
                         </div>
                         ` : ''}
                         
-                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-left mb-4">
+                        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-5 text-left mb-5">
                             <p class="font-bold text-blue-900 mb-2 flex items-center gap-2">
                                 <span>📧</span> Confirmation Sent
                             </p>
                             <p class="text-sm text-blue-800">
-                                We've sent a confirmation${paymentUrl ? ' with payment link' : ''} to <strong>${order.buyerEmail}</strong>
+                                We've sent a confirmation email${paymentUrl ? ' with payment link' : ''} to:
                             </p>
-                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2">💬 We\'ll also send you updates via WhatsApp</p>' : ''}
-                            ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2">💬 We\'ll also send you updates via SMS</p>' : ''}
+                            <p class="text-sm font-bold text-blue-900 mt-1">${order.buyerEmail}</p>
+                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2 flex items-center gap-1"><span>💬</span> You\'ll also receive updates via WhatsApp</p>' : ''}
+                            ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2 flex items-center gap-1"><span>📱</span> You\'ll also receive updates via SMS</p>' : ''}
                         </div>
                         
-                        <div class="bg-gray-50 rounded-xl p-6 mb-6">
-                            <h3 class="font-bold text-gray-700 mb-3">Order Summary</h3>
-                            <div class="space-y-2 text-sm">
-                                <div class="flex justify-between"><span>Subtotal:</span><span>${formatPrice(order.subtotalCents)}</span></div>
-                                <div class="flex justify-between"><span>Shipping:</span><span>${formatPrice(order.shippingCents)}</span></div>
-                                <div class="flex justify-between"><span>Tax:</span><span>${formatPrice(order.taxCents)}</span></div>
-                                <div class="flex justify-between font-bold text-lg border-t pt-2"><span>Total:</span><span>${formatPrice(order.totalCents)}</span></div>
+                        <div class="bg-gray-50 rounded-xl p-5 mb-6 border-2 border-gray-200">
+                            <h3 class="font-bold text-gray-800 mb-4 text-lg">📋 Order Summary</h3>
+                            <div class="space-y-2 text-sm mb-4">
+                                ${order.items.map(item => `
+                                    <div class="flex justify-between py-2 border-b border-gray-200">
+                                        <span>${item.quantity}x ${item.name}</span>
+                                        <span class="font-semibold">${formatPrice(item.price * item.quantity)}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="space-y-2 text-sm border-t-2 border-gray-300 pt-3">
+                                <div class="flex justify-between">
+                                    <span>Subtotal:</span>
+                                    <span class="font-semibold">${formatPrice(order.subtotalCents)}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Shipping:</span>
+                                    <span class="font-semibold">${formatPrice(order.shippingCents)}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Tax:</span>
+                                    <span class="font-semibold">${formatPrice(order.taxCents)}</span>
+                                </div>
+                                <div class="flex justify-between font-bold text-lg border-t-2 pt-2 text-indigo-700">
+                                    <span>Total:</span>
+                                    <span>${formatPrice(order.totalCents)}</span>
+                                </div>
                             </div>
                         </div>
                         
-                        <div class="mt-8">
-                            <a href="/" class="inline-block bg-indigo-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-indigo-700 transition">
-                                Return to Store
+                        <div class="bg-green-50 border-2 border-green-200 rounded-xl p-5 mb-6">
+                            <p class="font-bold text-green-900 mb-2 flex items-center gap-2">
+                                <span>🚚</span> Delivery Address
+                            </p>
+                            <p class="text-sm text-green-800">${order.deliveryAddress}</p>
+                        </div>
+                        
+                        <div class="mt-8 space-y-3">
+                            <a href="/" class="block w-full bg-indigo-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition shadow-lg">
+                                ← Return to Store
                             </a>
+                            ${paymentUrl ? `
+                            <a href="${paymentUrl}" class="block w-full bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition shadow-lg">
+                                💳 Pay Now
+                            </a>
+                            ` : ''}
                         </div>
                     </div>
                 </div>`;
             
             $('app').innerHTML = successMessage;
-        } catch (e) { 
-            console.error("Firestore Error:", e);
-            alert("Error al guardar: " + e.message); 
+            
+        } catch (error) { 
+            console.error("❌ Order submission error:", error);
+            alert(`Error creating order: ${error.message}\n\nPlease try again or contact support.`); 
             $('btnSubmit').disabled = false; 
             const grandTotal = cartTotalCents + shippingCents + taxCents;
             $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
+            orderCompleted = false; // Allow retry
         }
     }
     init();
