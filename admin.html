@@ -475,8 +475,14 @@
                 `<option value="${c.id}" ${c.id === item.catalogId ? 'selected' : ''}>${c.name}</option>`
             ).join('');
             
-            // Convert imageUrls array back to newline-separated text for editing
             const imageUrlsText = item.imageUrls ? item.imageUrls.join('\n') : (item.imageUrl || '');
+            
+            // ✅ NEW: Get existing dimensions or defaults
+            const dims = item.dimensions || {};
+            const length = dims.length || '';
+            const width = dims.width || '';
+            const height = dims.height || '';
+            const weight = dims.weight || '';
             
             return `
                 <div class="bg-yellow-50 p-6 rounded-xl shadow-lg border-2 border-yellow-400">
@@ -510,6 +516,29 @@
                         <div>
                             <label class="block text-sm font-semibold mb-1">Image URLs (One per line)</label>
                             <textarea name="itemImageUrls" rows="3" placeholder="https://example.com/image1.jpg" class="w-full p-2 border rounded-lg text-sm font-mono">${imageUrlsText}</textarea>
+                        </div>
+                        
+                        <!-- ✅ NEW: Dimension Fields -->
+                        <div class="mt-4 pt-4 border-t">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-3">📦 Shipping Dimensions</h4>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Length (inches)</label>
+                                    <input type="number" name="itemLength" step="0.1" value="${length}" class="w-full p-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Width (inches)</label>
+                                    <input type="number" name="itemWidth" step="0.1" value="${width}" class="w-full p-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Height (inches)</label>
+                                    <input type="number" name="itemHeight" step="0.1" value="${height}" class="w-full p-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1">Weight (pounds)</label>
+                                    <input type="number" name="itemWeight" step="0.1" value="${weight}" class="w-full p-2 border rounded-lg">
+                                </div>
+                            </div>
                         </div>
                         
                         <div class="flex space-x-3">
@@ -583,6 +612,44 @@
                                         </select>
                                     </div>
                                     <textarea name="itemImageUrls" placeholder="Image URLs (One per line) - Optional" rows="3" class="w-full p-2 border rounded-lg text-sm"></textarea>
+                                    <div class="mt-6 border-t pt-6">
+                                        <h4 class="text-lg font-semibold text-gray-900 mb-4">📦 Shipping Dimensions</h4>
+                                        <p class="text-sm text-gray-600 mb-4">Required for automatic shipping calculation</p>
+                                        
+                                        <div class="grid grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Length (inches)</label>
+                                                <input type="number" name="itemLength" step="0.1" min="0" 
+                                                       class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                                                       placeholder="12.0">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Width (inches)</label>
+                                                <input type="number" name="itemWidth" step="0.1" min="0"
+                                                       class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                                                       placeholder="8.0">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Height (inches)</label>
+                                                <input type="number" name="itemHeight" step="0.1" min="0"
+                                                       class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                                                       placeholder="6.0">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-medium text-gray-700 mb-2">Weight (pounds)</label>
+                                                <input type="number" name="itemWeight" step="0.1" min="0"
+                                                       class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                                                       placeholder="2.5">
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                            <p class="text-sm text-blue-800">
+                                                💡 <strong>Tip:</strong> Measure the package dimensions including padding. 
+                                                These will be used to automatically calculate shipping costs at checkout.
+                                            </p>
+                                        </div>
+                                    </div>
                                     <input type="number" name="initialStock" placeholder="Initial Stock (Units)" min="0" value="0" class="w-full p-2 border rounded-lg">
                                     <button type="submit" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">Add Product</button>
                                 </form>
@@ -2184,44 +2251,51 @@
         async function handleAddProduct(e) {
             e.preventDefault();
             resetTimer();
-
+        
             const form = e.target;
-
-            // Validate name
+        
+            // Existing validation...
             const nameValidation = Validators.required(form.itemName.value, 'Product name');
             if (!nameValidation.valid) {
                 showMessage('error', nameValidation.error, 5000, 'catalog');
                 return;
             }
-
-            // Validate price
+        
             const priceValidation = Validators.price(form.itemPrice.value);
             if (!priceValidation.valid) {
                 showMessage('error', priceValidation.error, 5000, 'catalog');
                 return;
             }
-
-            // Validate stock
+        
             const stockValidation = Validators.positiveInteger(form.initialStock.value, 'Stock');
             if (!stockValidation.valid) {
                 showMessage('error', stockValidation.error, 5000, 'catalog');
                 return;
             }
-
+        
+            // ✅ NEW: Get dimension values
+            const length = parseFloat(form.itemLength?.value) || 0;
+            const width = parseFloat(form.itemWidth?.value) || 0;
+            const height = parseFloat(form.itemHeight?.value) || 0;
+            const weight = parseFloat(form.itemWeight?.value) || 0;
+        
+            // ✅ NEW: Validate dimensions if any are provided
+            if ((length > 0 || width > 0 || height > 0 || weight > 0) && 
+                (length <= 0 || width <= 0 || height <= 0 || weight <= 0)) {
+                showMessage('error', 'Please provide all dimensions (length, width, height, weight) or leave them all empty', 5000, 'catalog');
+                return;
+            }
+        
             try {
                 const priceCents = Math.round(priceValidation.value * 100);
-
                 const itemName = form.itemName.value.trim();
                 const itemDescription = form.itemDescription.value.trim();
                 const catalogId = form.catalogId.value;
                 const initialStock = stockValidation.value;
-
-                // Split textarea by new lines, trim whitespace, and filter out empty strings
+        
                 const rawUrls = form.itemImageUrls.value.split('\n').map(url => url.trim()).filter(url => url !== '');
-
-                // Fallback to placeholder if no URLs provided
                 const imageUrls = rawUrls.length > 0 ? rawUrls : [`https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`];
-
+        
                 const newProduct = {
                     name: itemName,
                     description: itemDescription,
@@ -2233,12 +2307,28 @@
                     stock: initialStock,
                     createdAt: serverTimestamp(),
                 };
-
+        
+                // ✅ NEW: Add dimensions if provided
+                if (length > 0 && width > 0 && height > 0 && weight > 0) {
+                    newProduct.dimensions = {
+                        length: length,
+                        width: width,
+                        height: height,
+                        weight: weight,
+                        dimensionUnit: "in",
+                        weightUnit: "lb"
+                    };
+                }
+        
                 const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
                 await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
-                showMessage('success', `Product "${itemName}" added with ${imageUrls.length} image(s)!`, 5000, 'catalog');
+                
+                const dimMsg = newProduct.dimensions 
+                    ? ` with dimensions ${length}"×${width}"×${height}" @ ${weight}lbs`
+                    : '';
+                showMessage('success', `Product "${itemName}" added${dimMsg}!`, 5000, 'catalog');
                 form.reset();
-
+        
             } catch (error) {
                 handleError(error, 'Failed to add product', 'catalog');
             }
@@ -2337,53 +2427,68 @@
         async function handleEditProduct(e) {
             e.preventDefault();
             resetTimer();
-
+        
             const form = e.target;
             const itemId = form.itemId.value;
             const itemName = form.itemName.value.trim();
             const itemDescription = form.itemDescription.value.trim();
             const price = form.itemPrice.value;
             const catalogId = form.catalogId.value;
-
-            // Process textarea into an array of URLs
+        
             const imageUrls = form.itemImageUrls.value
                 .split('\n')
                 .map(url => url.trim())
                 .filter(url => url !== '');
-
+        
+            // ✅ NEW: Get dimensions
+            const length = parseFloat(form.itemLength?.value) || 0;
+            const width = parseFloat(form.itemWidth?.value) || 0;
+            const height = parseFloat(form.itemHeight?.value) || 0;
+            const weight = parseFloat(form.itemWeight?.value) || 0;
+        
             if (!itemId || !itemName || !price || !catalogId) {
                 showMessage('error', 'Please fill in all required fields.', 5000, 'catalog');
                 return;
             }
-
+        
             try {
                 const priceCents = Math.round(parseFloat(price) * 100);
-
+        
                 const updatedProduct = {
                     name: itemName,
                     description: itemDescription,
                     price: priceCents,
                     catalogId: catalogId,
                     imageUrls: imageUrls,
-                    // Fallback for single image logic: use the first URL in the array
                     imageUrl: imageUrls.length > 0 ? imageUrls[0] : `https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`,
                     updatedAt: serverTimestamp()
                 };
-
+        
+                // ✅ NEW: Add or remove dimensions
+                if (length > 0 && width > 0 && height > 0 && weight > 0) {
+                    updatedProduct.dimensions = {
+                        length, width, height, weight,
+                        dimensionUnit: "in",
+                        weightUnit: "lb"
+                    };
+                } else {
+                    // Remove dimensions if cleared
+                    updatedProduct.dimensions = null;
+                }
+        
                 const itemRef = doc(db, ITEMS_COLLECTION, itemId);
                 await updateDoc(itemRef, updatedProduct);
-
+        
                 await logAdminAction('ITEM_UPDATED', updatedProduct, itemId);
-                showMessage('success', `Product "${itemName}" updated successfully with ${imageUrls.length} image(s)!`, 5000, 'catalog');
-
-                cancelEdit(); // Closes the form and resets editing state
-
+                showMessage('success', `Product "${itemName}" updated successfully!`, 5000, 'catalog');
+        
+                cancelEdit();
+        
             } catch (error) {
                 console.error('Error updating product:', error);
                 showMessage('error', `Failed to update product: ${error.message}`, 5000, 'catalog');
             }
         }
-
         // --- INVENTORY MANAGEMENT FUNCTIONS (NEW) ---
 
         async function handleUpdateStock(e, itemId) {
