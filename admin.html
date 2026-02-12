@@ -3974,117 +3974,96 @@
             const balanceCents = orderTotalCents - totalPaidCents;
         
             return `
-                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-                    <div class="bg-white rounded-lg shadow-2xl max-w-5xl w-full my-8">
-                        <!-- Header -->
-                        <div class="sticky top-0 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-lg">
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[95vh] flex flex-col">
+                        
+                        <!-- HEADER - Fixed at top -->
+                        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-2xl flex-shrink-0">
                             <h3 class="text-2xl font-bold">📝 Edit Order #${order.orderNumber || order.id.substring(0, 8)}</h3>
                             <p class="text-sm opacity-90 mt-1">Created: ${formatTime(order.createdAt)}</p>
                         </div>
         
-                        <div class="p-6 space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto">
-                            <!-- Status & Payment Status -->
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-                                <div>
-                                    <label class="block text-sm font-bold mb-2 text-gray-700">Order Status</label>
-                                    <select id="editOrderStatus" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
-                                        ${statusDropdown}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-bold mb-2 text-gray-700">Payment Status</label>
-                                    <div class="p-3 rounded-lg ${balanceCents <= 0 ? 'bg-green-100 border-2 border-green-500' : 'bg-red-100 border-2 border-red-500'}">
-                                        <p class="text-sm font-semibold ${balanceCents <= 0 ? 'text-green-800' : 'text-red-800'}">
-                                            ${balanceCents <= 0 ? '✅ Fully Paid' : '⚠️ Balance Due'}
-                                        </p>
-                                        <p class="text-xs mt-1 ${balanceCents <= 0 ? 'text-green-700' : 'text-red-700'}">
-                                            ${balanceCents > 0 ? `Outstanding: ${formatPriceDisplay(balanceCents)}` : 'No balance'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Payment Status & Link Management Section -->
-                            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border-2 ${order.paymentStatus === 'Paid' || order.isPaid ? 'border-green-300' : 'border-blue-200'}">
-                                <p class="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
-                                    <span>💳</span> Payment Status & Management
-                                </p>
-                                
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                    <div class="bg-white p-4 rounded-lg border-2 ${order.paymentStatus === 'Paid' || order.isPaid ? 'border-green-300' : 'border-orange-300'}">
-                                        <p class="text-xs text-gray-600 mb-1">Payment Status:</p>
-                                        <p class="text-xl font-black ${order.paymentStatus === 'Paid' || order.isPaid ? 'text-green-600' : 'text-orange-600'}">
-                                            ${order.paymentStatus === 'Paid' || order.isPaid ? '✅ Paid' : '⏳ Pending'}
-                                        </p>
-                                        ${order.paidAt ? `
-                                            <p class="text-xs text-gray-500 mt-2">
-                                                Paid: ${new Date(order.paidAt).toLocaleString('en-US')}
-                                            </p>
-                                        ` : ''}
-                                    </div>
-                                    
-                                    <div class="bg-white p-4 rounded-lg border-2 border-blue-200">
-                                        <p class="text-xs text-gray-600 mb-1">Order Total:</p>
-                                        <p class="text-xl font-black text-indigo-600">
-                                            ${formatPriceDisplay(order.totalCents || 0)}
-                                        </p>
-                                        ${order.subtotalCents ? `
-                                            <div class="text-xs text-gray-600 mt-2 space-y-1">
-                                                <p>Subtotal: ${formatPriceDisplay(order.subtotalCents)}</p>
-                                                ${order.shippingCents ? `<p>Shipping: ${formatPriceDisplay(order.shippingCents)}</p>` : ''}
-                                                ${order.taxCents ? `<p>Tax: ${formatPriceDisplay(order.taxCents)}</p>` : ''}
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                </div>
-                            
-                                ${order.stripePaymentUrl ? `
-                                    <div class="bg-white p-4 rounded-lg border-2 border-blue-200 mb-4">
-                                        <p class="text-sm font-semibold text-gray-700 mb-2">🔗 Stripe Payment Link:</p>
-                                        <div class="flex gap-2">
-                                            <input type="text" value="${order.stripePaymentUrl}" readonly 
-                                                   class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs font-mono text-gray-600">
-                                            <button onclick="navigator.clipboard.writeText('${order.stripePaymentUrl}'); alert('Link copied!');" 
-                                                    class="bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-700 transition text-sm">
-                                                📋 Copy
-                                            </button>
-                                            <a href="${order.stripePaymentUrl}" target="_blank"
-                                               class="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition text-sm flex items-center">
-                                                🔗 Open
-                                            </a>
-                                        </div>
-                                    </div>
-                                ` : ''}
-                            
-                                ${order.paymentStatus !== 'Paid' && !order.isPaid ? `
-                                    <button onclick="window.module.sendPaymentLink('${order.id}')" 
-                                            class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-bold hover:bg-blue-700 transition shadow-lg text-base">
-                                        📧 Send Payment Link Email to Customer
-                                    </button>
-                                ` : ''}
-                            
-                                ${order.paymentData || order.stripePaymentIntentId ? `
-                                    <details class="mt-4">
-                                        <summary class="text-xs text-gray-600 cursor-pointer hover:text-gray-800 font-semibold">
-                                            View Stripe Payment Details
-                                        </summary>
-                                        <div class="mt-2 p-3 bg-white rounded-lg border text-xs font-mono text-gray-600 space-y-1">
-                                            ${order.paymentData?.stripePaymentIntentId || order.stripePaymentIntentId ? 
-                                                `<p>Payment Intent: ${order.paymentData?.stripePaymentIntentId || order.stripePaymentIntentId}</p>` : ''}
-                                            ${order.paymentData?.stripeChargeId ? `<p>Charge ID: ${order.paymentData.stripeChargeId}</p>` : ''}
-                                            ${order.paymentData?.stripeSessionId ? `<p>Session ID: ${order.paymentData.stripeSessionId}</p>` : ''}
-                                            ${order.paymentData?.stripePaymentMethod ? `<p>Method: ${order.paymentData.stripePaymentMethod}</p>` : ''}
-                                        </div>
-                                    </details>
-                                ` : ''}
-                            </div>
+                        <!-- SCROLLABLE CONTENT AREA -->
+                        <div class="flex-1 overflow-y-auto p-6">
+                            <div class="space-y-6">
         
-                                <!-- Payment History -->
-                                <div class="bg-white p-3 rounded-lg border border-gray-200 mb-4">
-                                    <h5 class="font-semibold text-sm mb-2 text-gray-700">Payment History</h5>
-                                    <div id="paymentHistoryList" class="space-y-2 max-h-40 overflow-y-auto">
+                                <!-- STATUS & PAYMENT STATUS ROW -->
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div class="bg-gray-50 p-4 rounded-lg border-2 border-gray-200">
+                                        <label class="block text-sm font-bold mb-2 text-gray-700">Order Status</label>
+                                        <select id="editOrderStatus" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500">
+                                            ${statusDropdown}
+                                        </select>
+                                    </div>
+                                    <div class="bg-gray-50 p-4 rounded-lg border-2 border-gray-200">
+                                        <label class="block text-sm font-bold mb-2 text-gray-700">Payment Status</label>
+                                        <div class="p-3 rounded-lg ${balanceCents <= 0 ? 'bg-green-100 border-2 border-green-500' : 'bg-red-100 border-2 border-red-500'}">
+                                            <p class="text-sm font-semibold ${balanceCents <= 0 ? 'text-green-800' : 'text-red-800'}">
+                                                ${balanceCents <= 0 ? '✅ Fully Paid' : '⚠️ Balance Due'}
+                                            </p>
+                                            ${balanceCents > 0 ? `<p class="text-xs mt-1 text-red-700">Outstanding: ${formatPriceDisplay(balanceCents)}</p>` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+        
+                                <!-- PAYMENT LINK SECTION -->
+                                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-xl border-2 border-blue-200">
+                                    <p class="text-lg font-bold text-blue-900 mb-3">💳 Payment Management</p>
+                                    
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <div class="bg-white p-4 rounded-lg border-2 ${order.paymentStatus === 'Paid' || order.isPaid ? 'border-green-300' : 'border-orange-300'}">
+                                            <p class="text-xs text-gray-600 mb-1">Payment Status:</p>
+                                            <p class="text-xl font-black ${order.paymentStatus === 'Paid' || order.isPaid ? 'text-green-600' : 'text-orange-600'}">
+                                                ${order.paymentStatus === 'Paid' || order.isPaid ? '✅ Paid' : '⏳ Pending'}
+                                            </p>
+                                            ${order.paidAt ? `<p class="text-xs text-gray-500 mt-2">Paid: ${new Date(order.paidAt).toLocaleString('en-US')}</p>` : ''}
+                                        </div>
+                                        
+                                        <div class="bg-white p-4 rounded-lg border-2 border-blue-200">
+                                            <p class="text-xs text-gray-600 mb-1">Order Total:</p>
+                                            <p class="text-xl font-black text-indigo-600">${formatPriceDisplay(order.totalCents || 0)}</p>
+                                            ${order.subtotalCents ? `
+                                                <div class="text-xs text-gray-600 mt-2 space-y-1">
+                                                    <p>Subtotal: ${formatPriceDisplay(order.subtotalCents)}</p>
+                                                    ${order.shippingCents ? `<p>Shipping: ${formatPriceDisplay(order.shippingCents)}</p>` : ''}
+                                                    ${order.taxCents ? `<p>Tax: ${formatPriceDisplay(order.taxCents)}</p>` : ''}
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+        
+                                    ${order.stripePaymentUrl ? `
+                                        <div class="bg-white p-3 rounded-lg border border-blue-200 mb-3">
+                                            <p class="text-xs font-semibold text-gray-700 mb-2">🔗 Payment Link:</p>
+                                            <div class="flex gap-2">
+                                                <input type="text" value="${order.stripePaymentUrl}" readonly 
+                                                       class="flex-1 px-2 py-1 bg-gray-50 border border-gray-300 rounded text-xs font-mono">
+                                                <button onclick="navigator.clipboard.writeText('${order.stripePaymentUrl}'); alert('Link copied!');" 
+                                                        class="bg-gray-600 text-white px-3 py-1 rounded text-xs font-semibold hover:bg-gray-700">
+                                                    📋
+                                                </button>
+                                                <a href="${order.stripePaymentUrl}" target="_blank"
+                                                   class="bg-blue-600 text-white px-3 py-1 rounded text-xs font-semibold hover:bg-blue-700">
+                                                    🔗
+                                                </a>
+                                            </div>
+                                        </div>
+                                    ` : ''}
+        
+                                    ${order.paymentStatus !== 'Paid' && !order.isPaid ? `
+                                        <button onclick="window.module.sendPaymentLink('${order.id}')" 
+                                                class="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-bold hover:bg-blue-700 text-sm">
+                                            📧 Send Payment Link Email
+                                        </button>
+                                    ` : ''}
+                                </div>
+        
+                                <!-- PAYMENT HISTORY -->
+                                <div class="bg-white p-4 rounded-lg border-2 border-gray-200">
+                                    <h5 class="font-bold text-sm mb-3 text-gray-700">💰 Payment History</h5>
+                                    <div class="space-y-2 max-h-48 overflow-y-auto">
                                         ${payments.length === 0 
-                                            ? '<p class="text-xs text-gray-500 italic text-center py-2">No payments recorded yet</p>'
+                                            ? '<p class="text-xs text-gray-500 italic text-center py-3">No payments recorded</p>'
                                             : payments.map((payment, idx) => `
                                                 <div class="flex justify-between items-center p-2 bg-gray-50 rounded border text-xs">
                                                     <div>
@@ -4102,221 +4081,199 @@
                                     </div>
                                 </div>
         
-                                <!-- Add Payment Form -->
-                                <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                                    <h5 class="font-semibold text-sm mb-3 text-blue-800">Record New Payment</h5>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <!-- ADD PAYMENT FORM -->
+                                <div class="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
+                                    <h5 class="font-bold text-sm mb-3 text-blue-800">Record New Payment</h5>
+                                    <div class="grid grid-cols-2 gap-3 mb-3">
                                         <div>
-                                            <label class="block text-xs font-semibold mb-1 text-gray-700">Amount (USD)</label>
+                                            <label class="block text-xs font-semibold mb-1">Amount (USD)</label>
                                             <input type="number" id="newPaymentAmount" step="0.01" min="0.01" 
                                                    placeholder="0.00"
-                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm focus:border-blue-500">
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm">
                                         </div>
                                         <div>
-                                            <label class="block text-xs font-semibold mb-1 text-gray-700">Payment Method</label>
-                                            <select id="newPaymentMethod" class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm focus:border-blue-500">
-                                                <option value="">-- Select Method --</option>
+                                            <label class="block text-xs font-semibold mb-1">Method</label>
+                                            <select id="newPaymentMethod" class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm">
+                                                <option value="">-- Select --</option>
                                                 <option value="Cash">💵 Cash</option>
                                                 <option value="Credit Card">💳 Credit Card</option>
-                                                <option value="Debit Card">💳 Debit Card</option>
-                                                <option value="Bank Transfer">🏦 Bank Transfer</option>
-                                                <option value="Check">📝 Check</option>
+                                                <option value="Bank Transfer">🏦 Transfer</option>
                                                 <option value="Zelle">📱 Zelle</option>
                                                 <option value="PayPal">💰 PayPal</option>
-                                                <option value="Venmo">💸 Venmo</option>
                                                 <option value="Other">🔹 Other</option>
                                             </select>
                                         </div>
                                         <div>
-                                            <label class="block text-xs font-semibold mb-1 text-gray-700">Payment Date</label>
+                                            <label class="block text-xs font-semibold mb-1">Date</label>
                                             <input type="date" id="newPaymentDate" 
                                                    value="${new Date().toISOString().split('T')[0]}"
-                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm focus:border-blue-500">
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm">
                                         </div>
                                         <div>
-                                            <label class="block text-xs font-semibold mb-1 text-gray-700">Reference/Transaction ID</label>
+                                            <label class="block text-xs font-semibold mb-1">Reference #</label>
                                             <input type="text" id="newPaymentReference" 
                                                    placeholder="Optional"
-                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm focus:border-blue-500">
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm">
                                         </div>
                                     </div>
-                                    <div class="mt-3">
-                                        <label class="block text-xs font-semibold mb-1 text-gray-700">Payment Notes</label>
+                                    <div class="mb-3">
+                                        <label class="block text-xs font-semibold mb-1">Notes</label>
                                         <textarea id="newPaymentNotes" rows="2" 
-                                                  placeholder="Optional notes about this payment"
-                                                  class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm focus:border-blue-500"></textarea>
+                                                  placeholder="Optional notes"
+                                                  class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm"></textarea>
                                     </div>
                                     <button onclick="window.module.addPaymentToOrder('${order.id}')" 
-                                            class="w-full mt-3 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm shadow-md">
+                                            class="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm">
                                         💰 Add Payment
                                     </button>
                                 </div>
-                            </div>
         
-                            <!-- Customer Information -->
-                            <div class="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
-                                <h4 class="font-bold text-lg mb-3 text-blue-800 flex items-center">
-                                    👤 Customer Information
-                                </h4>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Full Name *</label>
-                                        <input type="text" id="editBuyerName" value="${escapeAttribute(order.buyerName || '')}" 
-                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Email *</label>
-                                        <input type="email" id="editBuyerEmail" value="${escapeAttribute(order.buyerEmail || '')}" 
-                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200" required>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Phone</label>
-                                        <input type="tel" id="editBuyerPhone" value="${escapeAttribute(order.buyerPhone || '')}" 
-                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Preferred Language</label>
-                                        <select id="editLanguage" class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
-                                            <option value="en" ${(order.language || 'en') === 'en' ? 'selected' : ''}>English</option>
-                                            <option value="es" ${(order.language || 'en') === 'es' ? 'selected' : ''}>Español</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                
-                                <!-- ✅ NEW: Notification Preferences -->
-                                <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                    <p class="text-sm font-bold text-blue-800 mb-3">📱 Notification Preferences</p>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <label class="flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-green-400 transition ${order.whatsappConsent ? 'border-green-500 bg-green-50' : 'border-gray-200'}">
-                                            <input type="checkbox" id="editWhatsappConsent" 
-                                                   ${order.whatsappConsent ? 'checked' : ''}
-                                                   onchange="this.closest('label').className = this.checked ? 'flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-green-400 transition border-green-500 bg-green-50' : 'flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-green-400 transition border-gray-200'"
-                                                   class="w-5 h-5 text-green-600 rounded">
-                                            <div>
-                                                <p class="font-semibold text-sm text-gray-800">WhatsApp Updates</p>
-                                                <p class="text-xs text-gray-500">Send order updates via WhatsApp</p>
-                                            </div>
-                                        </label>
-                                        <label class="flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-blue-400 transition ${order.smsConsent ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}">
-                                            <input type="checkbox" id="editSmsConsent" 
-                                                   ${order.smsConsent ? 'checked' : ''}
-                                                   onchange="this.closest('label').className = this.checked ? 'flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-blue-400 transition border-blue-500 bg-blue-50' : 'flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-blue-400 transition border-gray-200'"
-                                                   class="w-5 h-5 text-blue-600 rounded">
-                                            <div>
-                                                <p class="font-semibold text-sm text-gray-800">SMS Updates</p>
-                                                <p class="text-xs text-gray-500">Send order updates via SMS</p>
-                                            </div>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-        
-                            <!-- Delivery Address -->
-                            <div class="border-2 border-green-200 rounded-lg p-4 bg-green-50">
-                                <h4 class="font-bold text-lg mb-3 text-green-800 flex items-center">
-                                    🚚 Delivery Address
-                                </h4>
-                                <div class="space-y-3">
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Street Address *</label>
-                                        <input type="text" id="editStreet" value="${escapeAttribute(street)}" 
-                                               class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200" required>
-                                    </div>
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <!-- CUSTOMER INFO -->
+                                <div class="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
+                                    <h4 class="font-bold text-lg mb-3 text-blue-800">👤 Customer Information</h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         <div>
-                                            <label class="block text-sm font-semibold mb-1 text-gray-700">City *</label>
-                                            <input type="text" id="editCity" value="${escapeAttribute(city)}" 
-                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200" required>
+                                            <label class="block text-xs font-semibold mb-1">Full Name *</label>
+                                            <input type="text" id="editBuyerName" value="${escapeAttribute(order.buyerName || '')}" 
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm" required>
                                         </div>
                                         <div>
-                                            <label class="block text-sm font-semibold mb-1 text-gray-700">State & ZIP *</label>
-                                            <input type="text" id="editStateZip" value="${escapeAttribute(stateZip)}" 
-                                                   placeholder="CA 95101" 
-                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200" required>
+                                            <label class="block text-xs font-semibold mb-1">Email *</label>
+                                            <input type="email" id="editBuyerEmail" value="${escapeAttribute(order.buyerEmail || '')}" 
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm" required>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold mb-1">Phone</label>
+                                            <input type="tel" id="editBuyerPhone" value="${escapeAttribute(order.buyerPhone || '')}" 
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold mb-1">Language</label>
+                                            <select id="editLanguage" class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm">
+                                                <option value="en" ${(order.language || 'en') === 'en' ? 'selected' : ''}>English</option>
+                                                <option value="es" ${(order.language || 'en') === 'es' ? 'selected' : ''}>Español</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Notification Preferences -->
+                                    <div class="mt-4 p-3 bg-blue-100 rounded-lg">
+                                        <p class="text-xs font-bold text-blue-800 mb-2">📱 Notifications</p>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <label class="flex items-center gap-2 p-2 bg-white rounded cursor-pointer text-xs ${order.whatsappConsent ? 'border-2 border-green-500' : 'border border-gray-200'}">
+                                                <input type="checkbox" id="editWhatsappConsent" 
+                                                       ${order.whatsappConsent ? 'checked' : ''}
+                                                       class="w-4 h-4">
+                                                <span>WhatsApp Updates</span>
+                                            </label>
+                                            <label class="flex items-center gap-2 p-2 bg-white rounded cursor-pointer text-xs ${order.smsConsent ? 'border-2 border-blue-500' : 'border border-gray-200'}">
+                                                <input type="checkbox" id="editSmsConsent" 
+                                                       ${order.smsConsent ? 'checked' : ''}
+                                                       class="w-4 h-4">
+                                                <span>SMS Updates</span>
+                                            </label>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
         
-                            <!-- Order Items -->
-                            <div class="border-2 border-purple-200 rounded-lg p-4 bg-purple-50">
-                                <h4 class="font-bold text-lg mb-3 text-purple-800 flex items-center">
-                                    🛒 Order Items
-                                </h4>
-                                <div id="editOrderItemsDisplay" class="mb-4 space-y-2"></div>
-                                
-                                <!-- Add Item -->
-                                <div class="border-t-2 border-purple-200 pt-4 mt-4">
-                                    <p class="text-sm font-semibold text-gray-700 mb-2">Add Item to Order</p>
-                                    <div class="flex gap-2 flex-wrap">
-                                        <select id="editItemSelector" class="flex-1 min-w-[200px] p-2 border-2 border-gray-300 rounded-lg focus:border-purple-500">
-                                            <option value="">-- Select Product --</option>
-                                            ${state.items.map(item => `
-                                                <option value="${item.id}">${escapeHtml(item.name)} - ${formatPriceDisplay(item.price)}</option>
-                                            `).join('')}
-                                        </select>
-                                        <input type="number" id="editItemQuantity" value="1" min="1" 
-                                               class="w-20 p-2 border-2 border-gray-300 rounded-lg focus:border-purple-500">
-                                        <button onclick="window.module.addDraftCartItem()" 
-                                                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold shadow-md">
-                                            + Add
-                                        </button>
+                                <!-- DELIVERY ADDRESS -->
+                                <div class="bg-green-50 p-4 rounded-lg border-2 border-green-200">
+                                    <h4 class="font-bold text-lg mb-3 text-green-800">🚚 Delivery Address</h4>
+                                    <div class="space-y-3">
+                                        <div>
+                                            <label class="block text-xs font-semibold mb-1">Street *</label>
+                                            <input type="text" id="editStreet" value="${escapeAttribute(street)}" 
+                                                   class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm" required>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-xs font-semibold mb-1">City *</label>
+                                                <input type="text" id="editCity" value="${escapeAttribute(city)}" 
+                                                       class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm" required>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-semibold mb-1">State & ZIP *</label>
+                                                <input type="text" id="editStateZip" value="${escapeAttribute(stateZip)}" 
+                                                       placeholder="CA 95101" 
+                                                       class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm" required>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
         
-                            <!-- Pricing Breakdown -->
-                            <div class="border-2 border-indigo-200 rounded-lg p-4 bg-indigo-50">
-                                <h4 class="font-bold text-lg mb-3 text-indigo-800">💰 Pricing Breakdown</h4>
-                                <div class="space-y-3">
-                                    <div class="flex justify-between items-center text-sm">
-                                        <span class="font-semibold text-gray-700">Subtotal:</span>
-                                        <span id="editOrderSubtotal" class="font-bold text-gray-900"></span>
+                                <!-- ORDER ITEMS -->
+                                <div class="bg-purple-50 p-4 rounded-lg border-2 border-purple-200">
+                                    <h4 class="font-bold text-lg mb-3 text-purple-800">🛒 Order Items</h4>
+                                    <div id="editOrderItemsDisplay" class="mb-4 space-y-2"></div>
+                                    
+                                    <!-- Add Item -->
+                                    <div class="border-t-2 border-purple-200 pt-3 mt-3">
+                                        <p class="text-xs font-semibold mb-2">Add Item</p>
+                                        <div class="flex gap-2">
+                                            <select id="editItemSelector" class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-sm">
+                                                <option value="">-- Select Product --</option>
+                                                ${state.items.map(item => `
+                                                    <option value="${item.id}">${escapeHtml(item.name)} - ${formatPriceDisplay(item.price)}</option>
+                                                `).join('')}
+                                            </select>
+                                            <input type="number" id="editItemQuantity" value="1" min="1" 
+                                                   class="w-16 p-2 border-2 border-gray-300 rounded-lg text-sm">
+                                            <button onclick="window.module.addDraftCartItem()" 
+                                                    class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm">
+                                                +
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div class="flex justify-between items-center text-sm">
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-semibold text-gray-700">Shipping:</span>
+                                </div>
+        
+                                <!-- PRICING BREAKDOWN -->
+                                <div class="bg-indigo-50 p-4 rounded-lg border-2 border-indigo-200">
+                                    <h4 class="font-bold text-lg mb-3 text-indigo-800">💰 Pricing</h4>
+                                    <div class="space-y-2">
+                                        <div class="flex justify-between text-sm">
+                                            <span>Subtotal:</span>
+                                            <span id="editOrderSubtotal" class="font-bold"></span>
+                                        </div>
+                                        <div class="flex justify-between items-center text-sm">
+                                            <span>Shipping:</span>
                                             <input type="number" id="editShippingCents" step="0.01" 
                                                    value="${((order.shippingCents || 0) / 100).toFixed(2)}"
                                                    onchange="window.module.updateDraftCartDisplay()"
-                                                   class="w-24 p-1 border rounded text-right text-xs" placeholder="0.00">
+                                                   class="w-24 p-1 border rounded text-right text-xs">
                                         </div>
-                                        <span id="editOrderShipping" class="font-bold text-gray-900"></span>
-                                    </div>
-                                    <div class="flex justify-between items-center text-sm">
-                                        <div class="flex items-center gap-2">
-                                            <span class="font-semibold text-gray-700">Tax:</span>
+                                        <div class="flex justify-between items-center text-sm">
+                                            <span>Tax:</span>
                                             <input type="number" id="editTaxCents" step="0.01" 
                                                    value="${((order.taxCents || 0) / 100).toFixed(2)}"
                                                    onchange="window.module.updateDraftCartDisplay()"
-                                                   class="w-24 p-1 border rounded text-right text-xs" placeholder="0.00">
+                                                   class="w-24 p-1 border rounded text-right text-xs">
                                         </div>
-                                        <span id="editOrderTax" class="font-bold text-gray-900"></span>
-                                    </div>
-                                    <div class="flex justify-between items-center text-lg border-t-2 border-indigo-300 pt-3">
-                                        <span class="font-black text-indigo-900">TOTAL:</span>
-                                        <span id="editOrderTotal" class="font-black text-indigo-900"></span>
+                                        <div class="flex justify-between text-lg font-black border-t-2 pt-2">
+                                            <span>TOTAL:</span>
+                                            <span id="editOrderTotal" class="text-indigo-700"></span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
         
-                            <!-- Order Notes -->
-                            <div class="border-2 border-yellow-200 rounded-lg p-4 bg-yellow-50">
-                                <h4 class="font-bold text-lg mb-2 text-yellow-800">📝 Order Notes</h4>
-                                <textarea id="editOrderNotes" rows="3" 
-                                          class="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:ring-2 focus:ring-yellow-200"
-                                          placeholder="Internal notes about this order...">${escapeHtml(order.adminNotes || order.notes || '')}</textarea>
+                                <!-- ORDER NOTES -->
+                                <div class="bg-yellow-50 p-4 rounded-lg border-2 border-yellow-200">
+                                    <h4 class="font-bold text-sm mb-2 text-yellow-800">📝 Order Notes</h4>
+                                    <textarea id="editOrderNotes" rows="3" 
+                                              class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm"
+                                              placeholder="Internal notes...">${escapeHtml(order.adminNotes || order.notes || '')}</textarea>
+                                </div>
+        
                             </div>
                         </div>
         
-                        <!-- Footer Actions -->
-                        <div class="sticky bottom-0 bg-gray-100 p-6 rounded-b-lg border-t-2 border-gray-300 flex gap-3">
+                        <!-- FOOTER - Fixed at bottom -->
+                        <div class="bg-gray-100 p-4 rounded-b-2xl border-t-2 border-gray-300 flex gap-3 flex-shrink-0">
                             <button onclick="window.module.updateOrder('${order.id}')" 
-                                    class="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-bold shadow-lg transform hover:scale-105 transition">
+                                    class="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-bold shadow-lg">
                                 💾 Save All Changes
                             </button>
                             <button onclick="window.module.closeEditModal()" 
-                                    class="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-bold shadow-lg">
+                                    class="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-bold">
                                 ✖ Cancel
                             </button>
                         </div>
