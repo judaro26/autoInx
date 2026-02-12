@@ -2838,6 +2838,69 @@
             updateSubmitButtonState();
         }
 
+        async function updateOrder(orderId) {
+            resetTimer();
+            try {
+                const order = state.orders.find(o => o.id === orderId);
+                if (!order) throw new Error('Order not found');
+        
+                const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
+                    id: entry.item.id,
+                    name: entry.item.name,
+                    price: entry.item.price,
+                    quantity: entry.quantity,
+                    sku: entry.item.sku
+                }));
+        
+                const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                const newTotal = newSubtotal + (order.shippingCents || 0) + (order.taxCents || 0);
+        
+                // ✅ Get the new status from dropdown
+                const newStatus = document.getElementById('editOrderStatus')?.value || order.status;
+        
+                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
+                const path = getOrdersCollectionPath(targetId);
+                const orderRef = doc(db, path, orderId);
+        
+                await updateDoc(orderRef, {
+                    items: newItems,
+                    subtotalCents: newSubtotal,
+                    totalCents: newTotal,
+                    status: newStatus, // ✅ Update status
+                    updatedAt: serverTimestamp()
+                });
+        
+                // ✅ Send email if status changed
+                if (newStatus !== order.status) {
+                    try {
+                        await fetch('/.netlify/functions/sendStatusUpdate', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                orderId: orderId,
+                                orderNumber: order.orderNumber || orderId.substring(0, 8),
+                                buyerEmail: order.buyerEmail,
+                                buyerName: order.buyerName,
+                                newStatus: newStatus,
+                                language: order.language || 'en'
+                            })
+                        });
+                    } catch (emailError) {
+                        console.warn('Email failed:', emailError);
+                    }
+                }
+        
+                await logAdminAction('ORDER_UPDATED', { orderId, newItems, newStatus }, orderId);
+                showMessage('success', 'Order updated successfully!', 3000, 'orders');
+                closeEditModal();
+        
+            } catch (error) {
+                console.error('Error updating order:', error);
+                showMessage('error', `Failed to update order: ${error.message}`, 5000, 'orders');
+            }
+        }
+        
+
         // ✅ NEW: Calculate shipping and tax for manual orders
         async function calculateAdminOrderShippingTax() {
             const addressInput = document.getElementById('deliveryAddress');
