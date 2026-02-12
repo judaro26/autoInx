@@ -374,133 +374,308 @@
     }
 
     // ✅ Calculate shipping and tax - NOW UPDATES WITHOUT FULL RE-RENDER
-    async function calculateShippingAndTax() {
-        const addressInput = $('delivery-address');
-        const address = addressInput?.value?.trim();
+    function buildParcelsFromCart() {
+        const cart = Object.values(cartData);
         
-        if (!address || addressInput.dataset.validated !== 'true') {
-            // Address not validated yet - reset calculations
-            shippingCents = 0;
-            taxCents = 0;
-            shippingDetails = null;
-            taxDetails = null;
-            updateCartSummary(); // ✅ Changed from render()
-            return;
+        if (cart.length === 0) {
+            console.warn('Cart is empty');
+            return null;
         }
+    
+        // Check if all items have dimensions
+        const missingDimensions = cart.filter(entry => 
+            !entry.item.dimensions || 
+            !entry.item.dimensions.length || 
+            !entry.item.dimensions.width || 
+            !entry.item.dimensions.height || 
+            !entry.item.dimensions.weight
+        );
+    
+        if (missingDimensions.length > 0) {
+            console.warn('Some items missing dimensions:', missingDimensions.map(e => e.item.name));
+            
+            // Use default dimensions as fallback
+            const totalItems = cart.reduce((sum, e) => sum + e.quantity, 0);
+            return [{
+                length: "12",
+                width: "9",
+                height: "6",
+                distance_unit: "in",
+                weight: Math.max(1, totalItems).toString(),
+                mass_unit: "lb"
+            }];
+        }
+    
+        // Strategy: Single box approach (combine weights, use largest dimensions)
+        const totalWeight = cart.reduce((sum, entry) => {
+            const itemWeight = entry.item.dimensions.weight * entry.quantity;
+            return sum + itemWeight;
+        }, 0);
+    
+        // Find largest dimensions across all items
+        const maxLength = Math.max(...cart.map(e => e.item.dimensions.length));
+        const maxWidth = Math.max(...cart.map(e => e.item.dimensions.width));
+        const maxHeight = Math.max(...cart.map(e => e.item.dimensions.height));
+    
+        // Add 2 inches padding for packaging material
+        const paddedLength = maxLength + 2;
+        const paddedWidth = maxWidth + 2;
+        const paddedHeight = maxHeight + 2;
+    
+        console.log('📦 Parcel built from cart:', {
+            dimensions: `${paddedLength}"×${paddedWidth}"×${paddedHeight}"`,
+            weight: `${totalWeight.toFixed(1)} lbs`,
+            items: cart.length
+        });
+    
+        return [{
+            length: paddedLength.toString(),
+            width: paddedWidth.toString(),
+            height: paddedHeight.toString(),
+            distance_unit: "in",
+            weight: totalWeight.toFixed(1),
+            mass_unit: "lb"
+        }];
+    }
 
-        // Show loading state
-        $('btnSubmit').disabled = true;
-        $('btnSubmit').innerHTML = `${t('calculatingShipping')} <span class="calculating-spinner"></span>`;
-
-        try {
-            // Parse address for state/zip
-            const addressParts = address.split(',');
-            const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
-            const orderState = stateZip[0] || 'CA';
-            const zipCode = stateZip[1] || '00000';
-
-            // Calculate total weight (example: 1 lb per item, adjust as needed)
-            const totalItems = Object.values(cartData).reduce((sum, e) => sum + e.quantity, 0);
-            const totalWeight = Math.max(1, totalItems); // Minimum 1 lb
-
-            // 1. Calculate Shipping
+        async function calculateShippingAndTax() {
+            const addressInput = $('delivery-address');
+            const address = addressInput?.value?.trim();
+            
+            if (!address || addressInput.dataset.validated !== 'true') {
+                shippingCents = 0;
+                taxCents = 0;
+                shippingDetails = null;
+                taxDetails = null;
+                updateCartSummary();
+                return;
+            }
+        
+            $('btnSubmit').disabled = true;
+            $('btnSubmit').innerHTML = `${t('calculatingShipping')} <span class="calculating-spinner"></span>`;
+        
             try {
-                const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        addressTo: {
-                            name: $('buyer-name').value || 'Customer',
-                            street1: addressParts[0]?.trim() || address,
-                            city: addressParts[1]?.trim() || 'Unknown',
-                            state: orderState,
-                            zip: zipCode,
-                            country: 'US'
-                        },
-                        parcels: [{
-                            length: "12",
-                            width: "8",
-                            height: "6",
-                            distance_unit: "in",
-                            weight: totalWeight.toString(),
-                            mass_unit: "lb"
-                        }]
-                    })
-                });
-
-                if (shippingRes.ok) {
-                    const shippingData = await shippingRes.json();
-                    
-                    // ✅ Use displayRate (highest cost) to show customer worst-case scenario
-                    if (shippingData.displayRate) {
-                        shippingCents = Math.round(shippingData.displayRate.amount * 100);
-                        shippingDetails = {
-                            provider: shippingData.displayRate.provider,
-                            servicelevel: shippingData.displayRate.servicelevel,
-                            amount: shippingData.displayRate.amount,
-                            estimated_days: shippingData.displayRate.estimated_days
-                        };
+                const addressParts = address.split(',');
+                const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
+                const orderState = stateZip[0] || 'CA';
+                const zipCode = stateZip[1] || '00000';
+        
+                // ✅ Build parcels from actual product dimensions
+                const parcels = buildParcelsFromCart();
+                
+                if (!parcels) {
+                    throw new Error('Unable to build shipping parcels from cart');
+                }
+        
+                // 1. Calculate Shipping with real dimensions
+                try {
+                    const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            addressTo: {
+                                name: $('buyer-name').value || 'Customer',
+                                street1: addressParts[0]?.trim() || address,
+                                city: addressParts[1]?.trim() || 'Unknown',
+                                state: orderState,
+                                zip: zipCode,
+                                country: 'US'
+                            },
+                            parcels: parcels
+                        })
+                    });
+        
+                    if (shippingRes.ok) {
+                        const shippingData = await shippingRes.json();
                         
-                        console.log('💰 Showing customer highest rate:', shippingData.displayRate);
-                        console.log('📊 All available rates:', shippingData.allRates);
-                    } else if (shippingData.bestRate) {
-                        // Fallback to bestRate if displayRate not available
-                        shippingCents = Math.round(shippingData.bestRate.amount * 100);
-                        shippingDetails = {
-                            provider: shippingData.bestRate.provider,
-                            amount: shippingData.bestRate.amount
-                        };
+                        // ✅ Show customer shipping options
+                        if (shippingData.allRates && shippingData.allRates.length > 0) {
+                            await displayShippingOptions(shippingData.allRates);
+                            return; // Wait for customer selection
+                        }
+                        
+                        // Fallback to displayRate if no options UI
+                        if (shippingData.displayRate) {
+                            shippingCents = Math.round(shippingData.displayRate.amount * 100);
+                            shippingDetails = {
+                                provider: shippingData.displayRate.provider,
+                                servicelevel: shippingData.displayRate.servicelevel,
+                                amount: shippingData.displayRate.amount,
+                                estimated_days: shippingData.displayRate.estimated_days
+                            };
+                        }
+                    } else {
+                        console.warn('Shipping API failed, using default');
+                        shippingCents = 1000;
+                        shippingDetails = { provider: 'Standard', amount: 10 };
                     }
-                } else {
-                    console.warn('Shipping API failed, using default');
-                    shippingCents = 1000; // Default $10
+                } catch (shippingError) {
+                    console.error('Shipping calculation error:', shippingError);
+                    shippingCents = 1000;
                     shippingDetails = { provider: 'Standard', amount: 10 };
                 }
-            } catch (shippingError) {
-                console.error('Shipping calculation error:', shippingError);
-                shippingCents = 1000; // Default $10
-                shippingDetails = { provider: 'Standard', amount: 10 };
+        
+                // 2. Calculate Tax
+                $('btnSubmit').innerHTML = `${t('calculatingTax')} <span class="calculating-spinner"></span>`;
+        
+                try {
+                    const taxRes = await fetch('/.netlify/functions/calculateTax', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            subtotalCents: cartTotalCents,
+                            state: orderState,
+                            zipCode: zipCode
+                        })
+                    });
+        
+                    if (taxRes.ok) {
+                        const taxData = await taxRes.json();
+                        taxCents = taxData.taxCents || 0;
+                        taxDetails = {
+                            rate: taxData.taxRate,
+                            ratePercent: taxData.taxRatePercent
+                        };
+                    }
+                } catch (taxError) {
+                    console.error('Tax calculation error:', taxError);
+                    taxCents = 0;
+                }
+        
+                updateCartSummary();
+        
+            } catch (error) {
+                console.error('Calculation error:', error);
+                alert(t('shippingError'));
+            } finally {
+                $('btnSubmit').disabled = false;
+                const grandTotal = cartTotalCents + shippingCents + taxCents;
+                $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
             }
-
-            // 2. Calculate Tax
+        }
+        // ✅ NEW: Display shipping options for customer to choose
+        async function displayShippingOptions(rates) {
+            if (!rates || rates.length === 0) return;
+        
+            // Sort by price
+            rates.sort((a, b) => a.amount - b.amount);
+        
+            const modalHtml = `
+                <div id="shipping-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-2xl">
+                            <h3 class="text-2xl font-black">${currentLang === 'es' ? '📦 Selecciona Método de Envío' : '📦 Choose Shipping Method'}</h3>
+                            <p class="text-sm opacity-90 mt-1">
+                                ${currentLang === 'es' 
+                                    ? 'Selecciona la opción que mejor se ajuste a tus necesidades' 
+                                    : 'Select the option that best fits your needs'}
+                            </p>
+                        </div>
+                        
+                        <div class="p-6 space-y-4">
+                            ${rates.map((rate, index) => {
+                                const isCheapest = index === 0;
+                                const isFastest = rate.estimated_days === Math.min(...rates.map(r => r.estimated_days || 999));
+                                
+                                return `
+                                    <div class="relative border-2 rounded-xl p-5 cursor-pointer hover:border-indigo-500 hover:shadow-lg transition ${isCheapest ? 'border-green-500 bg-green-50' : 'border-gray-200'}"
+                                         onclick="selectShipping(${index})">
+                                        
+                                        ${isCheapest ? '<div class="absolute -top-3 -right-3 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">💰 BEST VALUE</div>' : ''}
+                                        ${isFastest && !isCheapest ? '<div class="absolute -top-3 -right-3 bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">⚡ FASTEST</div>' : ''}
+                                        
+                                        <div class="flex justify-between items-center">
+                                            <div class="flex-1">
+                                                <div class="flex items-center gap-3 mb-2">
+                                                    <span class="font-black text-xl">${rate.provider.toUpperCase()}</span>
+                                                    <span class="text-sm text-gray-600">${rate.servicelevel}</span>
+                                                </div>
+                                                <div class="flex items-center gap-4 text-sm text-gray-600">
+                                                    <span>📦 ${rate.estimated_days} ${currentLang === 'es' ? 'días' : 'days'}</span>
+                                                    ${rate.duration_terms ? `<span class="text-xs">• ${rate.duration_terms}</span>` : ''}
+                                                </div>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="text-3xl font-black text-indigo-700">$${rate.amount.toFixed(2)}</div>
+                                                <div class="text-xs text-gray-500">${rate.currency}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        
+                        <div class="bg-gray-100 p-6 rounded-b-2xl">
+                            <button onclick="closeShippingModal()" class="w-full py-3 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600 transition">
+                                ${currentLang === 'es' ? 'Cancelar' : 'Cancel'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        
+            // Store rates for selection
+            window.availableRates = rates;
+        
+            // Add to page
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+        
+        window.selectShipping = async function(index) {
+            const rate = window.availableRates[index];
+            
+            shippingCents = Math.round(rate.amount * 100);
+            shippingDetails = {
+                provider: rate.provider,
+                servicelevel: rate.servicelevel,
+                amount: rate.amount,
+                estimated_days: rate.estimated_days,
+                rateId: rate.object_id // ✅ Store for final order
+            };
+        
+            console.log('✅ Customer selected shipping:', shippingDetails);
+        
+            closeShippingModal();
+        
+            // Now calculate tax with selected shipping
             $('btnSubmit').innerHTML = `${t('calculatingTax')} <span class="calculating-spinner"></span>`;
-
+            
             try {
+                const addressInput = $('delivery-address');
+                const address = addressInput.value.split(',');
+                const stateZip = address[address.length - 2]?.trim().split(' ') || [];
+                
                 const taxRes = await fetch('/.netlify/functions/calculateTax', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         subtotalCents: cartTotalCents,
-                        state: orderState,
-                        zipCode: zipCode
+                        state: stateZip[0] || 'CA',
+                        zipCode: stateZip[1] || '00000'
                     })
                 });
-
+        
                 if (taxRes.ok) {
                     const taxData = await taxRes.json();
                     taxCents = taxData.taxCents || 0;
-                    taxDetails = {
-                        rate: taxData.taxRate,
-                        ratePercent: taxData.taxRatePercent
-                    };
+                    taxDetails = { rate: taxData.taxRate, ratePercent: taxData.taxRatePercent };
                 }
-            } catch (taxError) {
-                console.error('Tax calculation error:', taxError);
-                taxCents = 0; // No tax if calculation fails
+            } catch (error) {
+                console.error('Tax error:', error);
+                taxCents = 0;
             }
-
-            // ✅ Update only the summary section (NOT full re-render)
+        
             updateCartSummary();
-
-        } catch (error) {
-            console.error('Calculation error:', error);
-            alert(t('shippingError'));
-        } finally {
+            
             $('btnSubmit').disabled = false;
             const grandTotal = cartTotalCents + shippingCents + taxCents;
             $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
-        }
-    }
+        };
+        
+        window.closeShippingModal = function() {
+            document.getElementById('shipping-modal')?.remove();
+        };
+    
 
     async function init() {
         try {
