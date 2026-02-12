@@ -688,7 +688,7 @@
                     <p class="mt-2">${t('maintenanceMsg')}</p>
                 </div>`;
             }
-
+        
             return `
                 <div class="flex flex-col md:grid md:grid-cols-12 gap-6">
                     
@@ -699,12 +699,15 @@
                     <div class="md:col-span-8 space-y-6">
                         <div class="sticky top-[135px] md:top-24 bg-indigo-50/80 backdrop-blur-md z-10 py-2 -mx-2 px-2 rounded-xl">
                             <input type="text"
+                                   id="product-search-input"
                                    oninput="window.module.handleProductSearchInput(event)"
                                    value="${state.productSearchTerm}"
                                    placeholder="${t('searchPlaceholder')}"
                                    class="w-full p-2 text-sm border border-indigo-300 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 bg-white">
                         </div>
-                        ${renderProductGrid()}
+                        <div id="product-grid-container">
+                            ${renderProductGrid()}
+                        </div>
                     </div>
         
                     <div class="md:col-span-2">
@@ -741,9 +744,25 @@
         }
 
         function handleProductSearchInput(e) {
+            // 1. Save the current cursor position and the ID of the input
+            const inputId = e.target.id || 'product-search-input'; // Ensure your HTML has this ID
+            const selectionStart = e.target.selectionStart;
+            const selectionEnd = e.target.selectionEnd;
+        
+            // 2. Update the state
             state.productSearchTerm = e.target.value;
+        
+            // 3. Trigger the full render
             render();
+        
+            // 4. Find the "new" input in the DOM and restore focus/cursor
+            const newInput = document.getElementById(inputId);
+            if (newInput) {
+                newInput.focus();
+                newInput.setSelectionRange(selectionStart, selectionEnd);
+            }
         }
+        
         function selectCategory(categoryId) {
             state.selectedCategoryId = categoryId;
             state.productSearchTerm = '';
