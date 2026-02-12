@@ -3854,15 +3854,162 @@
         }
         function renderOrderCreateForm() {
             return `
-                <div class="bg-white p-6 rounded-lg shadow-lg">
-                    <h3 class="text-xl font-bold mb-4">Create Manual Order</h3>
-                    <form id="createOrderForm" onsubmit="window.module.handleAdminOrderSubmit(event)">
-                        <!-- Form fields here -->
-                        <button type="submit" id="submitOrderButton" class="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold hover:bg-indigo-700">
-                            SUBMIT ORDER & SEND EMAIL
+                <section class="space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h2 class="text-2xl font-bold text-green-700">${t('manualOrder')}</h2>
+                        <button onclick="window.module.switchOrderPage('list')" 
+                                class="px-4 py-2 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 shadow-md transition">
+                            ${t('backToTracking')}
                         </button>
-                    </form>
-                </div>
+                    </div>
+        
+                    <div id="ordersMessage"></div>
+        
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- LEFT: Form Section -->
+                        <div class="lg:col-span-2 space-y-6">
+                            <div class="bg-white p-6 rounded-xl shadow-lg">
+                                <form id="createOrderForm" onsubmit="window.module.handleAdminOrderSubmit(event)" class="space-y-6">
+                                    
+                                    <!-- Customer Information -->
+                                    <div class="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
+                                        <h3 class="text-lg font-bold mb-4 text-blue-800">👤 Customer Information</h3>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label class="block text-sm font-semibold mb-2">Full Name *</label>
+                                                <input type="text" id="buyerName" required 
+                                                       class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-semibold mb-2">Email *</label>
+                                                <input type="email" id="buyerEmail" required 
+                                                       class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-semibold mb-2">Phone</label>
+                                                <input type="tel" id="buyerPhone" 
+                                                       placeholder="+1 555-0000"
+                                                       class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
+                                            </div>
+                                            <div>
+                                                <label class="block text-sm font-semibold mb-2">Preferred Language</label>
+                                                <select id="buyerLanguage" class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500">
+                                                    <option value="en">English</option>
+                                                    <option value="es">Español</option>
+                                                </select>
+                                            </div>
+                                        </div>
+        
+                                        <!-- Notification Preferences -->
+                                        <div class="mt-4 p-4 bg-blue-100 rounded-lg">
+                                            <p class="text-sm font-bold text-blue-800 mb-3">📱 Notification Preferences</p>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                <label class="flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-green-400 transition">
+                                                    <input type="checkbox" id="adminWhatsappOpt" checked
+                                                           class="w-5 h-5 text-green-600 rounded">
+                                                    <div>
+                                                        <p class="font-semibold text-sm text-gray-800">WhatsApp Updates</p>
+                                                        <p class="text-xs text-gray-500">Send order updates via WhatsApp</p>
+                                                    </div>
+                                                </label>
+                                                <label class="flex items-center gap-3 p-3 bg-white rounded-lg border-2 cursor-pointer hover:border-blue-400 transition">
+                                                    <input type="checkbox" id="adminSmsOpt"
+                                                           class="w-5 h-5 text-blue-600 rounded">
+                                                    <div>
+                                                        <p class="font-semibold text-sm text-gray-800">SMS Updates</p>
+                                                        <p class="text-xs text-gray-500">Send order updates via SMS</p>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+        
+                                    <!-- Delivery Address -->
+                                    <div class="border-2 border-green-200 rounded-lg p-4 bg-green-50">
+                                        <h3 class="text-lg font-bold mb-4 text-green-800">📍 Delivery Address</h3>
+                                        <div>
+                                            <label class="block text-sm font-semibold mb-2">Search for Address *</label>
+                                            <input type="text" id="deliveryAddress" required data-validated="false"
+                                                   placeholder="Start typing to search for address..."
+                                                   class="w-full p-4 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200 text-lg">
+                                            <div id="addressErrorAdmin" class="mt-2 text-sm text-orange-600 font-semibold">
+                                                ⚠️ Please select a valid address from the dropdown
+                                            </div>
+                                        </div>
+                                    </div>
+        
+                                    <!-- Product Selection -->
+                                    <div class="border-2 border-purple-200 rounded-lg p-4 bg-purple-50">
+                                        <h3 class="text-lg font-bold mb-4 text-purple-800">🛒 Add Products to Order</h3>
+                                        <div>
+                                            <label class="block text-sm font-semibold mb-2">Search Products</label>
+                                            <input type="text" 
+                                                   oninput="window.module.handleOrderSearchInput(event)" 
+                                                   placeholder="Search by name, SKU, or category..."
+                                                   class="w-full p-3 mb-3 border-2 border-gray-300 rounded-lg focus:border-purple-500">
+                                        </div>
+                                        
+                                        <div class="flex gap-3">
+                                            <select id="itemSelector" class="flex-1 p-3 border-2 border-gray-300 rounded-lg focus:border-purple-500">
+                                                <option value="">-- Select Product --</option>
+                                            </select>
+                                            <input type="number" id="itemQuantity" value="1" min="1" 
+                                                   class="w-24 p-3 border-2 border-gray-300 rounded-lg focus:border-purple-500">
+                                            <button type="button" onclick="window.module.addAdminCartItem()" 
+                                                    class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-bold shadow-md">
+                                                + Add
+                                            </button>
+                                        </div>
+                                    </div>
+        
+                                    <!-- Order Notes -->
+                                    <div class="border-2 border-yellow-200 rounded-lg p-4 bg-yellow-50">
+                                        <h3 class="text-lg font-bold mb-4 text-yellow-800">📝 Order Notes (Optional)</h3>
+                                        <textarea id="orderNotes" rows="3" 
+                                                  placeholder="Internal notes about this order..."
+                                                  class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:ring-2 focus:ring-yellow-200"></textarea>
+                                    </div>
+        
+                                    <!-- Submit Button -->
+                                    <button type="submit" id="submitOrderButton" disabled
+                                            class="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white py-5 rounded-xl font-black text-xl shadow-xl hover:from-green-700 hover:to-emerald-700 transition transform hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed">
+                                        SUBMIT ORDER & SEND EMAIL
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+        
+                        <!-- RIGHT: Cart Summary -->
+                        <div class="lg:col-span-1">
+                            <div class="bg-white p-6 rounded-xl shadow-xl sticky top-6 border-t-8 border-pink-500">
+                                <h3 class="text-xl font-black mb-6 uppercase tracking-wider text-gray-400">Order Cart</h3>
+                                
+                                <div id="adminCartDisplay" class="space-y-3 mb-6 max-h-96 overflow-y-auto">
+                                    <p class="text-gray-500 italic">No items added yet. Start searching above!</p>
+                                </div>
+                                
+                                <div id="adminCartTotal" class="mt-6 border-t-2 pt-6">
+                                    <div class="flex justify-between text-base font-semibold text-gray-700">
+                                        <span>Subtotal</span>
+                                        <span>$0.00</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm text-gray-400 italic mt-2">
+                                        <span>📦 Shipping</span>
+                                        <span>Enter address to calculate</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm text-gray-400 italic mt-2">
+                                        <span>📋 Tax</span>
+                                        <span>Calculated with address</span>
+                                    </div>
+                                    <div class="border-t-2 pt-3 mt-3 flex justify-between text-2xl font-black text-gray-900">
+                                        <span>Total</span>
+                                        <span class="text-indigo-700">$0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
             `;
         }
 
