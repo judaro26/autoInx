@@ -23,14 +23,14 @@ exports.handler = async (event, context) => {
         }
 
         // Validate Shippo API token exists
-        const SHIPPO_API_TOKEN = process.env.SHIPPO_API_TOKEN;
-        if (!SHIPPO_API_TOKEN) {
-            console.error('❌ SHIPPO_API_TOKEN not configured');
+        const SHIPPO_API_KEY = process.env.SHIPPO_API_KEY;
+        if (!SHIPPO_API_KEY) {
+            console.error('❌ SHIPPO_API_KEY not configured');
             return {
                 statusCode: 500,
                 body: JSON.stringify({ 
                     error: 'Shipping service not configured',
-                    details: 'SHIPPO_API_TOKEN missing'
+                    details: 'SHIPPO_API_KEY missing'
                 })
             };
         }
@@ -56,7 +56,7 @@ exports.handler = async (event, context) => {
             },
             {
                 headers: {
-                    'Authorization': `ShippoToken ${SHIPPO_API_TOKEN}`,
+                    'Authorization': `ShippoToken ${SHIPPO_API_KEY}`,
                     'Content-Type': 'application/json'
                 }
             }
