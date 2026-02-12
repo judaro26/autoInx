@@ -1,124 +1,139 @@
-const fetch = require('node-fetch');
+const axios = require('axios');
 
-exports.handler = async (event) => {
-    // CORS headers
-    const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Content-Type': 'application/json'
-    };
-
-    // Handle preflight
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 200, headers, body: '' };
-    }
-
+exports.handler = async (event, context) => {
+    // Only allow POST requests
     if (event.httpMethod !== 'POST') {
-        return { 
-            statusCode: 405, 
-            headers, 
-            body: JSON.stringify({ error: 'Method not allowed' }) 
+        return {
+            statusCode: 405,
+            body: JSON.stringify({ error: 'Method not allowed' })
         };
     }
 
     try {
-        const { addressTo, parcels, serviceLevel = 'usps_priority' } = JSON.parse(event.body);
-        
+        const { addressTo, parcels } = JSON.parse(event.body);
+
+        // Validate required fields
         if (!addressTo || !parcels) {
             return {
                 statusCode: 400,
-                headers,
-                body: JSON.stringify({ error: 'Missing required fields: addressTo, parcels' })
+                body: JSON.stringify({ 
+                    error: 'Missing required fields: addressTo and parcels are required' 
+                })
             };
         }
 
-        // Shippo API Key (store in Netlify environment variables)
-        const SHIPPO_API_KEY = process.env.SHIPPO_API_KEY;
-        
-        if (!SHIPPO_API_KEY) {
-            throw new Error('Shippo API key not configured');
+        // Validate Shippo API token exists
+        const SHIPPO_API_TOKEN = process.env.SHIPPO_API_TOKEN;
+        if (!SHIPPO_API_TOKEN) {
+            console.error('❌ SHIPPO_API_TOKEN not configured');
+            return {
+                statusCode: 500,
+                body: JSON.stringify({ 
+                    error: 'Shipping service not configured',
+                    details: 'SHIPPO_API_TOKEN missing'
+                })
+            };
         }
 
-        // Create shipment request
-        const shipmentData = {
-            address_from: {
-                name: "AutoInx Store",
-                street1: "587 Paradise Blvd",
-                city: "Hayward",
-                state: "CA",
-                zip: "94545",
-                country: "US"
-            },
-            address_to: addressTo,
-            parcels: parcels,
-            async: false
-        };
+        console.log('📦 Creating shipment for address:', addressTo.city, addressTo.state);
 
-        const response = await fetch('https://api.goshippo.com/shipments/', {
-            method: 'POST',
-            headers: {
-                'Authorization': `ShippoToken ${SHIPPO_API_KEY}`,
-                'Content-Type': 'application/json'
+        // Create shipment with Shippo
+        const shipmentResponse = await axios.post(
+            'https://api.goshippo.com/shipments/',
+            {
+                address_from: {
+                    name: "AutoInx Warehouse",
+                    street1: "1234 Warehouse St",
+                    city: "San Francisco",
+                    state: "CA",
+                    zip: "94103",
+                    country: "US",
+                    phone: "+1 415 123 4567"
+                },
+                address_to: addressTo,
+                parcels: parcels,
+                async: false
             },
-            body: JSON.stringify(shipmentData)
-        });
+            {
+                headers: {
+                    'Authorization': `ShippoToken ${SHIPPO_API_TOKEN}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(`Shippo API error: ${JSON.stringify(error)}`);
+        const shipmentData = shipmentResponse.data;
+        console.log('✅ Shipment created:', shipmentData.object_id);
+
+        // Check if we got rates
+        if (!shipmentData.rates || shipmentData.rates.length === 0) {
+            console.warn('⚠️ No shipping rates returned');
+            return {
+                statusCode: 200,
+                body: JSON.stringify({
+                    success: false,
+                    message: 'No shipping rates available for this destination',
+                    bestRate: null
+                })
+            };
         }
 
-        const shipment = await response.json();
-        
-        // Filter rates for requested service level
-        const highestRate = sortedRates[sortedRates.length - 1];
-        const lowestRate = sortedRates[0];
-        
+        // ✅ FIX: Sort rates by price (lowest first)
+        const sortedRates = shipmentData.rates.sort((a, b) => 
+            parseFloat(a.amount) - parseFloat(b.amount)
+        );
+
+        // Get the cheapest rate
+        const bestRate = sortedRates[0];
+
+        console.log('💰 Best rate:', bestRate.provider, bestRate.servicelevel.name, `$${bestRate.amount}`);
+
         return {
             statusCode: 200,
-            headers,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             body: JSON.stringify({
                 success: true,
-                allRates: sortedRates.map(r => ({
-                    provider: r.provider,
-                    servicelevel: r.servicelevel.name,
-                    amount: parseFloat(r.amount),
-                    currency: r.currency,
-                    estimated_days: r.estimated_days
-                })),
-                // Return HIGHEST rate so customer sees max possible cost
-                displayRate: {
-                    provider: highestRate.provider,
-                    servicelevel: highestRate.servicelevel.name,
-                    amount: parseFloat(highestRate.amount),
-                    currency: highestRate.currency,
-                    estimated_days: highestRate.estimated_days
-                },
-                // Also include lowest for admin reference
-                lowestRate: {
-                    provider: lowestRate.provider,
-                    amount: parseFloat(lowestRate.amount),
-                    currency: lowestRate.currency
-                },
-                // Keep bestRate for backward compatibility (but use displayRate instead)
                 bestRate: {
-                    provider: highestRate.provider,
-                    amount: parseFloat(highestRate.amount),
-                    currency: highestRate.currency,
-                    estimated_days: highestRate.estimated_days
-                }
+                    provider: bestRate.provider,
+                    servicelevel: bestRate.servicelevel,
+                    amount: parseFloat(bestRate.amount),
+                    currency: bestRate.currency,
+                    estimated_days: bestRate.estimated_days,
+                    duration_terms: bestRate.duration_terms
+                },
+                allRates: sortedRates.map(rate => ({
+                    provider: rate.provider,
+                    servicelevel: rate.servicelevel.name,
+                    amount: parseFloat(rate.amount),
+                    currency: rate.currency,
+                    estimated_days: rate.estimated_days
+                })),
+                shipmentId: shipmentData.object_id
             })
         };
 
     } catch (error) {
-        console.error('Shipping calculation error:', error);
+        console.error('❌ Shipping calculation error:', error.message);
+        
+        // Log more details for debugging
+        if (error.response) {
+            console.error('Shippo API Error:', error.response.data);
+        }
+
         return {
             statusCode: 500,
-            headers,
-            body: JSON.stringify({ 
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            body: JSON.stringify({
                 error: 'Failed to calculate shipping',
-                details: error.message 
+                details: error.message,
+                // Include API error details if available
+                apiError: error.response?.data || null
             })
         };
     }
