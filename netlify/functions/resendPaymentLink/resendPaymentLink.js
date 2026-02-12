@@ -1,3 +1,8 @@
+/**
+ * Netlify Function: resendPaymentLink.js
+ * Generates/retrieves Stripe Payment Link and sends email to customer
+ * Requires Admin Authentication
+ */
 const admin = require("firebase-admin");
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const nodemailer = require("nodemailer");
@@ -46,81 +51,10 @@ async function getPaymentTemplateHtml(languageCode) {
         const templatePath = path.resolve(__dirname, "emailTemplates", filename);
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
-        console.warn(`Template ${filename} not found, using fallback`);
+        console.error(`Failed to load payment template: ${filename}`, error);
         if (languageCode !== 'en') return getPaymentTemplateHtml('en');
-        // Fallback inline template if file doesn't exist
-        return getFallbackTemplate();
+        throw new Error(`Failed to load email template: ${filename}`);
     }
-}
-
-function getFallbackTemplate() {
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px;">
-        <tr>
-            <td align="center">
-                <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                    <tr>
-                        <td style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); padding: 40px; text-align: center;">
-                            <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">
-                                💳 {{params.mainTitle}}
-                            </h1>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 40px;">
-                            <p style="font-size: 16px; color: #333; margin: 0 0 20px;">
-                                {{params.mainIntro}}
-                            </p>
-                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
-                                <tr>
-                                    <td align="center">
-                                        <a href="{{params.paymentUrl}}" 
-                                           style="display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 18px; font-weight: bold; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);">
-                                            🔒 {{params.buttonText}}
-                                        </a>
-                                    </td>
-                                </tr>
-                            </table>
-                            <p style="font-size: 14px; color: #666; text-align: center; margin: 20px 0;">
-                                {{params.secureText}}
-                            </p>
-                            <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0;">
-                                <h3 style="margin: 0 0 15px; color: #333; font-size: 18px;">
-                                    📦 {{params.summaryTitle}}
-                                </h3>
-                                <p style="margin: 5px 0; color: #666; font-size: 14px;">
-                                    <strong>{{params.orderLabel}}:</strong> #{{params.orderId}}
-                                </p>
-                                <p style="margin: 5px 0; color: #666; font-size: 14px;">
-                                    <strong>{{params.totalLabel}}:</strong> {{params.totalPrice}}
-                                </p>
-                            </div>
-                            <p style="font-size: 14px; color: #666; margin: 20px 0 0;">
-                                {{params.closeMessage}}
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
-                            <p style="margin: 0; color: #999; font-size: 12px;">
-                                © 2025 AutoInx. {{params.rightsText}}
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>
-    `;
 }
 
 async function populatePaymentTemplate(orderData, paymentUrl) {
@@ -128,11 +62,12 @@ async function populatePaymentTemplate(orderData, paymentUrl) {
     const orderIdShort = orderData.orderId.substring(0, 8);
     let template = await getPaymentTemplateHtml(languageCode);
 
-    let mainTitle, mainIntro, buttonText, secureText, summaryTitle, 
-        orderLabel, totalLabel, closeMessage, rightsText, subjectLine;
+    let badgeText, mainTitle, mainIntro, buttonText, secureText, 
+        summaryTitle, orderLabel, totalLabel, closeMessage, rightsText, subjectLine;
 
     if (languageCode === 'es') {
         subjectLine = `💳 Completa el Pago - Pedido #${orderIdShort}`;
+        badgeText = "Pago Pendiente";
         mainTitle = "Completa tu Pago";
         mainIntro = `Hola ${orderData.buyerName}, tu pedido está listo para ser procesado. Por favor completa el pago usando el siguiente enlace seguro:`;
         buttonText = `Pagar Ahora - ${formatPrice(orderData.totalCents)}`;
@@ -144,6 +79,7 @@ async function populatePaymentTemplate(orderData, paymentUrl) {
         rightsText = "Todos los derechos reservados.";
     } else {
         subjectLine = `💳 Complete Your Payment - Order #${orderIdShort}`;
+        badgeText = "Payment Pending";
         mainTitle = "Complete Your Payment";
         mainIntro = `Hello ${orderData.buyerName}, your order is ready to be processed. Please complete payment using the secure link below:`;
         buttonText = `Pay Now - ${formatPrice(orderData.totalCents)}`;
@@ -155,7 +91,8 @@ async function populatePaymentTemplate(orderData, paymentUrl) {
         rightsText = "All rights reserved.";
     }
 
-    template = template.replace(/{{params\.mainTitle}}/g, mainTitle)
+    template = template.replace(/{{params\.badgeText}}/g, badgeText)
+                       .replace(/{{params\.mainTitle}}/g, mainTitle)
                        .replace(/{{params\.mainIntro}}/g, mainIntro)
                        .replace(/{{params\.buttonText}}/g, buttonText)
                        .replace(/{{params\.paymentUrl}}/g, paymentUrl)
@@ -166,7 +103,8 @@ async function populatePaymentTemplate(orderData, paymentUrl) {
                        .replace(/{{params\.orderId}}/g, orderIdShort)
                        .replace(/{{params\.totalPrice}}/g, formatPrice(orderData.totalCents))
                        .replace(/{{params\.closeMessage}}/g, closeMessage)
-                       .replace(/{{params\.rightsText}}/g, rightsText);
+                       .replace(/{{params\.rightsText}}/g, rightsText)
+                       .replace(/{{contact\.EMAIL}}/g, orderData.buyerEmail);
 
     return { html: template, subject: subjectLine };
 }
