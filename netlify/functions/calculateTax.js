@@ -25,7 +25,6 @@ exports.handler = async (event) => {
             subtotalCents, 
             state: orderState, 
             zipCode,
-            // ✅ NEW: Accept full address for accurate calculation
             street,
             city,
             country = 'US'
@@ -36,7 +35,7 @@ exports.handler = async (event) => {
             address: `${street}, ${city}, ${orderState} ${zipCode}` 
         });
 
-        // ✅ STRIPE TAX CALCULATION (Primary Method)
+        // ✅ TRY STRIPE TAX FIRST
         try {
             const taxCalculation = await stripe.tax.calculations.create({
                 currency: 'usd',
@@ -56,13 +55,21 @@ exports.handler = async (event) => {
                     },
                     address_source: 'shipping',
                 },
-                // ✅ Configure based on your business location
                 shipping_cost: {
-                    amount: 0, // We calculate shipping separately
+                    amount: 0,
                 },
             });
 
-            console.log('✅ Stripe Tax calculated:', taxCalculation);
+            console.log('✅ Stripe Tax response:', taxCalculation);
+
+            // ✅ CHECK IF STRIPE IS ACTUALLY COLLECTING TAX
+            const isCollecting = taxCalculation.tax_amount_exclusive > 0;
+            const notCollectingReason = taxCalculation.tax_breakdown?.[0]?.taxability_reason;
+
+            if (!isCollecting && notCollectingReason === 'not_collecting') {
+                console.warn('⚠️ Stripe Tax not configured for this state - using fallback');
+                throw new Error('Stripe Tax not collecting - use fallback');
+            }
 
             return {
                 statusCode: 200,
@@ -77,15 +84,20 @@ exports.handler = async (event) => {
                     provider: 'stripe_tax',
                     jurisdiction: taxCalculation.tax_breakdown?.[0]?.jurisdiction || orderState,
                     taxBreakdown: taxCalculation.tax_breakdown,
-                    calculationId: taxCalculation.id // ✅ Store this for the actual transaction
+                    calculationId: taxCalculation.id
                 })
             };
 
         } catch (stripeError) {
-            console.warn('⚠️ Stripe Tax failed, falling back to local calculation:', stripeError.message);
+            console.warn('⚠️ Stripe Tax failed or not collecting, using fallback:', stripeError.message);
             
-            // ✅ FALLBACK: Enhanced local calculation with city-level rates
+            // ✅ FALLBACK: Local calculation with enhanced rates
             const taxData = getLocalTaxRate(orderState, zipCode, city);
+            
+            if (taxData.rate === 0) {
+                console.log('ℹ️ No tax nexus in', orderState);
+            }
+            
             const taxCents = Math.round(subtotalCents * taxData.rate);
 
             return {
@@ -98,7 +110,7 @@ exports.handler = async (event) => {
                     taxRatePercent: (taxData.rate * 100).toFixed(2),
                     provider: 'local_fallback',
                     jurisdiction: taxData.jurisdiction,
-                    warning: 'Using fallback tax calculation. Consider enabling Stripe Tax for accurate rates.'
+                    warning: 'Using fallback tax calculation. Configure Stripe Tax for accurate rates.'
                 })
             };
         }
@@ -116,22 +128,21 @@ exports.handler = async (event) => {
     }
 };
 
-// ✅ ENHANCED FALLBACK: More accurate local rates with city/county data
+// ✅ ENHANCED FALLBACK with California district rates
 function getLocalTaxRate(state, zipCode, city) {
-    // Define your nexus states (states where you have physical presence or economic nexus)
-    const nexusStates = ['CA', 'NY', 'TX']; // ⚠️ UPDATE THIS based on your business
+    // ⚠️ IMPORTANT: Update this array with states where you have nexus
+    const nexusStates = ['CA']; // Add states where you're registered to collect tax
     
     if (!nexusStates.includes(state)) {
         return { rate: 0, jurisdiction: 'No nexus' };
     }
 
-    // California - Most complex state with district taxes
+    // California - Detailed rates by ZIP code
     if (state === 'CA') {
         const caRates = {
             // San Francisco Bay Area
             '94102': { rate: 0.08625, jurisdiction: 'San Francisco' },
             '94103': { rate: 0.08625, jurisdiction: 'San Francisco' },
-            '94104': { rate: 0.08625, jurisdiction: 'San Francisco' },
             '95101': { rate: 0.09125, jurisdiction: 'San Jose' },
             '94501': { rate: 0.10250, jurisdiction: 'Alameda' },
             '94502': { rate: 0.10250, jurisdiction: 'Alameda' },
@@ -143,56 +154,35 @@ function getLocalTaxRate(state, zipCode, city) {
             
             // San Diego
             '92101': { rate: 0.0775, jurisdiction: 'San Diego' },
+            '92102': { rate: 0.0775, jurisdiction: 'San Diego' },
+            
+            // Sacramento
+            '95814': { rate: 0.08750, jurisdiction: 'Sacramento' },
+            '95815': { rate: 0.08750, jurisdiction: 'Sacramento' },
+            
+            // Stockton Area (your test address!)
+            '95201': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95202': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95203': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95204': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95205': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95206': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95207': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95208': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95209': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95210': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95211': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95212': { rate: 0.09000, jurisdiction: 'Stockton' },
+            '95213': { rate: 0.09000, jurisdiction: 'Stockton' },
             
             // Add more ZIP codes as needed
         };
 
         return caRates[zipCode] || { 
-            rate: 0.0725, // CA base rate
+            rate: 0.0725, // CA base state rate (7.25%)
             jurisdiction: 'California (base rate)' 
         };
     }
 
-    // New York
-    if (state === 'NY') {
-        const nyRates = {
-            // NYC has combined state + city tax
-            '10001': { rate: 0.08875, jurisdiction: 'New York City' },
-            '10002': { rate: 0.08875, jurisdiction: 'New York City' },
-            '11201': { rate: 0.08875, jurisdiction: 'Brooklyn' },
-            
-            // Upstate NY (state rate only)
-            '12180': { rate: 0.04, jurisdiction: 'Troy' },
-        };
-
-        return nyRates[zipCode] || { 
-            rate: 0.04, // NY state rate
-            jurisdiction: 'New York State' 
-        };
-    }
-
-    // Texas
-    if (state === 'TX') {
-        const txRates = {
-            '75201': { rate: 0.0825, jurisdiction: 'Dallas' },
-            '77001': { rate: 0.0825, jurisdiction: 'Houston' },
-            '78701': { rate: 0.0825, jurisdiction: 'Austin' },
-        };
-
-        return txRates[zipCode] || { 
-            rate: 0.0625, // TX state rate
-            jurisdiction: 'Texas' 
-        };
-    }
-
-    // Other states - add as needed
-    const stateRates = {
-        'FL': { rate: 0.06, jurisdiction: 'Florida' },
-        'WA': { rate: 0.065, jurisdiction: 'Washington' },
-        'IL': { rate: 0.0625, jurisdiction: 'Illinois' },
-        'PA': { rate: 0.06, jurisdiction: 'Pennsylvania' },
-        'OH': { rate: 0.0575, jurisdiction: 'Ohio' },
-    };
-
-    return stateRates[state] || { rate: 0, jurisdiction: 'No rate configured' };
+    return { rate: 0, jurisdiction: 'No rate configured' };
 }
