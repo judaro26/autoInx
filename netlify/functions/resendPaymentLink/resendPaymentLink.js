@@ -376,7 +376,7 @@ exports.handler = async function (event) {
             const emailContent = await populatePaymentTemplate(orderData, paymentLink.url);
 
             await transporter.sendMail({
-                from: `"AutoInx" <${process.env.BREVO_SMTP_USER}>`,
+                from: '"autoInx Support" <noreply@autoinx.com>',
                 to: orderData.buyerEmail,
                 subject: emailContent.subject,
                 html: emailContent.html
