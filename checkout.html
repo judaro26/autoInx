@@ -64,6 +64,8 @@
         zipCode: '',
         country: 'US'
     };
+    let validatedAddress = null;
+
 
     const TEXT = {
         es: {
@@ -580,13 +582,15 @@
             return;
         }
     
-        // ✅ USE STORED ADDRESS COMPONENTS
+        // ✅ THIS LINE SHOULD USE THE GLOBAL VARIABLE
         if (!selectedAddressComponents.zipCode || selectedAddressComponents.zipCode === '00000') {
-            console.error('❌ No valid ZIP code stored');
+            console.error('❌ No valid ZIP code stored in selectedAddressComponents');
+            console.log('selectedAddressComponents:', selectedAddressComponents);
             alert('Please select a complete address from the Google dropdown (not just type it).');
             return;
         }
         
+        // ✅ DESTRUCTURE FROM THE GLOBAL VARIABLE
         const { street, city, state, zipCode, country } = selectedAddressComponents;
         
         console.log('✅ Using stored address:', { street, city, state, zipCode, country });
@@ -674,10 +678,11 @@
             $('btnSubmit').innerHTML = `${t('calculatingTax')} <span class="calculating-spinner"></span>`;
     
             try {
+                const { street, city, state, zipCode, country } = selectedAddressComponents;
                 const taxPayload = {
+                    state: state,  // Now has the real value!
+                    zipCode: zipCode,  // Now has the real ZIP!
                     subtotalCents: cartTotalCents,
-                    state: state,
-                    zipCode: zipCode,
                     street: street,
                     city: city,
                     country: country
@@ -797,7 +802,7 @@
                 servicelevel: rate.servicelevel,
                 amount: rate.amount,
                 estimated_days: rate.estimated_days,
-                rateId: rate.object_id // ✅ Store for final order
+                rateId: rate.object_id
             };
         
             console.log('✅ Customer selected shipping:', shippingDetails);
@@ -808,39 +813,58 @@
             $('btnSubmit').innerHTML = `${t('calculatingTax')} <span class="calculating-spinner"></span>`;
             
             try {
-                const addressInput = $('delivery-address');
-                const address = addressInput.value.split(',');
-                const stateZip = address[address.length - 2]?.trim().split(' ') || [];
+                // ✅ USE THE GLOBAL selectedAddressComponents DIRECTLY
+                const { street, city, state, zipCode, country } = selectedAddressComponents;
+                
+                console.log('🔍 ===== TAX CALCULATION DEBUG =====');
+                console.log('selectedAddressComponents:', selectedAddressComponents);
+                console.log('Destructured values:', { street, city, state, zipCode, country });
+                console.log('zipCode type:', typeof zipCode);
+                console.log('zipCode value:', zipCode);
+                console.log('zipCode === "00000"?', zipCode === '00000');
+                console.log('=====================================');
+                
+                const taxPayload = {
+                    subtotalCents: cartTotalCents,
+                    state: state,
+                    zipCode: zipCode,
+                    street: street,
+                    city: city,
+                    country: country
+                };
+                
+                console.log('📋 Tax payload being sent:', taxPayload);
+                console.log('📋 Tax payload JSON:', JSON.stringify(taxPayload));
                 
                 const taxRes = await fetch('/.netlify/functions/calculateTax', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        subtotalCents: cartTotalCents,
-                        state: stateZip[0] || 'CA',
-                        zipCode: stateZip[1] || '00000'
-                    })
+                    body: JSON.stringify(taxPayload)
                 });
-        
+            
                 if (taxRes.ok) {
                     const taxData = await taxRes.json();
+                    console.log('✅ Tax response:', taxData);
                     taxCents = taxData.taxCents || 0;
-                    taxDetails = { rate: taxData.taxRate, ratePercent: taxData.taxRatePercent };
+                    taxDetails = {
+                        rate: taxData.taxRate,
+                        ratePercent: taxData.taxRatePercent
+                    };
+                } else {
+                    const errorText = await taxRes.text();
+                    console.error('❌ Tax API failed:', errorText);
+                    taxCents = 0;
                 }
-            } catch (error) {
-                console.error('Tax error:', error);
+            } catch (taxError) {
+                console.error('❌ Tax error:', taxError);
                 taxCents = 0;
             }
-        
+            
             updateCartSummary();
             
             $('btnSubmit').disabled = false;
             const grandTotal = cartTotalCents + shippingCents + taxCents;
             $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
-        };
-        
-        window.closeShippingModal = function() {
-            document.getElementById('shipping-modal')?.remove();
         };
     
 
