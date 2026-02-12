@@ -346,32 +346,56 @@
         };
     }
 
-    async function initMaps() {
-        try {
-            const res = await fetch('/.netlify/functions/getGoogleMapsKey');
-            const { apiKey } = await res.json();
-            const s = document.createElement('script');
-            s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-            s.onload = () => {
-                const inp = $('delivery-address');
-                autocomplete = new google.maps.places.Autocomplete(inp, { types: ['address'] });
-                map = new google.maps.Map($('map-container'), { center: { lat: 4.711, lng: -74.072 }, zoom: 12, disableDefaultUI: true });
-                marker = new google.maps.Marker({ position: { lat: 4.711, lng: -74.072 }, map, draggable: true });
-
-                autocomplete.addListener('place_changed', async () => {
-                    const place = autocomplete.getPlace();
-                    if (!place.geometry) return;
-                    map.setCenter(place.geometry.location); map.setZoom(17); marker.setPosition(place.geometry.location);
-                    inp.dataset.validated = 'true';
-                    $('addressStatus').innerHTML = `<span class="text-green-600">${t('valid')}</span>`;
+        async function initMaps() {
+            try {
+                const res = await fetch('/.netlify/functions/getGoogleMapsKey');
+                const { apiKey } = await res.json();
+                const s = document.createElement('script');
+                s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+                s.onload = () => {
+                    const inp = $('delivery-address');
+                    autocomplete = new google.maps.places.Autocomplete(inp, { 
+                        types: ['address'],
+                        componentRestrictions: { country: ['us', 'co'] } // US and Colombia
+                    });
                     
-                    // ✅ Calculate shipping & tax when address is selected
-                    await calculateShippingAndTax();
-                });
-            };
-            document.head.appendChild(s);
-        } catch (err) {}
-    }
+                    map = new google.maps.Map($('map-container'), { 
+                        center: { lat: 4.711, lng: -74.072 }, 
+                        zoom: 12, 
+                        disableDefaultUI: true 
+                    });
+                    
+                    marker = new google.maps.Marker({ 
+                        position: { lat: 4.711, lng: -74.072 }, 
+                        map, 
+                        draggable: true 
+                    });
+        
+                    autocomplete.addListener('place_changed', async () => {
+                        const place = autocomplete.getPlace();
+                        
+                        console.log('📍 Place selected:', place);
+                        
+                        if (!place.geometry) {
+                            console.warn('⚠️ No geometry in place');
+                            return;
+                        }
+                        
+                        map.setCenter(place.geometry.location);
+                        map.setZoom(17);
+                        marker.setPosition(place.geometry.location);
+                        inp.dataset.validated = 'true';
+                        $('addressStatus').innerHTML = `<span class="text-green-600">${t('valid')}</span>`;
+                        
+                        // ✅ Calculate shipping & tax when address is selected
+                        await calculateShippingAndTax();
+                    });
+                };
+                document.head.appendChild(s);
+            } catch (err) {
+                console.error('Maps initialization error:', err);
+            }
+        }
 
     // ✅ Calculate shipping and tax - NOW UPDATES WITHOUT FULL RE-RENDER
     function buildParcelsFromCart() {
@@ -455,44 +479,124 @@
             $('btnSubmit').innerHTML = `${t('calculatingShipping')} <span class="calculating-spinner"></span>`;
         
             try {
-                const addressParts = address.split(',');
-                const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
-                const orderState = stateZip[0] || 'CA';
-                const zipCode = stateZip[1] || '00000';
-        
-                // ✅ Build parcels from actual product dimensions
-                const parcels = buildParcelsFromCart();
+                // ✅ IMPROVED: Better address parsing with multiple strategies
+                let street = '';
+                let city = '';
+                let orderState = '';
+                let zipCode = '';
                 
-                if (!parcels) {
-                    throw new Error('Unable to build shipping parcels from cart');
+                // Strategy 1: Try to get data from Google Places API result
+                if (autocomplete && autocomplete.getPlace) {
+                    const place = autocomplete.getPlace();
+                    if (place.address_components) {
+                        console.log('📍 Using Google Places address components');
+                        
+                        place.address_components.forEach(component => {
+                            const types = component.types;
+                            
+                            if (types.includes('street_number')) {
+                                street = component.long_name + ' ';
+                            }
+                            if (types.includes('route')) {
+                                street += component.long_name;
+                            }
+                            if (types.includes('locality')) {
+                                city = component.long_name;
+                            }
+                            if (types.includes('administrative_area_level_1')) {
+                                orderState = component.short_name;
+                            }
+                            if (types.includes('postal_code')) {
+                                zipCode = component.long_name;
+                            }
+                        });
+                    }
                 }
+                
+                // Strategy 2: Parse from formatted address string as fallback
+                if (!zipCode || !orderState) {
+                    console.log('📍 Parsing address string:', address);
+                    
+                    // Parse address parts: "Street, City, State ZIP, Country"
+                    const addressParts = address.split(',').map(p => p.trim());
+                    
+                    street = street || addressParts[0] || '';
+                    city = city || addressParts[1] || '';
+                    
+                    // Extract state and ZIP from "CA 95205" or "California 95205"
+                    const stateZipPart = addressParts[2] || addressParts[addressParts.length - 2] || '';
+                    
+                    // Method 1: Regex to extract ZIP code (5 digits or 5+4 format)
+                    const zipMatch = stateZipPart.match(/\b(\d{5})(-\d{4})?\b/);
+                    if (zipMatch) {
+                        zipCode = zipMatch[1];
+                    }
+                    
+                    // Method 2: Extract state (2-letter code or full name)
+                    const stateMatch = stateZipPart.match(/\b([A-Z]{2})\b/);
+                    if (stateMatch) {
+                        orderState = stateMatch[1];
+                    } else {
+                        // Try to get first word as state
+                        const words = stateZipPart.split(' ');
+                        orderState = words[0] || 'CA';
+                    }
+                }
+                
+                // Validation and defaults
+                if (!zipCode) {
+                    console.warn('⚠️ Could not extract ZIP code from address');
+                    zipCode = '00000'; // This will trigger an error, which is good for debugging
+                }
+                
+                if (!orderState) {
+                    console.warn('⚠️ Could not extract state from address');
+                    orderState = 'CA';
+                }
+                
+                console.log('✅ Parsed address:', { street, city, orderState, zipCode });
         
-                // 1. Calculate Shipping with real dimensions
+                // Calculate total weight from cart
+                const totalItems = Object.values(cartData).reduce((sum, e) => sum + e.quantity, 0);
+                const totalWeight = Math.max(1, totalItems);
+        
+                // 1. Calculate Shipping
                 try {
-                    const shippingRes = await fetch('/.netlify/functions/calculateTax', {
+                    const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            subtotalCents: cartTotalCents,
-                            state: orderState,
-                            zipCode: zipCode,
-                            // ✅ NEW: Send full address for accurate calculation
-                            street: addressParts[0]?.trim() || '',
-                            city: addressParts[1]?.trim() || '',
-                            country: 'US'
+                            addressTo: {
+                                name: $('buyer-name')?.value || 'Customer',
+                                street1: street,
+                                city: city,
+                                state: orderState,
+                                zip: zipCode,
+                                country: 'US'
+                            },
+                            parcels: buildParcelsFromCart() || [{
+                                length: "12",
+                                width: "8",
+                                height: "6",
+                                distance_unit: "in",
+                                weight: totalWeight.toString(),
+                                mass_unit: "lb"
+                            }]
                         })
                     });
         
                     if (shippingRes.ok) {
                         const shippingData = await shippingRes.json();
                         
-                        // ✅ Show customer shipping options
+                        console.log('📦 Shipping response:', shippingData);
+                        
+                        // Show customer shipping options if available
                         if (shippingData.allRates && shippingData.allRates.length > 0) {
                             await displayShippingOptions(shippingData.allRates);
                             return; // Wait for customer selection
                         }
                         
-                        // Fallback to displayRate if no options UI
+                        // Use displayRate (highest cost shown to customer)
                         if (shippingData.displayRate) {
                             shippingCents = Math.round(shippingData.displayRate.amount * 100);
                             shippingDetails = {
@@ -501,14 +605,21 @@
                                 amount: shippingData.displayRate.amount,
                                 estimated_days: shippingData.displayRate.estimated_days
                             };
+                        } else if (shippingData.bestRate) {
+                            shippingCents = Math.round(shippingData.bestRate.amount * 100);
+                            shippingDetails = {
+                                provider: shippingData.bestRate.provider,
+                                amount: shippingData.bestRate.amount
+                            };
                         }
                     } else {
-                        console.warn('Shipping API failed, using default');
-                        shippingCents = 1000;
+                        const errorData = await shippingRes.json();
+                        console.warn('⚠️ Shipping API failed:', errorData);
+                        shippingCents = 1000; // Default $10
                         shippingDetails = { provider: 'Standard', amount: 10 };
                     }
                 } catch (shippingError) {
-                    console.error('Shipping calculation error:', shippingError);
+                    console.error('❌ Shipping calculation error:', shippingError);
                     shippingCents = 1000;
                     shippingDetails = { provider: 'Standard', amount: 10 };
                 }
@@ -517,33 +628,43 @@
                 $('btnSubmit').innerHTML = `${t('calculatingTax')} <span class="calculating-spinner"></span>`;
         
                 try {
+                    console.log('📋 Calculating tax with:', { subtotalCents: cartTotalCents, orderState, zipCode, street, city });
+                    
                     const taxRes = await fetch('/.netlify/functions/calculateTax', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             subtotalCents: cartTotalCents,
                             state: orderState,
-                            zipCode: zipCode
+                            zipCode: zipCode,
+                            street: street,
+                            city: city,
+                            country: 'US'
                         })
                     });
         
                     if (taxRes.ok) {
                         const taxData = await taxRes.json();
+                        console.log('✅ Tax calculated:', taxData);
                         taxCents = taxData.taxCents || 0;
                         taxDetails = {
                             rate: taxData.taxRate,
                             ratePercent: taxData.taxRatePercent
                         };
+                    } else {
+                        const errorData = await taxRes.json();
+                        console.warn('⚠️ Tax API failed:', errorData);
+                        taxCents = 0;
                     }
                 } catch (taxError) {
-                    console.error('Tax calculation error:', taxError);
+                    console.error('❌ Tax calculation error:', taxError);
                     taxCents = 0;
                 }
         
                 updateCartSummary();
         
             } catch (error) {
-                console.error('Calculation error:', error);
+                console.error('❌ Overall calculation error:', error);
                 alert(t('shippingError'));
             } finally {
                 $('btnSubmit').disabled = false;
