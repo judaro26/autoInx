@@ -125,6 +125,7 @@
         // --- GLOBAL VARIABLES & STATE ---
         let auth;
         let db;
+        let allOrders = [];
         let isAuthReady = false;
         let userId = null;
         let autocomplete; // Global variable for Google Autocomplete instance
@@ -292,9 +293,8 @@
         }
 
         function listenToOrders() {
-            // This uses the ORDERS_COLLECTION constant you defined: artifacts/${appId}/public/data/orders
             const ordersRef = collection(db, ORDERS_COLLECTION);
-            onSnapshot(collection(db, ORDERS_COLLECTION), (snapshot) => {
+            onSnapshot(ordersRef, (snapshot) => {
                 state.orders = snapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
@@ -303,13 +303,13 @@
                     const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.timestamp || 0);
                     return dateB - dateA;
                 });
-
-                // ✅ FIXED: Call the correct function based on current page
+        
+                // ✅ UPDATE THIS PART
                 if (state.activeTab === 'orders') {
                     if (state.orderPage === 'list') {
-                        window.module.renderOrdersList();
+                        renderOrdersList();  // ✅ Make sure this calls the updated function
                     } else if (state.orderPage === 'create') {
-                        window.module.updateAdminCartDisplay();
+                        updateAdminCartDisplay();
                     }
                 }
             }, (error) => {
@@ -3557,39 +3557,48 @@
         function renderOrdersList() {
             const container = document.getElementById('ordersListContent');
             if (!container) return;
-
+        
             const filteredOrders = state.orders.filter(order => {
                 const matchesStatus = state.orderStatusFilter === 'All' || order.status === state.orderStatusFilter;
                 const matchesDelivery = state.deliveryStatusFilter === 'All' ||
                     (state.deliveryStatusFilter === 'Delivered' && order.status === 'Delivered') ||
                     (state.deliveryStatusFilter === 'Pending' && order.status !== 'Delivered' && order.status !== 'Cancelled');
-
+        
                 const matchesSearch = !state.orderListSearchTerm ||
                     order.id.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
                     order.buyerName?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
                     order.buyerEmail?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase());
-
+        
                 return matchesStatus && matchesDelivery && matchesSearch;
             });
-
+        
             if (filteredOrders.length === 0) {
                 container.innerHTML = '<p class="text-center text-gray-500 p-8">No orders found matching your filters.</p>';
                 return;
             }
-
+        
             const ordersHtml = filteredOrders.map(order => {
                 const itemsList = order.items.map(item => {
                     const itemData = getSafeItemData(item);
                     return `${itemData.quantity}x ${escapeHtml(itemData.name)}`;
                 }).join(', ');
-
+        
                 const statusColor = {
                     'Pending': 'bg-yellow-100 text-yellow-800',
                     'Processing': 'bg-blue-100 text-blue-800',
                     'Delivered': 'bg-green-100 text-green-800',
                     'Cancelled': 'bg-red-100 text-red-800'
                 }[order.status] || 'bg-gray-100 text-gray-800';
-
+        
+                // ✅ NEW: Payment status badge
+                const paymentStatusColor = order.paymentStatus === 'Paid' || order.isPaid 
+                    ? 'bg-green-100 text-green-800 border-green-300'
+                    : 'bg-orange-100 text-orange-800 border-orange-300';
+                
+                const paymentStatusText = order.paymentStatus === 'Paid' || order.isPaid 
+                    ? '✅ Paid' 
+                    : '⏳ Unpaid';
+        
                 return `
                     <div class="bg-white p-4 rounded-lg shadow border border-gray-200">
                         <div class="flex justify-between items-start mb-2">
@@ -3597,7 +3606,10 @@
                                 <p class="font-bold text-sm">${order.orderNumber || order.id.substring(0, 8)}</p>
                                 <p class="text-xs text-gray-500">${formatTime(order.createdAt)}</p>
                             </div>
-                            <span class="px-2 py-1 rounded-full text-xs font-semibold ${statusColor}">${order.status}</span>
+                            <div class="flex flex-col gap-1 items-end">
+                                <span class="px-2 py-1 rounded-full text-xs font-semibold ${statusColor}">${order.status}</span>
+                                <span class="px-2 py-1 rounded-full text-xs font-semibold border-2 ${paymentStatusColor}">${paymentStatusText}</span>
+                            </div>
                         </div>
                         <p class="text-sm mb-1"><strong>Customer:</strong> ${escapeHtml(order.buyerName)}</p>
                         <p class="text-xs text-gray-600 mb-2">${escapeHtml(order.buyerEmail)}</p>
@@ -3607,6 +3619,43 @@
                             <span>📍</span>
                             <span class="truncate">${escapeHtml(order.deliveryAddress || 'No address on file')}</span>
                         </p>
+                        
+                        ${/* ✅ NEW: Payment Link Section */ ''}
+                        ${(order.paymentStatus !== 'Paid' && !order.isPaid) ? `
+                            <div class="mt-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200">
+                                <div class="flex gap-2 items-center">
+                                    <button onclick="window.module.sendPaymentLink('${order.id}')" 
+                                            class="flex-1 text-xs px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold shadow-md">
+                                        📧 Send Payment Link
+                                    </button>
+                                    ${order.stripePaymentUrl ? `
+                                        <button onclick="navigator.clipboard.writeText('${order.stripePaymentUrl}'); alert('Link copied!');" 
+                                                class="text-xs px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-semibold"
+                                                title="Copy payment link">
+                                            📋
+                                        </button>
+                                    ` : ''}
+                                </div>
+                                ${order.stripePaymentUrl ? `
+                                    <a href="${order.stripePaymentUrl}" target="_blank"
+                                       class="text-xs text-blue-600 hover:text-blue-800 underline mt-2 inline-block">
+                                        🔗 View payment link
+                                    </a>
+                                ` : ''}
+                            </div>
+                        ` : `
+                            <div class="mt-3 p-3 bg-green-50 border-2 border-green-200 rounded-lg">
+                                <p class="text-xs font-semibold text-green-800 flex items-center gap-2">
+                                    <span>✅</span> Payment Completed
+                                </p>
+                                ${order.paidAt ? `
+                                    <p class="text-xs text-green-700 mt-1">
+                                        ${new Date(order.paidAt).toLocaleString()}
+                                    </p>
+                                ` : ''}
+                            </div>
+                        `}
+                        
                         <div class="mt-3 flex gap-2 flex-wrap">
                             <button onclick="window.module.showOrderEditForm('${order.id}')" 
                                     class="text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">
@@ -3628,10 +3677,9 @@
                     </div>
                 `;
             }).join('');
-
+        
             container.innerHTML = ordersHtml;
         }
-
         function renderOrderCreateForm() {
             return `
                 <div class="bg-white p-6 rounded-lg shadow-lg">
@@ -3723,122 +3771,63 @@
         }
         
 
-        async function updateOrder(orderId) {
-            resetTimer();
+        async function sendPaymentLink(orderId) {
+            if (!confirm('Send payment link email to customer?')) return;
+        
+            const buttons = document.querySelectorAll(`button[onclick*="sendPaymentLink('${orderId}')"]`);
+            buttons.forEach(btn => {
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Sending...';
+            });
+        
             try {
-                const order = state.orders.find(o => o.id === orderId);
-                if (!order) throw new Error('Order not found');
-        
-                // Get all updated values
-                const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
-                    id: entry.item.id,
-                    name: entry.item.name,
-                    price: entry.item.price,
-                    quantity: entry.quantity,
-                    sku: entry.item.sku
-                }));
-        
-                const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                const shippingCents = Math.round(parseFloat(document.getElementById('editShippingCents')?.value || 0) * 100);
-                const taxCents = Math.round(parseFloat(document.getElementById('editTaxCents')?.value || 0) * 100);
-                const newTotal = newSubtotal + shippingCents + taxCents;
-        
-                const newStatus = document.getElementById('editOrderStatus')?.value || order.status;
-                const newPaymentStatus = document.getElementById('editPaymentStatus')?.value === 'true';
+                const token = await auth.currentUser.getIdToken();
                 
-                // Customer info
-                const buyerName = document.getElementById('editBuyerName')?.value?.trim();
-                const buyerEmail = document.getElementById('editBuyerEmail')?.value?.trim();
-                const buyerPhone = document.getElementById('editBuyerPhone')?.value?.trim();
-                const language = document.getElementById('editLanguage')?.value;
-                const whatsappConsent = document.getElementById('editWhatsappConsent')?.checked || false;
-                const smsConsent = document.getElementById('editSmsConsent')?.checked || false;
-                
-                // Address
-                const street = document.getElementById('editStreet')?.value?.trim();
-                const city = document.getElementById('editCity')?.value?.trim();
-                const stateZip = document.getElementById('editStateZip')?.value?.trim();
-                const deliveryAddress = `${street}, ${city}, ${stateZip}`;
-                
-                const orderNotes = document.getElementById('editOrderNotes')?.value?.trim();
-        
-                // Validation
-                if (!buyerName || !buyerEmail || !street || !city || !stateZip) {
-                    showMessage('error', 'Please fill in all required fields (marked with *)', 5000, 'orders');
-                    return;
-                }
-        
-                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
-                const path = getOrdersCollectionPath(targetId);
-                const orderRef = doc(db, path, orderId);
-        
-                const updates = {
-                    items: newItems,
-                    subtotalCents: newSubtotal,
-                    shippingCents: shippingCents,
-                    taxCents: taxCents,
-                    totalCents: newTotal,
-                    status: newStatus,
-                    isPaid: newPaymentStatus,
-                    buyerName: buyerName,
-                    buyerEmail: buyerEmail,
-                    buyerPhone: buyerPhone,
-                    deliveryAddress: deliveryAddress,
-                    language: language,
-                    communicationLang: language,
-                    adminNotes: orderNotes,
-                    whatsappConsent: whatsappConsent,
-                    smsConsent: smsConsent,
-                    notificationPreferences: {
-                        whatsapp: whatsappConsent,
-                        sms: smsConsent,
-                        email: true
+                const response = await fetch('/.netlify/functions/resendPaymentLink', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
                     },
-                    updatedAt: serverTimestamp()
-                };
+                    body: JSON.stringify({
+                        orderId: orderId,
+                        sendEmail: true
+                    })
+                });
         
-                await updateDoc(orderRef, updates);
-        
-                // Send email if status changed
-                if (newStatus !== order.status) {
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`✅ Payment link sent!\n\n${data.paymentUrl.substring(0, 50)}...`);
+                    
+                    // Copy to clipboard
                     try {
-                        await fetch('/.netlify/functions/sendOrderConfirmation', {  // ✅ Changed
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                orderId: orderId,
-                                buyerEmail: buyerEmail,
-                                buyerName: buyerName,
-                                newStatus: newStatus,  // ✅ This triggers status update mode
-                                communicationLang: language,
-                                items: newItems,
-                                totalCents: newTotal,
-                                subtotalCents: newSubtotal,
-                                shippingCents: shippingCents,
-                                taxCents: taxCents,
-                                shippingDetails: order.shippingDetails || null,
-                                taxDetails: order.taxDetails || null
-                            })
-                        });
-                        console.log('✅ Status update email sent');
-                    } catch (emailError) {
-                        console.warn('⚠️ Email notification failed:', emailError);
+                        await navigator.clipboard.writeText(data.paymentUrl);
+                    } catch (err) {
+                        console.log('Could not copy to clipboard:', err);
                     }
+                    
+                    // Refresh orders
+                    await fetchOrders();
+                    
+                    // Close modal if open
+                    const modal = document.getElementById('editModalContainer');
+                    if (modal) closeEditModal();
+                } else {
+                    const error = await response.json();
+                    alert(`❌ Error: ${error.error || 'Unknown error'}`);
                 }
-        
-                await logAdminAction('ORDER_UPDATED', { 
-                    orderId, 
-                    changes: { newItems, newStatus, newPaymentStatus, buyerEmail, deliveryAddress } 
-                }, orderId);
-                
-                showMessage('success', 'Order updated successfully! Email sent if status changed.', 5000, 'orders');
-                closeEditModal();
-        
             } catch (error) {
-                console.error('Error updating order:', error);
-                showMessage('error', `Failed to update order: ${error.message}`, 5000, 'orders');
+                console.error('Send payment link error:', error);
+                alert(`❌ Failed: ${error.message}`);
+            } finally {
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.innerHTML = '📧 Send Payment Link';
+                });
             }
         }
+
+    
 
         function renderOrderEditModal(order) {
             const statusOptions = ['Pending', 'Processing', 'Delivered', 'Cancelled'];
@@ -3888,30 +3877,81 @@
                                     </div>
                                 </div>
                             </div>
-        
-                            <!-- Payment Tracking Section -->
-                            <div class="border-2 border-green-200 rounded-lg p-4 bg-green-50">
-                                <h4 class="font-bold text-lg mb-3 text-green-800 flex items-center">
-                                    💰 Payment Tracking
-                                </h4>
+                            
+                            <!-- Payment Status & Link Management Section -->
+                            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border-2 ${order.paymentStatus === 'Paid' || order.isPaid ? 'border-green-300' : 'border-blue-200'}">
+                                <p class="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
+                                    <span>💳</span> Payment Status & Management
+                                </p>
                                 
-                                <!-- Payment Summary -->
-                                <div class="grid grid-cols-3 gap-4 mb-4 text-center">
-                                    <div class="bg-white p-3 rounded-lg border border-gray-200">
-                                        <p class="text-xs text-gray-600 mb-1">Order Total</p>
-                                        <p class="text-lg font-bold text-gray-900">${formatPriceDisplay(orderTotalCents)}</p>
-                                    </div>
-                                    <div class="bg-white p-3 rounded-lg border border-gray-200">
-                                        <p class="text-xs text-gray-600 mb-1">Total Paid</p>
-                                        <p class="text-lg font-bold text-green-700">${formatPriceDisplay(totalPaidCents)}</p>
-                                    </div>
-                                    <div class="bg-white p-3 rounded-lg border border-gray-200">
-                                        <p class="text-xs text-gray-600 mb-1">Balance</p>
-                                        <p class="text-lg font-bold ${balanceCents > 0 ? 'text-red-700' : 'text-green-700'}">
-                                            ${formatPriceDisplay(balanceCents)}
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                    <div class="bg-white p-4 rounded-lg border-2 ${order.paymentStatus === 'Paid' || order.isPaid ? 'border-green-300' : 'border-orange-300'}">
+                                        <p class="text-xs text-gray-600 mb-1">Payment Status:</p>
+                                        <p class="text-xl font-black ${order.paymentStatus === 'Paid' || order.isPaid ? 'text-green-600' : 'text-orange-600'}">
+                                            ${order.paymentStatus === 'Paid' || order.isPaid ? '✅ Paid' : '⏳ Pending'}
                                         </p>
+                                        ${order.paidAt ? `
+                                            <p class="text-xs text-gray-500 mt-2">
+                                                Paid: ${new Date(order.paidAt).toLocaleString('en-US')}
+                                            </p>
+                                        ` : ''}
+                                    </div>
+                                    
+                                    <div class="bg-white p-4 rounded-lg border-2 border-blue-200">
+                                        <p class="text-xs text-gray-600 mb-1">Order Total:</p>
+                                        <p class="text-xl font-black text-indigo-600">
+                                            ${formatPriceDisplay(order.totalCents || 0)}
+                                        </p>
+                                        ${order.subtotalCents ? `
+                                            <div class="text-xs text-gray-600 mt-2 space-y-1">
+                                                <p>Subtotal: ${formatPriceDisplay(order.subtotalCents)}</p>
+                                                ${order.shippingCents ? `<p>Shipping: ${formatPriceDisplay(order.shippingCents)}</p>` : ''}
+                                                ${order.taxCents ? `<p>Tax: ${formatPriceDisplay(order.taxCents)}</p>` : ''}
+                                            </div>
+                                        ` : ''}
                                     </div>
                                 </div>
+                            
+                                ${order.stripePaymentUrl ? `
+                                    <div class="bg-white p-4 rounded-lg border-2 border-blue-200 mb-4">
+                                        <p class="text-sm font-semibold text-gray-700 mb-2">🔗 Stripe Payment Link:</p>
+                                        <div class="flex gap-2">
+                                            <input type="text" value="${order.stripePaymentUrl}" readonly 
+                                                   class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs font-mono text-gray-600">
+                                            <button onclick="navigator.clipboard.writeText('${order.stripePaymentUrl}'); alert('Link copied!');" 
+                                                    class="bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-700 transition text-sm">
+                                                📋 Copy
+                                            </button>
+                                            <a href="${order.stripePaymentUrl}" target="_blank"
+                                               class="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition text-sm flex items-center">
+                                                🔗 Open
+                                            </a>
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            
+                                ${order.paymentStatus !== 'Paid' && !order.isPaid ? `
+                                    <button onclick="window.module.sendPaymentLink('${order.id}')" 
+                                            class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-bold hover:bg-blue-700 transition shadow-lg text-base">
+                                        📧 Send Payment Link Email to Customer
+                                    </button>
+                                ` : ''}
+                            
+                                ${order.paymentData || order.stripePaymentIntentId ? `
+                                    <details class="mt-4">
+                                        <summary class="text-xs text-gray-600 cursor-pointer hover:text-gray-800 font-semibold">
+                                            View Stripe Payment Details
+                                        </summary>
+                                        <div class="mt-2 p-3 bg-white rounded-lg border text-xs font-mono text-gray-600 space-y-1">
+                                            ${order.paymentData?.stripePaymentIntentId || order.stripePaymentIntentId ? 
+                                                `<p>Payment Intent: ${order.paymentData?.stripePaymentIntentId || order.stripePaymentIntentId}</p>` : ''}
+                                            ${order.paymentData?.stripeChargeId ? `<p>Charge ID: ${order.paymentData.stripeChargeId}</p>` : ''}
+                                            ${order.paymentData?.stripeSessionId ? `<p>Session ID: ${order.paymentData.stripeSessionId}</p>` : ''}
+                                            ${order.paymentData?.stripePaymentMethod ? `<p>Method: ${order.paymentData.stripePaymentMethod}</p>` : ''}
+                                        </div>
+                                    </details>
+                                ` : ''}
+                            </div>
         
                                 <!-- Payment History -->
                                 <div class="bg-white p-3 rounded-lg border border-gray-200 mb-4">
@@ -5063,6 +5103,7 @@
             closeEditModal,
             updateOrder,
             renderOrderEditModal,
+            sendPaymentLink,
             initializeDraftCart,
             handleResendReceipt,
 
