@@ -5584,105 +5584,103 @@
             },
             
             printMultipleLabels: function(itemIds) {
-                resetTimer();
-                const items = itemIds.map(id => state.items.find(i => i.id === id)).filter(Boolean);
-                
-                if (items.length === 0) {
-                    showMessage('error', 'No valid items selected', 3000, 'inventory');
-                    return;
-                }
-        
-                const labelsHtml = items.map((item, index) => {
-                    const sku = item.sku || 'NO-SKU';
-                    const name = item.name || 'Unknown Item';
-                    const description = (item.description || '').substring(0, 100);
-                    const price = formatPriceDisplay(item.price);
-                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-        
-                    return `
-                        <div class="label-print-area" style="font-family: Arial, sans-serif; background: white; border: 2px solid #333; box-sizing: border-box;">
-                            <div style="text-align: center; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 8px;">
-                                <h1 style="margin: 0; font-size: 18px; font-weight: bold;">autoInx Inventory</h1>
-                            </div>
-                            <div style="text-align: center; margin: 10px 0;">
-                                <svg id="barcode-multi-${index}"></svg>
-                            </div>
-                            <div style="text-align: center; font-size: 14px; font-weight: bold; margin: 5px 0;">
-                                SKU: ${escapeHtml(sku)}
-                            </div>
-                            <div style="font-size: 11px; margin-top: 8px;">
-                                <div style="font-weight: bold; font-size: 13px; margin-bottom: 3px;">
-                                    ${escapeHtml(name)}
-                                </div>
-                                <div style="color: #666; margin-bottom: 3px;">
-                                    ${escapeHtml(description)}
-                                </div>
-                                <div style="display: flex; justify-content: space-between; margin-top: 5px; padding-top: 5px; border-top: 1px solid #ddd;">
-                                    <span><strong>Category:</strong> ${escapeHtml(cat)}</span>
-                                    <span><strong>Price:</strong> ${price}</span>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-        
-                const printContainer = document.getElementById('printLabel');
-                if (!printContainer) return;
-                
-                printContainer.innerHTML = labelsHtml;
-                printContainer.style.display = 'block';
-        
-                // Generate all barcodes
-                items.forEach((item, index) => {
-                    try {
-                        JsBarcode(`#barcode-multi-${index}`, item.sku || 'NO-SKU', {
-                            format: "CODE128",
-                            width: 2,
-                            height: 50,
-                            displayValue: false,
-                            margin: 5
-                        });
-                    } catch (error) {
-                        console.error(`Barcode error for ${item.sku}:`, error);
-                    }
-                });
-        
-                setTimeout(() => {
-                    window.print();
-                    printContainer.style.display = 'none';
-                }, 100);
-        
-                showMessage('success', `${items.length} labels prepared for printing`, 3000, 'inventory');
-            }
-        };
-            
+                            resetTimer();
+                            const items = itemIds.map(id => state.items.find(i => i.id === id)).filter(Boolean);
+                            
+                            if (items.length === 0) {
+                                showMessage('error', 'No valid items selected', 3000, 'inventory');
+                                return;
+                            }
+                    
+                            const labelsHtml = items.map((item, index) => {
+                                const sku = item.sku || 'NO-SKU';
+                                const name = item.name || 'Unknown Item';
+                                const description = (item.description || '').substring(0, 100);
+                                const price = formatPriceDisplay(item.price);
+                                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                    
+                                return `
+                                    <div class="label-print-area" style="font-family: Arial, sans-serif; background: white; border: 2px solid #333; box-sizing: border-box;">
+                                        <div style="text-align: center; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 8px;">
+                                            <h1 style="margin: 0; font-size: 18px; font-weight: bold;">autoInx Inventory</h1>
+                                        </div>
+                                        <div style="text-align: center; margin: 10px 0;">
+                                            <svg id="barcode-multi-${index}"></svg>
+                                        </div>
+                                        <div style="text-align: center; font-size: 14px; font-weight: bold; margin: 5px 0;">
+                                            SKU: ${escapeHtml(sku)}
+                                        </div>
+                                        <div style="font-size: 11px; margin-top: 8px;">
+                                            <div style="font-weight: bold; font-size: 13px; margin-bottom: 3px;">
+                                                ${escapeHtml(name)}
+                                            </div>
+                                            <div style="color: #666; margin-bottom: 3px;">
+                                                ${escapeHtml(description)}
+                                            </div>
+                                            <div style="display: flex; justify-content: space-between; margin-top: 5px; padding-top: 5px; border-top: 1px solid #ddd;">
+                                                <span><strong>Category:</strong> ${escapeHtml(cat)}</span>
+                                                <span><strong>Price:</strong> ${price}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('');
+                    
+                            const printContainer = document.getElementById('printLabel');
+                            if (!printContainer) return;
+                            
+                            printContainer.innerHTML = labelsHtml;
+                            printContainer.style.display = 'block';
+                    
+                            // Generate all barcodes
+                            items.forEach((item, index) => {
+                                try {
+                                    JsBarcode(`#barcode-multi-${index}`, item.sku || 'NO-SKU', {
+                                        format: "CODE128",
+                                        width: 2,
+                                        height: 50,
+                                        displayValue: false,
+                                        margin: 5
+                                    });
+                                } catch (error) {
+                                    console.error(`Barcode error for ${item.sku}:`, error);
+                                }
+                            });
+                    
+                            setTimeout(() => {
+                                window.print();
+                                printContainer.style.display = 'none';
+                            }, 100);
+                    
+                            showMessage('success', `${items.length} labels prepared for printing`, 3000, 'inventory');
+                        },
 
-            // ========================================================================
-            // SHIPPING MODAL FUNCTIONS (Reference the standalone functions defined above)
-            // ========================================================================
-            showShippingModal: function(orderId) {
-                const order = state.orders.find(o => o.id === orderId);
-                if (!order) return;
+                        // ========================================================================
+                        // SHIPPING MODAL FUNCTIONS
+                        // ========================================================================
+                        showShippingModal: function(orderId) {
+                            const order = state.orders.find(o => o.id === orderId);
+                            if (!order) return;
+                        
+                            let modalContainer = document.getElementById('shippingModalContainer');
+                            if (!modalContainer) {
+                                modalContainer = document.createElement('div');
+                                modalContainer.id = 'shippingModalContainer';
+                                document.body.appendChild(modalContainer);
+                            }
+                        
+                            modalContainer.innerHTML = renderShippingLabelModal(order);
+                        },
             
-                let modalContainer = document.getElementById('shippingModalContainer');
-                if (!modalContainer) {
-                    modalContainer = document.createElement('div');
-                    modalContainer.id = 'shippingModalContainer';
-                    document.body.appendChild(modalContainer);
-                }
+                        closeShippingModal: function() {
+                            const modal = document.getElementById('shippingModalContainer');
+                            if (modal) modal.innerHTML = '';
+                        },
             
-                modalContainer.innerHTML = renderShippingLabelModal(order);
-            },
-            closeShippingModal: function() {
-                const modal = document.getElementById('shippingModalContainer');
-                if (modal) modal.innerHTML = '';
-            },
-            fetchShippingRates,       // ✅ Only appears here
-            selectShippingRate,
-            updateOrderWithTracking
-        };
-
-        
+                        fetchShippingRates: fetchShippingRates,
+                        selectShippingRate: selectShippingRate,
+                        updateOrderWithTracking: updateOrderWithTracking
+                    };  // ← CLOSE the window.module object HERE
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
     </script>
