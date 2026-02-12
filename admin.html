@@ -11,6 +11,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style type="text/tailwindcss">
@@ -52,7 +53,27 @@
             background-color: #d1d5db; /* gray-300 */
             transition: background-color 0.15s ease-in-out;
         }
-    
+
+        /* Inventory Label Print Styles */
+        @media print {
+            body * { visibility: hidden; }
+            #printLabel, #printLabel * { visibility: visible; }
+            #printLabel {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+        }
+        
+        .label-print-area {
+            width: 4in;
+            height: 2in;
+            padding: 0.2in;
+            border: 2px dashed #ccc;
+            page-break-after: always;
+        }
+        
         /* Toggled State - Uses sibling selector on the hidden checkbox input */
         #chatWidgetToggle:checked + .toggle-label { 
             background-color: #3b82f6; /* Blue-500 */
@@ -1691,49 +1712,67 @@
         function renderInventorySection() {
             const el = document.getElementById('inventoryContent');
             if (!el) return '';
-
+        
             const lowStockThreshold = 10;
             const items = state.items;
-
+        
             const inventoryListHtml = items.map(item => {
                 const isLowStock = item.stock <= lowStockThreshold;
                 const stockColor = isLowStock ? 'text-red-600 font-bold' : 'text-green-700 font-semibold';
                 const rowClass = isLowStock ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200';
-
+        
                 return `
                     <div class="grid grid-cols-12 gap-4 items-center p-3 border-b ${rowClass}">
-                        <div class="col-span-4 truncate text-sm font-medium">${item.name} <span class="text-xs text-gray-500 ml-2">(${item.sku})</span></div>
+                        <div class="col-span-4 truncate text-sm font-medium">
+                            ${item.name} 
+                            <span class="text-xs text-gray-500 ml-2">(${item.sku})</span>
+                        </div>
                         <div class="col-span-2 text-center ${stockColor}">${item.stock}</div>
                         <div class="col-span-6">
                             <form onsubmit="window.module.handleUpdateStock(event, '${item.id}')" class="flex space-x-2 items-center">
-                                <input type="number" name="stockAdjustment" placeholder="Amount" min="1" required class="w-20 p-1 border rounded text-sm">
+                                <input type="number" name="stockAdjustment" placeholder="Amount" min="1" required 
+                                       class="w-20 p-1 border rounded text-sm">
                                 <select name="stockAction" class="p-1 border rounded text-sm">
                                     <option value="add">Add Stock</option>
                                     <option value="remove">Remove Stock</option>
                                 </select>
-                                <button type="submit" class="px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition duration-150">Update</button>
-                                <button type="button" onclick="window.module.showPurchaseOrderForm('${item.id}', '${item.name}')" class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition duration-150">Order More</button>
+                                <button type="submit" 
+                                        class="px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition duration-150">
+                                    Update
+                                </button>
+                                <button type="button" 
+                                        onclick="window.module.showPurchaseOrderForm('${item.id}', '${escapeAttribute(item.name)}')" 
+                                        class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition duration-150">
+                                    Order More
+                                </button>
+                                <button type="button" 
+                                        onclick="window.module.printInventoryLabel('${item.id}')" 
+                                        class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition duration-150 whitespace-nowrap">
+                                    🖨️ Print Label
+                                </button>
                             </form>
                         </div>
                     </div>
                 `;
             }).join('');
-
+        
             el.innerHTML = `
                 <div class="space-y-4">
                     <div class="grid grid-cols-12 gap-4 font-bold bg-gray-100 p-3 rounded-lg border-b border-gray-300">
                         <div class="col-span-4">Product Name (SKU)</div>
                         <div class="col-span-2 text-center">Current Stock</div>
-                        <div class="col-span-6">Adjust Stock / Order</div>
+                        <div class="col-span-6">Adjust Stock / Order / Label</div>
                     </div>
                     <div id="inventoryList" class="space-y-1 custom-scrollbar max-h-[60vh] overflow-y-auto">
                         ${inventoryListHtml.length > 0 ? inventoryListHtml : '<p class="text-center p-4 text-gray-500">No products found in inventory.</p>'}
                     </div>
                 </div>
+                
+                <!-- Hidden Print Label Container -->
+                <div id="printLabel" style="display: none;"></div>
             `;
             return '';
         }
-
 
         function destroyCharts() {
             // Add null checks
@@ -5455,7 +5494,168 @@
                     balanceEl.textContent = formatPriceDisplay(balanceCents);
                     balanceEl.className = balanceCents <= 0 ? 'text-green-600 font-black' : 'text-rose-600 font-black';
                 }
-            },      
+            },  
+
+            // ========================================================================
+            // INVENTORY LABEL PRINTING
+            // ========================================================================
+            printInventoryLabel: function(itemId) {
+                resetTimer();
+                const item = state.items.find(i => i.id === itemId);
+                if (!item) {
+                    showMessage('error', 'Item not found', 3000, 'inventory');
+                    return;
+                }
+        
+                const sku = item.sku || 'NO-SKU';
+                const name = item.name || 'Unknown Item';
+                const description = (item.description || '').substring(0, 100); // Limit description length
+                const price = formatPriceDisplay(item.price);
+                
+                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+        
+                // Generate label HTML
+                const labelHtml = `
+                    <div class="label-print-area" style="font-family: Arial, sans-serif; background: white; border: 2px solid #333; box-sizing: border-box;">
+                        <!-- Company Header -->
+                        <div style="text-align: center; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 8px;">
+                            <h1 style="margin: 0; font-size: 18px; font-weight: bold;">autoInx Inventory</h1>
+                        </div>
+                        
+                        <!-- Barcode -->
+                        <div style="text-align: center; margin: 10px 0;">
+                            <svg id="barcode-${itemId}"></svg>
+                        </div>
+                        
+                        <!-- SKU Text -->
+                        <div style="text-align: center; font-size: 14px; font-weight: bold; margin: 5px 0;">
+                            SKU: ${escapeHtml(sku)}
+                        </div>
+                        
+                        <!-- Product Info -->
+                        <div style="font-size: 11px; margin-top: 8px;">
+                            <div style="font-weight: bold; font-size: 13px; margin-bottom: 3px;">
+                                ${escapeHtml(name)}
+                            </div>
+                            <div style="color: #666; margin-bottom: 3px;">
+                                ${escapeHtml(description)}
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-top: 5px; padding-top: 5px; border-top: 1px solid #ddd;">
+                                <span><strong>Category:</strong> ${escapeHtml(cat)}</span>
+                                <span><strong>Price:</strong> ${price}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+        
+                // Insert into hidden print container
+                const printContainer = document.getElementById('printLabel');
+                if (!printContainer) {
+                    showMessage('error', 'Print container not found', 3000, 'inventory');
+                    return;
+                }
+                
+                printContainer.innerHTML = labelHtml;
+                printContainer.style.display = 'block';
+        
+                // Generate barcode using JsBarcode
+                try {
+                    JsBarcode(`#barcode-${itemId}`, sku, {
+                        format: "CODE128",
+                        width: 2,
+                        height: 50,
+                        displayValue: false,
+                        margin: 5
+                    });
+                } catch (barcodeError) {
+                    console.error('Barcode generation error:', barcodeError);
+                    showMessage('error', 'Failed to generate barcode. Check SKU format.', 5000, 'inventory');
+                    printContainer.style.display = 'none';
+                    return;
+                }
+        
+                // Wait for barcode to render, then print
+                setTimeout(() => {
+                    window.print();
+                    printContainer.style.display = 'none';
+                }, 100);
+        
+                showMessage('success', `Label prepared for ${name}`, 3000, 'inventory');
+            },
+            
+            printMultipleLabels: function(itemIds) {
+                resetTimer();
+                const items = itemIds.map(id => state.items.find(i => i.id === id)).filter(Boolean);
+                
+                if (items.length === 0) {
+                    showMessage('error', 'No valid items selected', 3000, 'inventory');
+                    return;
+                }
+        
+                const labelsHtml = items.map((item, index) => {
+                    const sku = item.sku || 'NO-SKU';
+                    const name = item.name || 'Unknown Item';
+                    const description = (item.description || '').substring(0, 100);
+                    const price = formatPriceDisplay(item.price);
+                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+        
+                    return `
+                        <div class="label-print-area" style="font-family: Arial, sans-serif; background: white; border: 2px solid #333; box-sizing: border-box;">
+                            <div style="text-align: center; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 8px;">
+                                <h1 style="margin: 0; font-size: 18px; font-weight: bold;">autoInx Inventory</h1>
+                            </div>
+                            <div style="text-align: center; margin: 10px 0;">
+                                <svg id="barcode-multi-${index}"></svg>
+                            </div>
+                            <div style="text-align: center; font-size: 14px; font-weight: bold; margin: 5px 0;">
+                                SKU: ${escapeHtml(sku)}
+                            </div>
+                            <div style="font-size: 11px; margin-top: 8px;">
+                                <div style="font-weight: bold; font-size: 13px; margin-bottom: 3px;">
+                                    ${escapeHtml(name)}
+                                </div>
+                                <div style="color: #666; margin-bottom: 3px;">
+                                    ${escapeHtml(description)}
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-top: 5px; padding-top: 5px; border-top: 1px solid #ddd;">
+                                    <span><strong>Category:</strong> ${escapeHtml(cat)}</span>
+                                    <span><strong>Price:</strong> ${price}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+        
+                const printContainer = document.getElementById('printLabel');
+                if (!printContainer) return;
+                
+                printContainer.innerHTML = labelsHtml;
+                printContainer.style.display = 'block';
+        
+                // Generate all barcodes
+                items.forEach((item, index) => {
+                    try {
+                        JsBarcode(`#barcode-multi-${index}`, item.sku || 'NO-SKU', {
+                            format: "CODE128",
+                            width: 2,
+                            height: 50,
+                            displayValue: false,
+                            margin: 5
+                        });
+                    } catch (error) {
+                        console.error(`Barcode error for ${item.sku}:`, error);
+                    }
+                });
+        
+                setTimeout(() => {
+                    window.print();
+                    printContainer.style.display = 'none';
+                }, 100);
+        
+                showMessage('success', `${items.length} labels prepared for printing`, 3000, 'inventory');
+            }
+        };
+            
 
             // ========================================================================
             // SHIPPING MODAL FUNCTIONS (Reference the standalone functions defined above)
