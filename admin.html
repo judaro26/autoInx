@@ -3682,6 +3682,47 @@
             if (modalContainer) modalContainer.innerHTML = '';
         }
 
+        async function sendPaymentLink(orderId) {
+            if (!confirm('Send payment link email to customer?')) return;
+        
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+        
+            try {
+                const token = await firebase.auth().currentUser.getIdToken();
+                
+                const response = await fetch('/.netlify/functions/resendPaymentLink', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        orderId: orderId,
+                        sendEmail: true
+                    })
+                });
+        
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`✅ Payment link sent successfully!\n\nPayment URL: ${data.paymentUrl}`);
+                    // Refresh orders to show updated timestamp
+                    await loadOrders();
+                } else {
+                    const error = await response.json();
+                    alert(`❌ Error: ${error.error}`);
+                }
+            } catch (error) {
+                console.error('Send payment link error:', error);
+                alert('Failed to send payment link');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '💳 Send Payment Link';
+            }
+        }
+        
+
         async function updateOrder(orderId) {
             resetTimer();
             try {
