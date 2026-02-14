@@ -1,95 +1,119 @@
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
-    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
-    let cleanedPrivateKey = undefined;
-    if (privateKeyString) {
-        cleanedPrivateKey = privateKeyString
-            .replace(/\\n/g, '\n')
-            .replace(/\n/g, '\n')
-            .trim();
-    }
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: cleanedPrivateKey,
-        }),
-    });
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    })
+  });
 }
 
-// ✅ db must be declared HERE at module level, outside the handler
 const db = admin.firestore();
-const CONFIG_DOC_PATH = 'admin/config';
 
-exports.handler = async function (event) {
+exports.handler = async (event) => {
+  // Allow CORS
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS'
+      },
+      body: ''
+    };
+  }
 
-    const authHeader = event.headers.authorization;
-    let isAdmin = false;
+  try {
+    console.log('📥 Fetching admin config from Firestore...');
+    
+    // ✅ CRITICAL: Read from admin/config (same path where updateAdminConfig writes)
+    const configDoc = await db.collection('admin').doc('config').get();
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const idToken = authHeader.split('Bearer ')[1];
-        try {
-            const decodedToken = await admin.auth().verifyIdToken(idToken);
-            isAdmin = decodedToken.admin === true;
-        } catch (e) {
-            isAdmin = false;
-        }
-    }
-
-    try {
-        const configRef = db.doc(CONFIG_DOC_PATH);
-        const configDoc = await configRef.get();
-
-        if (!configDoc.exists) {
-            const initialConfig = {
-                ipWhitelist: ["127.0.0.1"],
-                maintenanceMode: false,
-                chatWidgetEnabled: true,
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            };
-            await configRef.set(initialConfig);
-
-            if (!isAdmin) {
-                const { ipWhitelist, ...publicConfig } = initialConfig;
-                return {
-                    statusCode: 200,
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(publicConfig),
-                };
+    if (!configDoc.exists) {
+      console.warn('⚠️ Config document does not exist, returning defaults');
+      return {
+        statusCode: 200,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          maintenanceMode: false,
+          chatWidgetEnabled: false,
+          ipWhitelist: [],
+          staticIpWhitelist: [],
+          chatSchedule: {
+            enableTime: '08:00',
+            disableTime: '20:00',
+            activeDays: [1, 2, 3, 4, 5]
+          },
+          branding: {
+            logoUrl: '/images/AutoInx logo.png',
+            headerText: { en: 'Catalog', es: 'Catálogo' },
+            colors: {
+              backgroundStart: '#f0f9ff',
+              backgroundEnd: '#e0e7ff',
+              addToCart: '#ec4899',
+              checkout: '#ec4899'
             }
-            return {
-                statusCode: 200,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(initialConfig),
-            };
-        }
-
-        const configData = configDoc.data();
-        if (configData.chatWidgetEnabled === undefined) {
-            configData.chatWidgetEnabled = true;
-        }
-
-        if (!isAdmin) {
-            const { ipWhitelist, ...publicConfig } = configData;
-            return {
-                statusCode: 200,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(publicConfig),
-            };
-        }
-
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(configData),
-        };
-
-    } catch (error) {
-        console.error('Error fetching admin config:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Failed to fetch admin configuration', details: error.message }),
-        };
+          }
+        })
+      };
     }
+
+    const configData = configDoc.data();
+    console.log('✅ Config data retrieved:', JSON.stringify(configData, null, 2));
+
+    // ✅ CRITICAL: Make sure branding is included
+    const response = {
+      maintenanceMode: configData.maintenanceMode || false,
+      chatWidgetEnabled: configData.chatWidgetEnabled || false,
+      ipWhitelist: configData.ipWhitelist || [],
+      staticIpWhitelist: configData.staticIpWhitelist || [],
+      chatSchedule: configData.chatSchedule || {
+        enableTime: '08:00',
+        disableTime: '20:00',
+        activeDays: [1, 2, 3, 4, 5]
+      },
+      branding: configData.branding || {
+        logoUrl: '/images/AutoInx logo.png',
+        headerText: { en: 'Catalog', es: 'Catálogo' },
+        colors: {
+          backgroundStart: '#f0f9ff',
+          backgroundEnd: '#e0e7ff',
+          addToCart: '#ec4899',
+          checkout: '#ec4899'
+        }
+      },
+      lastUpdated: configData.lastUpdated || null
+    };
+
+    console.log('📤 Returning response with branding:', JSON.stringify(response.branding, null, 2));
+
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(response)
+    };
+
+  } catch (error) {
+    console.error('❌ Error fetching config:', error);
+    return {
+      statusCode: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        error: 'Failed to fetch configuration',
+        details: error.message
+      })
+    };
+  }
 };
