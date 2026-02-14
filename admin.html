@@ -2402,14 +2402,18 @@
             state.activeTab = tab;
             state.editingItem = null;
             state.previewMode = false;
-            if (tab === 'externalOrders') {
-                window.module.fetchExternalOrders();
-            }
+            
+            // ✅ Render the page FIRST
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
-
-            if (tab === 'config') {
-                // ✅ Wait for DOM to be fully rendered
+        
+            // ✅ Then handle tab-specific actions AFTER DOM is ready
+            if (tab === 'externalOrders') {
+                // ✅ Wait for DOM to be ready
+                setTimeout(() => {
+                    window.module.fetchExternalOrders();
+                }, 100);
+            } else if (tab === 'config') {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
                     window.module.displayStaticIps();
@@ -2422,12 +2426,11 @@
             } else if (tab === 'orders') {
                 state.orderPage = 'list';
                 window.module.fetchOrders();
-
-                // ✅ ADD THIS: Render stats and charts after DOM is ready
+                
                 setTimeout(() => {
                     window.module.renderOrdersStats();
                 }, 100);
-
+                
                 window.module.updateAdminCartDisplay();
                 window.module.updateItemSelector();
                 if (typeof google === 'undefined' || !autocomplete) {
@@ -2438,9 +2441,8 @@
             } else if (tab === 'inventory') {
                 window.module.renderInventorySection();
             } else if (tab === 'financials') {
-                // ✅ ADD THIS: Render financials after DOM is ready
                 setTimeout(() => {
-                    window.module.renderFinancialsSection();  // ← correct name
+                    window.module.renderFinancialsSection();
                 }, 100);
             }
         }
@@ -6049,7 +6051,7 @@
             // EXTERNAL ORDERS MANAGEMENT
             // ==========================================
 
-            fetchExternalOrders: async function () {
+            fetchExternalOrders: async function() {
                 try {
                     const idToken = await auth.currentUser.getIdToken();
                     const response = await fetch(GET_EXTERNAL_ORDERS, {
@@ -6058,43 +6060,56 @@
                             'Content-Type': 'application/json'
                         }
                     });
-
+            
                     if (!response.ok) throw new Error('Failed to fetch external orders');
-
+                    
                     const data = await response.json();
                     allExternalOrders = data.orders || [];
-                    window.module.renderExternalOrders();  // ✅ Add window.module.
-                    window.module.updateExternalOrderStats();  // ✅ Add window.module.
+                    window.module.renderExternalOrders();
+                    window.module.updateExternalOrderStats();
                 } catch (error) {
                     console.error('Error fetching external orders:', error);
-                    document.getElementById('externalOrdersTableBody').innerHTML = `
-            <tr><td colspan="8" class="px-4 py-8 text-center text-red-500">
-                Error loading orders. Please refresh the page.
-            </td></tr>
-        `;
+                    
+                    // ✅ Add safety check here too
+                    const tbody = document.getElementById('externalOrdersTableBody');
+                    if (tbody) {
+                        tbody.innerHTML = `
+                            <tr><td colspan="8" class="px-4 py-8 text-center text-red-500">
+                                Error loading orders. Please refresh the page.
+                            </td></tr>
+                        `;
+                    } else {
+                        console.warn('Cannot display error - table body not in DOM yet');
+                    }
                 }
             },
 
-            renderExternalOrders: function () {
+            renderExternalOrders: function() {
                 const tbody = document.getElementById('externalOrdersTableBody');
-
-                if (allExternalOrders.length === 0) {
-                    tbody.innerHTML = `
-            <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
-                No external orders found. Click "Add Order" to create one.
-            </td></tr>
-        `;
+                
+                // ✅ Add safety check
+                if (!tbody) {
+                    console.warn('External orders table body not found in DOM');
                     return;
                 }
-
-                const filteredOrders = window.module.getFilteredExternalOrders();  // ✅ Add window.module.
-
+                
+                if (allExternalOrders.length === 0) {
+                    tbody.innerHTML = `
+                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
+                            No external orders found. Click "Add Order" to create one.
+                        </td></tr>
+                    `;
+                    return;
+                }
+            
+                const filteredOrders = window.module.getFilteredExternalOrders();
+                
                 if (filteredOrders.length === 0) {
                     tbody.innerHTML = `
-            <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
-                No orders match your filters.
-            </td></tr>
-        `;
+                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
+                            No orders match your filters.
+                        </td></tr>
+                    `;
                     return;
                 }
 
