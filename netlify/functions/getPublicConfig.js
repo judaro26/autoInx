@@ -48,11 +48,16 @@ async function isIpWhitelisted(clientIp) {
 
     // Check dynamic whitelist from Firestore
     try {
-        const configDoc = await db.collection('config').doc('admin').get();
+        // ✅ FIXED PATH: Changed from collection('config').doc('admin')
+        const configDoc = await db.collection('admin').doc('config').get();
         
         if (configDoc.exists) {
             const dynamicWhitelist = configDoc.data().ipWhitelist || [];
+            console.log('Dynamic whitelist:', dynamicWhitelist); // Debug log
+            console.log('Checking IP:', clientIp); // Debug log
             return dynamicWhitelist.includes(clientIp);
+        } else {
+            console.log('Config document does not exist at admin/config');
         }
     } catch (error) {
         console.error('Error checking dynamic IP whitelist:', error);
@@ -96,7 +101,7 @@ exports.handler = async (event, context) => {
         const isWhitelisted = await isIpWhitelisted(clientIp);
 
         // Fetch config from Firestore
-        const configRef = db.collection('config').doc('admin');
+        const configRef = db.collection('admin').doc('config');
         const configDoc = await configRef.get();
 
         let config = {};
