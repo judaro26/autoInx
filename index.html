@@ -370,9 +370,13 @@
         function loadRecaptchaScript() {
             if (document.getElementById('recaptcha-script')) return;
         
+            // ✅ CRITICAL FIX: Define the callback BEFORE loading the script
+            window.onloadRecaptchaCallback = function() {
+                console.log('✅ reCAPTCHA loaded and ready');
+            };
+        
             const script = document.createElement('script');
             script.id = 'recaptcha-script';
-            // ✅ Must match the key used everywhere else
             script.src = `https://www.google.com/recaptcha/enterprise.js?render=6LeUvWYsAAAAACWjFxTy9B4jTER2iiKzyJEuckgd&onload=onloadRecaptchaCallback`;
             script.async = true;
             document.head.appendChild(script);
@@ -946,18 +950,28 @@
         
                 const config = await response.json();
         
+                // ✅ CRITICAL FIX: Update isAdminIP from the response
+                state.isAdminIP = config.isRequesterAdmin === true;
+                state.isMaintenanceMode = config.maintenanceMode === true;
+        
                 // Existing maintenance/chat logic
                 state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (state.isMaintenanceMode === false);
         
-                // ✅ NEW: Apply branding
+                // Apply branding
                 if (config.branding) {
                     applyBranding(config.branding);
                 }
         
-                // ✅ NEW: Store footer config for later use
+                // Store footer config for later use
                 if (config.footer) {
                     state.footerConfig = config.footer;
                 }
+        
+                // ✅ ADD: Log for debugging
+                console.log('Admin IP Check:', {
+                    clientIp: config.clientIp,
+                    isAdmin: config.isRequesterAdmin
+                });
         
             } catch (error) {
                 console.error("Error fetching global config:", error);
@@ -1422,6 +1436,7 @@
                 db = getFirestore(app);
         
                 // 7. Initialize App Check
+                /* TEMPORARILY DISABLED DUE TO 403 ERROR
                 try {
                     initializeAppCheck(app, {
                         provider: new ReCaptchaEnterpriseProvider('6LeUvWYsAAAAACWjFxTy9B4jTER2iiKzyJEuckgd'),
@@ -1431,6 +1446,7 @@
                 } catch (appCheckErr) {
                     console.error("App Check failed to initialize:", appCheckErr);
                 }
+                */
         
                 // 8. Set up Authentication Listener
                 onAuthStateChanged(auth, async (user) => {
