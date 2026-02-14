@@ -135,7 +135,7 @@
         let salesCharts = { category: null, month: null };
         // import modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js"; 
+        import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js";
         import { getAuth, onAuthStateChanged, signOut, getIdTokenResult } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -156,12 +156,12 @@
         const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
         let idleTimer;
         let orders = [];
-        let lastCategorySalesData = { tableData: [] };          
+        let lastCategorySalesData = { tableData: [] };
         let allExternalOrders = [];
         const GET_EXTERNAL_ORDERS = '/.netlify/functions/getExternalOrders';
         const SAVE_EXTERNAL_ORDER = '/.netlify/functions/saveExternalOrder';
         const DELETE_EXTERNAL_ORDER = '/.netlify/functions/deleteExternalOrder';
-        
+
 
 
         const TEXT = {
@@ -294,15 +294,15 @@
         async function setupFirebase() {
             const firebaseConfig = await loadFirebaseConfig();
             if (Object.keys(firebaseConfig).length === 0) return;
-        
+
             const app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-        
+
             // ✅ ADD APP CHECK INITIALIZATION
             try {
                 const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js");
-                
+
                 initializeAppCheck(app, {
                     provider: new ReCaptchaEnterpriseProvider('6LdZFEcsAAAAAHlpQm8kzy0SbkE1uTKuaE9uAo6J'),
                     isTokenAutoRefreshEnabled: true
@@ -311,10 +311,10 @@
             } catch (appCheckErr) {
                 console.error("❌ App Check failed:", appCheckErr);
             }
-        
+
             // Start listening for live order updates immediately
             listenToOrders();
-        
+
             checkAuthAndRender();
         }
 
@@ -329,7 +329,7 @@
                     const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.timestamp || 0);
                     return dateB - dateA;
                 });
-        
+
                 // ✅ UPDATE THIS PART
                 if (state.activeTab === 'orders') {
                     if (state.orderPage === 'list') {
@@ -423,7 +423,7 @@
                 { value: 5, label: 'Friday' },
                 { value: 6, label: 'Saturday' }
             ];
-            
+
             return days.map(day => {
                 const isChecked = activeDays.includes(day.value);
                 return `
@@ -439,7 +439,7 @@
             }).join('');
         }
 
-        
+
         function renderOrderTracker() {
             return `
                 <section class="space-y-8">
@@ -492,24 +492,24 @@
             `;
         }
 
-        
+
         function renderEditProductForm() {
             if (!state.editingItem) return '';
-            
+
             const item = state.editingItem;
-            const catOpts = state.catalogs.map(c => 
+            const catOpts = state.catalogs.map(c =>
                 `<option value="${c.id}" ${c.id === item.catalogId ? 'selected' : ''}>${c.name}</option>`
             ).join('');
-            
+
             const imageUrlsText = item.imageUrls ? item.imageUrls.join('\n') : (item.imageUrl || '');
-            
+
             // ✅ NEW: Get existing dimensions or defaults
             const dims = item.dimensions || {};
             const length = dims.length || '';
             const width = dims.width || '';
             const height = dims.height || '';
             const weight = dims.weight || '';
-            
+
             return `
                 <div class="bg-yellow-50 p-6 rounded-xl shadow-lg border-2 border-yellow-400">
                     <h3 class="text-xl font-bold mb-4 text-yellow-800">✏️ Edit Product: ${escapeHtml(item.name)}</h3>
@@ -579,7 +579,7 @@
                 </div>
             `;
         }
-        
+
         function renderPreviewSite() {
             return `
                 <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
@@ -594,7 +594,7 @@
 
         function renderAdminTabs() {
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-        
+
             if (state.activeTab === 'catalog') {
                 return `
                     <section class="space-y-10">
@@ -629,9 +629,9 @@
                                 
                                 <!-- 2-Column Grid with Hover Delete -->
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 custom-scrollbar overflow-y-auto">
-                                    ${state.catalogs.length === 0 
-                                        ? '<p class="col-span-2 text-center py-8 text-gray-400 text-sm">No categories yet</p>'
-                                        : state.catalogs.map(c => `
+                                    ${state.catalogs.length === 0
+                        ? '<p class="col-span-2 text-center py-8 text-gray-400 text-sm">No categories yet</p>'
+                        : state.catalogs.map(c => `
                                             <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 transition group">
                                                 <div class="flex items-center gap-2 flex-1 min-w-0">
                                                     <span class="text-lg">🏷️</span>
@@ -643,7 +643,7 @@
                                                 </button>
                                             </div>
                                         `).join('')
-                                    }
+                    }
                                 </div>
                                 
                                 <p class="text-xs text-gray-500 mt-3 text-center">
@@ -716,7 +716,7 @@
                 const enableTime = globalConfig.chatSchedule?.enableTime || '08:00';
                 const disableTime = globalConfig.chatSchedule?.disableTime || '20:00';
                 const activeDays = globalConfig.chatSchedule?.activeDays || [1, 2, 3, 4, 5]; // Default Mon-Fri
-        
+
                 return `
                 <section class="space-y-8">
                     <div id="configMessage"></div>
@@ -1135,7 +1135,7 @@
                             </form>
                         </div>
                     </div>
-                `;                
+                `;
             } else if (state.activeTab === 'inventory') {
                 return `
                     <section class="space-y-8">
@@ -1999,15 +1999,15 @@
         function renderInventorySection() {
             const el = document.getElementById('inventoryContent');
             if (!el) return '';
-        
+
             const lowStockThreshold = 10;
             const items = state.items;
-        
+
             const inventoryListHtml = items.map(item => {
                 const isLowStock = item.stock <= lowStockThreshold;
                 const stockColor = isLowStock ? 'text-red-600 font-bold' : 'text-green-700 font-semibold';
                 const rowClass = isLowStock ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200';
-        
+
                 return `
                     <div class="grid grid-cols-12 gap-4 items-center p-3 border-b ${rowClass}">
                         <div class="col-span-4 truncate text-sm font-medium">
@@ -2042,7 +2042,7 @@
                     </div>
                 `;
             }).join('');
-        
+
             el.innerHTML = `
                 <div class="space-y-4">
                     <div class="grid grid-cols-12 gap-4 font-bold bg-gray-100 p-3 rounded-lg border-b border-gray-300">
@@ -2193,7 +2193,7 @@
         // --- AUTHENTICATION CHECK & REDIRECT ---
         function checkAuthAndRender() {
             console.log("🔵 checkAuthAndRender called");
-            
+
             onAuthStateChanged(auth, user => {
                 console.log("🔵 Auth state changed:", {
                     hasUser: !!user,
@@ -2201,38 +2201,38 @@
                     email: user?.email,
                     uid: user?.uid
                 });
-                
+
                 if (user && !user.isAnonymous) {
                     console.log("🟢 User is logged in, checking admin status...");
-                    
+
                     // User is logged in, now check for admin privileges
                     user.getIdTokenResult(true).then(idTokenResult => {
                         console.log("🟢 Token claims received:", idTokenResult.claims);
-                        
+
                         if (idTokenResult.claims.admin === true) {
                             console.log("✅ ADMIN VERIFIED - Setting up dashboard...");
-                            
+
                             // 1. SET THE GLOBAL userId FIRST
                             userId = user.uid;
                             isAuthReady = true;
-        
+
                             // 2. Start session tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
                             document.addEventListener('touchstart', resetTimer);
                             resetTimer();
-        
+
                             // 3. Setup listeners
                             setupRealtimeListeners();
-        
+
                             // 4. Render page
                             renderAdminPage(user.email || 'Admin');
-        
+
                         } else {
                             console.error("❌ User lacks admin privileges. Claims:", idTokenResult.claims);
-                            
+
                             // ⏸️ PAUSE FOR DEBUGGING
                             alert("DEBUG: User lacks admin claim. Check console before redirect.");
-                            
+
                             signOut(auth).then(() => {
                                 window.location.href = '/?error=unauthorized';
                             });
@@ -2244,10 +2244,10 @@
                             message: err.message,
                             stack: err.stack
                         });
-                        
+
                         // ⏸️ PAUSE FOR DEBUGGING
                         alert("DEBUG: Token error - " + err.message + ". Check console before redirect.");
-                        
+
                         signOut(auth).then(() => {
                             window.location.href = '/?error=auth_failed';
                         });
@@ -2255,10 +2255,10 @@
                 } else {
                     console.warn("🔴 No authenticated user detected");
                     console.warn("User object:", user);
-                    
+
                     // ⏸️ PAUSE FOR DEBUGGING
                     alert("DEBUG: No authenticated user. Check console before redirect.");
-                    
+
                     window.location.href = '/?redirect=admin_login';
                 }
             });
@@ -2465,12 +2465,12 @@
             } else if (tab === 'orders') {
                 state.orderPage = 'list';
                 window.module.fetchOrders();
-                
+
                 // ✅ ADD THIS: Render stats and charts after DOM is ready
                 setTimeout(() => {
                     window.module.renderOrdersStats();
                 }, 100);
-                
+
                 window.module.updateAdminCartDisplay();
                 window.module.updateItemSelector();
                 if (typeof google === 'undefined' || !autocomplete) {
@@ -2609,51 +2609,51 @@
         async function handleAddProduct(e) {
             e.preventDefault();
             resetTimer();
-        
+
             const form = e.target;
-        
+
             // Existing validation...
             const nameValidation = Validators.required(form.itemName.value, 'Product name');
             if (!nameValidation.valid) {
                 showMessage('error', nameValidation.error, 5000, 'catalog');
                 return;
             }
-        
+
             const priceValidation = Validators.price(form.itemPrice.value);
             if (!priceValidation.valid) {
                 showMessage('error', priceValidation.error, 5000, 'catalog');
                 return;
             }
-        
+
             const stockValidation = Validators.positiveInteger(form.initialStock.value, 'Stock');
             if (!stockValidation.valid) {
                 showMessage('error', stockValidation.error, 5000, 'catalog');
                 return;
             }
-        
+
             // ✅ NEW: Get dimension values
             const length = parseFloat(form.itemLength?.value) || 0;
             const width = parseFloat(form.itemWidth?.value) || 0;
             const height = parseFloat(form.itemHeight?.value) || 0;
             const weight = parseFloat(form.itemWeight?.value) || 0;
-        
+
             // ✅ NEW: Validate dimensions if any are provided
-            if ((length > 0 || width > 0 || height > 0 || weight > 0) && 
+            if ((length > 0 || width > 0 || height > 0 || weight > 0) &&
                 (length <= 0 || width <= 0 || height <= 0 || weight <= 0)) {
                 showMessage('error', 'Please provide all dimensions (length, width, height, weight) or leave them all empty', 5000, 'catalog');
                 return;
             }
-        
+
             try {
                 const priceCents = Math.round(priceValidation.value * 100);
                 const itemName = form.itemName.value.trim();
                 const itemDescription = form.itemDescription.value.trim();
                 const catalogId = form.catalogId.value;
                 const initialStock = stockValidation.value;
-        
+
                 const rawUrls = form.itemImageUrls.value.split('\n').map(url => url.trim()).filter(url => url !== '');
                 const imageUrls = rawUrls.length > 0 ? rawUrls : [`https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`];
-        
+
                 const newProduct = {
                     name: itemName,
                     description: itemDescription,
@@ -2665,7 +2665,7 @@
                     stock: initialStock,
                     createdAt: serverTimestamp(),
                 };
-        
+
                 // ✅ NEW: Add dimensions if provided
                 if (length > 0 && width > 0 && height > 0 && weight > 0) {
                     newProduct.dimensions = {
@@ -2677,16 +2677,16 @@
                         weightUnit: "lb"
                     };
                 }
-        
+
                 const docRef = await addDoc(collection(db, ITEMS_COLLECTION), newProduct);
                 await logAdminAction('ITEM_CREATED', newProduct, docRef.id);
-                
-                const dimMsg = newProduct.dimensions 
+
+                const dimMsg = newProduct.dimensions
                     ? ` with dimensions ${length}"×${width}"×${height}" @ ${weight}lbs`
                     : '';
                 showMessage('success', `Product "${itemName}" added${dimMsg}!`, 5000, 'catalog');
                 form.reset();
-        
+
             } catch (error) {
                 handleError(error, 'Failed to add product', 'catalog');
             }
@@ -2785,33 +2785,33 @@
         async function handleEditProduct(e) {
             e.preventDefault();
             resetTimer();
-        
+
             const form = e.target;
             const itemId = form.itemId.value;
             const itemName = form.itemName.value.trim();
             const itemDescription = form.itemDescription.value.trim();
             const price = form.itemPrice.value;
             const catalogId = form.catalogId.value;
-        
+
             const imageUrls = form.itemImageUrls.value
                 .split('\n')
                 .map(url => url.trim())
                 .filter(url => url !== '');
-        
+
             // ✅ NEW: Get dimensions
             const length = parseFloat(form.itemLength?.value) || 0;
             const width = parseFloat(form.itemWidth?.value) || 0;
             const height = parseFloat(form.itemHeight?.value) || 0;
             const weight = parseFloat(form.itemWeight?.value) || 0;
-        
+
             if (!itemId || !itemName || !price || !catalogId) {
                 showMessage('error', 'Please fill in all required fields.', 5000, 'catalog');
                 return;
             }
-        
+
             try {
                 const priceCents = Math.round(parseFloat(price) * 100);
-        
+
                 const updatedProduct = {
                     name: itemName,
                     description: itemDescription,
@@ -2821,7 +2821,7 @@
                     imageUrl: imageUrls.length > 0 ? imageUrls[0] : `https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`,
                     updatedAt: serverTimestamp()
                 };
-        
+
                 // ✅ NEW: Add or remove dimensions
                 if (length > 0 && width > 0 && height > 0 && weight > 0) {
                     updatedProduct.dimensions = {
@@ -2833,15 +2833,15 @@
                     // Remove dimensions if cleared
                     updatedProduct.dimensions = null;
                 }
-        
+
                 const itemRef = doc(db, ITEMS_COLLECTION, itemId);
                 await updateDoc(itemRef, updatedProduct);
-        
+
                 await logAdminAction('ITEM_UPDATED', updatedProduct, itemId);
                 showMessage('success', `Product "${itemName}" updated successfully!`, 5000, 'catalog');
-        
+
                 cancelEdit();
-        
+
             } catch (error) {
                 console.error('Error updating product:', error);
                 showMessage('error', `Failed to update product: ${error.message}`, 5000, 'catalog');
@@ -3306,7 +3306,7 @@
             try {
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) throw new Error('Order not found');
-        
+
                 const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
                     id: entry.item.id,
                     name: entry.item.name,
@@ -3314,17 +3314,17 @@
                     quantity: entry.quantity,
                     sku: entry.item.sku
                 }));
-        
+
                 const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
                 const newTotal = newSubtotal + (order.shippingCents || 0) + (order.taxCents || 0);
-        
+
                 // ✅ Get the new status from dropdown
                 const newStatus = document.getElementById('editOrderStatus')?.value || order.status;
-        
+
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-        
+
                 await updateDoc(orderRef, {
                     items: newItems,
                     subtotalCents: newSubtotal,
@@ -3332,7 +3332,7 @@
                     status: newStatus, // ✅ Update status
                     updatedAt: serverTimestamp()
                 });
-        
+
                 // ✅ Send email if status changed
                 if (newStatus !== order.status) {
                     try {
@@ -3352,17 +3352,17 @@
                         console.warn('Email failed:', emailError);
                     }
                 }
-        
+
                 await logAdminAction('ORDER_UPDATED', { orderId, newItems, newStatus }, orderId);
                 showMessage('success', 'Order updated successfully!', 3000, 'orders');
                 closeEditModal();
-        
+
             } catch (error) {
                 console.error('Error updating order:', error);
                 showMessage('error', `Failed to update order: ${error.message}`, 5000, 'orders');
             }
         }
-        
+
 
         // ✅ NEW: Calculate shipping and tax for manual orders
         async function calculateAdminOrderShippingTax() {
@@ -3447,7 +3447,7 @@
                 if (submitButton) submitButton.textContent = 'Calculating tax...';
 
                 // 2. Calculate Tax
-                try {                    
+                try {
                     const taxRes = await fetch('/.netlify/functions/calculateTax', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -3874,50 +3874,50 @@
             try {
                 const response = await fetch(GET_ADMIN_CONFIG_FUNCTION);
                 if (!response.ok) throw new Error('Network response was not ok');
-                
+
                 globalConfig = await response.json();
-                
+
                 console.log('📥 Fetched config:', globalConfig); // ✅ Debug log
-                
+
                 // Populate form fields (with null checks)
                 const maintenanceToggle = document.getElementById('maintenanceToggle');
                 const chatToggle = document.getElementById('chatWidgetToggle');
                 const ipList = document.getElementById('dynamicIpList');
-                
+
                 if (maintenanceToggle) maintenanceToggle.checked = globalConfig.maintenanceMode || false;
                 if (chatToggle) chatToggle.checked = globalConfig.chatWidgetEnabled || false;
                 if (ipList) ipList.value = (globalConfig.ipWhitelist || []).join('\n');
-                
+
                 // Chat schedule
                 const enableTime = document.getElementById('chatEnableTime');
                 const disableTime = document.getElementById('chatDisableTime');
-                
+
                 if (enableTime) enableTime.value = globalConfig.chatSchedule?.enableTime || '08:00';
                 if (disableTime) disableTime.value = globalConfig.chatSchedule?.disableTime || '20:00';
-                
+
                 // ✅ IMPROVED: Populate branding fields with better null checks
                 if (globalConfig.branding) {
                     console.log('🎨 Populating branding:', globalConfig.branding); // ✅ Debug log
                     const branding = globalConfig.branding;
-                    
+
                     // Logo and header text
                     const logoUrl = document.getElementById('brandingLogoUrl');
                     const headerEN = document.getElementById('brandingHeaderEN');
                     const headerES = document.getElementById('brandingHeaderES');
-                    
+
                     if (logoUrl) logoUrl.value = branding.logoUrl || '';
                     if (headerEN) headerEN.value = branding.headerText?.en || '';
                     if (headerES) headerES.value = branding.headerText?.es || '';
-                    
+
                     // Colors - with existence checks and detailed logging
                     if (branding.colors) {
                         console.log('🎨 Setting colors:', branding.colors); // ✅ Debug log
-                        
+
                         // Background gradient start
                         const bgColor = document.getElementById('brandingBgColor');
                         const bgColorText = document.getElementById('brandingBgColorText');
                         const bgStartValue = branding.colors.backgroundStart || '#f0f9ff';
-                        
+
                         console.log('🔵 BG START - Value from DB:', bgStartValue);
                         if (bgColor) {
                             bgColor.value = bgStartValue;
@@ -3927,12 +3927,12 @@
                             bgColorText.value = bgStartValue;
                             console.log('🔵 BG START - Text input now shows:', bgColorText.value);
                         }
-                        
+
                         // Background gradient end
                         const bgColorEnd = document.getElementById('brandingBgColorEnd');
                         const bgColorEndText = document.getElementById('brandingBgColorEndText');
                         const bgEndValue = branding.colors.backgroundEnd || '#e0e7ff';
-                        
+
                         console.log('🔵 BG END - Value from DB:', bgEndValue);
                         if (bgColorEnd) {
                             bgColorEnd.value = bgEndValue;
@@ -3942,12 +3942,12 @@
                             bgColorEndText.value = bgEndValue;
                             console.log('🔵 BG END - Text input now shows:', bgColorEndText.value);
                         }
-                        
+
                         // Add to Cart button
                         const cartColor = document.getElementById('brandingCartColor');
                         const cartColorText = document.getElementById('brandingCartColorText');
                         const cartValue = branding.colors.addToCart || '#ec4899';
-                        
+
                         console.log('🔵 CART - Value from DB:', cartValue);
                         if (cartColor) {
                             cartColor.value = cartValue;
@@ -3957,12 +3957,12 @@
                             cartColorText.value = cartValue;
                             console.log('🔵 CART - Text input now shows:', cartColorText.value);
                         }
-                        
+
                         // Checkout button
                         const checkoutColor = document.getElementById('brandingCheckoutColor');
                         const checkoutColorText = document.getElementById('brandingCheckoutColorText');
                         const checkoutValue = branding.colors.checkout || '#ec4899';
-                        
+
                         console.log('🔵 CHECKOUT - Value from DB:', checkoutValue);
                         if (checkoutColor) {
                             checkoutColor.value = checkoutValue;
@@ -3978,31 +3978,31 @@
                 } else {
                     console.warn('⚠️ No branding in config');
                 }
-                
+
                 // Populate active days checkboxes
                 const activeDays = globalConfig.chatSchedule?.activeDays || [1, 2, 3, 4, 5];
                 document.querySelectorAll('#chatActiveDays input[type="checkbox"]').forEach(cb => {
                     cb.checked = activeDays.includes(parseInt(cb.value));
                 });
-                
+
                 // Display static IP list
                 const staticList = document.getElementById('staticIpListDisplay');
                 if (staticList && globalConfig.staticIpWhitelist) {
                     staticList.textContent = globalConfig.staticIpWhitelist.join('\n');
                 }
-                
+
                 // Display last updated time
                 const lastUpdatedElem = document.getElementById('configLastUpdated');
                 if (lastUpdatedElem && globalConfig.lastUpdated) {
                     const date = new Date(globalConfig.lastUpdated._seconds * 1000);
                     lastUpdatedElem.textContent = `Last updated: ${date.toLocaleString()}`;
                 }
-                
+
                 // ✅ Setup color input sync after population
                 syncColorInputs();
-                
+
                 console.log('✅ Config populated successfully');
-                
+
             } catch (error) {
                 console.error('❌ Error fetching config:', error);
             }
@@ -4018,7 +4018,7 @@
                 }
             }
         }
-        
+
         function syncColorInputs() {
             // Background Start
             const bgColor = document.getElementById('brandingBgColor');
@@ -4027,7 +4027,7 @@
                 bgColor.addEventListener('input', (e) => bgColorText.value = e.target.value);
                 bgColorText.addEventListener('input', (e) => bgColor.value = e.target.value);
             }
-        
+
             // Background End
             const bgColorEnd = document.getElementById('brandingBgColorEnd');
             const bgColorEndText = document.getElementById('brandingBgColorEndText');
@@ -4035,7 +4035,7 @@
                 bgColorEnd.addEventListener('input', (e) => bgColorEndText.value = e.target.value);
                 bgColorEndText.addEventListener('input', (e) => bgColorEnd.value = e.target.value);
             }
-        
+
             // Cart Button
             const cartColor = document.getElementById('brandingCartColor');
             const cartColorText = document.getElementById('brandingCartColorText');
@@ -4043,7 +4043,7 @@
                 cartColor.addEventListener('input', (e) => cartColorText.value = e.target.value);
                 cartColorText.addEventListener('input', (e) => cartColor.value = e.target.value);
             }
-        
+
             // Checkout Button
             const checkoutColor = document.getElementById('brandingCheckoutColor');
             const checkoutColorText = document.getElementById('brandingCheckoutColorText');
@@ -4056,11 +4056,11 @@
         async function handleUpdateConfig(event) {
             event.preventDefault();
             const messageDiv = document.getElementById('configMessage');
-            
+
             try {
                 // ✅ GET THE ID TOKEN FIRST
                 const idToken = await auth.currentUser.getIdToken();
-                
+
                 const updates = {
                     maintenanceMode: document.getElementById('maintenanceToggle').checked,
                     chatWidgetEnabled: document.getElementById('chatWidgetToggle').checked,
@@ -4084,10 +4084,10 @@
                         }
                     }
                 };
-        
+
                 console.log('💾 SAVING CONFIG:', JSON.stringify(updates, null, 2)); // ✅ NEW
                 console.log('💾 Branding colors being sent:', updates.branding.colors); // ✅ NEW
-        
+
                 // ✅ ADD AUTHORIZATION HEADER
                 const response = await fetch(UPDATE_ADMIN_CONFIG_FUNCTION, {
                     method: 'POST',
@@ -4097,24 +4097,24 @@
                     },
                     body: JSON.stringify(updates)
                 });
-                
+
                 console.log('💾 Response status:', response.status); // ✅ NEW
-                
+
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error('💾 Save failed:', errorText); // ✅ NEW
                     throw new Error('Failed to update config');
                 }
-        
+
                 const result = await response.json();
                 console.log('💾 Save successful:', result); // ✅ NEW
-        
+
                 messageDiv.innerHTML = '<div class="p-4 bg-green-100 text-green-700 rounded-lg">Configuration updated successfully!</div>';
                 setTimeout(() => messageDiv.innerHTML = '', 5000);
-                
+
                 // ✅ ADD: Refresh the config to show the updated last modified time
                 await fetchAdminConfig();
-                
+
             } catch (error) {
                 console.error('❌ Error updating config:', error);
                 messageDiv.innerHTML = '<div class="p-4 bg-red-100 text-red-700 rounded-lg">Failed to update configuration.</div>';
@@ -4169,23 +4169,23 @@
                 showMessage('error', 'Order not found.', 3000, 'orders');
                 return;
             }
-        
+
             try {
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-        
+
                 await updateDoc(orderRef, {
                     status: newStatus,
                     updatedAt: serverTimestamp()
                 });
-        
+
                 await logAdminAction('ORDER_STATUS_UPDATED', {
                     orderId,
                     oldStatus: order.status,
                     newStatus
                 }, orderId);
-        
+
                 // ✅ USE sendOrderConfirmation with newStatus parameter
                 try {
                     await fetch('/.netlify/functions/sendOrderConfirmation', {
@@ -4212,58 +4212,58 @@
                     console.warn('⚠️ Email notification failed:', emailError);
                     showMessage('success', `Order status updated to: ${newStatus}. (Email failed to send)`, 5000, 'orders');
                 }
-        
+
             } catch (error) {
                 console.error('Error updating order status:', error);
                 showMessage('error', `Failed to update order status: ${error.message}`, 5000, 'orders');
             }
         }
-        
+
         function renderOrdersList() {
             const container = document.getElementById('ordersListContent');
             if (!container) return;
-        
+
             const filteredOrders = state.orders.filter(order => {
                 const matchesStatus = state.orderStatusFilter === 'All' || order.status === state.orderStatusFilter;
                 const matchesDelivery = state.deliveryStatusFilter === 'All' ||
                     (state.deliveryStatusFilter === 'Delivered' && order.status === 'Delivered') ||
                     (state.deliveryStatusFilter === 'Pending' && order.status !== 'Delivered' && order.status !== 'Cancelled');
-        
+
                 const matchesSearch = !state.orderListSearchTerm ||
                     order.id.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
                     order.buyerName?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
                     order.buyerEmail?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase());
-        
+
                 return matchesStatus && matchesDelivery && matchesSearch;
             });
-        
+
             if (filteredOrders.length === 0) {
                 container.innerHTML = '<p class="text-center text-gray-500 p-8">No orders found matching your filters.</p>';
                 return;
             }
-        
+
             const ordersHtml = filteredOrders.map(order => {
                 const itemsList = order.items.map(item => {
                     const itemData = getSafeItemData(item);
                     return `${itemData.quantity}x ${escapeHtml(itemData.name)}`;
                 }).join(', ');
-        
+
                 const statusColor = {
                     'Pending': 'bg-yellow-100 text-yellow-800',
                     'Processing': 'bg-blue-100 text-blue-800',
                     'Delivered': 'bg-green-100 text-green-800',
                     'Cancelled': 'bg-red-100 text-red-800'
                 }[order.status] || 'bg-gray-100 text-gray-800';
-        
+
                 // ✅ NEW: Payment status badge
-                const paymentStatusColor = order.paymentStatus === 'Paid' || order.isPaid 
+                const paymentStatusColor = order.paymentStatus === 'Paid' || order.isPaid
                     ? 'bg-green-100 text-green-800 border-green-300'
                     : 'bg-orange-100 text-orange-800 border-orange-300';
-                
-                const paymentStatusText = order.paymentStatus === 'Paid' || order.isPaid 
-                    ? '✅ Paid' 
+
+                const paymentStatusText = order.paymentStatus === 'Paid' || order.isPaid
+                    ? '✅ Paid'
                     : '⏳ Unpaid';
-        
+
                 return `
                     <div class="bg-white p-4 rounded-lg shadow border border-gray-200">
                         <div class="flex justify-between items-start mb-2">
@@ -4342,7 +4342,7 @@
                     </div>
                 `;
             }).join('');
-        
+
             container.innerHTML = ordersHtml;
         }
         function renderOrderCreateForm() {
@@ -4545,16 +4545,16 @@
 
         async function sendPaymentLink(orderId) {
             if (!confirm('Send payment link email to customer?')) return;
-        
+
             const buttons = document.querySelectorAll(`button[onclick*="sendPaymentLink('${orderId}')"]`);
             buttons.forEach(btn => {
                 btn.disabled = true;
                 btn.innerHTML = '⏳ Sending...';
             });
-        
+
             try {
                 const token = await auth.currentUser.getIdToken();
-                
+
                 const response = await fetch('/.netlify/functions/resendPaymentLink', {
                     method: 'POST',
                     headers: {
@@ -4566,21 +4566,21 @@
                         sendEmail: true
                     })
                 });
-        
+
                 if (response.ok) {
                     const data = await response.json();
                     alert(`✅ Payment link sent!\n\n${data.paymentUrl.substring(0, 50)}...`);
-                    
+
                     // Copy to clipboard
                     try {
                         await navigator.clipboard.writeText(data.paymentUrl);
                     } catch (err) {
                         console.log('Could not copy to clipboard:', err);
                     }
-                    
+
                     // Refresh orders
                     await fetchOrders();
-                    
+
                     // Close modal if open
                     const modal = document.getElementById('editModalContainer');
                     if (modal) closeEditModal();
@@ -4598,26 +4598,26 @@
                 });
             }
         }
-    
+
 
         function renderOrderEditModal(order) {
             const statusOptions = ['Pending', 'Processing', 'Delivered', 'Cancelled'];
-            const statusDropdown = statusOptions.map(status => 
+            const statusDropdown = statusOptions.map(status =>
                 `<option value="${status}" ${order.status === status ? 'selected' : ''}>${status}</option>`
             ).join('');
-        
+
             // Parse address for editing
             const addressParts = (order.deliveryAddress || '').split(',');
             const street = addressParts[0]?.trim() || '';
             const city = addressParts[1]?.trim() || '';
             const stateZip = addressParts[2]?.trim() || '';
-        
+
             // Calculate payment totals
             const payments = order.payments || [];
             const totalPaidCents = payments.reduce((sum, p) => sum + (p.amountCents || 0), 0);
             const orderTotalCents = order.totalCents || 0;
             const balanceCents = orderTotalCents - totalPaidCents;
-        
+
             return `
                 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div class="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[95vh] flex flex-col">
@@ -4707,9 +4707,9 @@
                                 <div class="bg-white p-4 rounded-lg border-2 border-gray-200">
                                     <h5 class="font-bold text-sm mb-3 text-gray-700">💰 Payment History</h5>
                                     <div class="space-y-2 max-h-48 overflow-y-auto">
-                                        ${payments.length === 0 
-                                            ? '<p class="text-xs text-gray-500 italic text-center py-3">No payments recorded</p>'
-                                            : payments.map((payment, idx) => `
+                                        ${payments.length === 0
+                    ? '<p class="text-xs text-gray-500 italic text-center py-3">No payments recorded</p>'
+                    : payments.map((payment, idx) => `
                                                 <div class="flex justify-between items-center p-2 bg-gray-50 rounded border text-xs">
                                                     <div>
                                                         <span class="font-semibold">${formatPriceDisplay(payment.amountCents)}</span>
@@ -4722,7 +4722,7 @@
                                                     </div>
                                                 </div>
                                             `).join('')
-                                        }
+                }
                                     </div>
                                 </div>
         
@@ -4951,10 +4951,10 @@
             const totalRevenue = state.orders.reduce((sum, o) => sum + (o.status !== 'Cancelled' ? o.totalCents : 0), 0);
             const paidOrders = state.orders.filter(o => o.isPaid && o.status !== 'Cancelled');
             const unpaidOrders = state.orders.filter(o => !o.isPaid && o.status !== 'Cancelled');
-            
+
             const totalPaid = paidOrders.reduce((sum, o) => sum + o.totalCents, 0);
             const totalUnpaid = unpaidOrders.reduce((sum, o) => sum + o.totalCents, 0);
-        
+
             return `
                 <section class="space-y-8">
                     <h2 class="text-2xl font-bold text-indigo-700">${t('tabFinancials')}</h2>
@@ -4998,12 +4998,12 @@
                 </section>
             `;
         }
-        
-         function renderFinancialRows() {
+
+        function renderFinancialRows() {
             if (state.orders.length === 0) {
                 return '<p class="text-center text-gray-500 p-8">No orders found.</p>';
             }
-        
+
             const rows = state.orders
                 .filter(o => o.status !== 'Cancelled')
                 .map(order => {
@@ -5011,16 +5011,16 @@
                     const totalPaidCents = payments.reduce((sum, p) => sum + (p.amountCents || 0), 0);
                     const balanceCents = order.totalCents - totalPaidCents;
                     const isPaid = balanceCents <= 0;
-                    
+
                     const paidClass = isPaid ? 'bg-green-50' : 'bg-red-50';
-                    const paidBadge = isPaid 
+                    const paidBadge = isPaid
                         ? '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-semibold">✓ Paid</span>'
                         : `<span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full font-semibold">⚠️ ${formatPriceDisplay(balanceCents)} Due</span>`;
-                    
+
                     const paymentMethods = payments.length > 0
                         ? [...new Set(payments.map(p => p.method))].join(', ')
                         : 'None';
-        
+
                     return `
                         <tr class="${paidClass} hover:shadow-md transition">
                             <td class="p-3 text-sm font-mono">${order.orderNumber || order.id.substring(0, 8)}</td>
@@ -5036,12 +5036,11 @@
                             <td class="p-3 text-xs text-gray-500">${payments.length}</td>
                             <td class="p-3 text-sm">${formatTime(order.createdAt)}</td>
                             <td class="p-3 text-sm">
-                                <span class="px-2 py-1 rounded-full text-xs ${
-                                    order.status === 'Delivered' ? 'bg-green-100 text-green-800' :
-                                    order.status === 'Processing' ? 'bg-blue-100 text-blue-800' :
-                                    order.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
+                                <span class="px-2 py-1 rounded-full text-xs ${order.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                            order.status === 'Processing' ? 'bg-blue-100 text-blue-800' :
+                                order.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
                                     'bg-gray-100 text-gray-800'
-                                }">${order.status}</span>
+                        }">${order.status}</span>
                             </td>
                             <td class="p-3">
                                 <button onclick="window.module.showOrderEditForm('${order.id}')" 
@@ -5052,7 +5051,7 @@
                         </tr>
                     `;
                 }).join('');
-        
+
             return `
                 <table class="w-full">
                     <thead>
@@ -5089,7 +5088,7 @@
                         const paymentMethods = payments.length > 0
                             ? [...new Set(payments.map(p => p.method))].join('; ')
                             : 'None';
-                        
+
                         return [
                             o.orderNumber || o.id.substring(0, 8),
                             `"${(o.buyerName || 'N/A').replace(/"/g, '""')}"`,
@@ -5105,14 +5104,14 @@
                         ].join(',');
                     })
             ].join('\n');
-        
+
             const blob = new Blob([csvData], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `payment_ledger_${new Date().toISOString().split('T')[0]}.csv`;
             a.click();
-            
+
             showMessage('success', 'Payment ledger exported successfully!', 3000, 'financials');
         }
         // ============================================================================
@@ -5309,38 +5308,38 @@
         }
 
         // --- PAYMENT MANAGEMENT FUNCTIONS ---
-        
+
         async function addPaymentToOrder(orderId) {
             resetTimer();
-            
+
             const amountInput = document.getElementById('newPaymentAmount');
             const methodSelect = document.getElementById('newPaymentMethod');
             const dateInput = document.getElementById('newPaymentDate');
             const referenceInput = document.getElementById('newPaymentReference');
             const notesInput = document.getElementById('newPaymentNotes');
-            
+
             const amountDollars = parseFloat(amountInput?.value || 0);
             const method = methodSelect?.value;
             const date = dateInput?.value;
             const reference = referenceInput?.value?.trim();
             const notes = notesInput?.value?.trim();
-            
+
             if (amountDollars <= 0) {
                 showMessage('error', 'Please enter a valid payment amount', 3000, 'orders');
                 return;
             }
-            
+
             if (!method) {
                 showMessage('error', 'Please select a payment method', 3000, 'orders');
                 return;
             }
-            
+
             try {
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) throw new Error('Order not found');
-                
+
                 const amountCents = Math.round(amountDollars * 100);
-                
+
                 const newPayment = {
                     amountCents: amountCents,
                     method: method,
@@ -5350,157 +5349,157 @@
                     recordedBy: auth.currentUser?.email || 'Unknown',
                     recordedAt: new Date().toISOString()
                 };
-                
+
                 const currentPayments = order.payments || [];
                 const updatedPayments = [...currentPayments, newPayment];
-                
+
                 // Calculate new totals
                 const totalPaidCents = updatedPayments.reduce((sum, p) => sum + p.amountCents, 0);
                 const isPaid = totalPaidCents >= order.totalCents;
-                
+
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-                
+
                 await updateDoc(orderRef, {
                     payments: updatedPayments,
                     isPaid: isPaid,
                     paidCents: totalPaidCents,
                     updatedAt: serverTimestamp()
                 });
-                
+
                 await logAdminAction('PAYMENT_ADDED', {
                     orderId,
                     payment: newPayment,
                     totalPaid: formatPriceDisplay(totalPaidCents),
                     isPaid
                 }, orderId);
-                
+
                 showMessage('success', `Payment of ${formatPriceDisplay(amountCents)} recorded successfully!`, 3000, 'orders');
-                
+
                 // Clear form
                 amountInput.value = '';
                 methodSelect.value = '';
                 referenceInput.value = '';
                 notesInput.value = '';
                 dateInput.value = new Date().toISOString().split('T')[0];
-                
+
                 // Re-render modal with updated payment data
                 showOrderEditForm(orderId);
-                
+
             } catch (error) {
                 console.error('Error adding payment:', error);
                 showMessage('error', `Failed to add payment: ${error.message}`, 5000, 'orders');
             }
         }
-        
+
         async function removePayment(orderId, paymentIndex) {
             resetTimer();
-            
+
             if (!confirm('Are you sure you want to remove this payment record?')) {
                 return;
             }
-            
+
             try {
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) throw new Error('Order not found');
-                
+
                 const payments = order.payments || [];
                 const removedPayment = payments[paymentIndex];
-                
+
                 const updatedPayments = payments.filter((_, idx) => idx !== paymentIndex);
                 const totalPaidCents = updatedPayments.reduce((sum, p) => sum + p.amountCents, 0);
                 const isPaid = totalPaidCents >= order.totalCents;
-                
+
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-                
+
                 await updateDoc(orderRef, {
                     payments: updatedPayments,
                     isPaid: isPaid,
                     paidCents: totalPaidCents,
                     updatedAt: serverTimestamp()
                 });
-                
+
                 await logAdminAction('PAYMENT_REMOVED', {
                     orderId,
                     removedPayment,
                     totalPaid: formatPriceDisplay(totalPaidCents)
                 }, orderId);
-                
+
                 showMessage('success', 'Payment record removed', 3000, 'orders');
-                
+
                 // Re-render modal
                 showOrderEditForm(orderId);
-                
+
             } catch (error) {
                 console.error('Error removing payment:', error);
                 showMessage('error', `Failed to remove payment: ${error.message}`, 5000, 'orders');
             }
         }
-        
+
         // --- SHIPPING FUNCTIONS ---
-         async function fetchShippingRates(orderId) {
+        async function fetchShippingRates(orderId) {
             console.log('🚀 fetchShippingRates called with orderId:', orderId);
             resetTimer();
-            
+
             const order = state.orders.find(o => o.id === orderId);
             if (!order) {
                 showMessage('error', 'Order not found', 3000, 'orders');
                 return;
             }
-        
+
             const weight = parseFloat(document.getElementById('packageWeight')?.value || 1);
             const length = parseFloat(document.getElementById('packageLength')?.value || 12);
             const width = parseFloat(document.getElementById('packageWidth')?.value || 8);
             const height = parseFloat(document.getElementById('packageHeight')?.value || 6);
-        
+
             if (!weight || weight <= 0) {
                 showMessage('error', 'Please enter a valid package weight', 3000, 'orders');
                 return;
             }
-        
+
             // ✅ Parse Google Maps format: "street, city, state, country"
             const addressParts = (order.deliveryAddress || '').split(',').map(p => p.trim());
             const street = addressParts[0] || '';
             const city = addressParts[1] || '';
-        
+
             // Handle "CA" or "CA 95101" in part[2]
             const stateZipParts = (addressParts[2] || '').split(' ').filter(s => s.length > 0);
             let stateCode = stateZipParts[0] || '';
             let zip = stateZipParts[1] || '';
-        
+
             if (!street || !city || !stateCode) {
                 showMessage('error', 'Invalid delivery address. Please update the order address first.', 5000, 'orders');
                 return;
             }
-        
+
             // ✅ ZIP missing — use Netlify Function (Proxy) to look it up
             if (!zip) {
                 try {
                     console.log('🗺️ ZIP missing. Asking server to geocode address...');
-            
+
                     // Call our new Netlify function
                     // We send the full address string (street + city + state) for better accuracy
-                    const fullAddressQuery = `${street}, ${city}, ${stateCode}`; 
-            
+                    const fullAddressQuery = `${street}, ${city}, ${stateCode}`;
+
                     const geoResponse = await fetch('/.netlify/functions/geocode', {
                         method: 'POST',
                         body: JSON.stringify({ address: fullAddressQuery }),
                         headers: { 'Content-Type': 'application/json' }
                     });
-            
+
                     if (!geoResponse.ok) {
                         throw new Error(`Geocode server error: ${geoResponse.status}`);
                     }
-            
+
                     const geoData = await geoResponse.json();
                     console.log('🗺️ Geocode response:', geoData.status);
-            
+
                     if (geoData.status === 'OK' && geoData.results?.length > 0) {
                         const components = geoData.results[0].address_components;
-                        
+
                         // Extract ZIP
                         const postalComponent = components.find(c => c.types.includes('postal_code'));
                         if (postalComponent) {
@@ -5509,7 +5508,7 @@
                         } else {
                             console.warn('⚠️ No postal_code in geocode results');
                         }
-            
+
                         // Extract/Confirm State (Optional, but good for data integrity)
                         const stateComponent = components.find(c => c.types.includes('administrative_area_level_1'));
                         if (stateComponent) {
@@ -5518,15 +5517,15 @@
                     } else {
                         console.warn('⚠️ Geocode API returned no results or non-OK status:', geoData.status);
                     }
-            
+
                 } catch (geoError) {
                     console.error('❌ Geocoding error:', geoError);
                     showMessage('error', 'Could not auto-detect ZIP code. Please enter it manually.', 5000, 'orders');
                 }
             }
-        
+
             console.log('✅ Final address:', { street, city, stateCode, zip });
-        
+
             const addressTo = {
                 name: order.buyerName,
                 street1: street,
@@ -5537,7 +5536,7 @@
                 phone: order.buyerPhone || '',
                 email: order.buyerEmail || ''
             };
-        
+
             const parcels = [{
                 length: length.toString(),
                 width: width.toString(),
@@ -5546,17 +5545,17 @@
                 weight: weight.toString(),
                 mass_unit: "lb"
             }];
-        
+
             // Show loading state
             document.getElementById('shippingLoadingState')?.classList.remove('hidden');
             document.getElementById('shippingRatesContainer')?.classList.add('hidden');
             const ratesBtn = document.getElementById('getRatesButton');
             if (ratesBtn) { ratesBtn.disabled = true; ratesBtn.textContent = 'Fetching rates...'; }
-        
+
             try {
                 console.log('📡 Calling getShippingRates function...');
                 const token = await auth.currentUser.getIdToken();
-        
+
                 const response = await fetch('/.netlify/functions/getShippingRates', {
                     method: 'POST',
                     headers: {
@@ -5565,23 +5564,23 @@
                     },
                     body: JSON.stringify({ orderId, addressTo, parcels })
                 });
-        
+
                 console.log('📬 Response status:', response.status);
                 const responseText = await response.text();
                 console.log('📬 Raw response:', responseText);
-        
+
                 if (!response.ok) throw new Error(`HTTP ${response.status}: ${responseText}`);
-        
+
                 const data = JSON.parse(responseText);
-        
+
                 if (!data.rates || data.rates.length === 0) {
                     throw new Error('No shipping rates available for this destination');
                 }
-        
+
                 console.log('✅ Received shipping rates:', data.rates);
                 state.currentShipmentId = data.shipmentId;
                 displayShippingRates(data.rates, orderId);
-        
+
             } catch (error) {
                 console.error('❌ Error fetching rates:', error);
                 showMessage('error', `Failed to get shipping rates: ${error.message}`, 5000, 'orders');
@@ -5601,17 +5600,17 @@
                 return '';
             }
         }
-        
+
         function displayShippingRates(rates, orderId) {
             const container = document.getElementById('ratesList');
             const ratesContainer = document.getElementById('shippingRatesContainer');
-            
+
             if (!container || !ratesContainer) return;
-        
+
             const ratesHtml = rates.map((rate, index) => {
                 const isCheapest = index === 0;
                 const isFastest = rate.estimated_days === Math.min(...rates.map(r => r.estimated_days));
-                
+
                 return `
                     <div class="relative bg-white p-4 rounded-lg border-2 hover:border-indigo-500 transition cursor-pointer ${isCheapest ? 'border-green-500 ring-2 ring-green-200' : 'border-gray-300'}"
                          onclick="window.module.selectShippingRate('${rate.object_id}', '${orderId}', ${rate.amount}, '${rate.provider}', '${rate.servicelevel.name}')">
@@ -5644,24 +5643,24 @@
                     </div>
                 `;
             }).join('');
-        
+
             container.innerHTML = ratesHtml;
             ratesContainer.classList.remove('hidden');
-            
+
             // Scroll to rates
             ratesContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
-        
+
         async function selectShippingRate(rateId, orderId, amount, provider, servicelevel) {
             resetTimer();
-            
+
             if (!confirm(`Generate shipping label with ${provider} ${servicelevel} for $${amount.toFixed(2)}?`)) {
                 return;
             }
-        
+
             // Show loading
             showMessage('info', 'Generating shipping label... Please wait.', 0, 'orders');
-        
+
             try {
                 const response = await fetch('/.netlify/functions/generateShippingLabel', {
                     method: 'POST',
@@ -5674,16 +5673,16 @@
                         orderId: orderId
                     })
                 });
-        
+
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.details || 'Failed to generate label');
                 }
-        
+
                 const result = await response.json();
-                
+
                 console.log('✅ Label generated:', result);
-        
+
                 // Update order with tracking info
                 await updateOrderWithTracking(orderId, {
                     trackingNumber: result.trackingNumber,
@@ -5694,29 +5693,29 @@
                     labelUrl: result.labelUrl,
                     transactionId: result.transactionId
                 });
-        
+
                 // Open label in new window
                 window.open(result.labelUrl, '_blank');
-        
+
                 showMessage('success', `Label generated! Tracking: ${result.trackingNumber}`, 8000, 'orders');
-                
+
                 window.module.closeShippingModal();
-        
+
             } catch (error) {
                 console.error('❌ Label generation error:', error);
                 showMessage('error', `Failed to generate label: ${error.message}`, 8000, 'orders');
             }
         }
-        
+
         async function updateOrderWithTracking(orderId, trackingData) {
             try {
                 const order = state.orders.find(o => o.id === orderId);
                 if (!order) return;
-        
+
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
                 const orderRef = doc(db, path, orderId);
-        
+
                 await updateDoc(orderRef, {
                     trackingNumber: trackingData.trackingNumber,
                     trackingUrl: trackingData.trackingUrl,
@@ -5729,16 +5728,16 @@
                     status: 'Processing',
                     updatedAt: serverTimestamp()
                 });
-        
+
                 await logAdminAction('SHIPPING_LABEL_GENERATED', {
                     orderId,
                     trackingNumber: trackingData.trackingNumber,
                     carrier: trackingData.carrier,
                     cost: trackingData.shippingCost
                 }, orderId);
-        
+
                 console.log('✅ Order updated with tracking info');
-        
+
             } catch (error) {
                 console.error('❌ Failed to update order:', error);
                 throw error;
@@ -5838,7 +5837,7 @@
             sendPaymentLink,
             initializeDraftCart,
             handleResendReceipt,
-            syncColorInputs, 
+            syncColorInputs,
 
             // Enhanced updateDraftCartDisplay with shipping/tax breakdown
             updateDraftCartDisplay: function () {
@@ -5847,12 +5846,12 @@
                 const subtotalEl = document.getElementById('editOrderSubtotal');
                 const shippingEl = document.getElementById('editOrderShipping');
                 const taxEl = document.getElementById('editOrderTax');
-            
+
                 if (!cartEl || !totalEl) return;
-            
+
                 let subtotalCents = 0;
                 const itemsInCart = Object.values(state.editingOrderDraftCart);
-            
+
                 if (itemsInCart.length === 0) {
                     cartEl.innerHTML = '<p class="text-gray-500 italic text-sm text-center py-4">No items in order</p>';
                 } else {
@@ -5882,15 +5881,15 @@
                             </div>`;
                     }).join('');
                 }
-            
+
                 // Get shipping and tax from inputs or original order
                 const shippingInput = document.getElementById('editShippingCents');
                 const taxInput = document.getElementById('editTaxCents');
-                
+
                 const shippingCents = shippingInput ? Math.round(parseFloat(shippingInput.value || 0) * 100) : 0;
                 const taxCents = taxInput ? Math.round(parseFloat(taxInput.value || 0) * 100) : 0;
                 const grandTotal = subtotalCents + shippingCents + taxCents;
-            
+
                 // Update all displays
                 if (subtotalEl) subtotalEl.textContent = formatPriceDisplay(subtotalCents);
                 if (shippingEl) shippingEl.textContent = formatPriceDisplay(shippingCents);
@@ -5927,26 +5926,26 @@
                     balanceEl.textContent = formatPriceDisplay(balanceCents);
                     balanceEl.className = balanceCents <= 0 ? 'text-green-600 font-black' : 'text-rose-600 font-black';
                 }
-            },  
+            },
 
             // ========================================================================
             // INVENTORY LABEL PRINTING
             // ========================================================================
-            printInventoryLabel: function(itemId) {
+            printInventoryLabel: function (itemId) {
                 resetTimer();
                 const item = state.items.find(i => i.id === itemId);
                 if (!item) {
                     showMessage('error', 'Item not found', 3000, 'inventory');
                     return;
                 }
-        
+
                 const sku = item.sku || 'NO-SKU';
                 const name = item.name || 'Unknown Item';
                 const description = (item.description || '').substring(0, 100); // Limit description length
                 const price = formatPriceDisplay(item.price);
-                
+
                 const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-        
+
                 // Generate label HTML
                 const labelHtml = `
                     <div class="label-print-area" style="font-family: Arial, sans-serif; background: white; border: 2px solid #333; box-sizing: border-box;">
@@ -5980,17 +5979,17 @@
                         </div>
                     </div>
                 `;
-        
+
                 // Insert into hidden print container
                 const printContainer = document.getElementById('printLabel');
                 if (!printContainer) {
                     showMessage('error', 'Print container not found', 3000, 'inventory');
                     return;
                 }
-                
+
                 printContainer.innerHTML = labelHtml;
                 printContainer.style.display = 'block';
-        
+
                 // Generate barcode using JsBarcode
                 try {
                     JsBarcode(`#barcode-${itemId}`, sku, {
@@ -6006,33 +6005,33 @@
                     printContainer.style.display = 'none';
                     return;
                 }
-        
+
                 // Wait for barcode to render, then print
                 setTimeout(() => {
                     window.print();
                     printContainer.style.display = 'none';
                 }, 100);
-        
+
                 showMessage('success', `Label prepared for ${name}`, 3000, 'inventory');
             },
-            
-            printMultipleLabels: function(itemIds) {
-                            resetTimer();
-                            const items = itemIds.map(id => state.items.find(i => i.id === id)).filter(Boolean);
-                            
-                            if (items.length === 0) {
-                                showMessage('error', 'No valid items selected', 3000, 'inventory');
-                                return;
-                            }
-                    
-                            const labelsHtml = items.map((item, index) => {
-                                const sku = item.sku || 'NO-SKU';
-                                const name = item.name || 'Unknown Item';
-                                const description = (item.description || '').substring(0, 100);
-                                const price = formatPriceDisplay(item.price);
-                                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                    
-                                return `
+
+            printMultipleLabels: function (itemIds) {
+                resetTimer();
+                const items = itemIds.map(id => state.items.find(i => i.id === id)).filter(Boolean);
+
+                if (items.length === 0) {
+                    showMessage('error', 'No valid items selected', 3000, 'inventory');
+                    return;
+                }
+
+                const labelsHtml = items.map((item, index) => {
+                    const sku = item.sku || 'NO-SKU';
+                    const name = item.name || 'Unknown Item';
+                    const description = (item.description || '').substring(0, 100);
+                    const price = formatPriceDisplay(item.price);
+                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+
+                    return `
                                     <div class="label-print-area" style="font-family: Arial, sans-serif; background: white; border: 2px solid #333; box-sizing: border-box;">
                                         <div style="text-align: center; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 8px;">
                                             <h1 style="margin: 0; font-size: 18px; font-weight: bold;">autoInx Inventory</h1>
@@ -6057,300 +6056,300 @@
                                         </div>
                                     </div>
                                 `;
-                            }).join('');
-                    
-                            const printContainer = document.getElementById('printLabel');
-                            if (!printContainer) return;
-                            
-                            printContainer.innerHTML = labelsHtml;
-                            printContainer.style.display = 'block';
-                    
-                            // Generate all barcodes
-                            items.forEach((item, index) => {
-                                try {
-                                    JsBarcode(`#barcode-multi-${index}`, item.sku || 'NO-SKU', {
-                                        format: "CODE128",
-                                        width: 2,
-                                        height: 50,
-                                        displayValue: false,
-                                        margin: 5
-                                    });
-                                } catch (error) {
-                                    console.error(`Barcode error for ${item.sku}:`, error);
-                                }
-                            });
-                    
-                            setTimeout(() => {
-                                window.print();
-                                printContainer.style.display = 'none';
-                            }, 100);
-                    
-                            showMessage('success', `${items.length} labels prepared for printing`, 3000, 'inventory');
-                        },
+                }).join('');
+
+                const printContainer = document.getElementById('printLabel');
+                if (!printContainer) return;
+
+                printContainer.innerHTML = labelsHtml;
+                printContainer.style.display = 'block';
+
+                // Generate all barcodes
+                items.forEach((item, index) => {
+                    try {
+                        JsBarcode(`#barcode-multi-${index}`, item.sku || 'NO-SKU', {
+                            format: "CODE128",
+                            width: 2,
+                            height: 50,
+                            displayValue: false,
+                            margin: 5
+                        });
+                    } catch (error) {
+                        console.error(`Barcode error for ${item.sku}:`, error);
+                    }
+                });
+
+                setTimeout(() => {
+                    window.print();
+                    printContainer.style.display = 'none';
+                }, 100);
+
+                showMessage('success', `${items.length} labels prepared for printing`, 3000, 'inventory');
+            },
 
 
-                        // ==========================================
-                        // EXTERNAL ORDERS MANAGEMENT
-                        // ==========================================
-                        
-                        async function fetchExternalOrders() {
-                            try {
-                                const idToken = await auth.currentUser.getIdToken();
-                                const response = await fetch(GET_EXTERNAL_ORDERS, {
-                                    headers: {
-                                        'Authorization': `Bearer ${idToken}`,
-                                        'Content-Type': 'application/json'
-                                    }
-                                });
-                        
-                                if (!response.ok) throw new Error('Failed to fetch external orders');
-                                
-                                const data = await response.json();
-                                allExternalOrders = data.orders || [];
-                                renderExternalOrders();
-                                updateExternalOrderStats();
-                            } catch (error) {
-                                console.error('Error fetching external orders:', error);
-                                document.getElementById('externalOrdersTableBody').innerHTML = `
+            // ==========================================
+            // EXTERNAL ORDERS MANAGEMENT
+            // ==========================================
+
+            fetchExternalOrders: async function () {
+                try {
+                    const idToken = await auth.currentUser.getIdToken();
+                    const response = await fetch(GET_EXTERNAL_ORDERS, {
+                        headers: {
+                            'Authorization': `Bearer ${idToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) throw new Error('Failed to fetch external orders');
+
+                    const data = await response.json();
+                    allExternalOrders = data.orders || [];
+                    renderExternalOrders();
+                    updateExternalOrderStats();
+                } catch (error) {
+                    console.error('Error fetching external orders:', error);
+                    document.getElementById('externalOrdersTableBody').innerHTML = `
                                     <tr><td colspan="8" class="px-4 py-8 text-center text-red-500">
                                         Error loading orders. Please refresh the page.
                                     </td></tr>
                                 `;
-                            }
-                        }
-                        
-                        function renderExternalOrders() {
-                            const tbody = document.getElementById('externalOrdersTableBody');
-                            
-                            if (allExternalOrders.length === 0) {
-                                tbody.innerHTML = `
-                                    <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
-                                        No external orders found. Click "Add Order" to create one.
-                                    </td></tr>
-                                `;
-                                return;
-                            }
-                        
-                            const filteredOrders = getFilteredExternalOrders();
-                            
-                            if (filteredOrders.length === 0) {
-                                tbody.innerHTML = `
-                                    <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
-                                        No orders match your filters.
-                                    </td></tr>
-                                `;
-                                return;
-                            }
-                        
-                            tbody.innerHTML = filteredOrders.map(order => {
-                                const statusColors = {
-                                    'Pending': 'bg-yellow-100 text-yellow-800',
-                                    'Processing': 'bg-blue-100 text-blue-800',
-                                    'Shipped': 'bg-purple-100 text-purple-800',
-                                    'Delivered': 'bg-green-100 text-green-800',
-                                    'Cancelled': 'bg-red-100 text-red-800'
-                                };
-                        
-                                return `
-                                    <tr class="border-t hover:bg-gray-50">
-                                        <td class="px-4 py-3">
-                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
-                                                ${order.platform}
-                                            </span>
-                                        </td>
-                                        <td class="px-4 py-3 font-mono text-sm">${order.externalOrderId}</td>
-                                        <td class="px-4 py-3">${order.customerName}</td>
-                                        <td class="px-4 py-3 text-sm">${order.product}</td>
-                                        <td class="px-4 py-3 text-sm">${formatDate(order.orderDate)}</td>
-                                        <td class="px-4 py-3">
-                                            <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold ${statusColors[order.status]}">
-                                                ${order.status}
-                                            </span>
-                                        </td>
-                                        <td class="px-4 py-3 font-semibold">${order.amount ? '$' + order.amount.toFixed(2) : '-'}</td>
-                                        <td class="px-4 py-3">
-                                            <div class="flex space-x-2">
-                                                <button onclick="editExternalOrder('${order.id}')" 
-                                                        class="text-blue-600 hover:text-blue-800" title="Edit">
-                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                                                    </svg>
-                                                </button>
-                                                <button onclick="deleteExternalOrder('${order.id}')" 
-                                                        class="text-red-600 hover:text-red-800" title="Delete">
-                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                `;
-                            }).join('');
-                        }
-                        
-                        function getFilteredExternalOrders() {
-                            const platform = document.getElementById('platformFilter')?.value || 'all';
-                            const status = document.getElementById('statusFilter')?.value || 'all';
-                            const search = document.getElementById('searchExternalOrders')?.value.toLowerCase() || '';
-                        
-                            return allExternalOrders.filter(order => {
-                                const matchesPlatform = platform === 'all' || order.platform === platform;
-                                const matchesStatus = status === 'all' || order.status === status;
-                                const matchesSearch = search === '' || 
-                                    order.externalOrderId.toLowerCase().includes(search) ||
-                                    order.customerName.toLowerCase().includes(search) ||
-                                    order.product.toLowerCase().includes(search);
-                                
-                                return matchesPlatform && matchesStatus && matchesSearch;
-                            });
-                        }
-                        
-                        function filterExternalOrders() {
-                            renderExternalOrders();
-                            updateExternalOrderStats();
-                        }
-                        
-                        function updateExternalOrderStats() {
-                            const filtered = getFilteredExternalOrders();
-                            
-                            document.getElementById('statTotal').textContent = filtered.length;
-                            document.getElementById('statPending').textContent = filtered.filter(o => o.status === 'Pending').length;
-                            document.getElementById('statProcessing').textContent = filtered.filter(o => o.status === 'Processing').length;
-                            document.getElementById('statShipped').textContent = filtered.filter(o => o.status === 'Shipped').length;
-                            document.getElementById('statDelivered').textContent = filtered.filter(o => o.status === 'Delivered').length;
-                        }
-                        
-                        function showAddExternalOrderModal() {
-                            document.getElementById('modalTitle').textContent = 'Add External Order';
-                            document.getElementById('externalOrderForm').reset();
-                            document.getElementById('editOrderId').value = '';
-                            document.getElementById('orderDate').valueAsDate = new Date();
-                            document.getElementById('externalOrderModal').classList.remove('hidden');
-                        }
-                        
-                        function editExternalOrder(orderId) {
-                            const order = allExternalOrders.find(o => o.id === orderId);
-                            if (!order) return;
-                        
-                            document.getElementById('modalTitle').textContent = 'Edit External Order';
-                            document.getElementById('editOrderId').value = order.id;
-                            document.getElementById('orderPlatform').value = order.platform;
-                            document.getElementById('orderExternalId').value = order.externalOrderId;
-                            document.getElementById('orderCustomerName').value = order.customerName;
-                            document.getElementById('orderDate').value = order.orderDate;
-                            document.getElementById('orderProduct').value = order.product;
-                            document.getElementById('orderStatus').value = order.status;
-                            document.getElementById('orderAmount').value = order.amount || '';
-                            document.getElementById('orderTracking').value = order.trackingNumber || '';
-                            document.getElementById('orderNotes').value = order.notes || '';
-                            
-                            document.getElementById('externalOrderModal').classList.remove('hidden');
-                        }
-                        
-                        function closeExternalOrderModal() {
-                            document.getElementById('externalOrderModal').classList.add('hidden');
-                            document.getElementById('externalOrderForm').reset();
-                        }
-                        
-                        async function saveExternalOrder(event) {
-                            event.preventDefault();
-                        
-                            const orderData = {
-                                id: document.getElementById('editOrderId').value || null,
-                                platform: document.getElementById('orderPlatform').value,
-                                externalOrderId: document.getElementById('orderExternalId').value,
-                                customerName: document.getElementById('orderCustomerName').value,
-                                orderDate: document.getElementById('orderDate').value,
-                                product: document.getElementById('orderProduct').value,
-                                status: document.getElementById('orderStatus').value,
-                                amount: parseFloat(document.getElementById('orderAmount').value) || null,
-                                trackingNumber: document.getElementById('orderTracking').value || null,
-                                notes: document.getElementById('orderNotes').value || null
-                            };
-                        
-                            try {
-                                const idToken = await auth.currentUser.getIdToken();
-                                const response = await fetch(SAVE_EXTERNAL_ORDER, {
-                                    method: 'POST',
-                                    headers: {
-                                        'Authorization': `Bearer ${idToken}`,
-                                        'Content-Type': 'application/json'
-                                    },
-                                    body: JSON.stringify(orderData)
-                                });
-                        
-                                if (!response.ok) throw new Error('Failed to save order');
-                                
-                                alert(orderData.id ? 'Order updated successfully!' : 'Order added successfully!');
-                                closeExternalOrderModal();
-                                await fetchExternalOrders();
-                                
-                            } catch (error) {
-                                console.error('Error saving order:', error);
-                                alert('Failed to save order. Please try again.');
-                            }
-                        }
-                        
-                        async function deleteExternalOrder(orderId) {
-                            if (!confirm('Are you sure you want to delete this order? This action cannot be undone.')) {
-                                return;
-                            }
-                        
-                            try {
-                                const idToken = await auth.currentUser.getIdToken();
-                                const response = await fetch(DELETE_EXTERNAL_ORDER, {
-                                    method: 'POST',
-                                    headers: {
-                                        'Authorization': `Bearer ${idToken}`,
-                                        'Content-Type': 'application/json'
-                                    },
-                                    body: JSON.stringify({ orderId })
-                                });
-                        
-                                if (!response.ok) throw new Error('Failed to delete order');
-                                
-                                alert('Order deleted successfully!');
-                                await fetchExternalOrders();
-                                
-                            } catch (error) {
-                                console.error('Error deleting order:', error);
-                                alert('Failed to delete order. Please try again.');
-                            }
-                        }
-                        
-                        function formatDate(dateString) {
-                            const date = new Date(dateString);
-                            return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-                        },
-            
+                }
+            },
 
-                        // ========================================================================
-                        // SHIPPING MODAL FUNCTIONS
-                        // ========================================================================
-                        showShippingModal: function(orderId) {
-                            const order = state.orders.find(o => o.id === orderId);
-                            if (!order) return;
-                        
-                            let modalContainer = document.getElementById('shippingModalContainer');
-                            if (!modalContainer) {
-                                modalContainer = document.createElement('div');
-                                modalContainer.id = 'shippingModalContainer';
-                                document.body.appendChild(modalContainer);
-                            }
-                        
-                            modalContainer.innerHTML = renderShippingLabelModal(order);
+            renderExternalOrders: function () {
+                const tbody = document.getElementById('externalOrdersTableBody');
+
+                if (allExternalOrders.length === 0) {
+                    tbody.innerHTML = `
+                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
+                            No external orders found. Click "Add Order" to create one.
+                        </td></tr>
+                    `;
+                    return;
+                }
+                const filteredOrders = getFilteredExternalOrders();
+
+                if (filteredOrders.length === 0) {
+                    tbody.innerHTML = `
+                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
+                            No orders match your filters.
+                        </td></tr>
+                    `;
+                    return;
+                }
+
+                tbody.innerHTML = filteredOrders.map(order => {
+                    const statusColors = {
+                        'Pending': 'bg-yellow-100 text-yellow-800',
+                        'Processing': 'bg-blue-100 text-blue-800',
+                        'Shipped': 'bg-purple-100 text-purple-800',
+                        'Delivered': 'bg-green-100 text-green-800',
+                        'Cancelled': 'bg-red-100 text-red-800'
+                    };
+
+                    return `
+                        <tr class="border-t hover:bg-gray-50">
+                            <td class="px-4 py-3">
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
+                                    ${order.platform}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 font-mono text-sm">${order.externalOrderId}</td>
+                            <td class="px-4 py-3">${order.customerName}</td>
+                            <td class="px-4 py-3 text-sm">${order.product}</td>
+                            <td class="px-4 py-3 text-sm">${window.module.formatDate(order.orderDate)}</td>
+                            <td class="px-4 py-3">
+                                <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold ${statusColors[order.status]}">
+                                    ${order.status}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 font-semibold">${order.amount ? '$' + order.amount.toFixed(2) : '-'}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex space-x-2">
+                                    <button onclick="window.module.editExternalOrder('${order.id}')" 
+                                            class="text-blue-600 hover:text-blue-800" title="Edit">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                        </svg>
+                                    </button>
+                                    <button onclick="window.module.deleteExternalOrder('${order.id}')" 
+                                            class="text-red-600 hover:text-red-800" title="Delete">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            },
+
+            getFilteredExternalOrders: function () {
+                const platform = document.getElementById('platformFilter')?.value || 'all';
+                const status = document.getElementById('statusFilter')?.value || 'all';
+                const search = document.getElementById('searchExternalOrders')?.value.toLowerCase() || '';
+
+                return allExternalOrders.filter(order => {
+                    const matchesPlatform = platform === 'all' || order.platform === platform;
+                    const matchesStatus = status === 'all' || order.status === status;
+                    const matchesSearch = search === '' ||
+                        order.externalOrderId.toLowerCase().includes(search) ||
+                        order.customerName.toLowerCase().includes(search) ||
+                        order.product.toLowerCase().includes(search);
+
+                    return matchesPlatform && matchesStatus && matchesSearch;
+                });
+            },
+
+            filterExternalOrders: function () {
+                window.module.renderExternalOrders();
+                window.module.updateExternalOrderStats();
+            },
+
+            updateExternalOrderStats: function () {
+                const filtered = window.module.getFilteredExternalOrders();
+
+                document.getElementById('statTotal').textContent = filtered.length;
+                document.getElementById('statPending').textContent = filtered.filter(o => o.status === 'Pending').length;
+                document.getElementById('statProcessing').textContent = filtered.filter(o => o.status === 'Processing').length;
+                document.getElementById('statShipped').textContent = filtered.filter(o => o.status === 'Shipped').length;
+                document.getElementById('statDelivered').textContent = filtered.filter(o => o.status === 'Delivered').length;
+            },
+
+            showAddExternalOrderModal: function () {
+                document.getElementById('modalTitle').textContent = 'Add External Order';
+                document.getElementById('externalOrderForm').reset();
+                document.getElementById('editOrderId').value = '';
+                document.getElementById('orderDate').valueAsDate = new Date();
+                document.getElementById('externalOrderModal').classList.remove('hidden');
+            },
+
+            editExternalOrder: function (orderId) {
+                const order = allExternalOrders.find(o => o.id === orderId);
+                if (!order) return;
+
+                document.getElementById('modalTitle').textContent = 'Edit External Order';
+                document.getElementById('editOrderId').value = order.id;
+                document.getElementById('orderPlatform').value = order.platform;
+                document.getElementById('orderExternalId').value = order.externalOrderId;
+                document.getElementById('orderCustomerName').value = order.customerName;
+                document.getElementById('orderDate').value = order.orderDate;
+                document.getElementById('orderProduct').value = order.product;
+                document.getElementById('orderStatus').value = order.status;
+                document.getElementById('orderAmount').value = order.amount || '';
+                document.getElementById('orderTracking').value = order.trackingNumber || '';
+                document.getElementById('orderNotes').value = order.notes || '';
+
+                document.getElementById('externalOrderModal').classList.add('hidden');
+            },
+
+            closeExternalOrderModal: function () {
+                document.getElementById('externalOrderModal').classList.add('hidden');
+                document.getElementById('externalOrderForm').reset();
+            },
+
+            saveExternalOrder: async function (event) {
+                event.preventDefault();
+
+                const orderData = {
+                    id: document.getElementById('editOrderId').value || null,
+                    platform: document.getElementById('orderPlatform').value,
+                    externalOrderId: document.getElementById('orderExternalId').value,
+                    customerName: document.getElementById('orderCustomerName').value,
+                    orderDate: document.getElementById('orderDate').value,
+                    product: document.getElementById('orderProduct').value,
+                    status: document.getElementById('orderStatus').value,
+                    amount: parseFloat(document.getElementById('orderAmount').value) || null,
+                    trackingNumber: document.getElementById('orderTracking').value || null,
+                    notes: document.getElementById('orderNotes').value || null
+                };
+
+                try {
+                    const idToken = await auth.currentUser.getIdToken();
+                    const response = await fetch(SAVE_EXTERNAL_ORDER, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${idToken}`,
+                            'Content-Type': 'application/json'
                         },
-            
-                        closeShippingModal: function() {
-                            const modal = document.getElementById('shippingModalContainer');
-                            if (modal) modal.innerHTML = '';
+                        body: JSON.stringify(orderData)
+                    });
+
+                    if (!response.ok) throw new Error('Failed to save order');
+
+                    alert(orderData.id ? 'Order updated successfully!' : 'Order added successfully!');
+                    window.module.closeExternalOrderModal();
+                    await window.module.fetchExternalOrders();
+
+                } catch (error) {
+                    console.error('Error saving order:', error);
+                    alert('Failed to save order. Please try again.');
+                }
+            },
+
+            deleteExternalOrder: async function (orderId) {
+                if (!confirm('Are you sure you want to delete this order? This action cannot be undone.')) {
+                    return;
+                }
+
+                try {
+                    const idToken = await auth.currentUser.getIdToken();
+                    const response = await fetch(DELETE_EXTERNAL_ORDER, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${idToken}`,
+                            'Content-Type': 'application/json'
                         },
-            
-                        fetchShippingRates: fetchShippingRates,
-                        selectShippingRate: selectShippingRate,
-                        updateOrderWithTracking: updateOrderWithTracking
-                    };  // ← CLOSE the window.module object HERE
+                        body: JSON.stringify({ orderId })
+                    });
+
+                    if (!response.ok) throw new Error('Failed to delete order');
+
+                    alert('Order deleted successfully!');
+                    await window.module.fetchExternalOrders();
+
+                } catch (error) {
+                    console.error('Error deleting order:', error);
+                    alert('Failed to delete order. Please try again.');
+                }
+            },
+
+            formatDate: function (dateString) {
+                const date = new Date(dateString);
+                return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+            },
+
+
+
+            // ========================================================================
+            // SHIPPING MODAL FUNCTIONS
+            // ========================================================================
+            showShippingModal: function (orderId) {
+                const order = state.orders.find(o => o.id === orderId);
+                if (!order) return;
+
+                let modalContainer = document.getElementById('shippingModalContainer');
+                if (!modalContainer) {
+                    modalContainer = document.createElement('div');
+                    modalContainer.id = 'shippingModalContainer';
+                    document.body.appendChild(modalContainer);
+                }
+
+                modalContainer.innerHTML = renderShippingLabelModal(order);
+            },
+
+            closeShippingModal: function () {
+                const modal = document.getElementById('shippingModalContainer');
+                if (modal) modal.innerHTML = '';
+            },
+
+            fetchShippingRates: fetchShippingRates,
+            selectShippingRate: selectShippingRate,
+            updateOrderWithTracking: updateOrderWithTracking
+        };  // ← CLOSE the window.module object HERE
 
         document.addEventListener('DOMContentLoaded', setupFirebase);
     </script>
