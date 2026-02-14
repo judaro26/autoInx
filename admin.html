@@ -3800,11 +3800,14 @@
             }
         }
 
-        async function handleUpdateConfig(event) {
+            async function handleUpdateConfig(event) {
             event.preventDefault();
             const messageDiv = document.getElementById('configMessage');
             
             try {
+                // ✅ GET THE ID TOKEN FIRST
+                const idToken = await auth.currentUser.getIdToken();
+                
                 const updates = {
                     maintenanceMode: document.getElementById('maintenanceToggle').checked,
                     chatWidgetEnabled: document.getElementById('chatWidgetToggle').checked,
@@ -3814,7 +3817,6 @@
                         disableTime: document.getElementById('chatDisableTime').value,
                         activeDays: Array.from(document.querySelectorAll('#chatActiveDays input[type="checkbox"]:checked')).map(cb => parseInt(cb.value))
                     },
-                    // ✅ ADD: Collect branding data
                     branding: {
                         logoUrl: document.getElementById('brandingLogoUrl').value || '/images/AutoInx logo.png',
                         headerText: {
@@ -3830,12 +3832,15 @@
                     }
                 };
         
+                // ✅ ADD AUTHORIZATION HEADER
                 const response = await fetch(UPDATE_ADMIN_CONFIG_FUNCTION, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`,
+                        'Content-Type': 'application/json'
+                    },
                     body: JSON.stringify(updates)
                 });
-        
                 if (!response.ok) throw new Error('Failed to update config');
         
                 messageDiv.innerHTML = '<div class="p-4 bg-green-100 text-green-700 rounded-lg">Configuration updated successfully!</div>';
