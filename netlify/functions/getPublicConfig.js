@@ -152,3 +152,15 @@ exports.handler = async (event, context) => {
         };
 
     } catch (error) {
+        console.error('Error fetching public config:', error);
+        
+        return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({
+                error: 'Failed to fetch configuration',
+                details: error.message
+            })
+        };
+    }
+};
