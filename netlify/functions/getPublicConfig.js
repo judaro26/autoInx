@@ -6,10 +6,10 @@ const { ipWhitelist: staticIpWhitelist } = require('../../js/utilities/ipWhiteli
 // Initialize Firebase Admin (only once)
 if (!admin.apps.length) {
     // ✅ Add validation for environment variable
-    const serviceAccountKey = process.env.FIREBASE_PRIVATE_KEY;
+    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     
     if (!serviceAccountKey) {
-        console.error('FIREBASE_PRIVATE_KEY environment variable is not set');
+        console.error('FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set');
         throw new Error('Missing Firebase service account configuration');
     }
 
@@ -17,7 +17,7 @@ if (!admin.apps.length) {
     try {
         serviceAccount = JSON.parse(serviceAccountKey);
     } catch (parseError) {
-        console.error('Failed to parse FIREBASE_PRIVATE_KEY:', parseError.message);
+        console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', parseError.message);
         throw new Error('Invalid Firebase service account JSON');
     }
 
