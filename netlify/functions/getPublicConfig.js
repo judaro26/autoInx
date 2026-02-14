@@ -1,99 +1,154 @@
 const admin = require('firebase-admin');
 
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-    const privateKeyString = process.env.FIREBASE_PRIVATE_KEY;
-    let cleanedPrivateKey = privateKeyString ? privateKeyString.replace(/\\n/g, '\n').trim() : undefined;
+// Import IP whitelist from shared utilities
+const { ipWhitelist: staticIpWhitelist } = require('../js/utilities/ipWhitelist.js');
 
+// Initialize Firebase Admin (only once)
+if (!admin.apps.length) {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
     admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: cleanedPrivateKey,
-        }),
+        credential: admin.credential.cert(serviceAccount)
     });
 }
 
 const db = admin.firestore();
 
 /**
- * CIDR-aware IP matching with aggressive trimming
+ * Get client IP from Netlify request headers
  */
-function ipInSubnet(ip, subnet) {
-    if (!subnet || !ip) return false;
-    
-    // Force to strings and strip all whitespace/hidden characters
-    const cleanIp = String(ip).replace(/\s/g, '');
-    const cleanSubnet = String(subnet).replace(/\s/g, '');
+function getClientIp(event) {
+    return event.headers['x-nf-client-connection-ip'] || 
+           event.headers['x-forwarded-for']?.split(',')[0] || 
+           event.headers['client-ip'] || 
+           'unknown';
+}
 
-    // 1. Direct Match Check
-    if (cleanIp === cleanSubnet) return true;
-
-    // 2. Subnet Range Check
-    if (cleanSubnet.includes('/')) {
-        try {
-            const [range, bits] = cleanSubnet.split('/');
-            const mask = ~(Math.pow(2, 32 - parseInt(bits)) - 1);
-            
-            const ipInt = cleanIp.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
-            const rangeInt = range.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
-            
-            return (ipInt & mask) === (rangeInt & mask);
-        } catch (e) {
-            console.error("Subnet calculation error:", e);
-            return false;
-        }
+/**
+ * Check if IP is whitelisted (static or dynamic)
+ */
+async function isIpWhitelisted(clientIp) {
+    // Check static whitelist
+    if (staticIpWhitelist.includes(clientIp)) {
+        return true;
     }
+
+    // Check dynamic whitelist from Firestore
+    try {
+        const configDoc = await db.collection('config').doc('admin').get();
+        
+        if (configDoc.exists) {
+            const dynamicWhitelist = configDoc.data().ipWhitelist || [];
+            return dynamicWhitelist.includes(clientIp);
+        }
+    } catch (error) {
+        console.error('Error checking dynamic IP whitelist:', error);
+    }
+
     return false;
 }
 
-exports.handler = async function (event) {
+/**
+ * Main handler for public configuration
+ */
+exports.handler = async (event, context) => {
+    // CORS headers
+    const headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Content-Type': 'application/json'
+    };
+
+    // Handle OPTIONS request
+    if (event.httpMethod === 'OPTIONS') {
+        return { statusCode: 204, headers, body: '' };
+    }
+
+    // Only allow GET requests
+    if (event.httpMethod !== 'GET') {
+        return {
+            statusCode: 405,
+            headers,
+            body: JSON.stringify({ error: 'Method not allowed' })
+        };
+    }
+
     try {
-        // Capture User IP from Netlify headers
-        const clientIp = event.headers['client-ip'] || 
-                         (event.headers['x-forwarded-for'] || "").split(',')[0].trim() ||
-                         event.headers['x-nf-client-connection-ip'] || 
-                         "";
+        // Get client IP
+        const clientIp = getClientIp(event);
+        console.log('Public config request from IP:', clientIp);
 
-        // Fetch Dynamic Config from Firestore
-        const configDoc = await db.doc('admin/config').get();
-        const configData = configDoc.exists ? configDoc.data() : {};
-        
-        const whitelist = Array.isArray(configData.ipWhitelist) ? configData.ipWhitelist : [];
+        // Check if IP is whitelisted
+        const isWhitelisted = await isIpWhitelisted(clientIp);
 
-        // --- DEBUG LOGGING ---
-        console.log("--- DEBUG START ---");
-        console.log("Raw Client IP Header:", clientIp);
-        console.log("Cleaned Client IP:", clientIp.trim());
-        console.log("Firestore Whitelist:", JSON.stringify(whitelist));
-        
-        const isWhitelisted = whitelist.some(range => {
-            const match = ipInSubnet(clientIp, range);
-            console.log(`Comparing [${clientIp.trim()}] to [${String(range).trim()}] -> Match: ${match}`);
-            return match;
-        });
-        console.log("Final Authorization Result:", isWhitelisted);
-        console.log("--- DEBUG END ---");
+        // Fetch config from Firestore
+        const configRef = db.collection('config').doc('admin');
+        const configDoc = await configRef.get();
+
+        let config = {};
+        if (configDoc.exists) {
+            config = configDoc.data();
+        }
+
+        // Build public response
+        const publicConfig = {
+            // Maintenance mode
+            maintenanceMode: config.maintenanceMode || false,
+            
+            // Chat widget settings
+            chatWidgetEnabled: config.chatWidgetEnabled || false,
+            chatSchedule: config.chatSchedule || {
+                enableTime: '08:00',
+                disableTime: '20:00',
+                activeDays: [1, 2, 3, 4, 5] // Mon-Fri
+            },
+            
+            // Branding configuration
+            branding: config.branding || {
+                logoUrl: '/images/AutoInx logo.png',
+                headerText: {
+                    en: 'Catalog',
+                    es: 'Catálogo'
+                },
+                colors: {
+                    backgroundStart: '#f0f9ff',
+                    backgroundEnd: '#e0e7ff',
+                    addToCart: '#ec4899',
+                    checkout: '#ec4899'
+                }
+            },
+            
+            // Footer configuration
+            footer: config.footer || {
+                companyName: 'AutoInx',
+                tagline: {
+                    en: 'Bringing the world closer',
+                    es: 'Acercando el mundo'
+                },
+                contacts: {
+                    supportEmail: 'support@autoinx.com',
+                    ordersEmail: 'orders@autoinx.com',
+                    phoneUS: '(937) 701-6185',
+                    phoneCO: '+57 321 704 0789'
+                },
+                locations: {
+                    colombia: [
+                        'Calle 68A 92-24, Bogota DC',
+                        'Calle 68A 92-58, Bogota'
+                    ],
+                    usa: '587 Paradise Blvd, Hayward, CA 94541'
+                }
+            },
+            
+            // Admin access info (for frontend logic)
+            isRequesterAdmin: isWhitelisted,
+            clientIp: clientIp
+        };
 
         return {
             statusCode: 200,
-            headers: { 
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache'
-            },
-            body: JSON.stringify({
-                maintenanceMode: configData.maintenanceMode === true,
-                chatWidgetEnabled: configData.chatWidgetEnabled !== false,
-                isRequesterAdmin: isWhitelisted, 
-                clientIp: clientIp.trim() 
-            }),
+            headers,
+            body: JSON.stringify(publicConfig)
         };
 
     } catch (error) {
-        console.error('getPublicConfig Error:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Internal Server Error' }),
-        };
-    }
-};
