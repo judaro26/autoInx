@@ -2251,11 +2251,13 @@
             state.previewMode = false;
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
-        
+
             if (tab === 'config') {
-                window.module.fetchAdminConfig();
-                window.module.displayStaticIps();
-                setTimeout(() => syncColorInputs(), 100);
+                // ✅ Wait for DOM to be fully rendered
+                setTimeout(() => {
+                    window.module.fetchAdminConfig();
+                    window.module.displayStaticIps();
+                }, 100);
             } else if (tab === 'users') {
                 const grid = document.getElementById('usersGrid');
                 if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove());
@@ -3676,56 +3678,70 @@
                 
                 globalConfig = await response.json();
                 
-                // Populate form fields
-                document.getElementById('maintenanceToggle').checked = globalConfig.maintenanceMode || false;
-                document.getElementById('chatWidgetToggle').checked = globalConfig.chatWidgetEnabled || false;
-                document.getElementById('dynamicIpList').value = (globalConfig.ipWhitelist || []).join('\n');
+                console.log('📥 Fetched config:', globalConfig); // ✅ Debug log
+                
+                // Populate form fields (with null checks)
+                const maintenanceToggle = document.getElementById('maintenanceToggle');
+                const chatToggle = document.getElementById('chatWidgetToggle');
+                const ipList = document.getElementById('dynamicIpList');
+                
+                if (maintenanceToggle) maintenanceToggle.checked = globalConfig.maintenanceMode || false;
+                if (chatToggle) chatToggle.checked = globalConfig.chatWidgetEnabled || false;
+                if (ipList) ipList.value = (globalConfig.ipWhitelist || []).join('\n');
                 
                 // Chat schedule
-                document.getElementById('chatEnableTime').value = globalConfig.chatSchedule?.enableTime || '08:00';
-                document.getElementById('chatDisableTime').value = globalConfig.chatSchedule?.disableTime || '20:00';
+                const enableTime = document.getElementById('chatEnableTime');
+                const disableTime = document.getElementById('chatDisableTime');
                 
-                // ✅ ADD: Populate branding fields
+                if (enableTime) enableTime.value = globalConfig.chatSchedule?.enableTime || '08:00';
+                if (disableTime) disableTime.value = globalConfig.chatSchedule?.disableTime || '20:00';
+                
+                // ✅ IMPROVED: Populate branding fields with better null checks
                 if (globalConfig.branding) {
+                    console.log('🎨 Populating branding:', globalConfig.branding); // ✅ Debug log
                     const branding = globalConfig.branding;
                     
                     // Logo and header text
-                    if (document.getElementById('brandingLogoUrl')) {
-                        document.getElementById('brandingLogoUrl').value = branding.logoUrl || '';
-                    }
-                    if (document.getElementById('brandingHeaderEN')) {
-                        document.getElementById('brandingHeaderEN').value = branding.headerText?.en || '';
-                    }
-                    if (document.getElementById('brandingHeaderES')) {
-                        document.getElementById('brandingHeaderES').value = branding.headerText?.es || '';
-                    }
+                    const logoUrl = document.getElementById('brandingLogoUrl');
+                    const headerEN = document.getElementById('brandingHeaderEN');
+                    const headerES = document.getElementById('brandingHeaderES');
                     
-                    // Colors
+                    if (logoUrl) logoUrl.value = branding.logoUrl || '';
+                    if (headerEN) headerEN.value = branding.headerText?.en || '';
+                    if (headerES) headerES.value = branding.headerText?.es || '';
+                    
+                    // Colors - with existence checks
                     if (branding.colors) {
+                        console.log('🎨 Setting colors:', branding.colors); // ✅ Debug log
+                        
                         // Background gradient start
-                        if (document.getElementById('brandingBgColor')) {
-                            document.getElementById('brandingBgColor').value = branding.colors.backgroundStart || '#f0f9ff';
-                            document.getElementById('brandingBgColorText').value = branding.colors.backgroundStart || '#f0f9ff';
-                        }
+                        const bgColor = document.getElementById('brandingBgColor');
+                        const bgColorText = document.getElementById('brandingBgColorText');
+                        if (bgColor) bgColor.value = branding.colors.backgroundStart || '#f0f9ff';
+                        if (bgColorText) bgColorText.value = branding.colors.backgroundStart || '#f0f9ff';
                         
                         // Background gradient end
-                        if (document.getElementById('brandingBgColorEnd')) {
-                            document.getElementById('brandingBgColorEnd').value = branding.colors.backgroundEnd || '#e0e7ff';
-                            document.getElementById('brandingBgColorEndText').value = branding.colors.backgroundEnd || '#e0e7ff';
-                        }
+                        const bgColorEnd = document.getElementById('brandingBgColorEnd');
+                        const bgColorEndText = document.getElementById('brandingBgColorEndText');
+                        if (bgColorEnd) bgColorEnd.value = branding.colors.backgroundEnd || '#e0e7ff';
+                        if (bgColorEndText) bgColorEndText.value = branding.colors.backgroundEnd || '#e0e7ff';
                         
                         // Add to Cart button
-                        if (document.getElementById('brandingCartColor')) {
-                            document.getElementById('brandingCartColor').value = branding.colors.addToCart || '#ec4899';
-                            document.getElementById('brandingCartColorText').value = branding.colors.addToCart || '#ec4899';
-                        }
+                        const cartColor = document.getElementById('brandingCartColor');
+                        const cartColorText = document.getElementById('brandingCartColorText');
+                        if (cartColor) cartColor.value = branding.colors.addToCart || '#ec4899';
+                        if (cartColorText) cartColorText.value = branding.colors.addToCart || '#ec4899';
                         
                         // Checkout button
-                        if (document.getElementById('brandingCheckoutColor')) {
-                            document.getElementById('brandingCheckoutColor').value = branding.colors.checkout || '#ec4899';
-                            document.getElementById('brandingCheckoutColorText').value = branding.colors.checkout || '#ec4899';
-                        }
+                        const checkoutColor = document.getElementById('brandingCheckoutColor');
+                        const checkoutColorText = document.getElementById('brandingCheckoutColorText');
+                        if (checkoutColor) checkoutColor.value = branding.colors.checkout || '#ec4899';
+                        if (checkoutColorText) checkoutColorText.value = branding.colors.checkout || '#ec4899';
+                    } else {
+                        console.warn('⚠️ No colors in branding config');
                     }
+                } else {
+                    console.warn('⚠️ No branding in config');
                 }
                 
                 // Populate active days checkboxes
@@ -3747,11 +3763,13 @@
                     lastUpdatedElem.textContent = `Last updated: ${date.toLocaleString()}`;
                 }
                 
-                // ✅ ADD: Setup color input sync after population
+                // ✅ Setup color input sync after population
                 syncColorInputs();
                 
+                console.log('✅ Config populated successfully');
+                
             } catch (error) {
-                console.error('Error fetching config:', error);
+                console.error('❌ Error fetching config:', error);
             }
         }
 
