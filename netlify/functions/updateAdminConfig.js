@@ -1,103 +1,135 @@
-/**
- * Netlify Function (Admin Only) to update global Admin configuration in Firestore.
- */
 const admin = require('firebase-admin');
 
-// Ensure Firebase Admin is initialized once
 if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
-        }),
-    });
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    })
+  });
 }
 
 const db = admin.firestore();
-const CONFIG_DOC_PATH = 'admin/config';
 
-exports.handler = async function (event) {
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
-    }
+exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      },
+      body: ''
+    };
+  }
 
-    // --- 1. CRITICAL SECURITY CHECK: Validate Admin Token ---
-    const authHeader = event.headers.authorization;
+  if (event.httpMethod !== 'POST') {
+    return { 
+      statusCode: 405, 
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ error: 'Method not allowed' }) 
+    };
+  }
+
+  try {
+    // Verify admin token
+    const authHeader = event.headers.authorization || event.headers.Authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Authorization token required.' }) };
+      return {
+        statusCode: 401,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Authorization token required.' })
+      };
     }
 
     const idToken = authHeader.split('Bearer ')[1];
-    let decodedToken;
-    try {
-        decodedToken = await admin.auth().verifyIdToken(idToken);
-    } catch (e) {
-        // Log the error for debugging, but return a generic 401 to the client
-        console.error('Token verification failed:', e.message);
-        return { statusCode: 401, body: JSON.stringify({ error: 'Invalid or expired token.' }) };
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    
+    if (!decodedToken.admin) {
+      return {
+        statusCode: 403,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Admin access required.' })
+      };
     }
 
-    if (decodedToken.admin !== true) {
-        return { statusCode: 403, body: JSON.stringify({ error: 'Access denied: Admin privileges required.' }) };
+    // Parse request body
+    const updates = JSON.parse(event.body);
+    
+    console.log('📝 UPDATE REQUEST RECEIVED');
+    console.log('📝 Full payload:', JSON.stringify(updates, null, 2));
+    console.log('📝 Branding in payload:', updates.branding ? 'YES' : 'NO');
+    if (updates.branding) {
+      console.log('📝 Branding colors:', JSON.stringify(updates.branding.colors, null, 2));
     }
-    // --- End Security Check ---
 
-    try {
-        const updates = JSON.parse(event.body);
+    // ✅ CRITICAL: Prepare the update object
+    const updateData = {
+      maintenanceMode: updates.maintenanceMode || false,
+      chatWidgetEnabled: updates.chatWidgetEnabled || false,
+      ipWhitelist: updates.ipWhitelist || [],
+      chatSchedule: {
+        enableTime: updates.chatSchedule?.enableTime || '08:00',
+        disableTime: updates.chatSchedule?.disableTime || '20:00',
+        activeDays: updates.chatSchedule?.activeDays || [1, 2, 3, 4, 5]
+      },
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+    };
 
-        // Basic validation (body should not be empty)
-        if (!updates || Object.keys(updates).length === 0) {
-            return { statusCode: 400, body: JSON.stringify({ error: 'No update fields provided' }) };
+    // ✅ CRITICAL: Add branding if it exists
+    if (updates.branding) {
+      updateData.branding = {
+        logoUrl: updates.branding.logoUrl || '/images/AutoInx logo.png',
+        headerText: {
+          en: updates.branding.headerText?.en || 'Catalog',
+          es: updates.branding.headerText?.es || 'Catálogo'
+        },
+        colors: {
+          backgroundStart: updates.branding.colors?.backgroundStart || '#f0f9ff',
+          backgroundEnd: updates.branding.colors?.backgroundEnd || '#e0e7ff',
+          addToCart: updates.branding.colors?.addToCart || '#ec4899',
+          checkout: updates.branding.colors?.checkout || '#ec4899'
         }
-        
-        // --- 2. Input Filtering & Validation ---
-        const allowedUpdates = {};
-        if (updates.hasOwnProperty('maintenanceMode')) {
-            allowedUpdates.maintenanceMode = !!updates.maintenanceMode; // Coerce to boolean
-        }
-        if (updates.hasOwnProperty('chatWidgetEnabled')) {
-            allowedUpdates.chatWidgetEnabled = !!updates.chatWidgetEnabled; // Coerce to boolean
-        }
-        if (updates.hasOwnProperty('ipWhitelist') && Array.isArray(updates.ipWhitelist)) {
-            allowedUpdates.ipWhitelist = updates.ipWhitelist.filter(ip => typeof ip === 'string'); // Filter for strings
-        }
-        
-        // ADDED: Allow saving the dynamic chat schedule object
-        if (updates.hasOwnProperty('chatSchedule') && typeof updates.chatSchedule === 'object') {
-            const schedule = updates.chatSchedule;
-            if (!schedule.enableTime || !schedule.disableTime || !Array.isArray(schedule.activeDays)) {
-                 return { statusCode: 400, body: JSON.stringify({ error: 'Chat schedule object is incomplete.' }) };
-            }
-            allowedUpdates.chatSchedule = {
-                enableTime: schedule.enableTime,
-                disableTime: schedule.disableTime,
-                activeDays: schedule.activeDays.map(d => parseInt(d)).filter(d => !isNaN(d)),
-            };
-        }
-
-        if (Object.keys(allowedUpdates).length === 0) {
-            return { statusCode: 400, body: JSON.stringify({ error: 'No valid update fields provided' }) };
-        }
-        
-        // Add lastUpdated timestamp
-        allowedUpdates.lastUpdated = admin.firestore.FieldValue.serverTimestamp();
-
-        // Update the document using db.doc()
-        const configRef = db.doc(CONFIG_DOC_PATH);
-        await configRef.set(allowedUpdates, { merge: true }); // Use allowedUpdates
-
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: 'Configuration updated successfully' }),
-        };
-
-    } catch (error) {
-        console.error('Error updating admin config:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Failed to update configuration', details: error.message }),
-        };
+      };
+      console.log('✅ Branding data prepared for Firestore:', JSON.stringify(updateData.branding, null, 2));
     }
+
+    console.log('📝 Writing to Firestore: admin/config');
+    console.log('📝 Data being written:', JSON.stringify(updateData, null, 2));
+
+    // ✅ Write to Firestore
+    await db.collection('admin').doc('config').set(updateData, { merge: true });
+
+    console.log('✅✅✅ CONFIG UPDATED IN FIRESTORE ✅✅✅');
+
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        success: true,
+        message: 'Configuration updated successfully',
+        brandingSaved: !!updates.branding
+      })
+    };
+
+  } catch (error) {
+    console.error('❌ ERROR in updateAdminConfig:', error);
+    console.error('❌ Stack trace:', error.stack);
+    return {
+      statusCode: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        error: 'Failed to update configuration',
+        details: error.message
+      })
+    };
+  }
 };
