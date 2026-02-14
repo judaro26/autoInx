@@ -256,7 +256,15 @@
             // ✅ NEW: Shipping label modal state
             shippingModalOrderId: null,
             shippingModalOpen: false,
-
+            // ✅ NEW: Advanced sales filters
+            salesFilters: {
+                year: 'all',
+                month: 'all',
+                category: 'all',
+                product: 'all',
+                customStartDate: null,
+                customEndDate: null
+            },           
             // ✅ CRITICAL FIX: Initialize the sales time filter
             salesTimeFilter: 'last6months',
             // -------------------------
@@ -1854,30 +1862,105 @@
             let filteredOrders = state.orders.filter(o => o.status !== 'Cancelled');
             const now = new Date();
             let cutoffDate = null;
-
+        
+            // Apply time filter
             switch (state.salesTimeFilter) {
                 case 'lastmonth':
-                    // Creates a date roughly 30 days ago
                     cutoffDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
                     break;
                 case 'last6months':
-                    // Creates a date 6 months ago
                     cutoffDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
                     break;
                 case 'lastyear':
-                    // Creates a date 1 year ago
                     cutoffDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                    break;
+                case 'custom':
+                    // Custom date range handled below
                     break;
                 case 'all':
                 default:
-                    return filteredOrders;
+                    // No cutoff
+                    break;
             }
-
-            return filteredOrders.filter(order => {
-                // Uses the pre-converted Date object (from the Firestore listener)
-                const orderDate = (order.createdAt instanceof Date) ? order.createdAt : new Date(order.timestamp);
-                return orderDate >= cutoffDate;
-            });
+        
+            // Filter by cutoff date
+            if (cutoffDate) {
+                filteredOrders = filteredOrders.filter(order => {
+                    const orderDate = getOrderDate(order);
+                    return orderDate && orderDate >= cutoffDate;
+                });
+            }
+        
+            // ✅ NEW: Apply custom date range
+            if (state.salesTimeFilter === 'custom') {
+                if (state.salesFilters.customStartDate) {
+                    const startDate = new Date(state.salesFilters.customStartDate);
+                    filteredOrders = filteredOrders.filter(order => {
+                        const orderDate = getOrderDate(order);
+                        return orderDate && orderDate >= startDate;
+                    });
+                }
+                if (state.salesFilters.customEndDate) {
+                    const endDate = new Date(state.salesFilters.customEndDate);
+                    endDate.setHours(23, 59, 59, 999); // End of day
+                    filteredOrders = filteredOrders.filter(order => {
+                        const orderDate = getOrderDate(order);
+                        return orderDate && orderDate <= endDate;
+                    });
+                }
+            }
+        
+            // ✅ NEW: Apply year filter
+            if (state.salesFilters.year !== 'all') {
+                const year = parseInt(state.salesFilters.year);
+                filteredOrders = filteredOrders.filter(order => {
+                    const orderDate = getOrderDate(order);
+                    return orderDate && orderDate.getFullYear() === year;
+                });
+            }
+        
+            // ✅ NEW: Apply month filter
+            if (state.salesFilters.month !== 'all') {
+                const month = parseInt(state.salesFilters.month);
+                filteredOrders = filteredOrders.filter(order => {
+                    const orderDate = getOrderDate(order);
+                    return orderDate && orderDate.getMonth() === month;
+                });
+            }
+        
+            // ✅ NEW: Apply category filter
+            if (state.salesFilters.category !== 'all') {
+                const categoryId = state.salesFilters.category;
+                filteredOrders = filteredOrders.filter(order => {
+                    return order.items.some(orderItem => {
+                        const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
+                        const itemId = isCustomerFormat ? orderItem.item.id : orderItem.id;
+                        const item = state.items.find(i => i.id === itemId);
+                        return item && item.catalogId === categoryId;
+                    });
+                });
+            }
+        
+            // ✅ NEW: Apply product filter
+            if (state.salesFilters.product !== 'all') {
+                const productId = state.salesFilters.product;
+                filteredOrders = filteredOrders.filter(order => {
+                    return order.items.some(orderItem => {
+                        const isCustomerFormat = orderItem.item && typeof orderItem.item === 'object';
+                        const itemId = isCustomerFormat ? orderItem.item.id : orderItem.id;
+                        return itemId === productId;
+                    });
+                });
+            }
+        
+            // ✅ NEW: Apply payment status filter
+            if (state.salesFilters.paymentStatus === 'paid') {
+                filteredOrders = filteredOrders.filter(order => order.isPaid || order.paymentStatus === 'Paid');
+            } else if (state.salesFilters.paymentStatus === 'unpaid') {
+                filteredOrders = filteredOrders.filter(order => !order.isPaid && order.paymentStatus !== 'Paid');
+            }
+        
+            return filteredOrders;
         }
         // Located around line 430 in your current setup
         function renderSalesCharts() {
@@ -2117,16 +2200,24 @@
         }
 
         function getOrdersStatsHtml() {
-            // --- Calculate Sales Data (Net sales excludes cancelled orders) ---
+            // Calculate Sales Data (Net sales excludes cancelled orders)
             const totalSales = state.orders.reduce((sum, order) => sum + (order.status !== 'Cancelled' ? order.totalCents : 0), 0);
             const orderCounts = state.orders.reduce((counts, order) => {
-                // Ensure accurate counting even if a status property is missing or unexpected
                 const status = order.status || 'Unknown';
                 counts[status] = (counts[status] || 0) + 1;
                 return counts;
             }, {});
-            // --- End Sales Data ---
-
+        
+            // ✅ NEW: Generate year options dynamically from orders
+            const yearOptions = generateYearOptions();
+            const monthOptions = generateMonthOptions();
+            const categoryOptions = state.catalogs.map(c => 
+                `<option value="${c.id}">${escapeHtml(c.name)}</option>`
+            ).join('');
+            const productOptions = state.items.map(item => 
+                `<option value="${item.id}">${escapeHtml(item.name)}</option>`
+            ).join('');
+        
             return `
                 <div id="ordersStatsSummary" class="grid grid-cols-3 gap-4 text-center">
                     <div class="bg-indigo-50 p-4 rounded-lg">
@@ -2154,15 +2245,115 @@
                     </ul>
                 </div>
                 
-                <div id="salesChartsControls" class="mt-8 pt-4 border-t border-gray-200 flex justify-end items-center space-x-4">
-                    <label class="font-semibold text-gray-700 text-sm">Sales Filter:</label>
-                    <select onchange="window.module.handleSalesTimeFilterChange(event)" class="p-2 border rounded-lg text-sm bg-gray-50">
-                        <option value="all" ${state.salesTimeFilter === 'all' ? 'selected' : ''}>All Time</option>
-                        <option value="lastmonth" ${state.salesTimeFilter === 'lastmonth' ? 'selected' : ''}>Last Month</option>
-                        <option value="last6months" ${state.salesTimeFilter === 'last6months' ? 'selected' : ''}>Last 6 Months</option>
-                        <option value="lastyear" ${state.salesTimeFilter === 'lastyear' ? 'selected' : ''}>Last Year</option>
-                    </select>
+                <!-- ✅ NEW: Enhanced Filter Panel -->
+                <div id="salesFiltersPanel" class="mt-8 p-6 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border-2 border-indigo-200 shadow-lg">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="text-lg font-bold text-indigo-900">📊 Sales Analytics Filters</h4>
+                        <button onclick="window.module.resetSalesFilters()" 
+                                class="px-4 py-2 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 font-semibold">
+                            Reset Filters
+                        </button>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <!-- Time Period Preset -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">📅 Quick Period</label>
+                            <select onchange="window.module.handleSalesTimeFilterChange(event)" 
+                                    id="salesTimeFilterSelect"
+                                    class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-indigo-500">
+                                <option value="all" ${state.salesTimeFilter === 'all' ? 'selected' : ''}>All Time</option>
+                                <option value="lastmonth" ${state.salesTimeFilter === 'lastmonth' ? 'selected' : ''}>Last Month</option>
+                                <option value="last6months" ${state.salesTimeFilter === 'last6months' ? 'selected' : ''}>Last 6 Months</option>
+                                <option value="lastyear" ${state.salesTimeFilter === 'lastyear' ? 'selected' : ''}>Last Year</option>
+                                <option value="custom">Custom Date Range</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Year Filter -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">📆 Year</label>
+                            <select onchange="window.module.handleYearFilterChange(event)" 
+                                    id="salesYearFilter"
+                                    class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-indigo-500">
+                                <option value="all">All Years</option>
+                                ${yearOptions}
+                            </select>
+                        </div>
+                        
+                        <!-- Month Filter -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">📅 Month</label>
+                            <select onchange="window.module.handleMonthFilterChange(event)" 
+                                    id="salesMonthFilter"
+                                    class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-indigo-500">
+                                <option value="all">All Months</option>
+                                ${monthOptions}
+                            </select>
+                        </div>
+                        
+                        <!-- Category Filter -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">🏷️ Category</label>
+                            <select onchange="window.module.handleCategoryFilterChange(event)" 
+                                    id="salesCategoryFilter"
+                                    class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-indigo-500">
+                                <option value="all">All Categories</option>
+                                ${categoryOptions}
+                            </select>
+                        </div>
+                        
+                        <!-- Product Filter -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">📦 Product</label>
+                            <select onchange="window.module.handleProductFilterChange(event)" 
+                                    id="salesProductFilter"
+                                    class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-indigo-500">
+                                <option value="all">All Products</option>
+                                ${productOptions}
+                            </select>
+                        </div>
+                        
+                        <!-- Payment Status Filter -->
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">💰 Payment Status</label>
+                            <select onchange="window.module.handlePaymentFilterChange(event)" 
+                                    id="salesPaymentFilter"
+                                    class="w-full p-2 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-indigo-500">
+                                <option value="all">All Payments</option>
+                                <option value="paid">Paid Only</option>
+                                <option value="unpaid">Unpaid Only</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Custom Date Range (Hidden by default) -->
+                    <div id="customDateRange" class="hidden mt-4 p-4 bg-white rounded-lg border-2 border-indigo-300">
+                        <p class="text-sm font-bold text-gray-700 mb-3">Custom Date Range</p>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">Start Date</label>
+                                <input type="date" id="customStartDate" 
+                                       onchange="window.module.handleCustomDateChange()"
+                                       class="w-full p-2 border border-gray-300 rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">End Date</label>
+                                <input type="date" id="customEndDate" 
+                                       onchange="window.module.handleCustomDateChange()"
+                                       class="w-full p-2 border border-gray-300 rounded-lg text-sm">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Active Filters Display -->
+                    <div id="activeFiltersDisplay" class="mt-4 hidden">
+                        <p class="text-xs font-bold text-gray-600 mb-2">Active Filters:</p>
+                        <div id="activeFilterTags" class="flex flex-wrap gap-2"></div>
+                    </div>
                 </div>
+                
+                <!-- Charts -->
                 <div id="salesChartsGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-6">
                     <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
                         <div style="height: 350px;">
@@ -2176,12 +2367,38 @@
                     </div>
                 </div>
                 
-                <div id="categorySalesTableContainer">
-                    </div>
-        
-                `;
+                <div id="categorySalesTableContainer"></div>
+            `;
         }
 
+        function generateYearOptions() {
+            if (state.orders.length === 0) return '';
+            
+            const years = new Set();
+            state.orders.forEach(order => {
+                const date = getOrderDate(order);
+                if (date) {
+                    years.add(date.getFullYear());
+                }
+            });
+            
+            return Array.from(years)
+                .sort((a, b) => b - a) // Most recent first
+                .map(year => `<option value="${year}">${year}</option>`)
+                .join('');
+        }
+        
+        function generateMonthOptions() {
+            const months = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'
+            ];
+            
+            return months.map((month, index) => 
+                `<option value="${index}">${month}</option>`
+            ).join('');
+        }
+                
         function getOrdersCollectionPath(targetIdOrIndicator) {
             // Get the application ID (or use default)
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -5883,7 +6100,93 @@
             initializeDraftCart,
             handleResendReceipt,
             syncColorInputs,
-
+            // ✅ NEW: Enhanced filter handlers
+            handleSalesTimeFilterChange: function(e) {
+                state.salesTimeFilter = e.target.value;
+                
+                // Show/hide custom date range
+                const customDateRange = document.getElementById('customDateRange');
+                if (e.target.value === 'custom') {
+                    customDateRange?.classList.remove('hidden');
+                } else {
+                    customDateRange?.classList.add('hidden');
+                    state.salesFilters.customStartDate = null;
+                    state.salesFilters.customEndDate = null;
+                }
+                
+                updateActiveFilters();
+                renderSalesCharts();
+                resetTimer();
+            },
+        
+            handleYearFilterChange: function(e) {
+                state.salesFilters.year = e.target.value;
+                updateActiveFilters();
+                renderSalesCharts();
+                resetTimer();
+            },
+        
+            handleMonthFilterChange: function(e) {
+                state.salesFilters.month = e.target.value;
+                updateActiveFilters();
+                renderSalesCharts();
+                resetTimer();
+            },
+        
+            handleCategoryFilterChange: function(e) {
+                state.salesFilters.category = e.target.value;
+                updateActiveFilters();
+                renderSalesCharts();
+                resetTimer();
+            },
+        
+            handleProductFilterChange: function(e) {
+                state.salesFilters.product = e.target.value;
+                updateActiveFilters();
+                renderSalesCharts();
+                resetTimer();
+            },
+        
+            handlePaymentFilterChange: function(e) {
+                state.salesFilters.paymentStatus = e.target.value;
+                updateActiveFilters();
+                renderSalesCharts();
+                resetTimer();
+            },
+        
+            handleCustomDateChange: function() {
+                state.salesFilters.customStartDate = document.getElementById('customStartDate')?.value || null;
+                state.salesFilters.customEndDate = document.getElementById('customEndDate')?.value || null;
+                updateActiveFilters();
+                renderSalesCharts();
+                resetTimer();
+            },
+        
+            resetSalesFilters: function() {
+                state.salesTimeFilter = 'last6months';
+                state.salesFilters = {
+                    year: 'all',
+                    month: 'all',
+                    category: 'all',
+                    product: 'all',
+                    customStartDate: null,
+                    customEndDate: null,
+                    paymentStatus: 'all'
+                };
+                
+                // Reset UI
+                document.getElementById('salesTimeFilterSelect').value = 'last6months';
+                document.getElementById('salesYearFilter').value = 'all';
+                document.getElementById('salesMonthFilter').value = 'all';
+                document.getElementById('salesCategoryFilter').value = 'all';
+                document.getElementById('salesProductFilter').value = 'all';
+                document.getElementById('salesPaymentFilter').value = 'all';
+                document.getElementById('customDateRange')?.classList.add('hidden');
+                
+                updateActiveFilters();
+                renderSalesCharts();
+                resetTimer();
+            },
             // Enhanced updateDraftCartDisplay with shipping/tax breakdown
             updateDraftCartDisplay: function () {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
