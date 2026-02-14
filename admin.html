@@ -3854,7 +3854,7 @@
             }
         }
 
-            async function handleUpdateConfig(event) {
+        async function handleUpdateConfig(event) {
             event.preventDefault();
             const messageDiv = document.getElementById('configMessage');
             
@@ -3886,6 +3886,9 @@
                     }
                 };
         
+                console.log('💾 SAVING CONFIG:', JSON.stringify(updates, null, 2)); // ✅ NEW
+                console.log('💾 Branding colors being sent:', updates.branding.colors); // ✅ NEW
+        
                 // ✅ ADD AUTHORIZATION HEADER
                 const response = await fetch(UPDATE_ADMIN_CONFIG_FUNCTION, {
                     method: 'POST',
@@ -3895,7 +3898,17 @@
                     },
                     body: JSON.stringify(updates)
                 });
-                if (!response.ok) throw new Error('Failed to update config');
+                
+                console.log('💾 Response status:', response.status); // ✅ NEW
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('💾 Save failed:', errorText); // ✅ NEW
+                    throw new Error('Failed to update config');
+                }
+        
+                const result = await response.json();
+                console.log('💾 Save successful:', result); // ✅ NEW
         
                 messageDiv.innerHTML = '<div class="p-4 bg-green-100 text-green-700 rounded-lg">Configuration updated successfully!</div>';
                 setTimeout(() => messageDiv.innerHTML = '', 5000);
@@ -3904,7 +3917,7 @@
                 await fetchAdminConfig();
                 
             } catch (error) {
-                console.error('Error updating config:', error);
+                console.error('❌ Error updating config:', error);
                 messageDiv.innerHTML = '<div class="p-4 bg-red-100 text-red-700 rounded-lg">Failed to update configuration.</div>';
             }
         }
