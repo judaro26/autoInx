@@ -1323,30 +1323,27 @@
         async function loadGoogleMapsScript() {
             // Check if the script is ALREADY loaded or is being loaded
             if (document.querySelector('script[data-maps-loaded]')) {
-                // If loaded, and the callback function is ready, call it directly
                 if (typeof window.initGooglePlaces === 'function') {
                     window.initGooglePlaces();
                 }
                 return;
             }
-
+        
             try {
-                // 1. Fetch API Key securely from the Netlify Function
                 const response = await fetch(MAPS_KEY_FUNCTION_URL);
                 if (!response.ok) throw new Error('Failed to fetch Maps API key.');
                 const { apiKey } = await response.json();
-
-                // 2. Build the script URL
-                const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGooglePlaces`;
-
-                // 3. Dynamically create and append the script tag
+        
+                // ✅ Add async and defer as recommended by Google
+                const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async&callback=initGooglePlaces`;
+        
                 const script = document.createElement('script');
                 script.src = scriptUrl;
                 script.async = true;
                 script.defer = true;
-                script.setAttribute('data-maps-loaded', 'true'); // Add marker for check
+                script.setAttribute('data-maps-loaded', 'true');
                 document.head.appendChild(script);
-
+        
             } catch (error) {
                 console.warn('Delivery Address Validation service disabled for Admin:', error);
             }
@@ -6100,7 +6097,76 @@
             initializeDraftCart,
             handleResendReceipt,
             syncColorInputs,
-            // ✅ NEW: Enhanced filter handlers
+
+            updateActiveFilters: function() {
+                const display = document.getElementById('activeFiltersDisplay');
+                const tagsContainer = document.getElementById('activeFilterTags');
+                
+                if (!display || !tagsContainer) return;
+                
+                const activeTags = [];
+                
+                // Time filter
+                if (state.salesTimeFilter !== 'all') {
+                    const labels = {
+                        'lastmonth': 'Last Month',
+                        'last6months': 'Last 6 Months',
+                        'lastyear': 'Last Year',
+                        'custom': 'Custom Range'
+                    };
+                    activeTags.push(`📅 ${labels[state.salesTimeFilter] || state.salesTimeFilter}`);
+                }
+                
+                // Year filter
+                if (state.salesFilters.year !== 'all') {
+                    activeTags.push(`📆 ${state.salesFilters.year}`);
+                }
+                
+                // Month filter
+                if (state.salesFilters.month !== 'all') {
+                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    activeTags.push(`📅 ${months[parseInt(state.salesFilters.month)]}`);
+                }
+                
+                // Category filter
+                if (state.salesFilters.category !== 'all') {
+                    const cat = state.catalogs.find(c => c.id === state.salesFilters.category);
+                    if (cat) activeTags.push(`🏷️ ${cat.name}`);
+                }
+                
+                // Product filter
+                if (state.salesFilters.product !== 'all') {
+                    const prod = state.items.find(i => i.id === state.salesFilters.product);
+                    if (prod) activeTags.push(`📦 ${prod.name}`);
+                }
+                
+                // Payment filter
+                if (state.salesFilters.paymentStatus !== 'all') {
+                    const label = state.salesFilters.paymentStatus === 'paid' ? 'Paid Only' : 'Unpaid Only';
+                    activeTags.push(`💰 ${label}`);
+                }
+                
+                // Custom dates
+                if (state.salesFilters.customStartDate) {
+                    activeTags.push(`From: ${state.salesFilters.customStartDate}`);
+                }
+                if (state.salesFilters.customEndDate) {
+                    activeTags.push(`To: ${state.salesFilters.customEndDate}`);
+                }
+                
+                if (activeTags.length > 0) {
+                    tagsContainer.innerHTML = activeTags.map(tag => `
+                        <span class="px-3 py-1 bg-indigo-600 text-white text-xs rounded-full font-semibold shadow-md">
+                            ${tag}
+                        </span>
+                    `).join('');
+                    display.classList.remove('hidden');
+                } else {
+                    display.classList.add('hidden');
+                }
+            },
+
+            // ✅ Updated filter handlers - now call window.module.updateActiveFilters()
             handleSalesTimeFilterChange: function(e) {
                 state.salesTimeFilter = e.target.value;
                 
@@ -6114,42 +6180,42 @@
                     state.salesFilters.customEndDate = null;
                 }
                 
-                updateActiveFilters();
+                window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
         
             handleYearFilterChange: function(e) {
                 state.salesFilters.year = e.target.value;
-                updateActiveFilters();
+                window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
         
             handleMonthFilterChange: function(e) {
                 state.salesFilters.month = e.target.value;
-                updateActiveFilters();
+                window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
         
             handleCategoryFilterChange: function(e) {
                 state.salesFilters.category = e.target.value;
-                updateActiveFilters();
+                window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
         
             handleProductFilterChange: function(e) {
                 state.salesFilters.product = e.target.value;
-                updateActiveFilters();
+                window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
         
             handlePaymentFilterChange: function(e) {
                 state.salesFilters.paymentStatus = e.target.value;
-                updateActiveFilters();
+                window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
@@ -6157,7 +6223,7 @@
             handleCustomDateChange: function() {
                 state.salesFilters.customStartDate = document.getElementById('customStartDate')?.value || null;
                 state.salesFilters.customEndDate = document.getElementById('customEndDate')?.value || null;
-                updateActiveFilters();
+                window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
@@ -6174,19 +6240,29 @@
                     paymentStatus: 'all'
                 };
                 
-                // Reset UI
-                document.getElementById('salesTimeFilterSelect').value = 'last6months';
-                document.getElementById('salesYearFilter').value = 'all';
-                document.getElementById('salesMonthFilter').value = 'all';
-                document.getElementById('salesCategoryFilter').value = 'all';
-                document.getElementById('salesProductFilter').value = 'all';
-                document.getElementById('salesPaymentFilter').value = 'all';
-                document.getElementById('customDateRange')?.classList.add('hidden');
+                // Reset UI elements
+                const timeSelect = document.getElementById('salesTimeFilterSelect');
+                const yearSelect = document.getElementById('salesYearFilter');
+                const monthSelect = document.getElementById('salesMonthFilter');
+                const categorySelect = document.getElementById('salesCategoryFilter');
+                const productSelect = document.getElementById('salesProductFilter');
+                const paymentSelect = document.getElementById('salesPaymentFilter');
+                const customRange = document.getElementById('customDateRange');
                 
-                updateActiveFilters();
+                if (timeSelect) timeSelect.value = 'last6months';
+                if (yearSelect) yearSelect.value = 'all';
+                if (monthSelect) monthSelect.value = 'all';
+                if (categorySelect) categorySelect.value = 'all';
+                if (productSelect) productSelect.value = 'all';
+                if (paymentSelect) paymentSelect.value = 'all';
+                if (customRange) customRange.classList.add('hidden');
+                
+                window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
+
+            
             // Enhanced updateDraftCartDisplay with shipping/tax breakdown
             updateDraftCartDisplay: function () {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
