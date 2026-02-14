@@ -3671,73 +3671,87 @@
 
         async function fetchAdminConfig() {
             try {
-                if (!auth.currentUser) throw new Error("User not authenticated.");
-                const idToken = await auth.currentUser.getIdToken(true);
-        
-                const res = await fetch(CONFIG_FUNCTION, {
-                    method: 'GET',
-                    headers: { 'Authorization': `Bearer ${idToken}` }
+                const response = await fetch(GET_ADMIN_CONFIG_FUNCTION);
+                if (!response.ok) throw new Error('Network response was not ok');
+                
+                globalConfig = await response.json();
+                
+                // Populate form fields
+                document.getElementById('maintenanceToggle').checked = globalConfig.maintenanceMode || false;
+                document.getElementById('chatWidgetToggle').checked = globalConfig.chatWidgetEnabled || false;
+                document.getElementById('dynamicIpList').value = (globalConfig.ipWhitelist || []).join('\n');
+                
+                // Chat schedule
+                document.getElementById('chatEnableTime').value = globalConfig.chatSchedule?.enableTime || '08:00';
+                document.getElementById('chatDisableTime').value = globalConfig.chatSchedule?.disableTime || '20:00';
+                
+                // ✅ ADD: Populate branding fields
+                if (globalConfig.branding) {
+                    const branding = globalConfig.branding;
+                    
+                    // Logo and header text
+                    if (document.getElementById('brandingLogoUrl')) {
+                        document.getElementById('brandingLogoUrl').value = branding.logoUrl || '';
+                    }
+                    if (document.getElementById('brandingHeaderEN')) {
+                        document.getElementById('brandingHeaderEN').value = branding.headerText?.en || '';
+                    }
+                    if (document.getElementById('brandingHeaderES')) {
+                        document.getElementById('brandingHeaderES').value = branding.headerText?.es || '';
+                    }
+                    
+                    // Colors
+                    if (branding.colors) {
+                        // Background gradient start
+                        if (document.getElementById('brandingBgColor')) {
+                            document.getElementById('brandingBgColor').value = branding.colors.backgroundStart || '#f0f9ff';
+                            document.getElementById('brandingBgColorText').value = branding.colors.backgroundStart || '#f0f9ff';
+                        }
+                        
+                        // Background gradient end
+                        if (document.getElementById('brandingBgColorEnd')) {
+                            document.getElementById('brandingBgColorEnd').value = branding.colors.backgroundEnd || '#e0e7ff';
+                            document.getElementById('brandingBgColorEndText').value = branding.colors.backgroundEnd || '#e0e7ff';
+                        }
+                        
+                        // Add to Cart button
+                        if (document.getElementById('brandingCartColor')) {
+                            document.getElementById('brandingCartColor').value = branding.colors.addToCart || '#ec4899';
+                            document.getElementById('brandingCartColorText').value = branding.colors.addToCart || '#ec4899';
+                        }
+                        
+                        // Checkout button
+                        if (document.getElementById('brandingCheckoutColor')) {
+                            document.getElementById('brandingCheckoutColor').value = branding.colors.checkout || '#ec4899';
+                            document.getElementById('brandingCheckoutColorText').value = branding.colors.checkout || '#ec4899';
+                        }
+                    }
+                }
+                
+                // Populate active days checkboxes
+                const activeDays = globalConfig.chatSchedule?.activeDays || [1, 2, 3, 4, 5];
+                document.querySelectorAll('#chatActiveDays input[type="checkbox"]').forEach(cb => {
+                    cb.checked = activeDays.includes(parseInt(cb.value));
                 });
-        
-                if (!res.ok) throw new Error('Config fetch failed.');
-                const config = await res.json();
-                globalConfig = config;
-        
-                // Existing config population...
-                const maintenanceToggle = document.getElementById('maintenanceToggle');
-                const chatWidgetToggle = document.getElementById('chatWidgetToggle');
-                const dynamicIpList = document.getElementById('dynamicIpList');
-                const lastUpdatedEl = document.getElementById('configLastUpdated');
-        
-                if (maintenanceToggle) maintenanceToggle.checked = config.maintenanceMode;
-                if (chatWidgetToggle) chatWidgetToggle.checked = config.chatWidgetEnabled;
-                if (dynamicIpList) dynamicIpList.value = config.ipWhitelist ? config.ipWhitelist.join('\n') : '';
-        
-                // ✅ NEW: Populate Branding Fields
-                const branding = config.branding || {};
                 
-                // Logo
-                const logoInput = document.getElementById('brandingLogoUrl');
-                if (logoInput) logoInput.value = branding.logoUrl || '';
-        
-                // Header Text
-                const headerEN = document.getElementById('brandingHeaderEN');
-                const headerES = document.getElementById('brandingHeaderES');
-                if (headerEN) headerEN.value = branding.headerText?.en || '';
-                if (headerES) headerES.value = branding.headerText?.es || '';
-        
-                // Colors
-                const colors = branding.colors || {};
+                // Display static IP list
+                const staticList = document.getElementById('staticIpListDisplay');
+                if (staticList && globalConfig.staticIpWhitelist) {
+                    staticList.textContent = globalConfig.staticIpWhitelist.join('\n');
+                }
                 
-                // Background
-                const bgColor = document.getElementById('brandingBgColor');
-                const bgColorText = document.getElementById('brandingBgColorText');
-                if (bgColor) bgColor.value = colors.backgroundStart || '#f0f9ff';
-                if (bgColorText) bgColorText.value = colors.backgroundStart || '#f0f9ff';
-        
-                const bgColorEnd = document.getElementById('brandingBgColorEnd');
-                const bgColorEndText = document.getElementById('brandingBgColorEndText');
-                if (bgColorEnd) bgColorEnd.value = colors.backgroundEnd || '#e0e7ff';
-                if (bgColorEndText) bgColorEndText.value = colors.backgroundEnd || '#e0e7ff';
-        
-                // Button Colors
-                const cartColor = document.getElementById('brandingCartColor');
-                const cartColorText = document.getElementById('brandingCartColorText');
-                if (cartColor) cartColor.value = colors.addToCart || '#ec4899';
-                if (cartColorText) cartColorText.value = colors.addToCart || '#ec4899';
-        
-                const checkoutColor = document.getElementById('brandingCheckoutColor');
-                const checkoutColorText = document.getElementById('brandingCheckoutColorText');
-                if (checkoutColor) checkoutColor.value = colors.checkout || '#ec4899';
-                if (checkoutColorText) checkoutColorText.value = colors.checkout || '#ec4899';
-        
-                // Sync color pickers with text inputs
+                // Display last updated time
+                const lastUpdatedElem = document.getElementById('configLastUpdated');
+                if (lastUpdatedElem && globalConfig.lastUpdated) {
+                    const date = new Date(globalConfig.lastUpdated._seconds * 1000);
+                    lastUpdatedElem.textContent = `Last updated: ${date.toLocaleString()}`;
+                }
+                
+                // ✅ ADD: Setup color input sync after population
                 syncColorInputs();
-        
-                // ... rest of existing code
+                
             } catch (error) {
-                console.error("Error fetching admin config:", error);
-                showMessage('error', `Failed to load configuration: ${error.message}`, 8000, 'config');
+                console.error('Error fetching config:', error);
             }
         }
 
@@ -3786,51 +3800,53 @@
             }
         }
 
-        async function handleUpdateConfig(e) {
-            e.preventDefault();
-
-            const maintenanceToggle = document.getElementById('maintenanceToggle');
-            const chatWidgetToggle = document.getElementById('chatWidgetToggle');
-            const dynamicIpList = document.getElementById('dynamicIpList');
-
-            const activeDaysCheckboxes = document.querySelectorAll('#chatActiveDays input[name="chatDay"]:checked');
-            const activeDaysValues = Array.from(activeDaysCheckboxes).map(cb => parseInt(cb.value, 10));
-
-            const chatScheduleUpdates = {
-                enableTime: document.getElementById('chatEnableTime')?.value || '08:00',
-                disableTime: document.getElementById('chatDisableTime')?.value || '20:00',
-                activeDays: activeDaysValues.length > 0 ? activeDaysValues : [1, 2, 3, 4, 5]
-            };
-
-            const updates = {
-                maintenanceMode: maintenanceToggle ? maintenanceToggle.checked : globalConfig.maintenanceMode,
-                chatWidgetEnabled: chatWidgetToggle ? chatWidgetToggle.checked : globalConfig.chatWidgetEnabled,
-                ipWhitelist: dynamicIpList ? dynamicIpList.value.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0) : globalConfig.ipWhitelist,
-                chatSchedule: chatScheduleUpdates,
-            };
-
+        async function handleUpdateConfig(event) {
+            event.preventDefault();
+            const messageDiv = document.getElementById('configMessage');
+            
             try {
-                const idToken = await auth.currentUser.getIdToken();
-                const res = await fetch(UPDATE_CONFIG_FUNCTION, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${idToken}`,
-                        'Content-Type': 'application/json'
+                const updates = {
+                    maintenanceMode: document.getElementById('maintenanceToggle').checked,
+                    chatWidgetEnabled: document.getElementById('chatWidgetToggle').checked,
+                    ipWhitelist: document.getElementById('dynamicIpList').value.split('\n').filter(ip => ip.trim()),
+                    chatSchedule: {
+                        enableTime: document.getElementById('chatEnableTime').value,
+                        disableTime: document.getElementById('chatDisableTime').value,
+                        activeDays: Array.from(document.querySelectorAll('#chatActiveDays input[type="checkbox"]:checked')).map(cb => parseInt(cb.value))
                     },
+                    // ✅ ADD: Collect branding data
+                    branding: {
+                        logoUrl: document.getElementById('brandingLogoUrl').value || '/images/AutoInx logo.png',
+                        headerText: {
+                            en: document.getElementById('brandingHeaderEN').value || 'Catalog',
+                            es: document.getElementById('brandingHeaderES').value || 'Catálogo'
+                        },
+                        colors: {
+                            backgroundStart: document.getElementById('brandingBgColorText').value || '#f0f9ff',
+                            backgroundEnd: document.getElementById('brandingBgColorEndText').value || '#e0e7ff',
+                            addToCart: document.getElementById('brandingCartColorText').value || '#ec4899',
+                            checkout: document.getElementById('brandingCheckoutColorText').value || '#ec4899'
+                        }
+                    }
+                };
+        
+                const response = await fetch(UPDATE_ADMIN_CONFIG_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updates)
                 });
-
-                if (!res.ok) {
-                    const errorDetails = await res.json();
-                    throw new Error(errorDetails.details || 'Update failed on server.');
-                }
-
-                showMessage('success', 'Configuration updated successfully!', 8000, 'config');
-                await logAdminAction('CONFIG_UPDATE', updates);
-                fetchAdminConfig();
+        
+                if (!response.ok) throw new Error('Failed to update config');
+        
+                messageDiv.innerHTML = '<div class="p-4 bg-green-100 text-green-700 rounded-lg">Configuration updated successfully!</div>';
+                setTimeout(() => messageDiv.innerHTML = '', 5000);
+                
+                // ✅ ADD: Refresh the config to show the updated last modified time
+                await fetchAdminConfig();
+                
             } catch (error) {
                 console.error('Error updating config:', error);
-                showMessage('error', `Failed to save configuration: ${error.message}`, 8000, 'config');
+                messageDiv.innerHTML = '<div class="p-4 bg-red-100 text-red-700 rounded-lg">Failed to update configuration.</div>';
             }
         }
 
