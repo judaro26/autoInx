@@ -1,7 +1,7 @@
 const admin = require('firebase-admin');
 
 // Import IP whitelist from shared utilities
-const { ipWhitelist: staticIpWhitelist } = require('../js/utilities/ipWhitelist.js');
+const { ipWhitelist: staticIpWhitelist } = require('../../js/utilities/ipWhitelist.js');
 
 // Initialize Firebase Admin (only once)
 if (!admin.apps.length) {
