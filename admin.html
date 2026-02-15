@@ -6091,12 +6091,14 @@
         // ============================================================================
         // SUMMARY CARDS
         // ============================================================================
-        
-        function renderProfitSummaryCards() {
+                
+          function renderProfitSummaryCards() {
             const items = state.items || [];
             
-            let totalProfit = 0;
-            let totalMargin = 0;
+            let totalProfitNoShipping = 0;
+            let totalProfitWithShipping = 0;
+            let totalMarginNoShipping = 0;
+            let totalMarginWithShipping = 0;
             let itemsWithData = 0;
             let highMarginCount = 0;
             let negativeMarginsCount = 0;
@@ -6105,34 +6107,38 @@
                 const analysis = calculateItemProfit(item);
                 if (analysis.hasData) {
                     itemsWithData++;
-                    totalProfit += analysis.profitCents;
-                    totalMargin += analysis.marginPercent;
+                    totalProfitNoShipping += analysis.profitWithoutShippingCents;
+                    totalProfitWithShipping += analysis.profitWithShippingCents;
+                    totalMarginNoShipping += analysis.marginWithoutShippingPercent;
+                    totalMarginWithShipping += analysis.marginWithShippingPercent;
                     
-                    if (analysis.marginPercent > 40) highMarginCount++;
-                    if (analysis.marginPercent < 0) negativeMarginsCount++;
+                    if (analysis.marginWithoutShippingPercent > 40) highMarginCount++;
+                    if (analysis.marginWithoutShippingPercent < 0) negativeMarginsCount++;
                 }
             });
             
-            const avgProfit = itemsWithData > 0 ? totalProfit / itemsWithData : 0;
-            const avgMargin = itemsWithData > 0 ? totalMargin / itemsWithData : 0;
+            const avgProfitNoShipping = itemsWithData > 0 ? totalProfitNoShipping / itemsWithData : 0;
+            const avgProfitWithShipping = itemsWithData > 0 ? totalProfitWithShipping / itemsWithData : 0;
+            const avgMarginNoShipping = itemsWithData > 0 ? totalMarginNoShipping / itemsWithData : 0;
+            const avgMarginWithShipping = itemsWithData > 0 ? totalMarginWithShipping / itemsWithData : 0;
             
             return `
                 <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
-                    <p class="text-sm text-green-700 font-semibold mb-1">Avg Profit/Unit</p>
-                    <p class="text-3xl font-black text-green-800">${formatPriceDisplay(Math.round(avgProfit))}</p>
-                    <p class="text-xs text-green-600 mt-2">${itemsWithData} products tracked</p>
+                    <p class="text-sm text-green-700 font-semibold mb-1">Avg Profit (Customer Pays Shipping)</p>
+                    <p class="text-3xl font-black text-green-800">${formatPriceDisplay(Math.round(avgProfitNoShipping))}</p>
+                    <p class="text-xs text-green-600 mt-2">${avgMarginNoShipping.toFixed(1)}% margin • ${itemsWithData} items tracked</p>
                 </div>
                 
-                <div class="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-xl border-2 border-blue-200">
-                    <p class="text-sm text-blue-700 font-semibold mb-1">Avg Margin</p>
-                    <p class="text-3xl font-black text-blue-800">${avgMargin.toFixed(1)}%</p>
-                    <p class="text-xs text-blue-600 mt-2">Across all tracked items</p>
+                <div class="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-xl border-2 border-blue-200">
+                    <p class="text-sm text-blue-700 font-semibold mb-1">Avg Profit (Free Shipping)</p>
+                    <p class="text-3xl font-black text-blue-800">${formatPriceDisplay(Math.round(avgProfitWithShipping))}</p>
+                    <p class="text-xs text-blue-600 mt-2">${avgMarginWithShipping.toFixed(1)}% margin • If you absorb shipping</p>
                 </div>
                 
                 <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-xl border-2 border-purple-200">
                     <p class="text-sm text-purple-700 font-semibold mb-1">High Margin Items</p>
                     <p class="text-3xl font-black text-purple-800">${highMarginCount}</p>
-                    <p class="text-xs text-purple-600 mt-2">Above 40% margin</p>
+                    <p class="text-xs text-purple-600 mt-2">Above 40% margin (excl. shipping)</p>
                 </div>
                 
                 <div class="bg-gradient-to-br from-red-50 to-rose-50 p-6 rounded-xl border-2 border-red-200">
@@ -6142,6 +6148,7 @@
                 </div>
             `;
         }
+
         
         // ============================================================================
         // PRODUCTS TABLE
@@ -6161,8 +6168,8 @@
             
             const rows = filteredItems.map(item => {
                 const analysis = calculateItemProfit(item);
-                const marginClass = getMarginClass(analysis.marginPercent);
-                const profitClass = analysis.profitCents >= 0 ? 'profit-positive' : 'profit-negative';
+                const marginClass = getMarginClass(analysis.marginWithoutShippingPercent);
+                const profitClass = analysis.profitWithoutShippingCents >= 0 ? 'profit-positive' : 'profit-negative';
                 
                 return `
                     <tr class="${marginClass} hover:shadow-md transition cursor-pointer" 
@@ -6170,15 +6177,27 @@
                         <td class="p-3 text-sm font-semibold">${escapeHtml(item.name)}</td>
                         <td class="p-3 text-xs font-mono text-gray-600">${item.sku || 'N/A'}</td>
                         <td class="p-3 text-sm font-bold">${formatPriceDisplay(item.price)}</td>
+                        
+                        <!-- ✅ NEW: Vendor Cost Only -->
                         <td class="p-3 text-sm ${analysis.hasData ? '' : 'text-gray-400 italic'}">
-                            ${analysis.hasData ? formatPriceDisplay(analysis.totalCostCents) : 'Not set'}
+                            ${analysis.hasData ? formatPriceDisplay(analysis.costPerUnitCents) : 'Not set'}
                         </td>
+                        
+                        <!-- ✅ NEW: Shipping Cost Separate -->
+                        <td class="p-3 text-sm text-gray-600">
+                            ${analysis.avgShippingCostCents > 0 ? formatPriceDisplay(analysis.avgShippingCostCents) : '-'}
+                        </td>
+                        
+                        <!-- ✅ NEW: Profit (Customer Pays Shipping) -->
                         <td class="p-3 text-sm font-bold ${profitClass}">
-                            ${analysis.hasData ? formatPriceDisplay(analysis.profitCents) : '-'}
+                            ${analysis.hasData ? formatPriceDisplay(analysis.profitWithoutShippingCents) : '-'}
                         </td>
+                        
+                        <!-- ✅ NEW: Margin % (Customer Pays Shipping) -->
                         <td class="p-3 text-sm font-black ${profitClass}">
-                            ${analysis.hasData ? analysis.marginPercent.toFixed(1) + '%' : '-'}
+                            ${analysis.hasData ? analysis.marginWithoutShippingPercent.toFixed(1) + '%' : '-'}
                         </td>
+                        
                         <td class="p-3 text-xs">
                             ${renderCompetitorPrices(item)}
                         </td>
@@ -6199,7 +6218,8 @@
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Product</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">SKU</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Selling Price</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Total Cost</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Vendor Cost</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Shipping Cost</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Profit/Unit</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Margin %</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Competitors</th>
@@ -6211,8 +6231,11 @@
                     </tbody>
                 </table>
                 
-                <div class="p-4 text-right text-xs text-gray-500 bg-gray-50 border-t">
-                    Showing ${filteredItems.length} of ${state.items.length} products
+                <div class="p-4 bg-gray-50 border-t">
+                    <div class="flex justify-between text-xs text-gray-600">
+                        <span>Showing ${filteredItems.length} of ${state.items.length} products</span>
+                        <span class="font-semibold">💡 Profit shown: Customer pays shipping separately</span>
+                    </div>
                 </div>
             `;
         }
@@ -6227,18 +6250,47 @@
             const avgShippingCostCents = item.avgShippingCostCents || 0;
             
             const hasData = purchasePriceCents > 0 || avgShippingCostCents > 0;
-            const totalCostCents = purchasePriceCents + avgShippingCostCents;
-            const profitCents = sellingPriceCents - totalCostCents;
-            const marginPercent = sellingPriceCents > 0 ? (profitCents / sellingPriceCents) * 100 : 0;
+            
+            // ✅ NEW: Separate calculations for with/without shipping
+            // Cost per unit (vendor cost only - NOT including shipping)
+            const costPerUnitCents = purchasePriceCents;
+            
+            // Profit if customer pays shipping (matching Amazon free shipping model)
+            const profitWithoutShippingCents = sellingPriceCents - costPerUnitCents;
+            const marginWithoutShippingPercent = sellingPriceCents > 0 
+                ? (profitWithoutShippingCents / sellingPriceCents) * 100 
+                : 0;
+            
+            // Actual profit if you absorb shipping cost
+            const profitWithShippingCents = sellingPriceCents - (costPerUnitCents + avgShippingCostCents);
+            const marginWithShippingPercent = sellingPriceCents > 0 
+                ? (profitWithShippingCents / sellingPriceCents) * 100 
+                : 0;
+            
+            // Break-even price if you were to offer free shipping (like Amazon)
+            const breakEvenWithFreeShippingCents = costPerUnitCents + avgShippingCostCents;
             
             return {
                 hasData,
                 sellingPriceCents,
                 purchasePriceCents,
                 avgShippingCostCents,
-                totalCostCents,
-                profitCents,
-                marginPercent
+                
+                // ✅ NEW: Separate cost tracking
+                costPerUnitCents,  // Vendor cost only
+                
+                // ✅ NEW: Dual profit calculations
+                profitWithoutShippingCents,      // When customer pays shipping
+                marginWithoutShippingPercent,    // Margin without shipping
+                profitWithShippingCents,         // If you absorb shipping
+                marginWithShippingPercent,       // Margin with shipping absorbed
+                
+                breakEvenWithFreeShippingCents,  // Price needed to match Amazon's free shipping
+                
+                // ✅ DEPRECATED (kept for backward compatibility)
+                totalCostCents: costPerUnitCents,  // Now just vendor cost
+                profitCents: profitWithoutShippingCents,  // Default to without shipping
+                marginPercent: marginWithoutShippingPercent  // Default to without shipping
             };
         }
         
@@ -6338,7 +6390,7 @@
             const modalHtml = `
                 <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
                      onclick="window.module.closeProfitDetailsModal()">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" 
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto" 
                          onclick="event.stopPropagation()">
                         
                         <!-- Header -->
@@ -6350,36 +6402,87 @@
                         <!-- Content -->
                         <div class="p-6 space-y-6">
                             
-                            <!-- Current Analysis -->
-                            <div class="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
-                                <h4 class="text-lg font-bold text-green-800 mb-4">💰 Current Profitability</h4>
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <p class="text-xs text-gray-600 mb-1">Selling Price</p>
-                                        <p class="text-2xl font-black text-gray-900">${formatPriceDisplay(item.price)}</p>
+                            <!-- ✅ NEW: Dual Profit Analysis Comparison -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                
+                                <!-- Scenario 1: Customer Pays Shipping -->
+                                <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-300">
+                                    <div class="flex items-center gap-2 mb-4">
+                                        <span class="text-2xl">📦</span>
+                                        <h4 class="text-lg font-bold text-green-900">Customer Pays Shipping</h4>
                                     </div>
-                                    <div>
-                                        <p class="text-xs text-gray-600 mb-1">Total Cost</p>
-                                        <p class="text-2xl font-black text-gray-900">${formatPriceDisplay(analysis.totalCostCents)}</p>
+                                    <div class="space-y-3">
+                                        <div class="flex justify-between">
+                                            <span class="text-sm text-gray-700">Selling Price:</span>
+                                            <span class="font-bold text-gray-900">${formatPriceDisplay(analysis.sellingPriceCents)}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-sm text-gray-700">Vendor Cost:</span>
+                                            <span class="font-bold text-gray-900">-${formatPriceDisplay(analysis.costPerUnitCents)}</span>
+                                        </div>
+                                        <div class="border-t-2 border-green-200 pt-3 flex justify-between">
+                                            <span class="text-sm font-bold text-green-800">Profit/Unit:</span>
+                                            <span class="text-xl font-black ${analysis.profitWithoutShippingCents >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                                ${formatPriceDisplay(analysis.profitWithoutShippingCents)}
+                                            </span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-sm font-bold text-green-800">Margin:</span>
+                                            <span class="text-xl font-black ${analysis.profitWithoutShippingCents >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                                ${analysis.marginWithoutShippingPercent.toFixed(1)}%
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p class="text-xs text-gray-600 mb-1">Profit per Unit</p>
-                                        <p class="text-2xl font-black ${analysis.profitCents >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                            ${formatPriceDisplay(analysis.profitCents)}
+                                    <div class="mt-4 p-3 bg-white rounded-lg border border-green-200">
+                                        <p class="text-xs text-green-800">
+                                            <strong>💡 Best for:</strong> Competing with Amazon (they offer free shipping, but you charge separately)
                                         </p>
                                     </div>
-                                    <div>
-                                        <p class="text-xs text-gray-600 mb-1">Margin</p>
-                                        <p class="text-2xl font-black ${analysis.profitCents >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                            ${analysis.marginPercent.toFixed(1)}%
+                                </div>
+                                
+                                <!-- Scenario 2: Free Shipping (You Absorb Cost) -->
+                                <div class="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-xl border-2 border-blue-300">
+                                    <div class="flex items-center gap-2 mb-4">
+                                        <span class="text-2xl">🚚</span>
+                                        <h4 class="text-lg font-bold text-blue-900">Free Shipping (You Absorb)</h4>
+                                    </div>
+                                    <div class="space-y-3">
+                                        <div class="flex justify-between">
+                                            <span class="text-sm text-gray-700">Selling Price:</span>
+                                            <span class="font-bold text-gray-900">${formatPriceDisplay(analysis.sellingPriceCents)}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-sm text-gray-700">Vendor Cost:</span>
+                                            <span class="font-bold text-gray-900">-${formatPriceDisplay(analysis.costPerUnitCents)}</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-sm text-gray-700">Shipping Cost:</span>
+                                            <span class="font-bold text-gray-900">-${formatPriceDisplay(analysis.avgShippingCostCents)}</span>
+                                        </div>
+                                        <div class="border-t-2 border-blue-200 pt-3 flex justify-between">
+                                            <span class="text-sm font-bold text-blue-800">Profit/Unit:</span>
+                                            <span class="text-xl font-black ${analysis.profitWithShippingCents >= 0 ? 'text-blue-600' : 'text-red-600'}">
+                                                ${formatPriceDisplay(analysis.profitWithShippingCents)}
+                                            </span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-sm font-bold text-blue-800">Margin:</span>
+                                            <span class="text-xl font-black ${analysis.profitWithShippingCents >= 0 ? 'text-blue-600' : 'text-red-600'}">
+                                                ${analysis.marginWithShippingPercent.toFixed(1)}%
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="mt-4 p-3 bg-white rounded-lg border border-blue-200">
+                                        <p class="text-xs text-blue-800">
+                                            <strong>💡 Need price of:</strong> ${formatPriceDisplay(analysis.breakEvenWithFreeShippingCents)} to break even with free shipping
                                         </p>
                                     </div>
                                 </div>
                             </div>
                             
                             <!-- Cost Breakdown -->
-                            <div class="bg-blue-50 p-6 rounded-xl border-2 border-blue-200">
-                                <h4 class="text-lg font-bold text-blue-800 mb-4">📦 Cost Breakdown</h4>
+                            <div class="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
+                                <h4 class="text-lg font-bold text-purple-800 mb-4">📦 Cost Breakdown</h4>
                                 <div class="space-y-4">
                                     <div>
                                         <label class="block text-sm font-semibold mb-2">Purchase Price (from vendor)</label>
@@ -6405,6 +6508,7 @@
                                                    placeholder="0.00"
                                                    class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
                                         </div>
+                                        <p class="text-xs text-gray-600 mt-1">💡 Not included in profit calculation (customer pays separately)</p>
                                     </div>
                                     
                                     <div>
@@ -6419,22 +6523,9 @@
                             </div>
                             
                             <!-- Competitor Prices -->
-                            <div class="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
-                                <h4 class="text-lg font-bold text-purple-800 mb-4">🏪 Competitor Pricing</h4>
+                            <div class="bg-orange-50 p-6 rounded-xl border-2 border-orange-200">
+                                <h4 class="text-lg font-bold text-orange-800 mb-4">🏪 Competitor Pricing (Free Shipping)</h4>
                                 <div class="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-2">eBay Lowest Price</label>
-                                        <div class="flex gap-2">
-                                            <span class="text-lg">$</span>
-                                            <input type="number" 
-                                                   id="modal-ebay-price" 
-                                                   step="0.01" 
-                                                   value="${competitorPrices.ebay ? (competitorPrices.ebay / 100).toFixed(2) : ''}" 
-                                                   placeholder="0.00"
-                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
-                                        </div>
-                                    </div>
-                                    
                                     <div>
                                         <label class="block text-sm font-semibold mb-2">Amazon Lowest Price</label>
                                         <div class="flex gap-2">
@@ -6446,12 +6537,27 @@
                                                    placeholder="0.00"
                                                    class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
                                         </div>
+                                        <p class="text-xs text-orange-700 mt-1">🚚 Includes free shipping</p>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">eBay Lowest Price</label>
+                                        <div class="flex gap-2">
+                                            <span class="text-lg">$</span>
+                                            <input type="number" 
+                                                   id="modal-ebay-price" 
+                                                   step="0.01" 
+                                                   value="${competitorPrices.ebay ? (competitorPrices.ebay / 100).toFixed(2) : ''}" 
+                                                   placeholder="0.00"
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                        </div>
+                                        <p class="text-xs text-orange-700 mt-1">📦 May or may not include shipping</p>
                                     </div>
                                 </div>
                             </div>
                             
-                            <!-- Pricing Recommendations -->
-                            ${renderPriceRecommendations(item, analysis)}
+                            <!-- ✅ NEW: Enhanced Pricing Recommendations -->
+                            ${renderEnhancedPriceRecommendations(item, analysis)}
                             
                         </div>
                         
@@ -6475,8 +6581,8 @@
                 container.innerHTML = modalHtml;
             }
         }
-        
-        function renderPriceRecommendations(item, analysis) {
+                
+        function renderEnhancedPriceRecommendations(item, analysis) {
             if (!analysis.hasData) {
                 return `
                     <div class="bg-yellow-50 p-6 rounded-xl border-2 border-yellow-200">
@@ -6488,54 +6594,63 @@
             }
             
             const competitorPrices = item.competitorPrices || {};
-            const ebayPrice = competitorPrices.ebay || 0;
             const amazonPrice = competitorPrices.amazon || 0;
-            const lowestCompetitor = Math.min(...[ebayPrice, amazonPrice].filter(p => p > 0));
+            const ebayPrice = competitorPrices.ebay || 0;
             
             const recommendations = [];
             
-            // Recommendation 1: 30% target margin
-            const targetMarginPrice = Math.ceil((analysis.totalCostCents / 0.70) / 100) * 100; // Round up to nearest dollar
-            const targetMargin = ((targetMarginPrice - analysis.totalCostCents) / targetMarginPrice) * 100;
-            const targetProfit = targetMarginPrice - analysis.totalCostCents;
-            
-            recommendations.push({
-                title: '🎯 30% Target Margin',
-                price: targetMarginPrice,
-                margin: targetMargin,
-                profit: targetProfit,
-                description: 'Industry standard retail margin'
-            });
-            
-            // Recommendation 2: Match lowest competitor
-            if (lowestCompetitor > 0) {
-                const competitorMargin = ((lowestCompetitor - analysis.totalCostCents) / lowestCompetitor) * 100;
-                const competitorProfit = lowestCompetitor - analysis.totalCostCents;
+            // Recommendation 1: Match Amazon (they have free shipping)
+            if (amazonPrice > 0) {
+                const profitVsAmazon = amazonPrice - analysis.costPerUnitCents;
+                const marginVsAmazon = (profitVsAmazon / amazonPrice) * 100;
                 
                 recommendations.push({
-                    title: '🤝 Match Competitor',
-                    price: lowestCompetitor,
-                    margin: competitorMargin,
-                    profit: competitorProfit,
-                    description: 'Match the lowest competitor price'
-                });
-                
-                // Recommendation 3: Beat competitor by 5%
-                const beatCompetitorPrice = Math.floor((lowestCompetitor * 0.95) / 100) * 100;
-                const beatMargin = ((beatCompetitorPrice - analysis.totalCostCents) / beatCompetitorPrice) * 100;
-                const beatProfit = beatCompetitorPrice - analysis.totalCostCents;
-                
-                recommendations.push({
-                    title: '⚡ Beat by 5%',
-                    price: beatCompetitorPrice,
-                    margin: beatMargin,
-                    profit: beatProfit,
-                    description: 'Undercut competitor to win sales'
+                    title: '🎯 Match Amazon Price',
+                    price: amazonPrice,
+                    profit: profitVsAmazon,
+                    margin: marginVsAmazon,
+                    description: 'Match Amazon (customer pays your shipping separately)',
+                    highlight: true
                 });
             }
             
+            // Recommendation 2: Beat Amazon by 5%
+            if (amazonPrice > 0) {
+                const beatAmazonPrice = Math.floor((amazonPrice * 0.95) / 100) * 100;
+                const profitBeatAmazon = beatAmazonPrice - analysis.costPerUnitCents;
+                const marginBeatAmazon = (profitBeatAmazon / beatAmazonPrice) * 100;
+                
+                recommendations.push({
+                    title: '⚡ Beat Amazon by 5%',
+                    price: beatAmazonPrice,
+                    profit: profitBeatAmazon,
+                    margin: marginBeatAmazon,
+                    description: 'Undercut Amazon to win sales',
+                    highlight: false
+                });
+            }
+            
+            // Recommendation 3: 30% target margin (customer pays shipping)
+            const targetMarginPrice = Math.ceil((analysis.costPerUnitCents / 0.70) / 100) * 100;
+            const targetProfit = targetMarginPrice - analysis.costPerUnitCents;
+            const targetMargin = ((targetProfit / targetMarginPrice) * 100);
+            
+            recommendations.push({
+                title: '📊 30% Target Margin',
+                price: targetMarginPrice,
+                profit: targetProfit,
+                margin: targetMargin,
+                description: 'Industry standard retail margin',
+                highlight: false
+            });
+            
+            if (recommendations.length === 0) {
+                return '';
+            }
+            
             const recoHtml = recommendations.map(reco => `
-                <div class="bg-white p-4 rounded-lg border-2 border-gray-200 hover:border-indigo-400 transition">
+                <div class="bg-white p-4 rounded-lg border-2 ${reco.highlight ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-gray-200'} hover:border-indigo-400 transition">
+                    ${reco.highlight ? '<div class="mb-2"><span class="bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full">⭐ RECOMMENDED</span></div>' : ''}
                     <div class="flex justify-between items-start mb-2">
                         <div>
                             <p class="font-bold text-gray-900">${reco.title}</p>
@@ -6544,20 +6659,91 @@
                         <p class="text-2xl font-black text-indigo-700">${formatPriceDisplay(reco.price)}</p>
                     </div>
                     <div class="flex justify-between text-sm mt-3 pt-3 border-t">
-                        <span class="text-gray-600">Profit: <strong class="${reco.profit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatPriceDisplay(reco.profit)}</strong></span>
+                        <span class="text-gray-600">Your Profit: <strong class="${reco.profit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatPriceDisplay(reco.profit)}</strong></span>
                         <span class="text-gray-600">Margin: <strong class="${reco.profit >= 0 ? 'text-green-600' : 'text-red-600'}">${reco.margin.toFixed(1)}%</strong></span>
+                    </div>
+                    <div class="mt-2 text-xs text-gray-500 italic">
+                        Customer pays shipping separately (~${formatPriceDisplay(analysis.avgShippingCostCents)})
                     </div>
                 </div>
             `).join('');
             
             return `
                 <div class="bg-indigo-50 p-6 rounded-xl border-2 border-indigo-200">
-                    <h4 class="text-lg font-bold text-indigo-800 mb-4">💡 Pricing Recommendations</h4>
+                    <h4 class="text-lg font-bold text-indigo-800 mb-4">💡 Pricing Strategies vs Amazon</h4>
                     <div class="grid grid-cols-1 gap-3">
                         ${recoHtml}
                     </div>
                 </div>
             `;
+        }
+
+        // ============================================================================
+        // ENHANCED CSV EXPORT
+        // ============================================================================
+        
+        function exportProfitAnalysis() {
+            resetTimer();
+            
+            const items = state.items || [];
+            
+            if (items.length === 0) {
+                showMessage('error', 'No products to export', 3000, 'catalog');
+                return;
+            }
+            
+            const headers = [
+                'Product Name',
+                'SKU',
+                'Selling Price (USD)',
+                'Vendor Cost (USD)',
+                'Shipping Cost (USD)',
+                'Profit - Customer Pays Shipping (USD)',
+                'Margin - Customer Pays Shipping (%)',
+                'Profit - Free Shipping (USD)',
+                'Margin - Free Shipping (%)',
+                'Amazon Price (USD)',
+                'eBay Price (USD)',
+                'Vendor URL'
+            ];
+            
+            const rows = items.map(item => {
+                const analysis = calculateItemProfit(item);
+                const competitorPrices = item.competitorPrices || {};
+                
+                return [
+                    `"${(item.name || '').replace(/"/g, '""')}"`,
+                    item.sku || '',
+                    (item.price / 100).toFixed(2),
+                    (analysis.costPerUnitCents / 100).toFixed(2),
+                    (analysis.avgShippingCostCents / 100).toFixed(2),
+                    (analysis.profitWithoutShippingCents / 100).toFixed(2),
+                    analysis.marginWithoutShippingPercent.toFixed(2),
+                    (analysis.profitWithShippingCents / 100).toFixed(2),
+                    analysis.marginWithShippingPercent.toFixed(2),
+                    competitorPrices.amazon ? (competitorPrices.amazon / 100).toFixed(2) : '',
+                    competitorPrices.ebay ? (competitorPrices.ebay / 100).toFixed(2) : '',
+                    `"${(item.vendorUrl || '').replace(/"/g, '""')}"`
+                ].join(',');
+            });
+            
+            const csvString = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const filename = `profit_analysis_enhanced_${new Date().toISOString().slice(0, 10)}.csv`;
+            
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showMessage('success', `Exported ${items.length} products to ${filename}`, 5000, 'catalog');
+            } else {
+                showMessage('error', 'Browser does not support automatic download', 5000, 'catalog');
+            }
         }
         
         // ============================================================================
