@@ -74,6 +74,7 @@
             page-break-after: always;
         }
         
+        
         /* Toggled State - Uses sibling selector on the hidden checkbox input */
         #chatWidgetToggle:checked + .toggle-label { 
             background-color: #3b82f6; /* Blue-500 */
@@ -110,6 +111,18 @@
         
         /* Maintenance Toggle Styles */
         #maintenanceToggle:checked + .toggle-label { background-color: #10b981; }
+        /* Profit Analysis Styles */
+        .profit-positive { color: #059669; font-weight: bold; }
+        .profit-negative { color: #dc2626; font-weight: bold; }
+        .profit-warning { color: #d97706; font-weight: bold; }
+        .margin-excellent { background-color: #d1fae5; border-left: 4px solid #059669; }
+        .margin-good { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
+        .margin-poor { background-color: #fee2e2; border-left: 4px solid #dc2626; }
+        .margin-negative { background-color: #fecaca; border-left: 4px solid #dc2626; }
+        .competitor-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .ebay-badge { background-color: #fef3c7; color: #92400e; }
+        .amazon-badge { background-color: #dbeafe; color: #1e40af; }
+        
     </style>
 </head>
 
@@ -249,6 +262,12 @@
             deliveryStatusFilter: 'All',
             orderPage: 'list',
             editingOrderId: null,  // ✅ NEW: Track which order is being edited
+            profitAnalysis: {
+                searchTerm: '',
+                sortBy: 'margin',
+                sortDirection: 'desc',
+                filterMargin: 'all'
+            },
 
             // --- BILLING STATE ---
             editingOrderDraftCart: {},
@@ -602,7 +621,9 @@
 
         function renderAdminTabs() {
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-
+            if (state.activeTab === 'profitAnalysis') {
+                return renderProfitAnalysisSection();
+            }
             if (state.activeTab === 'catalog') {
                 return `
                     <section class="space-y-10">
@@ -5505,7 +5526,10 @@
                             class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'financials' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
                         ${t('tabFinancials')}
                     </button>
-
+                    <button onclick="window.module.switchAdminTab('profitAnalysis')" 
+                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'profitAnalysis' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                        📊 Profit Analysis
+                    </button>
                     <button onclick="window.module.switchAdminTab('users')" 
                             class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
                         ${t('tabUsers')}
@@ -6001,6 +6025,698 @@
                 }, 50); // Check every 50ms
             });
         }
+
+        function renderProfitAnalysisSection() {
+            const items = state.items || [];
+            
+            return `
+                <section class="space-y-8">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h2 class="text-3xl font-bold text-indigo-700">📊 Product Profitability Analysis</h2>
+                            <p class="text-sm text-gray-600 mt-1">Track vendor costs, shipping, competitor prices, and profit margins</p>
+                        </div>
+                        <button onclick="window.module.exportProfitAnalysis()" 
+                                class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 shadow-md">
+                            ⬇️ Export CSV
+                        </button>
+                    </div>
+                    
+                    <div id="profitMessage"></div>
+                    
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        ${renderProfitSummaryCards()}
+                    </div>
+                    
+                    <!-- Search and Filters -->
+                    <div class="bg-white p-4 rounded-xl shadow-lg">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <input type="text" 
+                                   oninput="window.module.handleProfitSearchInput(event)" 
+                                   placeholder="Search products by name or SKU..." 
+                                   value="${escapeHtml(state.profitAnalysis?.searchTerm || '')}"
+                                   class="p-2 border rounded-lg">
+                            
+                            <select onchange="window.module.handleMarginFilterChange(event)" 
+                                    class="p-2 border rounded-lg">
+                                <option value="all">All Margins</option>
+                                <option value="excellent">Excellent (>40%)</option>
+                                <option value="good">Good (20-40%)</option>
+                                <option value="poor">Poor (0-20%)</option>
+                                <option value="negative">Negative (<0%)</option>
+                            </select>
+                            
+                            <select onchange="window.module.handleSortChange(event)" 
+                                    class="p-2 border rounded-lg">
+                                <option value="margin">Sort by Margin %</option>
+                                <option value="profit">Sort by Profit $</option>
+                                <option value="price">Sort by Price</option>
+                                <option value="name">Sort by Name</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Products Table -->
+                    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                        ${renderProfitAnalysisTable()}
+                    </div>
+                    
+                    <!-- Details Modal Container -->
+                    <div id="profitAnalysisModalContainer"></div>
+                </section>
+            `;
+        }
+
+        // ============================================================================
+        // SUMMARY CARDS
+        // ============================================================================
+        
+        function renderProfitSummaryCards() {
+            const items = state.items || [];
+            
+            let totalProfit = 0;
+            let totalMargin = 0;
+            let itemsWithData = 0;
+            let highMarginCount = 0;
+            let negativeMarginsCount = 0;
+            
+            items.forEach(item => {
+                const analysis = calculateItemProfit(item);
+                if (analysis.hasData) {
+                    itemsWithData++;
+                    totalProfit += analysis.profitCents;
+                    totalMargin += analysis.marginPercent;
+                    
+                    if (analysis.marginPercent > 40) highMarginCount++;
+                    if (analysis.marginPercent < 0) negativeMarginsCount++;
+                }
+            });
+            
+            const avgProfit = itemsWithData > 0 ? totalProfit / itemsWithData : 0;
+            const avgMargin = itemsWithData > 0 ? totalMargin / itemsWithData : 0;
+            
+            return `
+                <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
+                    <p class="text-sm text-green-700 font-semibold mb-1">Avg Profit/Unit</p>
+                    <p class="text-3xl font-black text-green-800">${formatPriceDisplay(Math.round(avgProfit))}</p>
+                    <p class="text-xs text-green-600 mt-2">${itemsWithData} products tracked</p>
+                </div>
+                
+                <div class="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-xl border-2 border-blue-200">
+                    <p class="text-sm text-blue-700 font-semibold mb-1">Avg Margin</p>
+                    <p class="text-3xl font-black text-blue-800">${avgMargin.toFixed(1)}%</p>
+                    <p class="text-xs text-blue-600 mt-2">Across all tracked items</p>
+                </div>
+                
+                <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-xl border-2 border-purple-200">
+                    <p class="text-sm text-purple-700 font-semibold mb-1">High Margin Items</p>
+                    <p class="text-3xl font-black text-purple-800">${highMarginCount}</p>
+                    <p class="text-xs text-purple-600 mt-2">Above 40% margin</p>
+                </div>
+                
+                <div class="bg-gradient-to-br from-red-50 to-rose-50 p-6 rounded-xl border-2 border-red-200">
+                    <p class="text-sm text-red-700 font-semibold mb-1">Loss Leaders</p>
+                    <p class="text-3xl font-black text-red-800">${negativeMarginsCount}</p>
+                    <p class="text-xs text-red-600 mt-2">Negative margin items</p>
+                </div>
+            `;
+        }
+        
+        // ============================================================================
+        // PRODUCTS TABLE
+        // ============================================================================
+        
+        function renderProfitAnalysisTable() {
+            const filteredItems = getFilteredProfitItems();
+            
+            if (filteredItems.length === 0) {
+                return `
+                    <div class="p-8 text-center text-gray-500">
+                        <p class="text-lg font-semibold">No products found</p>
+                        <p class="text-sm mt-2">Try adjusting your filters or search term</p>
+                    </div>
+                `;
+            }
+            
+            const rows = filteredItems.map(item => {
+                const analysis = calculateItemProfit(item);
+                const marginClass = getMarginClass(analysis.marginPercent);
+                const profitClass = analysis.profitCents >= 0 ? 'profit-positive' : 'profit-negative';
+                
+                return `
+                    <tr class="${marginClass} hover:shadow-md transition cursor-pointer" 
+                        onclick="window.module.showProfitDetailsModal('${item.id}')">
+                        <td class="p-3 text-sm font-semibold">${escapeHtml(item.name)}</td>
+                        <td class="p-3 text-xs font-mono text-gray-600">${item.sku || 'N/A'}</td>
+                        <td class="p-3 text-sm font-bold">${formatPriceDisplay(item.price)}</td>
+                        <td class="p-3 text-sm ${analysis.hasData ? '' : 'text-gray-400 italic'}">
+                            ${analysis.hasData ? formatPriceDisplay(analysis.totalCostCents) : 'Not set'}
+                        </td>
+                        <td class="p-3 text-sm font-bold ${profitClass}">
+                            ${analysis.hasData ? formatPriceDisplay(analysis.profitCents) : '-'}
+                        </td>
+                        <td class="p-3 text-sm font-black ${profitClass}">
+                            ${analysis.hasData ? analysis.marginPercent.toFixed(1) + '%' : '-'}
+                        </td>
+                        <td class="p-3 text-xs">
+                            ${renderCompetitorPrices(item)}
+                        </td>
+                        <td class="p-3">
+                            <button onclick="event.stopPropagation(); window.module.showProfitDetailsModal('${item.id}')" 
+                                    class="px-3 py-1 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 font-semibold">
+                                📊 Details
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            return `
+                <table class="w-full">
+                    <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300">
+                        <tr>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Product</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">SKU</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Selling Price</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Total Cost</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Profit/Unit</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Margin %</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Competitors</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+                
+                <div class="p-4 text-right text-xs text-gray-500 bg-gray-50 border-t">
+                    Showing ${filteredItems.length} of ${state.items.length} products
+                </div>
+            `;
+        }
+        
+        // ============================================================================
+        // HELPER FUNCTIONS
+        // ============================================================================
+        
+        function calculateItemProfit(item) {
+            const sellingPriceCents = item.price || 0;
+            const purchasePriceCents = item.purchasePriceCents || 0;
+            const avgShippingCostCents = item.avgShippingCostCents || 0;
+            
+            const hasData = purchasePriceCents > 0 || avgShippingCostCents > 0;
+            const totalCostCents = purchasePriceCents + avgShippingCostCents;
+            const profitCents = sellingPriceCents - totalCostCents;
+            const marginPercent = sellingPriceCents > 0 ? (profitCents / sellingPriceCents) * 100 : 0;
+            
+            return {
+                hasData,
+                sellingPriceCents,
+                purchasePriceCents,
+                avgShippingCostCents,
+                totalCostCents,
+                profitCents,
+                marginPercent
+            };
+        }
+        
+        function getMarginClass(marginPercent) {
+            if (marginPercent > 40) return 'margin-excellent';
+            if (marginPercent >= 20) return 'margin-good';
+            if (marginPercent >= 0) return 'margin-poor';
+            return 'margin-negative';
+        }
+        
+        function renderCompetitorPrices(item) {
+            const competitorPrices = item.competitorPrices || {};
+            const ebayPrice = competitorPrices.ebay;
+            const amazonPrice = competitorPrices.amazon;
+            
+            const badges = [];
+            if (ebayPrice) {
+                badges.push(`<span class="competitor-badge ebay-badge">eBay: ${formatPriceDisplay(ebayPrice)}</span>`);
+            }
+            if (amazonPrice) {
+                badges.push(`<span class="competitor-badge amazon-badge">Amazon: ${formatPriceDisplay(amazonPrice)}</span>`);
+            }
+            
+            return badges.length > 0 ? badges.join(' ') : '<span class="text-gray-400 text-xs">Not set</span>';
+        }
+        
+        function getFilteredProfitItems() {
+            let filtered = [...state.items];
+            
+            // Search filter
+            if (state.profitAnalysis?.searchTerm) {
+                const term = state.profitAnalysis.searchTerm.toLowerCase();
+                filtered = filtered.filter(item => 
+                    item.name.toLowerCase().includes(term) || 
+                    (item.sku && item.sku.toLowerCase().includes(term))
+                );
+            }
+            
+            // Margin filter
+            if (state.profitAnalysis?.filterMargin !== 'all') {
+                filtered = filtered.filter(item => {
+                    const analysis = calculateItemProfit(item);
+                    if (!analysis.hasData) return false;
+                    
+                    switch (state.profitAnalysis.filterMargin) {
+                        case 'excellent': return analysis.marginPercent > 40;
+                        case 'good': return analysis.marginPercent >= 20 && analysis.marginPercent <= 40;
+                        case 'poor': return analysis.marginPercent >= 0 && analysis.marginPercent < 20;
+                        case 'negative': return analysis.marginPercent < 0;
+                        default: return true;
+                    }
+                });
+            }
+            
+            // Sort
+            const sortBy = state.profitAnalysis?.sortBy || 'margin';
+            const sortDir = state.profitAnalysis?.sortDirection || 'desc';
+            
+            filtered.sort((a, b) => {
+                const analysisA = calculateItemProfit(a);
+                const analysisB = calculateItemProfit(b);
+                
+                let comparison = 0;
+                
+                switch (sortBy) {
+                    case 'margin':
+                        comparison = analysisA.marginPercent - analysisB.marginPercent;
+                        break;
+                    case 'profit':
+                        comparison = analysisA.profitCents - analysisB.profitCents;
+                        break;
+                    case 'price':
+                        comparison = a.price - b.price;
+                        break;
+                    case 'name':
+                        comparison = a.name.localeCompare(b.name);
+                        break;
+                }
+                
+                return sortDir === 'desc' ? -comparison : comparison;
+            });
+            
+            return filtered;
+        }
+        
+        // ============================================================================
+        // DETAILS MODAL
+        // ============================================================================
+        
+        function showProfitDetailsModal(itemId) {
+            const item = state.items.find(i => i.id === itemId);
+            if (!item) return;
+            
+            const analysis = calculateItemProfit(item);
+            const competitorPrices = item.competitorPrices || {};
+            
+            const modalHtml = `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+                     onclick="window.module.closeProfitDetailsModal()">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" 
+                         onclick="event.stopPropagation()">
+                        
+                        <!-- Header -->
+                        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-2xl">
+                            <h3 class="text-2xl font-bold">${escapeHtml(item.name)}</h3>
+                            <p class="text-sm opacity-90 mt-1">SKU: ${item.sku || 'N/A'}</p>
+                        </div>
+                        
+                        <!-- Content -->
+                        <div class="p-6 space-y-6">
+                            
+                            <!-- Current Analysis -->
+                            <div class="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
+                                <h4 class="text-lg font-bold text-green-800 mb-4">💰 Current Profitability</h4>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p class="text-xs text-gray-600 mb-1">Selling Price</p>
+                                        <p class="text-2xl font-black text-gray-900">${formatPriceDisplay(item.price)}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-600 mb-1">Total Cost</p>
+                                        <p class="text-2xl font-black text-gray-900">${formatPriceDisplay(analysis.totalCostCents)}</p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-600 mb-1">Profit per Unit</p>
+                                        <p class="text-2xl font-black ${analysis.profitCents >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                            ${formatPriceDisplay(analysis.profitCents)}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-600 mb-1">Margin</p>
+                                        <p class="text-2xl font-black ${analysis.profitCents >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                            ${analysis.marginPercent.toFixed(1)}%
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Cost Breakdown -->
+                            <div class="bg-blue-50 p-6 rounded-xl border-2 border-blue-200">
+                                <h4 class="text-lg font-bold text-blue-800 mb-4">📦 Cost Breakdown</h4>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Purchase Price (from vendor)</label>
+                                        <div class="flex gap-2">
+                                            <span class="text-lg">$</span>
+                                            <input type="number" 
+                                                   id="modal-purchase-price" 
+                                                   step="0.01" 
+                                                   value="${(analysis.purchasePriceCents / 100).toFixed(2)}" 
+                                                   placeholder="0.00"
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Average Shipping Cost (to customer)</label>
+                                        <div class="flex gap-2">
+                                            <span class="text-lg">$</span>
+                                            <input type="number" 
+                                                   id="modal-shipping-cost" 
+                                                   step="0.01" 
+                                                   value="${(analysis.avgShippingCostCents / 100).toFixed(2)}" 
+                                                   placeholder="0.00"
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Vendor/Supplier Link</label>
+                                        <input type="url" 
+                                               id="modal-vendor-url" 
+                                               value="${item.vendorUrl || ''}" 
+                                               placeholder="https://alibaba.com/product/..."
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Competitor Prices -->
+                            <div class="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
+                                <h4 class="text-lg font-bold text-purple-800 mb-4">🏪 Competitor Pricing</h4>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">eBay Lowest Price</label>
+                                        <div class="flex gap-2">
+                                            <span class="text-lg">$</span>
+                                            <input type="number" 
+                                                   id="modal-ebay-price" 
+                                                   step="0.01" 
+                                                   value="${competitorPrices.ebay ? (competitorPrices.ebay / 100).toFixed(2) : ''}" 
+                                                   placeholder="0.00"
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Amazon Lowest Price</label>
+                                        <div class="flex gap-2">
+                                            <span class="text-lg">$</span>
+                                            <input type="number" 
+                                                   id="modal-amazon-price" 
+                                                   step="0.01" 
+                                                   value="${competitorPrices.amazon ? (competitorPrices.amazon / 100).toFixed(2) : ''}" 
+                                                   placeholder="0.00"
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Pricing Recommendations -->
+                            ${renderPriceRecommendations(item, analysis)}
+                            
+                        </div>
+                        
+                        <!-- Footer -->
+                        <div class="bg-gray-100 p-6 rounded-b-2xl border-t-2 border-gray-300 flex gap-3">
+                            <button onclick="window.module.saveProfitData('${itemId}')" 
+                                    class="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 font-bold shadow-lg">
+                                💾 Save All Changes
+                            </button>
+                            <button onclick="window.module.closeProfitDetailsModal()" 
+                                    class="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-bold">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const container = document.getElementById('profitAnalysisModalContainer');
+            if (container) {
+                container.innerHTML = modalHtml;
+            }
+        }
+        
+        function renderPriceRecommendations(item, analysis) {
+            if (!analysis.hasData) {
+                return `
+                    <div class="bg-yellow-50 p-6 rounded-xl border-2 border-yellow-200">
+                        <p class="text-sm text-yellow-800">
+                            💡 Enter cost data above to see pricing recommendations
+                        </p>
+                    </div>
+                `;
+            }
+            
+            const competitorPrices = item.competitorPrices || {};
+            const ebayPrice = competitorPrices.ebay || 0;
+            const amazonPrice = competitorPrices.amazon || 0;
+            const lowestCompetitor = Math.min(...[ebayPrice, amazonPrice].filter(p => p > 0));
+            
+            const recommendations = [];
+            
+            // Recommendation 1: 30% target margin
+            const targetMarginPrice = Math.ceil((analysis.totalCostCents / 0.70) / 100) * 100; // Round up to nearest dollar
+            const targetMargin = ((targetMarginPrice - analysis.totalCostCents) / targetMarginPrice) * 100;
+            const targetProfit = targetMarginPrice - analysis.totalCostCents;
+            
+            recommendations.push({
+                title: '🎯 30% Target Margin',
+                price: targetMarginPrice,
+                margin: targetMargin,
+                profit: targetProfit,
+                description: 'Industry standard retail margin'
+            });
+            
+            // Recommendation 2: Match lowest competitor
+            if (lowestCompetitor > 0) {
+                const competitorMargin = ((lowestCompetitor - analysis.totalCostCents) / lowestCompetitor) * 100;
+                const competitorProfit = lowestCompetitor - analysis.totalCostCents;
+                
+                recommendations.push({
+                    title: '🤝 Match Competitor',
+                    price: lowestCompetitor,
+                    margin: competitorMargin,
+                    profit: competitorProfit,
+                    description: 'Match the lowest competitor price'
+                });
+                
+                // Recommendation 3: Beat competitor by 5%
+                const beatCompetitorPrice = Math.floor((lowestCompetitor * 0.95) / 100) * 100;
+                const beatMargin = ((beatCompetitorPrice - analysis.totalCostCents) / beatCompetitorPrice) * 100;
+                const beatProfit = beatCompetitorPrice - analysis.totalCostCents;
+                
+                recommendations.push({
+                    title: '⚡ Beat by 5%',
+                    price: beatCompetitorPrice,
+                    margin: beatMargin,
+                    profit: beatProfit,
+                    description: 'Undercut competitor to win sales'
+                });
+            }
+            
+            const recoHtml = recommendations.map(reco => `
+                <div class="bg-white p-4 rounded-lg border-2 border-gray-200 hover:border-indigo-400 transition">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-bold text-gray-900">${reco.title}</p>
+                            <p class="text-xs text-gray-600">${reco.description}</p>
+                        </div>
+                        <p class="text-2xl font-black text-indigo-700">${formatPriceDisplay(reco.price)}</p>
+                    </div>
+                    <div class="flex justify-between text-sm mt-3 pt-3 border-t">
+                        <span class="text-gray-600">Profit: <strong class="${reco.profit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatPriceDisplay(reco.profit)}</strong></span>
+                        <span class="text-gray-600">Margin: <strong class="${reco.profit >= 0 ? 'text-green-600' : 'text-red-600'}">${reco.margin.toFixed(1)}%</strong></span>
+                    </div>
+                </div>
+            `).join('');
+            
+            return `
+                <div class="bg-indigo-50 p-6 rounded-xl border-2 border-indigo-200">
+                    <h4 class="text-lg font-bold text-indigo-800 mb-4">💡 Pricing Recommendations</h4>
+                    <div class="grid grid-cols-1 gap-3">
+                        ${recoHtml}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // ============================================================================
+        // DATA MANAGEMENT FUNCTIONS
+        // ============================================================================
+        
+        async function saveProfitData(itemId) {
+            resetTimer();
+            
+            const purchasePrice = parseFloat(document.getElementById('modal-purchase-price')?.value || 0);
+            const shippingCost = parseFloat(document.getElementById('modal-shipping-cost')?.value || 0);
+            const vendorUrl = document.getElementById('modal-vendor-url')?.value?.trim() || null;
+            const ebayPrice = parseFloat(document.getElementById('modal-ebay-price')?.value || 0);
+            const amazonPrice = parseFloat(document.getElementById('modal-amazon-price')?.value || 0);
+            
+            const purchasePriceCents = Math.round(purchasePrice * 100);
+            const avgShippingCostCents = Math.round(shippingCost * 100);
+            const competitorPrices = {};
+            
+            if (ebayPrice > 0) competitorPrices.ebay = Math.round(ebayPrice * 100);
+            if (amazonPrice > 0) competitorPrices.amazon = Math.round(amazonPrice * 100);
+            
+            try {
+                const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+                
+                await updateDoc(itemRef, {
+                    purchasePriceCents: purchasePriceCents,
+                    avgShippingCostCents: avgShippingCostCents,
+                    vendorUrl: vendorUrl,
+                    competitorPrices: competitorPrices,
+                    updatedAt: serverTimestamp()
+                });
+                
+                await logAdminAction('PROFIT_DATA_UPDATED', {
+                    itemId,
+                    purchasePriceCents,
+                    avgShippingCostCents,
+                    competitorPrices
+                }, itemId);
+                
+                showMessage('success', 'Profit data saved successfully!', 3000, 'catalog');
+                closeProfitDetailsModal();
+                
+                // Refresh the profit analysis section
+                if (state.activeTab === 'profitAnalysis') {
+                    renderAdminPage(auth.currentUser?.email || 'Admin');
+                }
+                
+            } catch (error) {
+                console.error('Error saving profit data:', error);
+                showMessage('error', `Failed to save: ${error.message}`, 5000, 'catalog');
+            }
+        }
+        
+        function closeProfitDetailsModal() {
+            const container = document.getElementById('profitAnalysisModalContainer');
+            if (container) {
+                container.innerHTML = '';
+            }
+        }
+        
+        // ============================================================================
+        // EVENT HANDLERS
+        // ============================================================================
+        
+        function handleProfitSearchInput(e) {
+            if (!state.profitAnalysis) state.profitAnalysis = {};
+            state.profitAnalysis.searchTerm = e.target.value;
+            refreshProfitAnalysis();
+            resetTimer();
+        }
+        
+        function handleMarginFilterChange(e) {
+            if (!state.profitAnalysis) state.profitAnalysis = {};
+            state.profitAnalysis.filterMargin = e.target.value;
+            refreshProfitAnalysis();
+            resetTimer();
+        }
+        
+        function handleSortChange(e) {
+            if (!state.profitAnalysis) state.profitAnalysis = {};
+            state.profitAnalysis.sortBy = e.target.value;
+            refreshProfitAnalysis();
+            resetTimer();
+        }
+        
+        function refreshProfitAnalysis() {
+            const container = document.querySelector('main');
+            if (container && state.activeTab === 'profitAnalysis') {
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+            }
+        }
+        
+        // ============================================================================
+        // CSV EXPORT
+        // ============================================================================
+        
+        function exportProfitAnalysis() {
+            resetTimer();
+            
+            const items = state.items || [];
+            
+            if (items.length === 0) {
+                showMessage('error', 'No products to export', 3000, 'catalog');
+                return;
+            }
+            
+            const headers = [
+                'Product Name',
+                'SKU',
+                'Selling Price (USD)',
+                'Purchase Cost (USD)',
+                'Avg Shipping (USD)',
+                'Total Cost (USD)',
+                'Profit per Unit (USD)',
+                'Margin %',
+                'eBay Price (USD)',
+                'Amazon Price (USD)',
+                'Vendor URL'
+            ];
+            
+            const rows = items.map(item => {
+                const analysis = calculateItemProfit(item);
+                const competitorPrices = item.competitorPrices || {};
+                
+                return [
+                    `"${(item.name || '').replace(/"/g, '""')}"`,
+                    item.sku || '',
+                    (item.price / 100).toFixed(2),
+                    (analysis.purchasePriceCents / 100).toFixed(2),
+                    (analysis.avgShippingCostCents / 100).toFixed(2),
+                    (analysis.totalCostCents / 100).toFixed(2),
+                    (analysis.profitCents / 100).toFixed(2),
+                    analysis.marginPercent.toFixed(2),
+                    competitorPrices.ebay ? (competitorPrices.ebay / 100).toFixed(2) : '',
+                    competitorPrices.amazon ? (competitorPrices.amazon / 100).toFixed(2) : '',
+                    `"${(item.vendorUrl || '').replace(/"/g, '""')}"`
+                ].join(',');
+            });
+            
+            const csvString = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const filename = `profit_analysis_${new Date().toISOString().slice(0, 10)}.csv`;
+            
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showMessage('success', `Exported ${items.length} products to ${filename}`, 5000, 'catalog');
+            } else {
+                showMessage('error', 'Browser does not support automatic download', 5000, 'catalog');
+            }
+        }
+
         
 
         // --- EXPOSE TO WINDOW ---
@@ -6085,6 +6801,16 @@
             removeAdminCartItem,
             updateAdminCartDisplay,
             updateItemSelector,
+            // Profit Analysis Functions
+            renderProfitAnalysisSection,
+            handleProfitSearchInput,
+            handleMarginFilterChange,
+            handleSortChange,
+            refreshProfitAnalysis,
+            showProfitDetailsModal,
+            closeProfitDetailsModal,
+            saveProfitData,
+            exportProfitAnalysis,
 
             // ========================================================================
             // ORDER EDITING & DRAFT CART
@@ -6097,6 +6823,7 @@
             initializeDraftCart,
             handleResendReceipt,
             syncColorInputs,
+            
 
             updateActiveFilters: function() {
                 const display = document.getElementById('activeFiltersDisplay');
