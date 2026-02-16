@@ -28,6 +28,55 @@
         button[onclick*="continueToCheckout"]:hover {
             filter: brightness(1.1);
         }
+        /* ✅ NEW: Preserve spec table formatting from Alibaba */
+        .product-description-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.875rem;
+        }
+        
+        .product-description-content table th,
+        .product-description-content table td {
+            border: 1px solid #e5e7eb;
+            padding: 0.5rem;
+            text-align: left;
+        }
+        
+        .product-description-content table th {
+            background-color: #f3f4f6;
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        .product-description-content table tr:nth-child(even) {
+            background-color: #f9fafb;
+        }
+        
+        .product-description-content table tr:hover {
+            background-color: #f3f4f6;
+        }
+        
+        /* Preserve line breaks and formatting */
+        .product-description-content {
+            white-space: pre-wrap;
+        }
+        
+        .product-description-content p {
+            margin-bottom: 0.5rem;
+        }
+        
+        .product-description-content ul,
+        .product-description-content ol {
+            margin-left: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .product-description-content li {
+            margin-bottom: 0.25rem;
+        }
+
+        
     </style>
     
     <title>AutoInx Market Portal</title>
@@ -308,16 +357,33 @@
 
         function renderItemDetailModal() {
             if (!state.selectedItem) return '';
-
+        
             const item = state.selectedItem;
             const catalog = state.catalogs.find(c => c.id === item.catalogId);
             const categoryName = catalog ? catalog.name : 'Uncategorized';
-
-            // Ensure we have an array to work with
+        
             const images = item.imageUrls && item.imageUrls.length > 0
                 ? item.imageUrls
                 : [item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing'];
-
+        
+            // ✅ NEW: Stock display logic
+            const stock = item.stock || 0;
+            let stockDisplay = '';
+            
+            if (stock === 0) {
+                stockDisplay = `<div class="inline-block bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded-lg font-bold">
+                    ❌ Out of Stock
+                </div>`;
+            } else if (stock <= 5) {
+                stockDisplay = `<div class="inline-block bg-orange-100 border border-orange-400 text-orange-700 px-4 py-2 rounded-lg font-bold">
+                    ⚠️ Only ${stock} left in stock
+                </div>`;
+            } else {
+                stockDisplay = `<div class="inline-block bg-green-100 border border-green-400 text-green-700 px-4 py-2 rounded-lg font-bold">
+                    ✅ In Stock (${stock} available)
+                </div>`;
+            }
+        
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeItemDetailModal()">
                     <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
@@ -349,20 +415,27 @@
                                 <h2 class="text-3xl font-extrabold text-indigo-700 mb-2">${item.name}</h2>
                                 <p class="text-2xl font-bold text-pink-600 mb-4">${formatPrice(item.price)}</p>
                                 
+                                <div class="mb-4">
+                                    ${stockDisplay}
+                                </div>
+                                
                                 <div class="mb-4 text-sm text-gray-500">
                                     <span class="font-semibold">${t('categoriesHeader')}:</span> ${categoryName}
                                 </div>
                                 
                                 <div class="border-t pt-4">
-                                    <h3 class="text-lg font-bold text-gray-800 mb-2">Description</h3>
-                                    <p class="text-gray-600 leading-relaxed text-sm">${item.description}</p>
+                                    <h3 class="text-lg font-bold text-gray-800 mb-2">Description & Specifications</h3>
+                                    <div class="text-gray-600 leading-relaxed text-sm product-description-content">
+                                        ${item.description || 'No description available'}
+                                    </div>
                                 </div>
         
                                 <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
                                         style="background: var(--color-add-to-cart);"
-                                        class="mt-8 w-full text-white py-4 rounded-lg font-bold hover:opacity-90 transition shadow-lg flex items-center justify-center uppercase tracking-wider">
+                                        class="mt-8 w-full text-white py-4 rounded-lg font-bold hover:opacity-90 transition shadow-lg flex items-center justify-center uppercase tracking-wider"
+                                        ${stock === 0 ? 'disabled style="background: #9ca3af !important; cursor: not-allowed;"' : ''}>
                                     <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                    ${t('addToCart')}
+                                    ${stock === 0 ? 'Out of Stock' : t('addToCart')}
                                 </button>
                             </div>
                         </div>
@@ -387,16 +460,32 @@
         }
         // function to display the product
         function renderProductCard(item) {
-            // Clean JSON for data attributes to prevent syntax breaks
             const itemJson = JSON.stringify(item).replace(/'/g, "&apos;").replace(/"/g, '&quot;');
         
             const displayImg = (item.imageUrls && item.imageUrls.length > 0)
                 ? item.imageUrls[0]
                 : (item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing');
         
+            // ✅ NEW: Stock badge logic
+            const stock = item.stock || 0;
+            let stockBadge = '';
+            let stockClass = '';
+            
+            if (stock === 0) {
+                stockBadge = `<span class="absolute top-2 left-2 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded">Out of Stock</span>`;
+                stockClass = 'opacity-60';
+            } else if (stock <= 5) {
+                stockBadge = `<span class="absolute top-2 left-2 bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded">Only ${stock} left</span>`;
+            } else if (stock <= 10) {
+                stockBadge = `<span class="absolute top-2 left-2 bg-yellow-500 text-white text-xs font-bold px-2 py-1 rounded">${stock} in stock</span>`;
+            } else {
+                stockBadge = `<span class="absolute top-2 left-2 bg-green-600 text-white text-xs font-bold px-2 py-1 rounded">In Stock (${stock})</span>`;
+            }
+        
             return `
-                <div class="bg-white rounded-xl shadow-md overflow-hidden transform hover:shadow-lg transition duration-300 border border-gray-100 flex flex-col h-full">
+                <div class="bg-white rounded-xl shadow-md overflow-hidden transform hover:shadow-lg transition duration-300 border border-gray-100 flex flex-col h-full ${stockClass}">
                     <div class="relative cursor-pointer group h-40 overflow-hidden bg-gray-50" onclick='window.module.openItemDetailModal(${itemJson})'>
+                        ${stockBadge}
                         <img src="${displayImg}" 
                              alt="${item.name}" 
                              class="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
@@ -417,14 +506,14 @@
                             <p class="text-lg text-indigo-600 font-extrabold mb-3">${formatPrice(item.price)}</p>
                         </div>
                         
-                        <!-- ✅ FIXED: Use inline style with CSS variable instead of Tailwind classes -->
                         <button onclick='window.module.addToCart(${itemJson})'
                                 style="background: var(--color-add-to-cart);"
-                                class="w-full text-white py-2 px-1 rounded-lg text-xs font-bold hover:opacity-90 transition duration-150 shadow-sm flex items-center justify-center uppercase tracking-tighter">
+                                class="w-full text-white py-2 px-1 rounded-lg text-xs font-bold hover:opacity-90 transition duration-150 shadow-sm flex items-center justify-center uppercase tracking-tighter"
+                                ${stock === 0 ? 'disabled style="background: #9ca3af !important; cursor: not-allowed;"' : ''}>
                             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
                             </svg>
-                            ${t('addToCart')}
+                            ${stock === 0 ? 'Out of Stock' : t('addToCart')}
                         </button>
                     </div>
                 </div>
@@ -1064,18 +1153,32 @@
                 showMessage('warning', t('maintenanceMsg'), 4000);
                 return;
             }
+        
+            // ✅ NEW: Check stock availability
+            const stock = item.stock || 0;
+            if (stock === 0) {
+                showMessage('error', 'This item is out of stock.', 3000);
+                return;
+            }
+        
             const currentEntry = state.cart[item.id];
-            const newQuantity = currentEntry ? currentEntry.quantity + 1 : 1;
-
-            // 1. Update local state
+            const currentQuantity = currentEntry ? currentEntry.quantity : 0;
+            
+            // ✅ NEW: Check if adding one more would exceed stock
+            if (currentQuantity >= stock) {
+                showMessage('warning', `Only ${stock} available in stock.`, 3000);
+                return;
+            }
+        
+            const newQuantity = currentQuantity + 1;
+        
             state.cart = {
                 ...state.cart,
                 [item.id]: { item, quantity: newQuantity }
             };
-
-            // 2. IMMEDIATE PERSISTENCE: Save to sessionStorage right now
+        
             sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
-
+        
             showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
             render();
         }
