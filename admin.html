@@ -247,6 +247,7 @@
             allUsers: [],
             selectedUsers: [],
             editingItem: null,
+            editingCategoryId: null,
             previewMode: false,
             adminCart: {},
 
@@ -639,6 +640,7 @@
                             </div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <!-- ✅ UPDATED: Category Management with Edit -->
                             <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-indigo-500">
                                 <h3 class="text-xl font-bold mb-4 text-indigo-700">Manage Categories</h3>
                                 
@@ -656,23 +658,64 @@
                                     </div>
                                 </form>
                                 
-                                <!-- 2-Column Grid with Hover Delete -->
+                                <!-- ✅ UPDATED: Category List with Edit -->
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 custom-scrollbar overflow-y-auto">
                                     ${state.catalogs.length === 0
-                        ? '<p class="col-span-2 text-center py-8 text-gray-400 text-sm">No categories yet</p>'
-                        : state.catalogs.map(c => `
-                                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 transition group">
-                                                <div class="flex items-center gap-2 flex-1 min-w-0">
-                                                    <span class="text-lg">🏷️</span>
-                                                    <span class="font-semibold text-gray-800 truncate text-sm">${escapeHtml(c.name)}</span>
-                                                </div>
-                                                <button onclick="window.module.handleDeleteCatalog('${c.id}', '${escapeHtml(c.name)}')" 
-                                                        class="ml-2 px-2 py-1 text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 rounded transition opacity-0 group-hover:opacity-100">
-                                                    Delete
-                                                </button>
-                                            </div>
-                                        `).join('')
-                    }
+                                        ? '<p class="col-span-2 text-center py-8 text-gray-400 text-sm">No categories yet</p>'
+                                        : state.catalogs.map(c => {
+                                            // Check if this category is being edited
+                                            const isEditing = state.editingCategoryId === c.id;
+                                            
+                                            if (isEditing) {
+                                                // Render edit form
+                                                return `
+                                                    <form onsubmit="window.module.handleEditCatalog(event, '${c.id}')" 
+                                                          class="col-span-2 p-3 bg-yellow-50 rounded-lg border-2 border-yellow-400">
+                                                        <div class="flex items-center gap-2">
+                                                            <span class="text-lg">🏷️</span>
+                                                            <input type="text" 
+                                                                   name="editCatalogName" 
+                                                                   value="${escapeAttribute(c.name)}" 
+                                                                   required 
+                                                                   autofocus
+                                                                   class="flex-1 p-2 border-2 border-yellow-500 rounded-lg text-sm font-semibold">
+                                                            <button type="submit" 
+                                                                    class="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-xs font-bold">
+                                                                ✓ Save
+                                                            </button>
+                                                            <button type="button" 
+                                                                    onclick="window.module.cancelCategoryEdit()" 
+                                                                    class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-xs font-bold">
+                                                                ✗ Cancel
+                                                            </button>
+                                                        </div>
+                                                    </form>
+                                                `;
+                                            } else {
+                                                // Render normal view
+                                                return `
+                                                    <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 transition group">
+                                                        <div class="flex items-center gap-2 flex-1 min-w-0">
+                                                            <span class="text-lg">🏷️</span>
+                                                            <span class="font-semibold text-gray-800 truncate text-sm">${escapeHtml(c.name)}</span>
+                                                        </div>
+                                                        <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                                                            <button onclick="window.module.startEditingCategory('${c.id}', '${escapeAttribute(c.name)}')" 
+                                                                    class="px-2 py-1 text-xs font-bold text-blue-600 hover:text-white hover:bg-blue-600 rounded transition"
+                                                                    title="Edit">
+                                                                ✏️
+                                                            </button>
+                                                            <button onclick="window.module.handleDeleteCatalog('${c.id}', '${escapeHtml(c.name)}')" 
+                                                                    class="px-2 py-1 text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 rounded transition"
+                                                                    title="Delete">
+                                                                🗑️
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                `;
+                                            }
+                                        }).join('')
+                                    }
                                 </div>
                                 
                                 <p class="text-xs text-gray-500 mt-3 text-center">
@@ -745,7 +788,7 @@
                 const enableTime = globalConfig.chatSchedule?.enableTime || '08:00';
                 const disableTime = globalConfig.chatSchedule?.disableTime || '20:00';
                 const activeDays = globalConfig.chatSchedule?.activeDays || [1, 2, 3, 4, 5]; // Default Mon-Fri
-
+        
                 return `
                 <section class="space-y-8">
                     <div id="configMessage"></div>
@@ -1207,7 +1250,6 @@
                 `;
             }
         }
-
 
         function getJsDate(ts) {
             if (!ts) return null;
@@ -1771,46 +1813,70 @@
             const el = document.getElementById('productListContainer');
             if (!el) return;
             const items = getFilteredItems();
+        
+            // ✅ FIXED: Only update the product grid, not the search input
+            const gridContainer = el.querySelector('#productGrid');
+            
+            if (!gridContainer) {
+                // First render - create complete structure
+                el.innerHTML = `
+                    <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${items.length} / ${state.items.length} total)</h3>
+                    <div id="productGrid" class="overflow-x-auto">
+                        ${renderProductGrid(items)}
+                    </div>
+                `;
+            } else {
+                // Subsequent renders - only update the grid
+                gridContainer.innerHTML = renderProductGrid(items);
+                
+                // Update count in header
+                const header = el.querySelector('h3');
+                if (header) {
+                    header.textContent = `Products (${items.length} / ${state.items.length} total)`;
+                }
+            }
+        }
 
-            el.innerHTML = `
-                <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${items.length} / ${state.items.length} total)</h3>
-                <div class="overflow-x-auto">
-                    <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1fr 1.5fr 1fr;">
-                        <div class="grid-header">SKU</div>
-                        <div class="grid-header">Name & Description</div>
-                        <div class="grid-header">Price</div>
-                        <div class="grid-header">Category</div>
-                        <div class="grid-header">Images</div>
-                        <div class="grid-header">Added At</div>
-                        <div class="grid-header">Actions</div>
-                        ${items.map(item => {
-                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
-
-                // Logic to handle image count display
-                const imgCount = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
-                const imgDisplay = imgCount > 0 ? `🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}` : '❌ No Image';
-
-                return `
-                                <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
-                                <div class="grid-item">
-                                    <p class="font-semibold">${item.name}</p>
-                                    <p class="text-xs text-gray-500">${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}</p>
-                                </div>
-                                <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
-                                <div class="grid-item">${cat}</div>
-                                <div class="grid-item text-xs font-semibold text-indigo-600">${imgDisplay}</div>
-                                <div class="grid-item text-xs text-gray-500">${created}</div>
-                                <div class="grid-item">
-                                  <button onclick='window.module.showEditForm(${JSON.stringify(item).replace(/'/g, "&#39;")})' 
+        // ✅ NEW: Separate function to render just the grid
+        function renderProductGrid(items) {
+            if (items.length === 0) {
+                return '<p class="text-center p-4 text-gray-500">No products found.</p>';
+            }
+            
+            return `
+                <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1fr 1.5fr 1fr;">
+                    <div class="grid-header">SKU</div>
+                    <div class="grid-header">Name & Description</div>
+                    <div class="grid-header">Price</div>
+                    <div class="grid-header">Category</div>
+                    <div class="grid-header">Images</div>
+                    <div class="grid-header">Added At</div>
+                    <div class="grid-header">Actions</div>
+                    ${items.map(item => {
+                        const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                        const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
+                        const imgCount = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
+                        const imgDisplay = imgCount > 0 ? `🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}` : '❌ No Image';
+        
+                        return `
+                            <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
+                            <div class="grid-item">
+                                <p class="font-semibold">${item.name}</p>
+                                <p class="text-xs text-gray-500">${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}</p>
+                            </div>
+                            <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
+                            <div class="grid-item">${cat}</div>
+                            <div class="grid-item text-xs font-semibold text-indigo-600">${imgDisplay}</div>
+                            <div class="grid-item text-xs text-gray-500">${created}</div>
+                            <div class="grid-item">
+                                <button onclick='window.module.showEditForm(${JSON.stringify(item).replace(/'/g, "&#39;")})' 
                                         class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
                                 <button onclick="window.module.handleDeleteProduct('${item.id}', '${escapeHtml(item.name)}')" 
                                         class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                                </div>`;
-            }).join('')}
-                    </div>
-                    ${items.length === 0 ? '<p class="text-center p-4 text-gray-500">No products found.</p>' : ''}
-                </div>`;
+                            </div>`;
+                    }).join('')}
+                </div>
+            `;
         }
 
 
@@ -2983,6 +3049,51 @@
                 showMessage('error', `Failed to add category: ${error.message}`, 5000, 'catalog');
             }
         }
+        // ✅ NEW: Edit Category Function
+        async function handleEditCatalog(e, catalogId) {
+            e.preventDefault();
+            resetTimer();
+        
+            const form = e.target;
+            const newName = form.querySelector('input[name="editCatalogName"]').value.trim();
+        
+            if (!newName) {
+                showMessage('error', 'Category name cannot be empty.', 5000, 'catalog');
+                return;
+            }
+        
+            try {
+                const catalogRef = doc(db, CATALOGS_COLLECTION, catalogId);
+                await updateDoc(catalogRef, {
+                    name: newName,
+                    updatedAt: serverTimestamp()
+                });
+        
+                await logAdminAction('CATEGORY_UPDATED', { catalogId, newName }, catalogId);
+                showMessage('success', `Category renamed to "${newName}"!`, 5000, 'catalog');
+        
+                // Exit edit mode
+                state.editingCategoryId = null;
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+        
+            } catch (error) {
+                console.error('Error updating category:', error);
+                showMessage('error', `Failed to update category: ${error.message}`, 5000, 'catalog');
+            }
+        }
+        
+        // ✅ NEW: Enter Edit Mode
+        function startEditingCategory(catalogId, currentName) {
+            state.editingCategoryId = catalogId;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+        }
+        
+        // ✅ NEW: Cancel Edit
+        function cancelCategoryEdit() {
+            state.editingCategoryId = null;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+        }
+        
 
         // Delete Category
         async function handleDeleteCatalog(id, name) {
@@ -6941,6 +7052,9 @@
             initializeDraftCart,
             handleResendReceipt,
             syncColorInputs,
+            handleEditCatalog,
+            startEditingCategory,
+            cancelCategoryEdit,
             
 
             updateActiveFilters: function() {
