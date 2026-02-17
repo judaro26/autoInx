@@ -255,6 +255,14 @@
             vendorOrders: [],
             vendorOrderFilters: { searchTerm: '', supplier: 'all', status: 'all', sortBy: 'date-desc' },
 
+            discounts: [],                      // All discount/coupon records from Firestore
+            discountSearch: '',                 // Search filter text for discounts list
+            discountStatusFilter: 'all',        // 'all' | 'active' | 'expired' | 'disabled' | 'maxed'
+            editingDiscount: null,              // Discount object currently being edited (or null)
+            appliedDiscount: null,              // Currently applied discount on the order create form
+            editingOrderDiscount: null,         // Discount applied inside the edit-order modal
+
+
             // ✅ NEW: Admin order creation shipping/tax
             adminOrderShippingCents: 0,
             adminOrderTaxCents: 0,
@@ -288,7 +296,7 @@
                 product: 'all',
                 customStartDate: null,
                 customEndDate: null
-            },        
+            },
             // --- SHIPPING SECTION ---
             shippingLabels: [],
             shippingLabelFilters: {
@@ -304,8 +312,8 @@
                 type: 'all',
                 status: 'all',
                 sortBy: 'date-desc'
-            }
-            
+            },
+
             // ✅ CRITICAL FIX: Initialize the sales time filter
             salesTimeFilter: 'last6months',
             // -------------------------
@@ -328,8 +336,6 @@
         const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection;
         const VENDOR_ORDERS_COLLECTION = 'vendor_orders';
         const SHIPPING_LABELS_COLLECTION = 'shipping_labels';
-        const PROMOTIONS_COLLECTION = 'promotions';
-        const PROMO_REDEMPTIONS_COLLECTION = 'promo_redemptions';
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -686,14 +692,14 @@
                                 <!-- ✅ UPDATED: Category List with Edit -->
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 custom-scrollbar overflow-y-auto">
                                     ${state.catalogs.length === 0
-                                        ? '<p class="col-span-2 text-center py-8 text-gray-400 text-sm">No categories yet</p>'
-                                        : state.catalogs.map(c => {
-                                            // Check if this category is being edited
-                                            const isEditing = state.editingCategoryId === c.id;
-                                            
-                                            if (isEditing) {
-                                                // Render edit form
-                                                return `
+                        ? '<p class="col-span-2 text-center py-8 text-gray-400 text-sm">No categories yet</p>'
+                        : state.catalogs.map(c => {
+                            // Check if this category is being edited
+                            const isEditing = state.editingCategoryId === c.id;
+
+                            if (isEditing) {
+                                // Render edit form
+                                return `
                                                     <form onsubmit="window.module.handleEditCatalog(event, '${c.id}')" 
                                                           class="col-span-2 p-3 bg-yellow-50 rounded-lg border-2 border-yellow-400">
                                                         <div class="flex items-center gap-2">
@@ -716,9 +722,9 @@
                                                         </div>
                                                     </form>
                                                 `;
-                                            } else {
-                                                // Render normal view
-                                                return `
+                            } else {
+                                // Render normal view
+                                return `
                                                     <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 transition group">
                                                         <div class="flex items-center gap-2 flex-1 min-w-0">
                                                             <span class="text-lg">🏷️</span>
@@ -738,9 +744,9 @@
                                                         </div>
                                                     </div>
                                                 `;
-                                            }
-                                        }).join('')
-                                    }
+                            }
+                        }).join('')
+                    }
                                 </div>
                                 
                                 <p class="text-xs text-gray-500 mt-3 text-center">
@@ -813,7 +819,7 @@
                 const enableTime = globalConfig.chatSchedule?.enableTime || '08:00';
                 const disableTime = globalConfig.chatSchedule?.disableTime || '20:00';
                 const activeDays = globalConfig.chatSchedule?.activeDays || [1, 2, 3, 4, 5]; // Default Mon-Fri
-        
+
                 return `
                 <section class="space-y-8">
                     <div id="configMessage"></div>
@@ -1040,13 +1046,15 @@
                 } else {
                     return renderOrderCreateForm();
                 }
+            } else if (state.activeTab === 'marketing') {
+                return renderMarketingTab();
             } else if (state.activeTab === 'shippingLabels') {
                 return renderShippingLabelsSection();
-            }else if (state.activeTab === 'financials') {
-                return window.module.renderFinancialsSection();    
+            } else if (state.activeTab === 'financials') {
+                return window.module.renderFinancialsSection();
             } else if (state.activeTab === 'vendorOrders') {
                 return renderVendorOrdersSection();
-            }else if (state.activeTab === 'externalOrders') {
+            } else if (state.activeTab === 'externalOrders') {
                 return `
                     <section class="space-y-8">
                         <div class="flex justify-between items-center">
@@ -1189,15 +1197,15 @@
                                                 class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white">
                                             <option value="">-- Select a product from inventory --</option>
                                             ${state.items.map(item => {
-                                                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                                                return `<option value="${item.id}" 
+                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                    return `<option value="${item.id}" 
                                                                 data-name="${escapeAttribute(item.name)}" 
                                                                 data-price="${(item.price / 100).toFixed(2)}" 
                                                                 data-sku="${escapeAttribute(item.sku || '')}"
                                                                 data-description="${escapeAttribute(item.description || '')}">
                                                     ${escapeHtml(item.name)} - ${cat} - ${formatPriceDisplay(item.price)}
                                                 </option>`;
-                                            }).join('')}
+                }).join('')}
                                             <option value="custom">✏️ Custom Product (Not in Inventory)</option>
                                         </select>
                                     </div>
@@ -1420,22 +1428,22 @@
                 }
                 return;
             }
-        
+
             try {
                 const response = await fetch(MAPS_KEY_FUNCTION_URL);
                 if (!response.ok) throw new Error('Failed to fetch Maps API key.');
                 const { apiKey } = await response.json();
-        
+
                 // ✅ Add async and defer as recommended by Google
                 const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async&callback=initGooglePlaces`;
-        
+
                 const script = document.createElement('script');
                 script.src = scriptUrl;
                 script.async = true;
                 script.defer = true;
                 script.setAttribute('data-maps-loaded', 'true');
                 document.head.appendChild(script);
-        
+
             } catch (error) {
                 console.warn('Delivery Address Validation service disabled for Admin:', error);
             }
@@ -1527,6 +1535,10 @@
             } else {
                 showMessage('error', 'Browser does not support automatic CSV download.', 5000, 'orders');
             }
+        }
+        function getDiscountsCollectionPath() {
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            return `artifacts/${appId}/public/data/discounts`;
         }
 
         function renderCategorySalesTable(salesData) {
@@ -1842,10 +1854,10 @@
             const el = document.getElementById('productListContainer');
             if (!el) return;
             const items = getFilteredItems();
-        
+
             // ✅ FIXED: Only update the product grid, not the search input
             const gridContainer = el.querySelector('#productGrid');
-            
+
             if (!gridContainer) {
                 // First render - create complete structure
                 el.innerHTML = `
@@ -1857,7 +1869,7 @@
             } else {
                 // Subsequent renders - only update the grid
                 gridContainer.innerHTML = renderProductGrid(items);
-                
+
                 // Update count in header
                 const header = el.querySelector('h3');
                 if (header) {
@@ -1871,7 +1883,7 @@
             if (items.length === 0) {
                 return '<p class="text-center p-4 text-gray-500">No products found.</p>';
             }
-            
+
             return `
                 <div class="grid gap-x-4 min-w-[850px]" style="grid-template-columns: 1fr 2fr 1fr 1fr 1fr 1.5fr 1fr;">
                     <div class="grid-header">SKU</div>
@@ -1882,12 +1894,12 @@
                     <div class="grid-header">Added At</div>
                     <div class="grid-header">Actions</div>
                     ${items.map(item => {
-                        const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                        const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
-                        const imgCount = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
-                        const imgDisplay = imgCount > 0 ? `🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}` : '❌ No Image';
-        
-                        return `
+                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
+                const imgCount = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
+                const imgDisplay = imgCount > 0 ? `🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}` : '❌ No Image';
+
+                return `
                             <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
                             <div class="grid-item">
                                 <p class="font-semibold">${item.name}</p>
@@ -1903,7 +1915,7 @@
                                 <button onclick="window.module.handleDeleteProduct('${item.id}', '${escapeHtml(item.name)}')" 
                                         class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
                             </div>`;
-                    }).join('')}
+            }).join('')}
                 </div>
             `;
         }
@@ -1975,7 +1987,7 @@
             let filteredOrders = state.orders.filter(o => o.status !== 'Cancelled');
             const now = new Date();
             let cutoffDate = null;
-        
+
             // Apply time filter
             switch (state.salesTimeFilter) {
                 case 'lastmonth':
@@ -1995,7 +2007,7 @@
                     // No cutoff
                     break;
             }
-        
+
             // Filter by cutoff date
             if (cutoffDate) {
                 filteredOrders = filteredOrders.filter(order => {
@@ -2003,7 +2015,7 @@
                     return orderDate && orderDate >= cutoffDate;
                 });
             }
-        
+
             // ✅ NEW: Apply custom date range
             if (state.salesTimeFilter === 'custom') {
                 if (state.salesFilters.customStartDate) {
@@ -2022,7 +2034,7 @@
                     });
                 }
             }
-        
+
             // ✅ NEW: Apply year filter
             if (state.salesFilters.year !== 'all') {
                 const year = parseInt(state.salesFilters.year);
@@ -2031,7 +2043,7 @@
                     return orderDate && orderDate.getFullYear() === year;
                 });
             }
-        
+
             // ✅ NEW: Apply month filter
             if (state.salesFilters.month !== 'all') {
                 const month = parseInt(state.salesFilters.month);
@@ -2040,7 +2052,7 @@
                     return orderDate && orderDate.getMonth() === month;
                 });
             }
-        
+
             // ✅ NEW: Apply category filter
             if (state.salesFilters.category !== 'all') {
                 const categoryId = state.salesFilters.category;
@@ -2053,7 +2065,7 @@
                     });
                 });
             }
-        
+
             // ✅ NEW: Apply product filter
             if (state.salesFilters.product !== 'all') {
                 const productId = state.salesFilters.product;
@@ -2065,14 +2077,14 @@
                     });
                 });
             }
-        
+
             // ✅ NEW: Apply payment status filter
             if (state.salesFilters.paymentStatus === 'paid') {
                 filteredOrders = filteredOrders.filter(order => order.isPaid || order.paymentStatus === 'Paid');
             } else if (state.salesFilters.paymentStatus === 'unpaid') {
                 filteredOrders = filteredOrders.filter(order => !order.isPaid && order.paymentStatus !== 'Paid');
             }
-        
+
             return filteredOrders;
         }
         // Located around line 430 in your current setup
@@ -2223,12 +2235,12 @@
         function renderInventorySection() {
             const el = document.getElementById('inventoryContent');
             if (!el) return '';
-        
+
             const items = state.items;
-        
+
             const inventoryListHtml = items.map(item => {
                 const currentStock = item.stock || 0;
-                
+
                 // Stock status styling
                 let stockClass = '';
                 let stockIcon = '';
@@ -2245,9 +2257,9 @@
                     stockClass = 'bg-green-100 text-green-700';
                     stockIcon = '✅';
                 }
-        
+
                 const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-        
+
                 return `
                     <div class="border-b border-gray-200 hover:bg-gray-50 transition p-4">
                         <!-- Product Info Row -->
@@ -2327,7 +2339,7 @@
                     </div>
                 `;
             }).join('');
-        
+
             el.innerHTML = `
                 <div class="space-y-2">
                     <!-- Header Row -->
@@ -2369,7 +2381,7 @@
                 <!-- Hidden Print Label Container -->
                 <div id="printLabel" style="display: none;"></div>
             `;
-            
+
             return '';
         }
 
@@ -2408,17 +2420,17 @@
                 counts[status] = (counts[status] || 0) + 1;
                 return counts;
             }, {});
-        
+
             // ✅ NEW: Generate year options dynamically from orders
             const yearOptions = generateYearOptions();
             const monthOptions = generateMonthOptions();
-            const categoryOptions = state.catalogs.map(c => 
+            const categoryOptions = state.catalogs.map(c =>
                 `<option value="${c.id}">${escapeHtml(c.name)}</option>`
             ).join('');
-            const productOptions = state.items.map(item => 
+            const productOptions = state.items.map(item =>
                 `<option value="${item.id}">${escapeHtml(item.name)}</option>`
             ).join('');
-        
+
             return `
                 <div id="ordersStatsSummary" class="grid grid-cols-3 gap-4 text-center">
                     <div class="bg-indigo-50 p-4 rounded-lg">
@@ -2574,7 +2586,7 @@
 
         function generateYearOptions() {
             if (state.orders.length === 0) return '';
-            
+
             const years = new Set();
             state.orders.forEach(order => {
                 const date = getOrderDate(order);
@@ -2582,24 +2594,24 @@
                     years.add(date.getFullYear());
                 }
             });
-            
+
             return Array.from(years)
                 .sort((a, b) => b - a) // Most recent first
                 .map(year => `<option value="${year}">${year}</option>`)
                 .join('');
         }
-        
+
         function generateMonthOptions() {
             const months = [
                 'January', 'February', 'March', 'April', 'May', 'June',
                 'July', 'August', 'September', 'October', 'November', 'December'
             ];
-            
-            return months.map((month, index) => 
+
+            return months.map((month, index) =>
                 `<option value="${index}">${month}</option>`
             ).join('');
         }
-                
+
         function getOrdersCollectionPath(targetIdOrIndicator) {
             // Get the application ID (or use default)
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -2728,7 +2740,7 @@
             });
             onSnapshot(collection(db, VENDOR_ORDERS_COLLECTION), snap => {
                 state.vendorOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                
+
                 if (state.activeTab === 'vendorOrders' && !state.previewMode) {
                     refreshVendorOrders();
                 }
@@ -2737,16 +2749,16 @@
                 showMessage('error', 'Failed to fetch vendor orders.', 5000, 'vendorOrder');
             });
             // Promotions listener
-            onSnapshot(collection(db, PROMOTIONS_COLLECTION), snap => {
-                state.promotions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            onSnapshot(collection(db, getDiscountsCollectionPath()), snap => {
+                state.discounts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 if (state.activeTab === 'marketing' && !state.previewMode) {
-                    refreshMarketing();
+                    renderDiscountsList();
+                    renderMarketingAnalytics();
                 }
             }, err => {
-                console.error("Error listening to promotions:", err);
-                showMessage('error', 'Failed to fetch promotions.', 5000, 'promotion');
+                console.error("Error listening to discounts:", err);
             });
-            
+
             // Promo redemptions listener
             onSnapshot(collection(db, PROMO_REDEMPTIONS_COLLECTION), snap => {
                 state.promoRedemptions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -2756,7 +2768,7 @@
             }, err => {
                 console.error("Error listening to promo redemptions:", err);
             });
-            
+
             // Shipping Labels listener
             onSnapshot(collection(db, SHIPPING_LABELS_COLLECTION), snap => {
                 state.shippingLabels = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -2834,7 +2846,11 @@
         }
 
         function showMessage(type, text, duration = 5000, targetTab) {
-            const id = targetTab === 'config' ? 'configMessage' : targetTab === 'orders' ? 'ordersMessage' : targetTab === 'inventory' ? 'inventoryMessage' : 'catalogMessage';
+            const id = targetTab === 'config' ? 'configMessage'
+                : targetTab === 'orders' ? 'ordersMessage'
+                    : targetTab === 'inventory' ? 'inventoryMessage'
+                        : targetTab === 'marketing' ? 'marketingMessage'
+                            : 'catalogMessage';
             const el = document.getElementById(id);
             if (!el) return;
             el.className = `mt-4 text-center text-sm font-medium ${type === 'success' ? 'text-green-600' : 'text-red-600'} ${type === 'info' ? 'text-blue-600' : ''}`;
@@ -2931,10 +2947,10 @@
             state.activeTab = tab;
             state.editingItem = null;
             state.previewMode = false;
-            
+
             renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer();            
-        
+            resetTimer();
+
             if (tab === 'externalOrders') {
                 window.module.fetchExternalOrders();
             } else if (tab === 'config') {
@@ -2948,19 +2964,24 @@
                 setTimeout(() => {
                     refreshVendorOrders();
                 }, 100);
-            }else if (tab === 'users') {
+            } else if (tab === 'users') {
                 const grid = document.getElementById('usersGrid');
                 if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove());
                 window.module.fetchUsers(null);
                 state.selectedUsers = [];
+            } else if (tab === 'marketing') {
+                setTimeout(() => {
+                    renderDiscountsList();
+                    renderMarketingAnalytics();
+                }, 100);
             } else if (tab === 'orders') {
                 state.orderPage = 'list';
                 window.module.fetchOrders();
-                
+
                 setTimeout(() => {
                     window.module.renderOrdersStats();
                 }, 100);
-                
+
                 window.module.updateAdminCartDisplay();
                 window.module.updateItemSelector();
                 if (typeof google === 'undefined' || !autocomplete) {
@@ -2972,7 +2993,7 @@
                 setTimeout(() => {
                     refreshShippingLabels();
                 }, 100);
-            }else if (tab === 'inventory') {
+            } else if (tab === 'inventory') {
                 window.module.renderInventorySection();
             } else if (tab === 'financials') {
                 setTimeout(() => {
@@ -3220,47 +3241,47 @@
         async function handleEditCatalog(e, catalogId) {
             e.preventDefault();
             resetTimer();
-        
+
             const form = e.target;
             const newName = form.querySelector('input[name="editCatalogName"]').value.trim();
-        
+
             if (!newName) {
                 showMessage('error', 'Category name cannot be empty.', 5000, 'catalog');
                 return;
             }
-        
+
             try {
                 const catalogRef = doc(db, CATALOGS_COLLECTION, catalogId);
                 await updateDoc(catalogRef, {
                     name: newName,
                     updatedAt: serverTimestamp()
                 });
-        
+
                 await logAdminAction('CATEGORY_UPDATED', { catalogId, newName }, catalogId);
                 showMessage('success', `Category renamed to "${newName}"!`, 5000, 'catalog');
-        
+
                 // Exit edit mode
                 state.editingCategoryId = null;
                 renderAdminPage(auth.currentUser?.email || 'Admin');
-        
+
             } catch (error) {
                 console.error('Error updating category:', error);
                 showMessage('error', `Failed to update category: ${error.message}`, 5000, 'catalog');
             }
         }
-        
+
         // ✅ NEW: Enter Edit Mode
         function startEditingCategory(catalogId, currentName) {
             state.editingCategoryId = catalogId;
             renderAdminPage(auth.currentUser?.email || 'Admin');
         }
-        
+
         // ✅ NEW: Cancel Edit
         function cancelCategoryEdit() {
             state.editingCategoryId = null;
             renderAdminPage(auth.currentUser?.email || 'Admin');
         }
-        
+
 
         // Delete Category
         async function handleDeleteCatalog(id, name) {
@@ -4134,9 +4155,11 @@
             try {
                 // 2. Calculate Totals - Use pre-calculated shipping/tax from state
                 const cartTotalCents = itemsToOrder.reduce((s, e) => s + e.item.price * e.quantity, 0);
+                const discountCents = state.appliedDiscount?.savedCents || 0;
+                const discountedSubtotal = Math.max(0, cartTotalCents - discountCents);
+                const finalTotalCents = discountedSubtotal + shippingCents + taxCents;
                 const shippingCents = state.adminOrderShippingCents || 0;
                 const taxCents = state.adminOrderTaxCents || 0;
-                const finalTotalCents = cartTotalCents + shippingCents + taxCents;
 
                 console.log('💰 Order Totals:', {
                     subtotal: formatPriceDisplay(cartTotalCents),
@@ -4170,6 +4193,15 @@
                     })),
                     subtotalCents: cartTotalCents,
                     shippingCents: shippingCents,
+                    discount: state.appliedDiscount ? {
+                        code: state.appliedDiscount.code,
+                        type: state.appliedDiscount.type,
+                        value: state.appliedDiscount.value,
+                        savedCents: discountCents,
+                        discountId: state.appliedDiscount.id
+                    } : null,
+                    discountCents: discountCents,
+
                     taxCents: taxCents,
                     totalCents: finalTotalCents,
                     shippingDetails: state.adminOrderShippingDetails,
@@ -4201,6 +4233,15 @@
 
                 const orderCreationResponse = await res.json();
                 const finalOrderId = orderCreationResponse.orderId || 'ADMIN_ORDER_ID';
+
+                if (state.appliedDiscount) {
+                    await recordDiscountUsage(
+                        state.appliedDiscount,
+                        finalOrderId,
+                        orderCreationResponse.orderNumber || finalOrderId.substring(0, 8),
+                        discountCents
+                    );
+                }
 
                 console.log('✅ Order created:', finalOrderId);
 
@@ -4260,6 +4301,7 @@
                 state.adminCart = {};
                 state.adminOrderShippingCents = 0;
                 state.adminOrderTaxCents = 0;
+                state.appliedDiscount = null;
                 state.adminOrderShippingDetails = null;
                 state.adminOrderTaxDetails = null;
 
@@ -5001,7 +5043,7 @@
                                                   placeholder="Internal notes about this order..."
                                                   class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-yellow-500 focus:ring-2 focus:ring-yellow-200"></textarea>
                                     </div>
-        
+                                      ${renderDiscountFieldHtml()}
                                     <!-- Submit Button -->
                                     <button type="submit" id="submitOrderButton" disabled
                                             class="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white py-5 rounded-xl font-black text-xl shadow-xl hover:from-green-700 hover:to-emerald-700 transition transform hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed">
@@ -5795,15 +5837,10 @@
                             class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
                         ${t('tabOrders')}
                     </button>
-                    <button onclick="window.module.switchAdminTab('marketing')" 
-                        class="w-full flex items-center px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                  d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                  d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/>
-                        </svg>
-                        <span class="font-medium">Marketing</span>
+
+                    <button onclick="window.module.switchAdminTab('marketing')"
+                        class="... ${state.activeTab === 'marketing' ? 'active-tab-class' : ''}">
+                       📣 Marketing
                     </button>
                     <button onclick="window.module.switchAdminTab('shippingLabels')" 
                         class="w-full flex items-center px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
@@ -5957,26 +5994,26 @@
         }
         function renderVendorOrdersSection() {
             const vendorOrders = state.vendorOrders || [];
-            
+
             // Calculate summary stats
             let totalSpent = 0;
             let totalTariffs = 0;
             let totalShipping = 0;
             let ordersThisMonth = 0;
-            
+
             const now = new Date();
             const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-            
+
             vendorOrders.forEach(order => {
                 totalSpent += order.totalCostCents || 0;
                 totalTariffs += order.tariffCostCents || 0;
                 totalShipping += order.shippingCostCents || 0;
-                
+
                 if (order.orderDate && new Date(order.orderDate) >= firstDayOfMonth) {
                     ordersThisMonth++;
                 }
             });
-            
+
             return `
                 <section class="space-y-8">
                     <div class="flex justify-between items-center">
@@ -6067,9 +6104,9 @@
                 </section>
             `;
         }
-         function renderVendorOrdersTable() {
+        function renderVendorOrdersTable() {
             const vendorOrders = getFilteredVendorOrders();
-            
+
             if (vendorOrders.length === 0) {
                 return `
                     <div class="p-8 text-center text-gray-500">
@@ -6078,7 +6115,7 @@
                     </div>
                 `;
             }
-            
+
             const rows = vendorOrders.map(order => {
                 const statusClass = {
                     'Ordered': 'bg-yellow-100 text-yellow-800',
@@ -6088,10 +6125,10 @@
                     'Delivered': 'bg-green-100 text-green-800',
                     'Cancelled': 'bg-red-100 text-red-800'
                 }[order.status] || 'bg-gray-100 text-gray-800';
-                
+
                 const itemCount = order.items?.length || 0;
                 const totalUnits = order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
-                
+
                 return `
                     <tr class="hover:bg-gray-50 transition cursor-pointer" 
                         onclick="window.module.showVendorOrderDetailsModal('${order.id}')">
@@ -6130,7 +6167,7 @@
                     </tr>
                 `;
             }).join('');
-            
+
             return `
                 <table class="w-full">
                     <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300">
@@ -6157,37 +6194,37 @@
                     </div>
                 </div>
             `;
-        }   
+        }
         function getFilteredVendorOrders() {
             let orders = state.vendorOrders || [];
-            
+
             // Apply search filter
             if (state.vendorOrderFilters?.searchTerm) {
                 const term = state.vendorOrderFilters.searchTerm.toLowerCase();
-                orders = orders.filter(order => 
+                orders = orders.filter(order =>
                     (order.orderId || '').toLowerCase().includes(term) ||
                     (order.supplier || '').toLowerCase().includes(term) ||
-                    (order.items || []).some(item => 
+                    (order.items || []).some(item =>
                         (item.productName || '').toLowerCase().includes(term) ||
                         (item.sku || '').toLowerCase().includes(term)
                     )
                 );
             }
-            
+
             // Apply supplier filter
             if (state.vendorOrderFilters?.supplier && state.vendorOrderFilters.supplier !== 'all') {
                 orders = orders.filter(order => order.supplier === state.vendorOrderFilters.supplier);
             }
-            
+
             // Apply status filter
             if (state.vendorOrderFilters?.status && state.vendorOrderFilters.status !== 'all') {
                 orders = orders.filter(order => order.status === state.vendorOrderFilters.status);
             }
-            
+
             // Apply sorting
             const sortBy = state.vendorOrderFilters?.sortBy || 'date-desc';
             orders.sort((a, b) => {
-                switch(sortBy) {
+                switch (sortBy) {
                     case 'date-desc':
                         return new Date(b.orderDate || 0) - new Date(a.orderDate || 0);
                     case 'date-asc':
@@ -6200,55 +6237,55 @@
                         return 0;
                 }
             });
-            
+
             return orders;
         }
-        
+
         function handleVendorOrderSearch(e) {
             if (!state.vendorOrderFilters) state.vendorOrderFilters = {};
             state.vendorOrderFilters.searchTerm = e.target.value;
             refreshVendorOrders();
             resetTimer();
         }
-        
+
         function handleVendorOrderSupplierFilter(e) {
             if (!state.vendorOrderFilters) state.vendorOrderFilters = {};
             state.vendorOrderFilters.supplier = e.target.value;
             refreshVendorOrders();
             resetTimer();
         }
-        
+
         function handleVendorOrderStatusFilter(e) {
             if (!state.vendorOrderFilters) state.vendorOrderFilters = {};
             state.vendorOrderFilters.status = e.target.value;
             refreshVendorOrders();
             resetTimer();
         }
-        
+
         function handleVendorOrderSort(e) {
             if (!state.vendorOrderFilters) state.vendorOrderFilters = {};
             state.vendorOrderFilters.sortBy = e.target.value;
             refreshVendorOrders();
             resetTimer();
         }
-        
+
         function refreshVendorOrders() {
             // Find the table container in the vendor orders section
             const section = document.querySelector('section');
             if (!section || state.activeTab !== 'vendorOrders') return;
-            
+
             const tableContainer = section.querySelector('.bg-white.rounded-xl.shadow-lg.overflow-hidden');
             if (tableContainer) {
                 tableContainer.innerHTML = renderVendorOrdersTable();
             }
         }
-        
+
         function showAddVendorOrderModal() {
             resetTimer();
-            
+
             const modalContainer = document.getElementById('vendorOrderModalContainer');
             if (!modalContainer) return;
-            
+
             const modalHtml = `
                 <div id="addVendorOrderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
                      onclick="if(event.target.id === 'addVendorOrderModal') window.module.closeVendorOrderModal()">
@@ -6428,25 +6465,25 @@
                     </div>
                 </div>
             `;
-            
+
             modalContainer.innerHTML = modalHtml;
             document.body.style.overflow = 'hidden';
-            
+
             // Add first product row
             addOrderItemRow();
         }
         function addOrderItemRow() {
             const container = document.getElementById('order-items-container');
             if (!container) return;
-            
+
             orderItemCounter++;
             const rowId = `order-item-${orderItemCounter}`;
-            
+
             const catalogItems = state.items || [];
-            const productOptions = catalogItems.map(item => 
+            const productOptions = catalogItems.map(item =>
                 `<option value="${item.id}" data-name="${escapeHtml(item.name)}" data-sku="${item.sku || ''}">${escapeHtml(item.name)} ${item.sku ? `(${item.sku})` : ''}</option>`
             ).join('');
-            
+
             const rowHtml = `
                 <div id="${rowId}" class="bg-white p-4 rounded-lg border-2 border-gray-300">
                     <div class="grid grid-cols-12 gap-3 items-end">
@@ -6494,32 +6531,32 @@
                     <input type="hidden" class="order-item-sku" value="">
                 </div>
             `;
-            
+
             container.insertAdjacentHTML('beforeend', rowHtml);
         }
-        
+
         function handleProductSelect(selectElement, rowId) {
             const row = document.getElementById(rowId);
             if (!row) return;
-            
+
             const selectedOption = selectElement.options[selectElement.selectedIndex];
             const productId = selectElement.value;
             const productName = selectedOption.getAttribute('data-name') || '';
             const productSku = selectedOption.getAttribute('data-sku') || '';
-            
+
             row.querySelector('.order-item-id').value = productId;
             row.querySelector('.order-item-name').value = productName;
             row.querySelector('.order-item-sku').value = productSku;
-            
+
             // Try to prefill price from catalog
             const item = state.items?.find(i => i.id === productId);
             if (item && item.purchasePriceCents) {
                 row.querySelector('.order-item-price').value = (item.purchasePriceCents / 100).toFixed(2);
             }
-            
+
             recalculateVendorOrderTotal();
         }
-        
+
         function removeOrderItemRow(rowId) {
             const row = document.getElementById(rowId);
             if (row) {
@@ -6527,31 +6564,31 @@
                 recalculateVendorOrderTotal();
             }
         }
-        
+
         function recalculateVendorOrderTotal() {
             const rows = document.querySelectorAll('[id^="order-item-"]');
             let subtotalCents = 0;
-            
+
             rows.forEach(row => {
                 const quantity = parseInt(row.querySelector('.order-item-quantity')?.value || 0);
                 const unitPrice = parseFloat(row.querySelector('.order-item-price')?.value || 0);
                 const itemTotal = quantity * unitPrice;
-                
+
                 const totalEl = row.querySelector('.order-item-total');
                 if (totalEl) {
                     totalEl.textContent = `$${itemTotal.toFixed(2)}`;
                 }
-                
+
                 subtotalCents += Math.round(itemTotal * 100);
             });
-            
+
             const tariffRate = parseFloat(document.getElementById('new-tariff-rate')?.value || 0);
             const shippingCost = parseFloat(document.getElementById('new-shipping-cost')?.value || 0);
-            
+
             const tariffCents = Math.round((subtotalCents * tariffRate) / 100);
             const shippingCents = Math.round(shippingCost * 100);
             const totalCents = subtotalCents + tariffCents + shippingCents;
-            
+
             // Update displays
             document.getElementById('order-subtotal').textContent = formatPriceDisplay(subtotalCents);
             document.getElementById('order-tariff-cost').textContent = formatPriceDisplay(tariffCents);
@@ -6559,7 +6596,7 @@
         }
         async function saveVendorOrder() {
             resetTimer();
-            
+
             const orderId = document.getElementById('new-order-id')?.value?.trim();
             const supplier = document.getElementById('new-supplier')?.value;
             const orderDate = document.getElementById('new-order-date')?.value;
@@ -6568,39 +6605,39 @@
             const tariffRate = parseFloat(document.getElementById('new-tariff-rate')?.value || 0);
             const shippingCost = parseFloat(document.getElementById('new-shipping-cost')?.value || 0);
             const notes = document.getElementById('new-order-notes')?.value?.trim() || null;
-            
+
             // Validation
             if (!orderId) {
                 showMessage('error', 'Please enter an order ID', 3000, 'vendorOrder');
                 return;
             }
-            
+
             if (!supplier) {
                 showMessage('error', 'Please select a supplier', 3000, 'vendorOrder');
                 return;
             }
-            
+
             if (!orderDate) {
                 showMessage('error', 'Please enter an order date', 3000, 'vendorOrder');
                 return;
             }
-            
+
             // Collect items
             const itemRows = document.querySelectorAll('[id^="order-item-"]');
             const items = [];
             let subtotalCents = 0;
-            
+
             itemRows.forEach(row => {
                 const productId = row.querySelector('.order-item-id')?.value;
                 const productName = row.querySelector('.order-item-name')?.value;
                 const sku = row.querySelector('.order-item-sku')?.value;
                 const quantity = parseInt(row.querySelector('.order-item-quantity')?.value || 0);
                 const unitPrice = parseFloat(row.querySelector('.order-item-price')?.value || 0);
-                
+
                 if (productId && quantity > 0 && unitPrice > 0) {
                     const unitPriceCents = Math.round(unitPrice * 100);
                     const totalPriceCents = unitPriceCents * quantity;
-                    
+
                     items.push({
                         productId,
                         productName,
@@ -6609,20 +6646,20 @@
                         unitPriceCents,
                         totalPriceCents
                     });
-                    
+
                     subtotalCents += totalPriceCents;
                 }
             });
-            
+
             if (items.length === 0) {
                 showMessage('error', 'Please add at least one product to the order', 3000, 'vendorOrder');
                 return;
             }
-            
+
             const tariffCents = Math.round((subtotalCents * tariffRate) / 100);
             const shippingCents = Math.round(shippingCost * 100);
             const totalCents = subtotalCents + tariffCents + shippingCents;
-            
+
             try {
                 const orderData = {
                     orderId,
@@ -6640,10 +6677,10 @@
                     createdAt: serverTimestamp(),
                     updatedAt: serverTimestamp()
                 };
-                
+
                 const ordersRef = collection(db, VENDOR_ORDERS_COLLECTION);
                 const docRef = await addDoc(ordersRef, orderData);
-                
+
                 await logAdminAction('VENDOR_ORDER_CREATED', {
                     vendorOrderId: docRef.id,
                     orderId,
@@ -6651,21 +6688,21 @@
                     totalCostCents,
                     itemCount: items.length
                 });
-                
+
                 showMessage('success', 'Vendor order saved successfully!', 3000, 'vendorOrder');
                 closeVendorOrderModal();
-                
+
                 // Refresh if on vendor orders tab
                 if (state.activeTab === 'vendorOrders') {
                     renderAdminPage(auth.currentUser?.email || 'Admin');
                 }
-                
+
             } catch (error) {
                 console.error('Error saving vendor order:', error);
                 showMessage('error', `Failed to save: ${error.message}`, 5000, 'vendorOrder');
             }
         }
-        
+
         function closeVendorOrderModal() {
             const modalContainer = document.getElementById('vendorOrderModalContainer');
             if (modalContainer) {
@@ -7033,7 +7070,7 @@
                 const checkInterval = setInterval(() => {
                     const element = document.getElementById(elementId);
                     attempts++;
-                    
+
                     if (element) {
                         clearInterval(checkInterval);
                         resolve(element);
@@ -7047,7 +7084,7 @@
 
         function renderProfitAnalysisSection() {
             const items = state.items || [];
-            
+
             return `
                 <section class="space-y-8">
                     <div class="flex justify-between items-center">
@@ -7110,10 +7147,10 @@
         // ============================================================================
         // SUMMARY CARDS
         // ============================================================================
-                
+
         function renderProfitSummaryCards() {
             const items = state.items || [];
-            
+
             let totalProfitNoShipping = 0;
             let totalProfitWithShipping = 0;
             let totalMarginNoShipping = 0;
@@ -7123,7 +7160,7 @@
             let highMarginCount = 0;
             let negativeMarginsCount = 0;
             let itemsWithTariffs = 0;
-            
+
             items.forEach(item => {
                 const analysis = calculateItemProfit(item);
                 if (analysis.hasData) {
@@ -7133,19 +7170,19 @@
                     totalMarginNoShipping += analysis.marginWithoutShippingPercent;
                     totalMarginWithShipping += analysis.marginWithShippingPercent;
                     totalTariffCosts += analysis.tariffCents;
-                    
+
                     if (analysis.tariffRate > 0) itemsWithTariffs++;
                     if (analysis.marginWithoutShippingPercent > 40) highMarginCount++;
                     if (analysis.marginWithoutShippingPercent < 0) negativeMarginsCount++;
                 }
             });
-            
+
             const avgProfitNoShipping = itemsWithData > 0 ? totalProfitNoShipping / itemsWithData : 0;
             const avgProfitWithShipping = itemsWithData > 0 ? totalProfitWithShipping / itemsWithData : 0;
             const avgMarginNoShipping = itemsWithData > 0 ? totalMarginNoShipping / itemsWithData : 0;
             const avgMarginWithShipping = itemsWithData > 0 ? totalMarginWithShipping / itemsWithData : 0;
             const avgTariffCost = itemsWithData > 0 ? totalTariffCosts / itemsWithData : 0;
-            
+
             return `
                 <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
                     <p class="text-sm text-green-700 font-semibold mb-1">Avg Profit (After Tariffs)</p>
@@ -7192,14 +7229,14 @@
                 </div>
             `;
         }
-        
+
         // ============================================================================
         // PRODUCTS TABLE
         // ============================================================================
-        
+
         function renderProfitAnalysisTable() {
             const filteredItems = getFilteredProfitItems();
-            
+
             if (filteredItems.length === 0) {
                 return `
                     <div class="p-8 text-center text-gray-500">
@@ -7208,28 +7245,28 @@
                     </div>
                 `;
             }
-            
+
             const rows = filteredItems.map(item => {
                 const analysis = calculateItemProfit(item);
                 const marginClass = getMarginClass(analysis.marginWithoutShippingPercent);
                 const profitClass = analysis.profitWithoutShippingCents >= 0 ? 'profit-positive' : 'profit-negative';
-                
+
                 // ✅ NEW: Tariff badge
-                const tariffBadge = analysis.tariffRate > 0 
+                const tariffBadge = analysis.tariffRate > 0
                     ? `<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
                          ${analysis.tariffRate}% tariff
                        </span>`
                     : '';
-                
+
                 return `
                     <tr class="${marginClass} hover:shadow-md transition cursor-pointer" 
                         onclick="window.module.showProfitDetailsModal('${item.id}')">
                         <td class="p-3">
                             <div class="text-sm font-semibold">${escapeHtml(item.name)}</div>
                             <div class="text-xs text-gray-600 mt-1">
-                                ${analysis.countryOfOrigin !== 'Unknown' 
-                                    ? `<span class="inline-flex items-center">🌍 ${analysis.countryOfOrigin}</span>` 
-                                    : '<span class="text-gray-400">Origin not set</span>'}
+                                ${analysis.countryOfOrigin !== 'Unknown'
+                        ? `<span class="inline-flex items-center">🌍 ${analysis.countryOfOrigin}</span>`
+                        : '<span class="text-gray-400">Origin not set</span>'}
                                 ${tariffBadge}
                             </div>
                         </td>
@@ -7241,9 +7278,9 @@
                         </td>
                         
                         <td class="p-3 text-sm">
-                            ${analysis.tariffCents > 0 
-                                ? `<span class="font-bold text-red-600">${formatPriceDisplay(analysis.tariffCents)}</span>`
-                                : '<span class="text-gray-400">-</span>'}
+                            ${analysis.tariffCents > 0
+                        ? `<span class="font-bold text-red-600">${formatPriceDisplay(analysis.tariffCents)}</span>`
+                        : '<span class="text-gray-400">-</span>'}
                         </td>
                         
                         <td class="p-3 text-sm text-gray-600">
@@ -7252,20 +7289,20 @@
                         
                         <td class="p-3 text-sm font-bold ${profitClass}">
                             ${analysis.hasData ? formatPriceDisplay(analysis.profitWithoutShippingCents) : '-'}
-                            ${analysis.tariffCents > 0 
-                                ? `<div class="text-xs text-gray-500 mt-1">
+                            ${analysis.tariffCents > 0
+                        ? `<div class="text-xs text-gray-500 mt-1">
                                      (${formatPriceDisplay(analysis.profitWithoutTariffCents)} w/o tariff)
                                    </div>`
-                                : ''}
+                        : ''}
                         </td>
                         
                         <td class="p-3 text-sm font-black ${profitClass}">
                             ${analysis.hasData ? analysis.marginWithoutShippingPercent.toFixed(1) + '%' : '-'}
-                            ${analysis.tariffCents > 0 
-                                ? `<div class="text-xs font-normal text-gray-500 mt-1">
+                            ${analysis.tariffCents > 0
+                        ? `<div class="text-xs font-normal text-gray-500 mt-1">
                                      (${analysis.marginWithoutTariffPercent.toFixed(1)}% w/o tariff)
                                    </div>`
-                                : ''}
+                        : ''}
                         </td>
                         
                         <td class="p-3 text-xs">
@@ -7280,7 +7317,7 @@
                     </tr>
                 `;
             }).join('');
-            
+
             return `
                 <table class="w-full">
                     <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300">
@@ -7318,93 +7355,93 @@
                 </div>
             `;
         }
-        
+
         // ============================================================================
         // HELPER FUNCTIONS
         // ============================================================================
-        
+
         function calculateItemProfit(item) {
             const sellingPriceCents = item.price || 0;
             const purchasePriceCents = item.purchasePriceCents || 0;
             const avgShippingCostCents = item.avgShippingCostCents || 0;
-            
+
             // ✅ NEW: Tariff calculations
             const countryOfOrigin = item.countryOfOrigin || 'Unknown';
             const tariffRate = item.tariffRate || 0; // Percentage (e.g., 25 for 25%)
             const tariffCents = Math.round((purchasePriceCents * tariffRate) / 100);
-            
+
             const hasData = purchasePriceCents > 0 || avgShippingCostCents > 0 || tariffCents > 0;
-            
+
             // Cost per unit (vendor cost + tariff)
             const costPerUnitCents = purchasePriceCents + tariffCents;
-            
+
             // Profit if customer pays shipping (most common scenario)
             const profitWithoutShippingCents = sellingPriceCents - costPerUnitCents;
-            const marginWithoutShippingPercent = sellingPriceCents > 0 
-                ? (profitWithoutShippingCents / sellingPriceCents) * 100 
+            const marginWithoutShippingPercent = sellingPriceCents > 0
+                ? (profitWithoutShippingCents / sellingPriceCents) * 100
                 : 0;
-            
+
             // Actual profit if you absorb shipping cost
             const profitWithShippingCents = sellingPriceCents - (costPerUnitCents + avgShippingCostCents);
-            const marginWithShippingPercent = sellingPriceCents > 0 
-                ? (profitWithShippingCents / sellingPriceCents) * 100 
+            const marginWithShippingPercent = sellingPriceCents > 0
+                ? (profitWithShippingCents / sellingPriceCents) * 100
                 : 0;
-            
+
             // Break-even price if you were to offer free shipping (like Amazon)
             const breakEvenWithFreeShippingCents = costPerUnitCents + avgShippingCostCents;
-            
+
             // ✅ NEW: Calculate what profit would be WITHOUT tariffs (for comparison)
             const profitWithoutTariffCents = sellingPriceCents - (purchasePriceCents + avgShippingCostCents);
             const marginWithoutTariffPercent = sellingPriceCents > 0
                 ? ((sellingPriceCents - purchasePriceCents) / sellingPriceCents) * 100
                 : 0;
-            
+
             return {
                 hasData,
                 sellingPriceCents,
                 purchasePriceCents,
                 avgShippingCostCents,
-                
+
                 // ✅ NEW: Tariff data
                 countryOfOrigin,
                 tariffRate,
                 tariffCents,
                 tariffImpactCents: tariffCents, // How much tariff adds to cost
-                
+
                 // Cost breakdown
                 costPerUnitCents,  // Vendor cost + tariff
-                
+
                 // Dual profit calculations (WITH tariffs)
                 profitWithoutShippingCents,      // When customer pays shipping
                 marginWithoutShippingPercent,    // Margin without shipping
                 profitWithShippingCents,         // If you absorb shipping
                 marginWithShippingPercent,       // Margin with shipping absorbed
-                
+
                 // ✅ NEW: Pre-tariff comparison
                 profitWithoutTariffCents,        // What profit would be without tariffs
                 marginWithoutTariffPercent,      // What margin would be without tariffs
-                
+
                 breakEvenWithFreeShippingCents,
-                
+
                 // Legacy (kept for backward compatibility)
                 totalCostCents: costPerUnitCents,
                 profitCents: profitWithoutShippingCents,
                 marginPercent: marginWithoutShippingPercent
             };
         }
-        
+
         function getMarginClass(marginPercent) {
             if (marginPercent > 40) return 'margin-excellent';
             if (marginPercent >= 20) return 'margin-good';
             if (marginPercent >= 0) return 'margin-poor';
             return 'margin-negative';
         }
-        
+
         function renderCompetitorPrices(item) {
             const competitorPrices = item.competitorPrices || {};
             const ebayPrice = competitorPrices.ebay;
             const amazonPrice = competitorPrices.amazon;
-            
+
             const badges = [];
             if (ebayPrice) {
                 badges.push(`<span class="competitor-badge ebay-badge">eBay: ${formatPriceDisplay(ebayPrice)}</span>`);
@@ -7412,28 +7449,28 @@
             if (amazonPrice) {
                 badges.push(`<span class="competitor-badge amazon-badge">Amazon: ${formatPriceDisplay(amazonPrice)}</span>`);
             }
-            
+
             return badges.length > 0 ? badges.join(' ') : '<span class="text-gray-400 text-xs">Not set</span>';
         }
-        
+
         function getFilteredProfitItems() {
             let filtered = [...state.items];
-            
+
             // Search filter
             if (state.profitAnalysis?.searchTerm) {
                 const term = state.profitAnalysis.searchTerm.toLowerCase();
-                filtered = filtered.filter(item => 
-                    item.name.toLowerCase().includes(term) || 
+                filtered = filtered.filter(item =>
+                    item.name.toLowerCase().includes(term) ||
                     (item.sku && item.sku.toLowerCase().includes(term))
                 );
             }
-            
+
             // Margin filter
             if (state.profitAnalysis?.filterMargin !== 'all') {
                 filtered = filtered.filter(item => {
                     const analysis = calculateItemProfit(item);
                     if (!analysis.hasData) return false;
-                    
+
                     switch (state.profitAnalysis.filterMargin) {
                         case 'excellent': return analysis.marginPercent > 40;
                         case 'good': return analysis.marginPercent >= 20 && analysis.marginPercent <= 40;
@@ -7443,17 +7480,17 @@
                     }
                 });
             }
-            
+
             // Sort
             const sortBy = state.profitAnalysis?.sortBy || 'margin';
             const sortDir = state.profitAnalysis?.sortDirection || 'desc';
-            
+
             filtered.sort((a, b) => {
                 const analysisA = calculateItemProfit(a);
                 const analysisB = calculateItemProfit(b);
-                
+
                 let comparison = 0;
-                
+
                 switch (sortBy) {
                     case 'margin':
                         comparison = analysisA.marginPercent - analysisB.marginPercent;
@@ -7468,35 +7505,35 @@
                         comparison = a.name.localeCompare(b.name);
                         break;
                 }
-                
+
                 return sortDir === 'desc' ? -comparison : comparison;
             });
-            
+
             return filtered;
         }
-        
+
         // ============================================================================
         // DETAILS MODAL
         // ============================================================================
         function showProfitDetailsModal(itemId) {
             resetTimer();
-            
+
             const item = state.items.find(i => i.id === itemId);
             if (!item) {
                 console.error('Item not found for profit details:', itemId);
                 return;
             }
-            
+
             const analysis = calculateItemProfit(item);
             const competitorPrices = item.competitorPrices || {};
-            
+
             // Get the modal container
             const modalContainer = document.getElementById('profitAnalysisModalContainer');
             if (!modalContainer) {
                 console.error('Modal container not found');
                 return;
             }
-            
+
             const modalHtml = `
                 <div id="profitDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
                      onclick="if(event.target.id === 'profitDetailsModal') window.module.closeProfitDetailsModal()">
@@ -7768,9 +7805,9 @@
                                         </div>
                                         ${competitorPrices.amazon ? `
                                             <p class="text-xs mt-2 ${item.price < competitorPrices.amazon ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}">
-                                                ${item.price < competitorPrices.amazon 
-                                                    ? `✅ You're ${formatPriceDisplay(competitorPrices.amazon - item.price)} cheaper` 
-                                                    : `⚠️ You're ${formatPriceDisplay(item.price - competitorPrices.amazon)} more expensive`}
+                                                ${item.price < competitorPrices.amazon
+                        ? `✅ You're ${formatPriceDisplay(competitorPrices.amazon - item.price)} cheaper`
+                        : `⚠️ You're ${formatPriceDisplay(item.price - competitorPrices.amazon)} more expensive`}
                                             </p>
                                         ` : ''}
                                     </div>
@@ -7788,9 +7825,9 @@
                                         </div>
                                         ${competitorPrices.ebay ? `
                                             <p class="text-xs mt-2 ${item.price < competitorPrices.ebay ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}">
-                                                ${item.price < competitorPrices.ebay 
-                                                    ? `✅ You're ${formatPriceDisplay(competitorPrices.ebay - item.price)} cheaper` 
-                                                    : `⚠️ You're ${formatPriceDisplay(item.price - competitorPrices.ebay)} more expensive`}
+                                                ${item.price < competitorPrices.ebay
+                        ? `✅ You're ${formatPriceDisplay(competitorPrices.ebay - item.price)} cheaper`
+                        : `⚠️ You're ${formatPriceDisplay(item.price - competitorPrices.ebay)} more expensive`}
                                             </p>
                                         ` : ''}
                                     </div>
@@ -7855,11 +7892,11 @@
                     </div>
                 </div>
             `;
-            
+
             modalContainer.innerHTML = modalHtml;
             document.body.style.overflow = 'hidden';
         }
-                
+
         function renderEnhancedPriceRecommendations(item, analysis) {
             if (!analysis.hasData) {
                 return `
@@ -7870,18 +7907,18 @@
                     </div>
                 `;
             }
-            
+
             const competitorPrices = item.competitorPrices || {};
             const amazonPrice = competitorPrices.amazon || 0;
             const ebayPrice = competitorPrices.ebay || 0;
-            
+
             const recommendations = [];
-            
+
             // Recommendation 1: Match Amazon (they have free shipping)
             if (amazonPrice > 0) {
                 const profitVsAmazon = amazonPrice - analysis.costPerUnitCents;
                 const marginVsAmazon = (profitVsAmazon / amazonPrice) * 100;
-                
+
                 recommendations.push({
                     title: '🎯 Match Amazon Price',
                     price: amazonPrice,
@@ -7891,13 +7928,13 @@
                     highlight: true
                 });
             }
-            
+
             // Recommendation 2: Beat Amazon by 5%
             if (amazonPrice > 0) {
                 const beatAmazonPrice = Math.floor((amazonPrice * 0.95) / 100) * 100;
                 const profitBeatAmazon = beatAmazonPrice - analysis.costPerUnitCents;
                 const marginBeatAmazon = (profitBeatAmazon / beatAmazonPrice) * 100;
-                
+
                 recommendations.push({
                     title: '⚡ Beat Amazon by 5%',
                     price: beatAmazonPrice,
@@ -7907,12 +7944,12 @@
                     highlight: false
                 });
             }
-            
+
             // Recommendation 3: 30% target margin (customer pays shipping)
             const targetMarginPrice = Math.ceil((analysis.costPerUnitCents / 0.70) / 100) * 100;
             const targetProfit = targetMarginPrice - analysis.costPerUnitCents;
             const targetMargin = ((targetProfit / targetMarginPrice) * 100);
-            
+
             recommendations.push({
                 title: '📊 30% Target Margin',
                 price: targetMarginPrice,
@@ -7921,11 +7958,11 @@
                 description: 'Industry standard retail margin',
                 highlight: false
             });
-            
+
             if (recommendations.length === 0) {
                 return '';
             }
-            
+
             const recoHtml = recommendations.map(reco => `
                 <div class="bg-white p-4 rounded-lg border-2 ${reco.highlight ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-gray-200'} hover:border-indigo-400 transition">
                     ${reco.highlight ? '<div class="mb-2"><span class="bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full">⭐ RECOMMENDED</span></div>' : ''}
@@ -7945,7 +7982,7 @@
                     </div>
                 </div>
             `).join('');
-            
+
             return `
                 <div class="bg-indigo-50 p-6 rounded-xl border-2 border-indigo-200">
                     <h4 class="text-lg font-bold text-indigo-800 mb-4">💡 Pricing Strategies vs Amazon</h4>
@@ -7959,17 +7996,17 @@
         // ============================================================================
         // ENHANCED CSV EXPORT
         // ============================================================================
-        
+
         function exportProfitAnalysis() {
             resetTimer();
-            
+
             const items = state.items || [];
-            
+
             if (items.length === 0) {
                 showMessage('error', 'No products to export', 3000, 'catalog');
                 return;
             }
-            
+
             const headers = [
                 'Product Name',
                 'SKU',
@@ -7990,11 +8027,11 @@
                 'eBay Price (USD)',
                 'Vendor URL'
             ];
-            
+
             const rows = items.map(item => {
                 const analysis = calculateItemProfit(item);
                 const competitorPrices = item.competitorPrices || {};
-                
+
                 return [
                     `"${(item.name || '').replace(/"/g, '""')}"`,
                     item.sku || '',
@@ -8016,12 +8053,12 @@
                     `"${(item.vendorUrl || '').replace(/"/g, '""')}"`
                 ].join(',');
             });
-            
+
             const csvString = [headers.join(','), ...rows].join('\n');
             const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             const filename = `profit_analysis_with_tariffs_${new Date().toISOString().slice(0, 10)}.csv`;
-            
+
             if (link.download !== undefined) {
                 const url = URL.createObjectURL(blob);
                 link.setAttribute('href', url);
@@ -8035,34 +8072,34 @@
                 showMessage('error', 'Browser does not support automatic download', 5000, 'catalog');
             }
         }
-        
+
         // ============================================================================
         // DATA MANAGEMENT FUNCTIONS
         // ============================================================================
-        
-         async function saveProfitData(itemId) {
+
+        async function saveProfitData(itemId) {
             resetTimer();
-            
+
             const purchasePrice = parseFloat(document.getElementById('modal-purchase-price')?.value || 0);
             const shippingCost = parseFloat(document.getElementById('modal-shipping-cost')?.value || 0);
             const vendorUrl = document.getElementById('modal-vendor-url')?.value?.trim() || null;
             const ebayPrice = parseFloat(document.getElementById('modal-ebay-price')?.value || 0);
             const amazonPrice = parseFloat(document.getElementById('modal-amazon-price')?.value || 0);
-            
+
             // Get tariff data
             const countryOfOrigin = document.getElementById('modal-country-origin')?.value || 'Unknown';
             const tariffRate = parseFloat(document.getElementById('modal-tariff-rate')?.value || 0);
-            
+
             const purchasePriceCents = Math.round(purchasePrice * 100);
             const avgShippingCostCents = Math.round(shippingCost * 100);
             const competitorPrices = {};
-            
+
             if (ebayPrice > 0) competitorPrices.ebay = Math.round(ebayPrice * 100);
             if (amazonPrice > 0) competitorPrices.amazon = Math.round(amazonPrice * 100);
-            
+
             try {
                 const itemRef = doc(db, ITEMS_COLLECTION, itemId);
-                
+
                 await updateDoc(itemRef, {
                     purchasePriceCents: purchasePriceCents,
                     avgShippingCostCents: avgShippingCostCents,
@@ -8072,7 +8109,7 @@
                     tariffRate: tariffRate,
                     updatedAt: serverTimestamp()
                 });
-                
+
                 await logAdminAction('PROFIT_DATA_UPDATED', {
                     itemId,
                     purchasePriceCents,
@@ -8081,64 +8118,64 @@
                     countryOfOrigin,
                     tariffRate
                 }, itemId);
-                
+
                 showMessage('success', 'Profit data saved successfully!', 3000, 'catalog');
                 closeProfitDetailsModal();
-                
+
                 // Refresh the profit analysis section
                 if (state.activeTab === 'profitAnalysis') {
                     renderAdminPage(auth.currentUser?.email || 'Admin');
                 }
-                
+
             } catch (error) {
                 console.error('Error saving profit data:', error);
                 showMessage('error', `Failed to save: ${error.message}`, 5000, 'catalog');
-                
+
                 // ✅ FIX: Restore scrolling even if save fails
                 document.body.style.overflow = 'auto';
             }
         }
-        
+
         function closeProfitDetailsModal() {
             const modalContainer = document.getElementById('profitAnalysisModalContainer');
             if (modalContainer) {
                 modalContainer.innerHTML = '';
             }
-            
+
             // ✅ FIX: Restore scrolling
             document.body.style.overflow = 'auto';
-            
+
             resetTimer();
         }
-        
+
         // ============================================================================
         // EVENT HANDLERS
         // ============================================================================
-        
+
         function handleProfitSearchInput(e) {
             if (!state.profitAnalysis) state.profitAnalysis = {};
             state.profitAnalysis.searchTerm = e.target.value;
-            
+
             // Clear existing timer
             if (profitSearchDebounceTimer) {
                 clearTimeout(profitSearchDebounceTimer);
             }
-            
+
             // Set new timer to update after 300ms of no typing
             profitSearchDebounceTimer = setTimeout(() => {
                 refreshProfitAnalysis();
             }, 300);
-            
+
             resetTimer();
         }
-        
+
         function handleMarginFilterChange(e) {
             if (!state.profitAnalysis) state.profitAnalysis = {};
             state.profitAnalysis.filterMargin = e.target.value;
             refreshProfitAnalysis();
             resetTimer();
         }
-        
+
         function handleSortChange(e) {
             if (!state.profitAnalysis) state.profitAnalysis = {};
             state.profitAnalysis.sortBy = e.target.value;
@@ -8151,25 +8188,25 @@
                 showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
                 return;
             }
-        
+
             const formatCurrency = (val) => `$${parseFloat(val || 0).toFixed(2)}`;
             const formatDate = (val) => {
                 if (!val) return 'N/A';
                 if (val.toDate) return val.toDate().toLocaleDateString();
                 return new Date(val).toLocaleDateString();
             };
-        
+
             const landedCost = (parseFloat(order.orderCost || 0) + parseFloat(order.shippingCost || 0) + parseFloat(order.tariffs || 0));
-        
+
             const statusColors = {
-                pending:    'bg-yellow-100 text-yellow-800',
-                ordered:    'bg-blue-100 text-blue-800',
-                shipped:    'bg-purple-100 text-purple-800',
-                delivered:  'bg-green-100 text-green-800',
-                cancelled:  'bg-red-100 text-red-800'
+                pending: 'bg-yellow-100 text-yellow-800',
+                ordered: 'bg-blue-100 text-blue-800',
+                shipped: 'bg-purple-100 text-purple-800',
+                delivered: 'bg-green-100 text-green-800',
+                cancelled: 'bg-red-100 text-red-800'
             };
             const statusClass = statusColors[order.status?.toLowerCase()] || 'bg-gray-100 text-gray-800';
-        
+
             const itemsHTML = (order.items && order.items.length > 0)
                 ? `
                 <table class="w-full text-sm">
@@ -8193,7 +8230,7 @@
                     </tbody>
                 </table>`
                 : `<p class="text-gray-500 text-sm text-center py-4">No items listed for this order.</p>`;
-        
+
             const modalHTML = `
             <div id="vendorOrderDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                 <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -8290,24 +8327,24 @@
         
                 </div>
             </div>`;
-        
+
             // Remove any existing modal first
             const existing = document.getElementById('vendorOrderDetailsModal');
             if (existing) existing.remove();
-        
+
             document.body.insertAdjacentHTML('beforeend', modalHTML);
         }
-        
-        
+
+
         function refreshProfitAnalysis() {
             // Only update the parts that need updating, not the entire page
             const tableContainer = document.querySelector('#profitAnalysisTable');
             const summaryContainer = document.querySelector('#profitSummaryCards');
-            
+
             if (tableContainer) {
                 tableContainer.innerHTML = renderProfitAnalysisTable();
             }
-            
+
             if (summaryContainer) {
                 summaryContainer.innerHTML = renderProfitSummaryCards();
             }
@@ -8321,7 +8358,7 @@
         // ============================================
         // SHIPPING LABELS SECTION
         // ============================================
-        
+
         function renderShippingLabelsSection() {
             return `
             <div class="space-y-6">
@@ -8388,7 +8425,7 @@
 
         function renderShippingLabelsTable() {
             const labels = getFilteredShippingLabels();
-            
+
             if (labels.length === 0) {
                 return `
                 <div class="text-center py-16">
@@ -8400,7 +8437,7 @@
                     <p class="text-gray-400 text-sm mt-2">Create your first label to get started</p>
                 </div>`;
             }
-        
+
             return `
             <div class="overflow-x-auto">
                 <table class="w-full">
@@ -8492,7 +8529,7 @@
                 </table>
             </div>`;
         }
-        
+
         function renderLabelStatus(status) {
             const statusMap = {
                 created: { label: 'Created', class: 'bg-blue-100 text-blue-800' },
@@ -8500,15 +8537,15 @@
                 delivered: { label: 'Delivered', class: 'bg-green-100 text-green-800' },
                 exception: { label: 'Exception', class: 'bg-red-100 text-red-800' }
             };
-            
+
             const statusInfo = statusMap[status] || { label: status || 'Unknown', class: 'bg-gray-100 text-gray-800' };
-            
+
             return `<span class="px-3 py-1 rounded-full text-xs font-semibold ${statusInfo.class}">${statusInfo.label}</span>`;
         }
-        
+
         function getFilteredShippingLabels() {
             let filtered = [...state.shippingLabels];
-            
+
             // Search filter
             if (state.shippingLabelFilters.searchTerm) {
                 const term = state.shippingLabelFilters.searchTerm.toLowerCase();
@@ -8518,17 +8555,17 @@
                     (label.addressTo?.name && label.addressTo.name.toLowerCase().includes(term))
                 );
             }
-            
+
             // Carrier filter
             if (state.shippingLabelFilters.carrier !== 'all') {
                 filtered = filtered.filter(label => label.carrier === state.shippingLabelFilters.carrier);
             }
-            
+
             // Status filter
             if (state.shippingLabelFilters.status !== 'all') {
                 filtered = filtered.filter(label => label.status === state.shippingLabelFilters.status);
             }
-            
+
             // Sort
             filtered.sort((a, b) => {
                 switch (state.shippingLabelFilters.sortBy) {
@@ -8544,19 +8581,19 @@
                         return 0;
                 }
             });
-            
+
             return filtered;
         }
-        
+
         function updateShippingLabelFilter(filterName, value) {
             state.shippingLabelFilters[filterName] = value;
             refreshShippingLabels();
         }
-        
+
         function refreshShippingLabels() {
             const section = document.querySelector('section');
             if (!section || state.activeTab !== 'shippingLabels') return;
-            
+
             const tableContainer = section.querySelector('.bg-white.rounded-xl.shadow-lg.overflow-hidden');
             if (tableContainer) {
                 tableContainer.innerHTML = renderShippingLabelsTable();
@@ -8565,7 +8602,7 @@
         // ============================================
         // SHIPPING LABEL MODALS
         // ============================================
-        
+
         function showCreateLabelModal(orderId = null) {
             let order = null;
             let prefilledAddress = {
@@ -8578,7 +8615,7 @@
                 country: 'US',
                 phone: ''
             };
-            
+
             // If creating from an order, prefill address
             if (orderId) {
                 order = state.orders.find(o => o.id === orderId);
@@ -8595,7 +8632,7 @@
                     };
                 }
             }
-        
+
             const modalHTML = `
             <div id="createLabelModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                 <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -8714,10 +8751,10 @@
         
                 </div>
             </div>`;
-        
+
             const existing = document.getElementById('createLabelModal');
             if (existing) existing.remove();
-        
+
             document.body.insertAdjacentHTML('beforeend', modalHTML);
         }
 
@@ -8727,10 +8764,10 @@
                 form.reportValidity();
                 return;
             }
-        
+
             const formData = new FormData(form);
             const data = Object.fromEntries(formData.entries());
-        
+
             // Show loading state
             const modal = document.getElementById('createLabelModal');
             const footer = modal.querySelector('.bg-gray-50');
@@ -8742,7 +8779,7 @@
                     </svg>
                     <span>Calculating rates...</span>
                 </div>`;
-        
+
             try {
                 // Call your Netlify function
                 const response = await fetch('/.netlify/functions/calculateShipping', {
@@ -8769,21 +8806,21 @@
                         }]
                     })
                 });
-        
+
                 const result = await response.json();
-        
+
                 if (!response.ok || !result.success) {
                     throw new Error(result.error || 'Failed to calculate rates');
                 }
-        
+
                 // Close the create modal and show rate selection
                 document.getElementById('createLabelModal').remove();
                 showRateSelectionModal(result.allRates, result.shipmentId, data);
-        
+
             } catch (error) {
                 console.error('Rate calculation error:', error);
                 showMessage('error', error.message || 'Failed to calculate shipping rates', 5000, 'shippingLabel');
-                
+
                 // Restore footer
                 footer.innerHTML = `
                     <div class="flex justify-end gap-3 px-6 py-4">
@@ -8798,7 +8835,7 @@
                     </div>`;
             }
         }
-        
+
         function showRateSelectionModal(rates, shipmentId, addressData) {
             const modalHTML = `
             <div id="rateSelectionModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -8861,16 +8898,16 @@
         
                 </div>
             </div>`;
-        
+
             const existing = document.getElementById('rateSelectionModal');
             if (existing) existing.remove();
-        
+
             document.body.insertAdjacentHTML('beforeend', modalHTML);
         }
-        
+
         async function selectRate(rateId, cost, carrier, servicelevel, orderId, addressData) {
             const modal = document.getElementById('rateSelectionModal');
-            
+
             // Show loading
             modal.innerHTML = `
                 <div class="flex items-center justify-center p-16">
@@ -8883,7 +8920,7 @@
                         <p class="text-sm text-gray-500 mt-2">This may take a moment</p>
                     </div>
                 </div>`;
-        
+
             try {
                 // Call your Netlify function to purchase the label
                 const response = await fetch('/.netlify/functions/generateShippingLabel', {
@@ -8894,13 +8931,13 @@
                         orderId: orderId || null
                     })
                 });
-        
+
                 const result = await response.json();
-        
+
                 if (!response.ok || !result.success) {
                     throw new Error(result.error || 'Failed to generate label');
                 }
-        
+
                 // Save to Firestore
                 await addDoc(collection(db, SHIPPING_LABELS_COLLECTION), {
                     trackingNumber: result.trackingNumber,
@@ -8931,36 +8968,36 @@
                     },
                     createdAt: serverTimestamp()
                 });
-        
+
                 // Close modal
                 modal.remove();
-        
+
                 // Show success message
                 showMessage('success', `Label created! Tracking: ${result.trackingNumber}`, 5000, 'shippingLabel');
-        
+
                 // Refresh the labels table
                 refreshShippingLabels();
-        
+
             } catch (error) {
                 console.error('Label purchase error:', error);
                 modal.remove();
                 showMessage('error', error.message || 'Failed to purchase label', 5000, 'shippingLabel');
             }
         }
-        
+
         function showLabelDetailsModal(labelId) {
             const label = state.shippingLabels.find(l => l.id === labelId);
             if (!label) {
                 showMessage('error', 'Label not found', 3000, 'shippingLabel');
                 return;
             }
-        
+
             const formatDate = (val) => {
                 if (!val) return 'N/A';
                 if (val.toDate) return val.toDate().toLocaleString();
                 return new Date(val).toLocaleString();
             };
-        
+
             const modalHTML = `
             <div id="labelDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                 <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -9083,402 +9120,897 @@
         
                 </div>
             </div>`;
-        
+
             const existing = document.getElementById('labelDetailsModal');
             if (existing) existing.remove();
-        
+
             document.body.insertAdjacentHTML('beforeend', modalHTML);
         }
-        // ============================================
-        // MARKETING & PROMOTIONS SECTION
-        // ============================================
-        
-        function renderMarketingSection() {
-            const stats = calculatePromoStats();
-            
-            return `
-            <div class="space-y-6">
-                <!-- Header -->
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="text-3xl font-bold text-gray-800">Marketing & Promotions</h1>
-                        <p class="text-gray-600 mt-1">Manage campaigns, promo codes, and discounts</p>
-                    </div>
-                    <button onclick="window.module.showCreatePromoModal()"
-                        class="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all flex items-center gap-2 shadow-lg">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                        Create Campaign
-                    </button>
-                </div>
-        
-                <!-- Stats Overview -->
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-green-100 text-sm font-medium">Active Campaigns</p>
-                                <p class="text-3xl font-bold mt-2">${stats.activeCampaigns}</p>
-                            </div>
-                            <svg class="w-12 h-12 opacity-20" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
-                            </svg>
-                        </div>
-                    </div>
-        
-                    <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-blue-100 text-sm font-medium">Total Redemptions</p>
-                                <p class="text-3xl font-bold mt-2">${stats.totalRedemptions}</p>
-                            </div>
-                            <svg class="w-12 h-12 opacity-20" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clip-rule="evenodd"/>
-                            </svg>
-                        </div>
-                    </div>
-        
-                    <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-purple-100 text-sm font-medium">Revenue Impact</p>
-                                <p class="text-3xl font-bold mt-2">$${stats.revenueImpact.toFixed(0)}</p>
-                            </div>
-                            <svg class="w-12 h-12 opacity-20" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clip-rule="evenodd"/>
-                            </svg>
-                        </div>
-                    </div>
-        
-                    <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white shadow-lg">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-orange-100 text-sm font-medium">Avg Discount</p>
-                                <p class="text-3xl font-bold mt-2">${stats.avgDiscount}%</p>
-                            </div>
-                            <svg class="w-12 h-12 opacity-20" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd"/>
-                            </svg>
-                        </div>
-                    </div>
-                </div>
-        
-                <!-- Filters -->
-                <div class="bg-white rounded-xl shadow-lg p-4">
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <!-- Search -->
-                        <input type="text" 
-                            placeholder="Search campaigns or codes..." 
-                            value="${state.promotionFilters.searchTerm}"
-                            oninput="window.module.updatePromotionFilter('searchTerm', this.value)"
-                            class="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
-                        
-                        <!-- Type Filter -->
-                        <select onchange="window.module.updatePromotionFilter('type', this.value)"
-                            class="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500">
-                            <option value="all" ${state.promotionFilters.type === 'all' ? 'selected' : ''}>All Types</option>
-                            <option value="percentage" ${state.promotionFilters.type === 'percentage' ? 'selected' : ''}>Percentage Off</option>
-                            <option value="fixed" ${state.promotionFilters.type === 'fixed' ? 'selected' : ''}>Fixed Amount</option>
-                            <option value="free_shipping" ${state.promotionFilters.type === 'free_shipping' ? 'selected' : ''}>Free Shipping</option>
-                            <option value="bogo" ${state.promotionFilters.type === 'bogo' ? 'selected' : ''}>BOGO</option>
-                        </select>
-        
-                        <!-- Status Filter -->
-                        <select onchange="window.module.updatePromotionFilter('status', this.value)"
-                            class="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500">
-                            <option value="all" ${state.promotionFilters.status === 'all' ? 'selected' : ''}>All Status</option>
-                            <option value="active" ${state.promotionFilters.status === 'active' ? 'selected' : ''}>Active</option>
-                            <option value="scheduled" ${state.promotionFilters.status === 'scheduled' ? 'selected' : ''}>Scheduled</option>
-                            <option value="paused" ${state.promotionFilters.status === 'paused' ? 'selected' : ''}>Paused</option>
-                            <option value="expired" ${state.promotionFilters.status === 'expired' ? 'selected' : ''}>Expired</option>
-                        </select>
-        
-                        <!-- Sort -->
-                        <select onchange="window.module.updatePromotionFilter('sortBy', this.value)"
-                            class="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500">
-                            <option value="date-desc">Newest First</option>
-                            <option value="date-asc">Oldest First</option>
-                            <option value="usage-desc">Most Used</option>
-                            <option value="usage-asc">Least Used</option>
-                        </select>
-                    </div>
-                </div>
-        
-                <!-- Campaigns Table -->
-                <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-                    ${renderPromotionsTable()}
-                </div>
-            </div>`;
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // DISCOUNT CRUD OPERATIONS
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        async function fetchDiscounts() {
+            try {
+                const colRef = collection(db, getDiscountsCollectionPath());
+                const snap = await getDocs(query(colRef, orderBy('createdAt', 'desc')));
+                state.discounts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderDiscountsList();
+                renderMarketingAnalytics();
+            } catch (error) {
+                console.error('Error fetching discounts:', error);
+                showMessage('error', 'Failed to load discounts.', 5000, 'marketing');
+            }
         }
-        
-        function calculatePromoStats() {
-            const now = new Date();
-            const activeCampaigns = state.promotions.filter(p => {
-                const start = p.startDate?.toDate ? p.startDate.toDate() : new Date(p.startDate);
-                const end = p.endDate?.toDate ? p.endDate.toDate() : new Date(p.endDate);
-                return p.status === 'active' && start <= now && end >= now;
-            }).length;
-        
-            const totalRedemptions = state.promoRedemptions.length;
-            
-            const revenueImpact = state.promoRedemptions.reduce((sum, r) => sum + (r.discountAmount || 0), 0);
-            
-            const percentagePromos = state.promotions.filter(p => p.type === 'percentage');
-            const avgDiscount = percentagePromos.length > 0
-                ? percentagePromos.reduce((sum, p) => sum + (p.value || 0), 0) / percentagePromos.length
-                : 0;
-        
+
+        async function handleCreateDiscount(e) {
+            e.preventDefault();
+            resetTimer();
+
+            const form = e.target;
+            const code = form.discountCode.value.trim().toUpperCase();
+            const type = form.discountType.value;
+            const value = parseFloat(form.discountValue.value) || 0;
+            const minOrderCents = Math.round((parseFloat(form.minOrder.value) || 0) * 100);
+            const maxUses = parseInt(form.maxUses.value, 10) || 0;
+            const expiresAt = form.expiresAt.value ? new Date(form.expiresAt.value) : null;
+            const description = form.discountDescription.value.trim();
+            const appliesToCategory = form.appliesToCategory.value || 'all';
+            const appliesToProduct = form.appliesToProduct.value || 'all';
+            const maxDiscountCents = Math.round((parseFloat(form.maxDiscountAmount.value) || 0) * 100);
+
+            // --- Validation ---
+            if (!code) {
+                showMessage('error', 'Discount code is required.', 3000, 'marketing');
+                return;
+            }
+            if (type === 'percentage' && (value <= 0 || value > 100)) {
+                showMessage('error', 'Percentage must be between 1 and 100.', 3000, 'marketing');
+                return;
+            }
+            if (type === 'fixed' && value <= 0) {
+                showMessage('error', 'Fixed discount amount must be greater than 0.', 3000, 'marketing');
+                return;
+            }
+
+            // Check for duplicate code
+            const duplicate = state.discounts.find(d => d.code === code && d.id !== state.editingDiscount?.id);
+            if (duplicate) {
+                showMessage('error', `Discount code "${code}" already exists.`, 3000, 'marketing');
+                return;
+            }
+
+            const discountData = {
+                code,
+                type,
+                value,
+                valueCents: type === 'fixed' ? Math.round(value * 100) : 0,
+                minOrderCents,
+                maxUses,
+                maxDiscountCents,
+                expiresAt: expiresAt ? expiresAt.toISOString() : null,
+                description,
+                appliesToCategory,
+                appliesToProduct,
+                enabled: true,
+                updatedAt: new Date().toISOString(),
+            };
+
+            try {
+                if (state.editingDiscount) {
+                    const docRef = doc(db, getDiscountsCollectionPath(), state.editingDiscount.id);
+                    await updateDoc(docRef, {
+                        ...discountData,
+                        currentUses: state.editingDiscount.currentUses || 0,
+                        usageLog: state.editingDiscount.usageLog || [],
+                        createdAt: state.editingDiscount.createdAt,
+                    });
+                    showMessage('success', `Discount "${code}" updated successfully.`, 3000, 'marketing');
+                    logAdminAction('DISCOUNT_UPDATED', { code, type, value });
+                } else {
+                    discountData.currentUses = 0;
+                    discountData.usageLog = [];
+                    discountData.createdAt = new Date().toISOString();
+                    await addDoc(collection(db, getDiscountsCollectionPath()), discountData);
+                    showMessage('success', `Discount "${code}" created successfully.`, 3000, 'marketing');
+                    logAdminAction('DISCOUNT_CREATED', { code, type, value });
+                }
+
+                state.editingDiscount = null;
+                form.reset();
+                await fetchDiscounts();
+            } catch (error) {
+                console.error('Error saving discount:', error);
+                showMessage('error', `Failed to save discount: ${error.message}`, 5000, 'marketing');
+            }
+        }
+
+        async function handleDeleteDiscount(discountId, code) {
+            if (!confirm(`Are you sure you want to delete discount "${code}"? This cannot be undone.`)) return;
+            resetTimer();
+
+            try {
+                await deleteDoc(doc(db, getDiscountsCollectionPath(), discountId));
+                showMessage('success', `Discount "${code}" deleted.`, 3000, 'marketing');
+                logAdminAction('DISCOUNT_DELETED', { code, discountId });
+                await fetchDiscounts();
+            } catch (error) {
+                console.error('Error deleting discount:', error);
+                showMessage('error', `Failed to delete discount: ${error.message}`, 5000, 'marketing');
+            }
+        }
+
+        async function toggleDiscountEnabled(discountId, currentEnabled) {
+            resetTimer();
+            try {
+                const docRef = doc(db, getDiscountsCollectionPath(), discountId);
+                await updateDoc(docRef, {
+                    enabled: !currentEnabled,
+                    updatedAt: new Date().toISOString()
+                });
+                showMessage('success', `Discount ${!currentEnabled ? 'enabled' : 'disabled'}.`, 2000, 'marketing');
+                logAdminAction('DISCOUNT_TOGGLED', { discountId, enabled: !currentEnabled });
+            } catch (error) {
+                console.error('Error toggling discount:', error);
+                showMessage('error', `Failed to update discount: ${error.message}`, 3000, 'marketing');
+            }
+        }
+
+        function startEditDiscount(discountId) {
+            const discount = state.discounts.find(d => d.id === discountId);
+            if (!discount) return;
+            state.editingDiscount = discount;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            setTimeout(() => {
+                document.getElementById('discountFormSection')?.scrollIntoView({ behavior: 'smooth' });
+            }, 150);
+        }
+
+        function cancelDiscountEdit() {
+            state.editingDiscount = null;
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+        }
+
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // DISCOUNT VALIDATION & APPLICATION
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        function validateDiscount(code, cartItems, orderTotalCents) {
+            if (!code) return { valid: false, discount: null, message: 'No code entered.', savedCents: 0 };
+
+            const discount = state.discounts.find(d => d.code === code.toUpperCase() && d.enabled);
+            if (!discount) {
+                return { valid: false, discount: null, message: 'Invalid or inactive discount code.', savedCents: 0 };
+            }
+
+            if (discount.expiresAt && new Date(discount.expiresAt) < new Date()) {
+                return { valid: false, discount, message: 'This discount code has expired.', savedCents: 0 };
+            }
+
+            if (discount.maxUses > 0 && (discount.currentUses || 0) >= discount.maxUses) {
+                return { valid: false, discount, message: 'This discount code has reached its usage limit.', savedCents: 0 };
+            }
+
+            if (discount.minOrderCents > 0 && orderTotalCents < discount.minOrderCents) {
+                const minDollars = (discount.minOrderCents / 100).toFixed(2);
+                return { valid: false, discount, message: `Minimum order of $${minDollars} required.`, savedCents: 0 };
+            }
+
+            if (discount.appliesToCategory && discount.appliesToCategory !== 'all') {
+                const hasMatch = cartItems.some(entry => {
+                    const item = entry.item || state.items.find(i => i.id === (entry.id || entry.item?.id));
+                    return item && item.catalogId === discount.appliesToCategory;
+                });
+                if (!hasMatch) {
+                    const catName = state.catalogs.find(c => c.id === discount.appliesToCategory)?.name || 'the required category';
+                    return { valid: false, discount, message: `This code only applies to "${catName}" products.`, savedCents: 0 };
+                }
+            }
+
+            if (discount.appliesToProduct && discount.appliesToProduct !== 'all') {
+                const hasProduct = cartItems.some(entry => {
+                    const itemId = entry.item?.id || entry.id;
+                    return itemId === discount.appliesToProduct;
+                });
+                if (!hasProduct) {
+                    return { valid: false, discount, message: 'This code does not apply to items in this order.', savedCents: 0 };
+                }
+            }
+
+            let savedCents = 0;
+            if (discount.type === 'percentage') {
+                savedCents = Math.round(orderTotalCents * (discount.value / 100));
+                if (discount.maxDiscountCents > 0 && savedCents > discount.maxDiscountCents) {
+                    savedCents = discount.maxDiscountCents;
+                }
+            } else if (discount.type === 'fixed') {
+                savedCents = discount.valueCents || Math.round(discount.value * 100);
+                if (savedCents > orderTotalCents) savedCents = orderTotalCents;
+            } else if (discount.type === 'freeShipping') {
+                savedCents = 0;
+            }
+
             return {
-                activeCampaigns,
-                totalRedemptions,
-                revenueImpact,
-                avgDiscount: avgDiscount.toFixed(1)
+                valid: true,
+                discount,
+                message: `✅ Code "${discount.code}" applied! ${getDiscountSummaryText(discount, savedCents)}`,
+                savedCents
             };
         }
-        
-        function renderPromotionsTable() {
-            const promos = getFilteredPromotions();
-            
-            if (promos.length === 0) {
-                return `
-                <div class="text-center py-16">
-                    <svg class="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                              d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/>
-                    </svg>
-                    <p class="text-gray-500 text-lg">No campaigns found</p>
-                    <p class="text-gray-400 text-sm mt-2">Create your first promotional campaign</p>
-                </div>`;
+
+        function getDiscountSummaryText(discount, savedCents) {
+            if (discount.type === 'percentage') return `${discount.value}% off (saves ${formatPriceDisplay(savedCents)})`;
+            if (discount.type === 'fixed') return `${formatPriceDisplay(savedCents)} off`;
+            if (discount.type === 'freeShipping') return 'Free shipping applied!';
+            return '';
+        }
+
+        function handleApplyDiscountToOrder() {
+            resetTimer();
+            const codeInput = document.getElementById('orderDiscountCode');
+            const code = codeInput?.value?.trim();
+
+            if (!code) {
+                showMessage('error', 'Please enter a discount code.', 2000, 'orders');
+                return;
             }
-        
-            return `
-            <div class="overflow-x-auto">
-                <table class="w-full">
-                    <thead class="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Campaign</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Code</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Type</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Discount</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Usage</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Duration</th>
-                            <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        ${promos.map(promo => {
-                            const redemptions = state.promoRedemptions.filter(r => r.promoId === promo.id).length;
-                            return `
-                            <tr class="hover:bg-gray-50 transition-colors">
-                                <td class="px-6 py-4">
-                                    <div class="font-medium text-gray-800">${promo.name}</div>
-                                    ${promo.description ? `<div class="text-xs text-gray-500 mt-1">${promo.description}</div>` : ''}
-                                </td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center gap-2">
-                                        <code class="px-3 py-1 bg-gray-100 text-purple-600 font-mono font-bold text-sm rounded">${promo.code}</code>
-                                        <button onclick="window.module.copyPromoCode('${promo.code}')" 
-                                            class="text-gray-400 hover:text-gray-600" title="Copy code">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4">
-                                    ${renderPromoType(promo.type)}
-                                </td>
-                                <td class="px-6 py-4">
-                                    <span class="font-semibold text-gray-800">
-                                        ${promo.type === 'percentage' ? `${promo.value}%` : 
-                                          promo.type === 'fixed' ? `$${promo.value}` : 
-                                          promo.type === 'free_shipping' ? 'Free' : 'BOGO'}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center gap-2">
-                                        <div class="flex-1 bg-gray-200 rounded-full h-2 max-w-[100px]">
-                                            <div class="bg-purple-600 h-2 rounded-full" 
-                                                 style="width: ${promo.usageLimit ? (redemptions / promo.usageLimit * 100) : 0}%"></div>
-                                        </div>
-                                        <span class="text-sm text-gray-600">${redemptions}${promo.usageLimit ? `/${promo.usageLimit}` : ''}</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4">
-                                    ${renderPromoStatus(promo)}
-                                </td>
-                                <td class="px-6 py-4 text-sm text-gray-600">
-                                    <div>${promo.startDate ? new Date(promo.startDate.toDate ? promo.startDate.toDate() : promo.startDate).toLocaleDateString() : 'N/A'}</div>
-                                    <div class="text-xs text-gray-400">to ${promo.endDate ? new Date(promo.endDate.toDate ? promo.endDate.toDate() : promo.endDate).toLocaleDateString() : 'N/A'}</div>
-                                </td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center justify-center gap-2">
-                                        <button onclick="window.module.togglePromoStatus('${promo.id}')"
-                                            class="p-2 ${promo.status === 'active' ? 'text-orange-600 hover:bg-orange-50' : 'text-green-600 hover:bg-green-50'} rounded-lg transition-colors" 
-                                            title="${promo.status === 'active' ? 'Pause' : 'Activate'}">
-                                            ${promo.status === 'active' ? `
-                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                                </svg>
-                                            ` : `
-                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                                </svg>
-                                            `}
-                                        </button>
-                                        <button onclick="window.module.showPromoDetailsModal('${promo.id}')"
-                                            class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" 
-                                            title="View Details">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                                            </svg>
-                                        </button>
-                                        <button onclick="window.module.deletePromotion('${promo.id}')"
-                                            class="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" 
-                                            title="Delete">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        `;
-                        }).join('')}
-                    </tbody>
-                </table>
-            </div>`;
-        }
-        
-        function renderPromoType(type) {
-            const types = {
-                percentage: { label: 'Percentage', class: 'bg-blue-100 text-blue-800', icon: '%' },
-                fixed: { label: 'Fixed Amount', class: 'bg-green-100 text-green-800', icon: '$' },
-                free_shipping: { label: 'Free Shipping', class: 'bg-purple-100 text-purple-800', icon: '📦' },
-                bogo: { label: 'BOGO', class: 'bg-orange-100 text-orange-800', icon: '🎁' }
-            };
-            
-            const typeInfo = types[type] || { label: type, class: 'bg-gray-100 text-gray-800', icon: '?' };
-            
-            return `<span class="px-3 py-1 rounded-full text-xs font-semibold ${typeInfo.class}">${typeInfo.icon} ${typeInfo.label}</span>`;
-        }
-        
-        function renderPromoStatus(promo) {
-            const now = new Date();
-            const start = promo.startDate?.toDate ? promo.startDate.toDate() : new Date(promo.startDate);
-            const end = promo.endDate?.toDate ? promo.endDate.toDate() : new Date(promo.endDate);
-            
-            let status = promo.status;
-            let statusClass = '';
-            
-            if (end < now) {
-                status = 'expired';
-                statusClass = 'bg-gray-100 text-gray-800';
-            } else if (start > now) {
-                status = 'scheduled';
-                statusClass = 'bg-yellow-100 text-yellow-800';
-            } else if (promo.status === 'active') {
-                statusClass = 'bg-green-100 text-green-800';
-            } else if (promo.status === 'paused') {
-                statusClass = 'bg-orange-100 text-orange-800';
+
+            const cartItems = Object.values(state.adminCart).map(entry => ({
+                item: entry.item, quantity: entry.quantity, id: entry.item.id
+            }));
+            const subtotalCents = cartItems.reduce((sum, e) => sum + (e.item.price * e.quantity), 0);
+            const result = validateDiscount(code, cartItems, subtotalCents);
+
+            const msgEl = document.getElementById('discountMessage');
+            if (msgEl) {
+                msgEl.innerHTML = result.valid
+                    ? `<p class="text-green-700 text-sm font-semibold mt-2">${result.message}</p>`
+                    : `<p class="text-red-600 text-sm font-semibold mt-2">❌ ${result.message}</p>`;
+            }
+
+            if (result.valid) {
+                state.appliedDiscount = { ...result.discount, savedCents: result.savedCents };
             } else {
-                statusClass = 'bg-gray-100 text-gray-800';
+                state.appliedDiscount = null;
             }
-            
-            return `<span class="px-3 py-1 rounded-full text-xs font-semibold ${statusClass}">${status.charAt(0).toUpperCase() + status.slice(1)}</span>`;
+            updateOrderTotalsWithDiscount();
         }
-        
-        function getFilteredPromotions() {
-            let filtered = [...state.promotions];
-            
-            // Search filter
-            if (state.promotionFilters.searchTerm) {
-                const term = state.promotionFilters.searchTerm.toLowerCase();
-                filtered = filtered.filter(promo =>
-                    (promo.name && promo.name.toLowerCase().includes(term)) ||
-                    (promo.code && promo.code.toLowerCase().includes(term)) ||
-                    (promo.description && promo.description.toLowerCase().includes(term))
+
+        function removeAppliedDiscount() {
+            state.appliedDiscount = null;
+            const codeInput = document.getElementById('orderDiscountCode');
+            if (codeInput) codeInput.value = '';
+            const msgEl = document.getElementById('discountMessage');
+            if (msgEl) msgEl.innerHTML = '';
+            updateOrderTotalsWithDiscount();
+            resetTimer();
+        }
+
+        function updateOrderTotalsWithDiscount() {
+            const discountRowEl = document.getElementById('orderDiscountRow');
+            const discountAmountEl = document.getElementById('orderDiscountAmount');
+            const discountCodeEl = document.getElementById('orderDiscountCodeLabel');
+            const grandTotalEl = document.getElementById('orderDiscountedGrandTotal');
+
+            const cartItems = Object.values(state.adminCart);
+            const subtotalCents = cartItems.reduce((sum, e) => sum + (e.item.price * e.quantity), 0);
+            const shippingCents = state.adminOrderShippingCents || 0;
+            const taxCents = state.adminOrderTaxCents || 0;
+
+            let discountCents = 0;
+            if (state.appliedDiscount) {
+                const result = validateDiscount(
+                    state.appliedDiscount.code,
+                    cartItems.map(e => ({ item: e.item, id: e.item.id, quantity: e.quantity })),
+                    subtotalCents
+                );
+                if (result.valid) {
+                    discountCents = result.savedCents;
+                    state.appliedDiscount.savedCents = discountCents;
+                } else {
+                    state.appliedDiscount = null;
+                    const msgEl = document.getElementById('discountMessage');
+                    if (msgEl) msgEl.innerHTML = `<p class="text-red-600 text-sm mt-1">⚠️ Discount removed: ${result.message}</p>`;
+                }
+            }
+
+            if (discountRowEl) discountRowEl.classList.toggle('hidden', discountCents === 0);
+            if (discountAmountEl) discountAmountEl.textContent = `-${formatPriceDisplay(discountCents)}`;
+            if (discountCodeEl && state.appliedDiscount) discountCodeEl.textContent = state.appliedDiscount.code;
+
+            const finalCents = Math.max(0, subtotalCents - discountCents + shippingCents + taxCents);
+            if (grandTotalEl) grandTotalEl.textContent = formatPriceDisplay(finalCents);
+        }
+
+        async function recordDiscountUsage(discount, orderId, orderNumber, savedCents) {
+            if (!discount || !discount.id) return;
+            try {
+                const docRef = doc(db, getDiscountsCollectionPath(), discount.id);
+                const usageEntry = {
+                    orderId,
+                    orderNumber: orderNumber || orderId.substring(0, 8),
+                    date: new Date().toISOString(),
+                    savedCents,
+                    adminEmail: auth.currentUser?.email || 'Unknown'
+                };
+                await updateDoc(docRef, {
+                    currentUses: increment(1),
+                    usageLog: arrayUnion(usageEntry),
+                    updatedAt: new Date().toISOString()
+                });
+                logAdminAction('DISCOUNT_USED', { code: discount.code, orderId, savedCents });
+            } catch (error) {
+                console.error('Error recording discount usage:', error);
+            }
+        }
+
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // DISCOUNT FIELD HTML (for Order Create Form)
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        function renderDiscountFieldHtml() {
+            const applied = state.appliedDiscount;
+            return `
+        <div class="border-2 border-purple-200 rounded-lg p-4 bg-purple-50 mt-2">
+            <h3 class="text-lg font-bold mb-3 text-purple-800">🏷️ Discount Code</h3>
+            <div class="flex gap-2">
+                <input type="text" id="orderDiscountCode"
+                       placeholder="Enter code (e.g., SAVE10)"
+                       value="${applied ? escapeAttribute(applied.code) : ''}"
+                       ${applied ? 'readonly' : ''}
+                       class="flex-1 p-3 border-2 ${applied ? 'border-green-400 bg-green-50' : 'border-gray-300'} rounded-lg text-sm font-mono uppercase"
+                       style="text-transform: uppercase;">
+                ${applied
+                    ? `<button type="button" onclick="window.module.removeAppliedDiscount()"
+                               class="px-5 py-3 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600 shadow-md">
+                            ✕ Remove
+                       </button>`
+                    : `<button type="button" onclick="window.module.handleApplyDiscountToOrder()"
+                               class="px-5 py-3 bg-purple-600 text-white rounded-lg text-sm font-bold hover:bg-purple-700 shadow-md">
+                            Apply Code
+                       </button>`
+                }
+            </div>
+            <div id="discountMessage">
+                ${applied
+                    ? `<p class="text-green-700 text-sm font-semibold mt-2">
+                        ✅ "${escapeHtml(applied.code)}" applied — ${getDiscountSummaryText(applied, applied.savedCents)}
+                       </p>`
+                    : ''}
+            </div>
+            <div id="orderDiscountRow" class="flex justify-between text-sm text-green-700 mt-3 p-2 bg-green-50 rounded-lg border border-green-200 ${!applied ? 'hidden' : ''}">
+                <span>🏷️ Discount (<span id="orderDiscountCodeLabel">${applied ? escapeHtml(applied.code) : ''}</span>):</span>
+                <span id="orderDiscountAmount" class="font-bold">-${formatPriceDisplay(applied?.savedCents || 0)}</span>
+            </div>
+        </div>
+    `;
+        }
+
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // MARKETING TAB — MAIN RENDER
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        function renderMarketingTab() {
+            const editing = state.editingDiscount;
+
+            const catOpts = state.catalogs.map(c =>
+                `<option value="${c.id}" ${editing?.appliesToCategory === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+            ).join('');
+
+            const prodOpts = state.items.map(item =>
+                `<option value="${item.id}" ${editing?.appliesToProduct === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`
+            ).join('');
+
+            const html = `
+        <section class="space-y-8">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-indigo-700">📣 Marketing & Discounts</h2>
+            </div>
+            <div id="marketingMessage"></div>
+
+            <!-- Analytics Dashboard -->
+            <div id="marketingAnalyticsContainer"></div>
+
+            <!-- Create / Edit Discount Form -->
+            <div id="discountFormSection" class="bg-white p-6 rounded-xl shadow-lg border-t-4 ${editing ? 'border-yellow-400' : 'border-purple-500'}">
+                <h3 class="text-xl font-bold mb-4 ${editing ? 'text-yellow-700' : 'text-purple-700'}">
+                    ${editing ? '✏️ Edit Discount: ' + escapeHtml(editing.code) : '➕ Create New Discount'}
+                </h3>
+                <form onsubmit="window.module.handleCreateDiscount(event)" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Discount Code *</label>
+                            <input type="text" name="discountCode"
+                                   value="${editing ? escapeAttribute(editing.code) : ''}"
+                                   placeholder="e.g., SAVE10" required
+                                   class="w-full p-2 border rounded-lg font-mono uppercase text-sm"
+                                   style="text-transform: uppercase;">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Discount Type *</label>
+                            <select name="discountType" required
+                                    onchange="window.module.handleDiscountTypeToggle(this.value)"
+                                    class="w-full p-2 border rounded-lg text-sm">
+                                <option value="percentage" ${editing?.type === 'percentage' ? 'selected' : ''}>Percentage Off (%)</option>
+                                <option value="fixed" ${editing?.type === 'fixed' ? 'selected' : ''}>Fixed Amount ($)</option>
+                                <option value="freeShipping" ${editing?.type === 'freeShipping' ? 'selected' : ''}>Free Shipping</option>
+                            </select>
+                        </div>
+                        <div id="discountValueField">
+                            <label class="block text-sm font-semibold mb-1">
+                                <span id="discountValueLabel">${editing?.type === 'fixed' ? 'Amount ($)' : (editing?.type === 'freeShipping' ? 'N/A' : 'Percentage')}</span> *
+                            </label>
+                            <input type="number" name="discountValue" step="0.01" min="0"
+                                   value="${editing ? editing.value : ''}"
+                                   placeholder="${editing?.type === 'fixed' ? '5.00' : '10'}"
+                                   ${editing?.type === 'freeShipping' ? 'disabled' : ''}
+                                   class="w-full p-2 border rounded-lg text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Minimum Order ($)</label>
+                            <input type="number" name="minOrder" step="0.01" min="0"
+                                   value="${editing ? ((editing.minOrderCents || 0) / 100).toFixed(2) : ''}"
+                                   placeholder="0.00 (no minimum)"
+                                   class="w-full p-2 border rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Max Discount Cap ($)</label>
+                            <input type="number" name="maxDiscountAmount" step="0.01" min="0"
+                                   value="${editing?.maxDiscountCents ? (editing.maxDiscountCents / 100).toFixed(2) : ''}"
+                                   placeholder="0.00 (no cap)"
+                                   class="w-full p-2 border rounded-lg text-sm">
+                            <p class="text-xs text-gray-500 mt-1">For % discounts: max $ amount saved per order</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Max Total Uses</label>
+                            <input type="number" name="maxUses" min="0"
+                                   value="${editing ? editing.maxUses : ''}"
+                                   placeholder="0 (unlimited)"
+                                   class="w-full p-2 border rounded-lg text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Expiration Date</label>
+                            <input type="datetime-local" name="expiresAt"
+                                   value="${editing?.expiresAt ? new Date(editing.expiresAt).toISOString().slice(0, 16) : ''}"
+                                   class="w-full p-2 border rounded-lg text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Restrict to Category</label>
+                            <select name="appliesToCategory" class="w-full p-2 border rounded-lg text-sm">
+                                <option value="all">All Categories</option>
+                                ${catOpts}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">Restrict to Product</label>
+                            <select name="appliesToProduct" class="w-full p-2 border rounded-lg text-sm">
+                                <option value="all">All Products</option>
+                                ${prodOpts}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold mb-1">Internal Description / Notes</label>
+                        <input type="text" name="discountDescription"
+                               value="${editing ? escapeAttribute(editing.description || '') : ''}"
+                               placeholder="e.g., Summer 2026 promo — 10% off brake pads"
+                               class="w-full p-2 border rounded-lg text-sm">
+                    </div>
+
+                    <div class="flex space-x-3 pt-2">
+                        <button type="submit"
+                                class="flex-1 ${editing ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-purple-600 hover:bg-purple-700'} text-white py-3 px-4 rounded-lg font-semibold shadow-md">
+                            ${editing ? '💾 Update Discount' : '➕ Create Discount'}
+                        </button>
+                        ${editing ? `
+                            <button type="button" onclick="window.module.cancelDiscountEdit()"
+                                    class="flex-1 bg-gray-500 text-white py-3 px-4 rounded-lg font-semibold hover:bg-gray-600">
+                                ❌ Cancel Edit
+                            </button>
+                        ` : ''}
+                    </div>
+                </form>
+            </div>
+
+            <!-- Discounts List -->
+            <div class="bg-white p-6 rounded-xl shadow-lg">
+                <div class="flex flex-wrap gap-4 items-center mb-4">
+                    <h3 class="text-xl font-bold text-gray-800 flex-shrink-0">📋 All Discount Codes</h3>
+                    <input type="text"
+                           oninput="window.module.handleDiscountSearchInput(event)"
+                           placeholder="Search by code or description..."
+                           class="flex-1 min-w-[200px] p-2 border rounded-lg text-sm">
+                    <select onchange="window.module.handleDiscountStatusFilter(event)"
+                            class="p-2 border rounded-lg text-sm">
+                        <option value="all">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="expired">Expired</option>
+                        <option value="disabled">Disabled</option>
+                        <option value="maxed">Usage Limit Reached</option>
+                    </select>
+                </div>
+                <div id="discountsListContainer">
+                    <p class="text-center py-8 text-gray-400">Loading discounts...</p>
+                </div>
+            </div>
+        </section>
+    `;
+
+            setTimeout(() => {
+                renderDiscountsList();
+                renderMarketingAnalytics();
+            }, 50);
+
+            return html;
+        }
+
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // FORM HELPERS
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        function handleDiscountTypeToggle(type) {
+            const valueField = document.querySelector('[name="discountValue"]');
+            const valueLabel = document.getElementById('discountValueLabel');
+            if (type === 'freeShipping') {
+                if (valueField) { valueField.disabled = true; valueField.value = ''; }
+                if (valueLabel) valueLabel.textContent = 'N/A';
+            } else if (type === 'fixed') {
+                if (valueField) { valueField.disabled = false; valueField.placeholder = '5.00'; }
+                if (valueLabel) valueLabel.textContent = 'Amount ($)';
+            } else {
+                if (valueField) { valueField.disabled = false; valueField.placeholder = '10'; }
+                if (valueLabel) valueLabel.textContent = 'Percentage';
+            }
+        }
+
+        function handleDiscountSearchInput(e) {
+            state.discountSearch = e.target.value.toLowerCase();
+            renderDiscountsList();
+            resetTimer();
+        }
+
+        function handleDiscountStatusFilter(e) {
+            state.discountStatusFilter = e.target.value;
+            renderDiscountsList();
+            resetTimer();
+        }
+
+        function getFilteredDiscounts() {
+            let filtered = [...state.discounts];
+            const now = new Date();
+
+            if (state.discountSearch) {
+                const q = state.discountSearch;
+                filtered = filtered.filter(d =>
+                    d.code.toLowerCase().includes(q) ||
+                    (d.description || '').toLowerCase().includes(q)
                 );
             }
-            
-            // Type filter
-            if (state.promotionFilters.type !== 'all') {
-                filtered = filtered.filter(promo => promo.type === state.promotionFilters.type);
+
+            switch (state.discountStatusFilter) {
+                case 'active':
+                    filtered = filtered.filter(d =>
+                        d.enabled && (!d.expiresAt || new Date(d.expiresAt) > now) &&
+                        (d.maxUses === 0 || (d.currentUses || 0) < d.maxUses)
+                    );
+                    break;
+                case 'expired':
+                    filtered = filtered.filter(d => d.expiresAt && new Date(d.expiresAt) <= now);
+                    break;
+                case 'disabled':
+                    filtered = filtered.filter(d => !d.enabled);
+                    break;
+                case 'maxed':
+                    filtered = filtered.filter(d => d.maxUses > 0 && (d.currentUses || 0) >= d.maxUses);
+                    break;
             }
-            
-            // Status filter
-            if (state.promotionFilters.status !== 'all') {
-                filtered = filtered.filter(promo => {
-                    const now = new Date();
-                    const start = promo.startDate?.toDate ? promo.startDate.toDate() : new Date(promo.startDate);
-                    const end = promo.endDate?.toDate ? promo.endDate.toDate() : new Date(promo.endDate);
-                    
-                    if (state.promotionFilters.status === 'expired') {
-                        return end < now;
-                    } else if (state.promotionFilters.status === 'scheduled') {
-                        return start > now;
-                    } else {
-                        return promo.status === state.promotionFilters.status && start <= now && end >= now;
-                    }
-                });
-            }
-            
-            // Sort
-            filtered.sort((a, b) => {
-                switch (state.promotionFilters.sortBy) {
-                    case 'date-desc':
-                        return (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0);
-                    case 'date-asc':
-                        return (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0);
-                    case 'usage-desc': {
-                        const aUsage = state.promoRedemptions.filter(r => r.promoId === a.id).length;
-                        const bUsage = state.promoRedemptions.filter(r => r.promoId === b.id).length;
-                        return bUsage - aUsage;
-                    }
-                    case 'usage-asc': {
-                        const aUsage = state.promoRedemptions.filter(r => r.promoId === a.id).length;
-                        const bUsage = state.promoRedemptions.filter(r => r.promoId === b.id).length;
-                        return aUsage - bUsage;
-                    }
-                    default:
-                        return 0;
-                }
-            });
-            
             return filtered;
         }
-        
-        function updatePromotionFilter(filterName, value) {
-            state.promotionFilters[filterName] = value;
-            refreshMarketing();
+
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // DISCOUNTS LIST RENDERING
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        function renderDiscountsList() {
+            const container = document.getElementById('discountsListContainer');
+            if (!container) return;
+
+            const discounts = getFilteredDiscounts();
+            const now = new Date();
+
+            if (discounts.length === 0) {
+                container.innerHTML = `<p class="text-center py-8 text-gray-500">
+            ${state.discounts.length === 0 ? 'No discounts created yet. Use the form above!' : 'No discounts match your filters.'}
+        </p>`;
+                return;
+            }
+
+            const rows = discounts.map(d => {
+                const isExpired = d.expiresAt && new Date(d.expiresAt) <= now;
+                const isMaxed = d.maxUses > 0 && (d.currentUses || 0) >= d.maxUses;
+
+                let statusBadge;
+                if (!d.enabled) statusBadge = '<span class="px-2 py-1 rounded-full text-xs font-bold bg-gray-200 text-gray-600">Disabled</span>';
+                else if (isExpired) statusBadge = '<span class="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">Expired</span>';
+                else if (isMaxed) statusBadge = '<span class="px-2 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700">Limit Hit</span>';
+                else statusBadge = '<span class="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Active</span>';
+
+                let typeDisplay;
+                if (d.type === 'percentage') typeDisplay = `${d.value}% off`;
+                else if (d.type === 'fixed') typeDisplay = `${formatPriceDisplay(d.valueCents || Math.round(d.value * 100))} off`;
+                else typeDisplay = 'Free Shipping';
+
+                const usesDisplay = d.maxUses > 0 ? `${d.currentUses || 0}/${d.maxUses}` : `${d.currentUses || 0}`;
+                const totalSavedCents = (d.usageLog || []).reduce((sum, e) => sum + (e.savedCents || 0), 0);
+
+                const restrictions = [];
+                if (d.minOrderCents > 0) restrictions.push(`Min: ${formatPriceDisplay(d.minOrderCents)}`);
+                if (d.maxDiscountCents > 0) restrictions.push(`Cap: ${formatPriceDisplay(d.maxDiscountCents)}`);
+                if (d.appliesToCategory && d.appliesToCategory !== 'all') {
+                    restrictions.push(`Cat: ${state.catalogs.find(c => c.id === d.appliesToCategory)?.name || '?'}`);
+                }
+                if (d.appliesToProduct && d.appliesToProduct !== 'all') {
+                    restrictions.push(`Prod: ${state.items.find(i => i.id === d.appliesToProduct)?.name || '?'}`);
+                }
+
+                return `
+            <div class="border-b border-gray-200 last:border-b-0 hover:bg-gray-50 transition">
+                <div class="grid grid-cols-12 gap-3 items-center p-4">
+                    <div class="col-span-3">
+                        <p class="font-bold font-mono text-indigo-700 text-sm">${escapeHtml(d.code)}</p>
+                        <p class="text-xs text-gray-500 mt-1 truncate">${escapeHtml(d.description || '')}</p>
+                        ${restrictions.length > 0 ? `<div class="flex flex-wrap gap-1 mt-1">${restrictions.map(r => `<span class="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">${r}</span>`).join('')}</div>` : ''}
+                    </div>
+                    <div class="col-span-2 text-sm font-semibold text-gray-700">${typeDisplay}</div>
+                    <div class="col-span-1 text-center text-sm text-gray-600">${usesDisplay}</div>
+                    <div class="col-span-2 text-center">
+                        <span class="text-sm font-bold text-green-700">${formatPriceDisplay(totalSavedCents)}</span>
+                        <p class="text-xs text-gray-500">saved</p>
+                    </div>
+                    <div class="col-span-1 text-center">${statusBadge}</div>
+                    <div class="col-span-1 text-xs text-gray-500 text-center">
+                        ${d.expiresAt ? `<span class="${isExpired ? 'text-red-600 font-bold' : ''}">${new Date(d.expiresAt).toLocaleDateString()}</span>` : '<span class="text-gray-400">Never</span>'}
+                    </div>
+                    <div class="col-span-2 flex flex-wrap gap-1 justify-end">
+                        <button onclick="window.module.startEditDiscount('${d.id}')" class="px-2 py-1 text-xs font-bold text-blue-600 hover:bg-blue-100 rounded" title="Edit">✏️</button>
+                        <button onclick="window.module.toggleDiscountEnabled('${d.id}', ${d.enabled})" class="px-2 py-1 text-xs font-bold ${d.enabled ? 'text-yellow-600 hover:bg-yellow-100' : 'text-green-600 hover:bg-green-100'} rounded" title="${d.enabled ? 'Disable' : 'Enable'}">${d.enabled ? '⏸️' : '▶️'}</button>
+                        <button onclick="window.module.handleDeleteDiscount('${d.id}', '${escapeAttribute(d.code)}')" class="px-2 py-1 text-xs font-bold text-red-600 hover:bg-red-100 rounded" title="Delete">🗑️</button>
+                    </div>
+                </div>
+                ${(d.usageLog && d.usageLog.length > 0) ? `
+                    <div class="px-4 pb-3">
+                        <button onclick="document.getElementById('usageLog-${d.id}').classList.toggle('hidden')" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">
+                            📊 View Usage Log (${d.usageLog.length} uses)
+                        </button>
+                        <div id="usageLog-${d.id}" class="hidden mt-2 max-h-48 overflow-y-auto custom-scrollbar bg-gray-50 rounded-lg">
+                            <div class="grid grid-cols-4 gap-2 text-xs font-bold text-gray-600 bg-gray-200 px-3 py-2 rounded-t">
+                                <div>Date</div><div>Order</div><div>Saved</div><div>By</div>
+                            </div>
+                            ${d.usageLog.map(entry => `
+                                <div class="grid grid-cols-4 gap-2 text-xs py-2 px-3 border-b border-gray-100">
+                                    <div>${entry.date ? new Date(entry.date).toLocaleDateString() : 'N/A'}</div>
+                                    <div class="font-mono">${escapeHtml(entry.orderNumber || entry.orderId?.substring(0, 8) || 'N/A')}</div>
+                                    <div class="font-bold text-green-700">${formatPriceDisplay(entry.savedCents || 0)}</div>
+                                    <div class="truncate">${escapeHtml(entry.adminEmail || 'N/A')}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+            }).join('');
+
+            container.innerHTML = `
+        <div class="grid grid-cols-12 gap-3 font-bold text-xs text-gray-600 bg-gray-100 p-3 rounded-t-lg border-b-2 border-indigo-200">
+            <div class="col-span-3">Code / Description</div>
+            <div class="col-span-2">Type</div>
+            <div class="col-span-1 text-center">Uses</div>
+            <div class="col-span-2 text-center">Total Saved</div>
+            <div class="col-span-1 text-center">Status</div>
+            <div class="col-span-1 text-center">Expires</div>
+            <div class="col-span-2 text-right">Actions</div>
+        </div>
+        <div class="divide-y divide-gray-100">${rows}</div>
+        <div class="p-3 text-right text-xs text-gray-500 bg-gray-50 rounded-b-lg">
+            Showing ${discounts.length} of ${state.discounts.length} discounts
+        </div>
+    `;
         }
-        
-        function refreshMarketing() {
-            const section = document.querySelector('section');
-            if (!section || state.activeTab !== 'marketing') return;
-            
-            // Refresh the entire section to update stats
-            section.innerHTML = renderMarketingSection();
-        }
-        
-        function copyPromoCode(code) {
-            navigator.clipboard.writeText(code).then(() => {
-                showMessage('success', `Code "${code}" copied to clipboard!`, 2000, 'promotion');
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-                showMessage('error', 'Failed to copy code', 2000, 'promotion');
+
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // MARKETING ANALYTICS DASHBOARD
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        function renderMarketingAnalytics() {
+            const container = document.getElementById('marketingAnalyticsContainer');
+            if (!container) return;
+
+            const now = new Date();
+            const allDiscounts = state.discounts;
+
+            const activeCount = allDiscounts.filter(d =>
+                d.enabled && (!d.expiresAt || new Date(d.expiresAt) > now) &&
+                (d.maxUses === 0 || (d.currentUses || 0) < d.maxUses)
+            ).length;
+
+            const totalUses = allDiscounts.reduce((sum, d) => sum + (d.currentUses || 0), 0);
+            const totalSavedCents = allDiscounts.reduce((sum, d) =>
+                sum + (d.usageLog || []).reduce((s, e) => s + (e.savedCents || 0), 0), 0);
+
+            const ordersWithDiscount = state.orders.filter(o => o.discount || o.discountCents > 0);
+            const totalDiscountGivenCents = ordersWithDiscount.reduce((sum, o) =>
+                sum + (o.discountCents || o.discount?.savedCents || 0), 0);
+            const avgDiscountCents = ordersWithDiscount.length > 0
+                ? Math.round(totalDiscountGivenCents / ordersWithDiscount.length) : 0;
+
+            // Top codes by usage
+            const codePerformance = allDiscounts
+                .filter(d => (d.currentUses || 0) > 0)
+                .map(d => ({
+                    code: d.code,
+                    uses: d.currentUses || 0,
+                    savedCents: (d.usageLog || []).reduce((s, e) => s + (e.savedCents || 0), 0)
+                }))
+                .sort((a, b) => b.uses - a.uses)
+                .slice(0, 5);
+
+            // Monthly usage
+            const monthlyUsage = {};
+            allDiscounts.forEach(d => {
+                (d.usageLog || []).forEach(entry => {
+                    if (entry.date) {
+                        const date = new Date(entry.date);
+                        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                        if (!monthlyUsage[key]) monthlyUsage[key] = { uses: 0, savedCents: 0 };
+                        monthlyUsage[key].uses++;
+                        monthlyUsage[key].savedCents += entry.savedCents || 0;
+                    }
+                });
             });
+
+            container.innerHTML = `
+        <!-- Summary Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+            <div class="bg-purple-50 p-4 rounded-xl border-2 border-purple-200">
+                <p class="text-xs font-semibold text-purple-600 mb-1">Total Codes</p>
+                <p class="text-2xl font-black text-purple-900">${allDiscounts.length}</p>
+            </div>
+            <div class="bg-green-50 p-4 rounded-xl border-2 border-green-200">
+                <p class="text-xs font-semibold text-green-600 mb-1">Active Codes</p>
+                <p class="text-2xl font-black text-green-900">${activeCount}</p>
+            </div>
+            <div class="bg-blue-50 p-4 rounded-xl border-2 border-blue-200">
+                <p class="text-xs font-semibold text-blue-600 mb-1">Redemptions</p>
+                <p class="text-2xl font-black text-blue-900">${totalUses}</p>
+            </div>
+            <div class="bg-red-50 p-4 rounded-xl border-2 border-red-200">
+                <p class="text-xs font-semibold text-red-600 mb-1">Total Given Away</p>
+                <p class="text-2xl font-black text-red-900">${formatPriceDisplay(totalSavedCents)}</p>
+            </div>
+            <div class="bg-indigo-50 p-4 rounded-xl border-2 border-indigo-200">
+                <p class="text-xs font-semibold text-indigo-600 mb-1">Discounted Orders</p>
+                <p class="text-2xl font-black text-indigo-900">${ordersWithDiscount.length}</p>
+            </div>
+            <div class="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-200">
+                <p class="text-xs font-semibold text-yellow-600 mb-1">Avg Discount</p>
+                <p class="text-2xl font-black text-yellow-900">${formatPriceDisplay(avgDiscountCents)}</p>
+            </div>
+        </div>
+
+        <!-- Top Codes & Monthly Activity -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="bg-white p-5 rounded-xl shadow-lg border-t-4 border-purple-500">
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="text-lg font-bold text-purple-800">🏆 Top Performing Codes</h4>
+                    <button onclick="window.module.downloadDiscountUsageCsv()"
+                            class="px-3 py-1 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 shadow-md">
+                        ⬇️ Export CSV
+                    </button>
+                </div>
+                ${codePerformance.length === 0
+                    ? '<p class="text-center py-6 text-gray-400 text-sm">No codes used yet.</p>'
+                    : `<div class="space-y-3">${codePerformance.map((cp, idx) => {
+                        const barWidth = Math.max(10, Math.round((cp.uses / codePerformance[0].uses) * 100));
+                        return `
+                            <div class="flex items-center gap-3">
+                                <span class="text-xs font-bold text-gray-400 w-5">#${idx + 1}</span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex justify-between items-baseline mb-1">
+                                        <span class="font-bold font-mono text-sm text-indigo-700 truncate">${escapeHtml(cp.code)}</span>
+                                        <span class="text-xs text-gray-600 ml-2">${cp.uses} uses · ${formatPriceDisplay(cp.savedCents)}</span>
+                                    </div>
+                                    <div class="w-full bg-gray-100 rounded-full h-2">
+                                        <div class="bg-gradient-to-r from-purple-500 to-indigo-500 h-2 rounded-full" style="width:${barWidth}%"></div>
+                                    </div>
+                                </div>
+                            </div>`;
+                    }).join('')}</div>`
+                }
+            </div>
+
+            <div class="bg-white p-5 rounded-xl shadow-lg border-t-4 border-blue-500">
+                <h4 class="text-lg font-bold text-blue-800 mb-4">📅 Monthly Activity</h4>
+                ${Object.keys(monthlyUsage).length === 0
+                    ? '<p class="text-center py-6 text-gray-400 text-sm">No monthly data yet.</p>'
+                    : `<div class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">${Object.keys(monthlyUsage).sort().reverse().map(key => {
+                        const data = monthlyUsage[key];
+                        const [year, month] = key.split('-');
+                        const monthName = new Date(parseInt(year), parseInt(month) - 1).toLocaleString('default', { month: 'short', year: 'numeric' });
+                        return `
+                            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                <span class="font-semibold text-sm text-gray-800">${monthName}</span>
+                                <div class="flex gap-3">
+                                    <span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">${data.uses} uses</span>
+                                    <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-bold">${formatPriceDisplay(data.savedCents)}</span>
+                                </div>
+                            </div>`;
+                    }).join('')}</div>`
+                }
+            </div>
+        </div>
+    `;
         }
-        
+
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // CSV EXPORT
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        function downloadDiscountUsageCsv() {
+            resetTimer();
+            const headers = ['Code', 'Type', 'Value', 'Total Uses', 'Max Uses', 'Total Saved (USD)', 'Status', 'Created', 'Expires'];
+            const now = new Date();
+
+            const rows = state.discounts.map(d => {
+                const isExpired = d.expiresAt && new Date(d.expiresAt) <= now;
+                const isMaxed = d.maxUses > 0 && (d.currentUses || 0) >= d.maxUses;
+                let status = 'Active';
+                if (!d.enabled) status = 'Disabled';
+                else if (isExpired) status = 'Expired';
+                else if (isMaxed) status = 'Limit Reached';
+
+                const totalSaved = ((d.usageLog || []).reduce((s, e) => s + (e.savedCents || 0), 0) / 100).toFixed(2);
+                let typeValue = d.type === 'percentage' ? `${d.value}%` : d.type === 'fixed' ? `$${(d.value || 0).toFixed(2)}` : 'Free Shipping';
+
+                return [
+                    `"${d.code}"`, d.type, typeValue, d.currentUses || 0,
+                    d.maxUses || 'Unlimited', totalSaved, status,
+                    d.createdAt ? new Date(d.createdAt).toLocaleDateString() : 'N/A',
+                    d.expiresAt ? new Date(d.expiresAt).toLocaleDateString() : 'Never'
+                ].join(',');
+            });
+
+            const csvString = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const filename = `Discount_Codes_${new Date().toISOString().slice(0, 10)}.csv`;
+
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showMessage('success', `Exported ${state.discounts.length} discounts to ${filename}.`, 5000, 'marketing');
+            }
+        }
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
@@ -9585,7 +10117,7 @@
             handleVendorOrderStatusFilter,
             handleVendorOrderSort,
             showVendorOrderDetailsModal,
-            
+
             // ========================================================================
             // ORDER EDITING & DRAFT CART
             // ========================================================================
@@ -9625,15 +10157,15 @@
             togglePromoStatus,
             deletePromotion,
             showPromoDetailsModal,
-            
-            updateActiveFilters: function() {
+
+            updateActiveFilters: function () {
                 const display = document.getElementById('activeFiltersDisplay');
                 const tagsContainer = document.getElementById('activeFilterTags');
-                
+
                 if (!display || !tagsContainer) return;
-                
+
                 const activeTags = [];
-                
+
                 // Time filter
                 if (state.salesTimeFilter !== 'all') {
                     const labels = {
@@ -9644,36 +10176,36 @@
                     };
                     activeTags.push(`📅 ${labels[state.salesTimeFilter] || state.salesTimeFilter}`);
                 }
-                
+
                 // Year filter
                 if (state.salesFilters.year !== 'all') {
                     activeTags.push(`📆 ${state.salesFilters.year}`);
                 }
-                
+
                 // Month filter
                 if (state.salesFilters.month !== 'all') {
                     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                     activeTags.push(`📅 ${months[parseInt(state.salesFilters.month)]}`);
                 }
-                
+
                 // Category filter
                 if (state.salesFilters.category !== 'all') {
                     const cat = state.catalogs.find(c => c.id === state.salesFilters.category);
                     if (cat) activeTags.push(`🏷️ ${cat.name}`);
                 }
-                
+
                 // Product filter
                 if (state.salesFilters.product !== 'all') {
                     const prod = state.items.find(i => i.id === state.salesFilters.product);
                     if (prod) activeTags.push(`📦 ${prod.name}`);
                 }
-                
+
                 // Payment filter
                 if (state.salesFilters.paymentStatus !== 'all') {
                     const label = state.salesFilters.paymentStatus === 'paid' ? 'Paid Only' : 'Unpaid Only';
                     activeTags.push(`💰 ${label}`);
                 }
-                
+
                 // Custom dates
                 if (state.salesFilters.customStartDate) {
                     activeTags.push(`From: ${state.salesFilters.customStartDate}`);
@@ -9681,7 +10213,7 @@
                 if (state.salesFilters.customEndDate) {
                     activeTags.push(`To: ${state.salesFilters.customEndDate}`);
                 }
-                
+
                 if (activeTags.length > 0) {
                     tagsContainer.innerHTML = activeTags.map(tag => `
                         <span class="px-3 py-1 bg-indigo-600 text-white text-xs rounded-full font-semibold shadow-md">
@@ -9695,9 +10227,9 @@
             },
 
             // ✅ Updated filter handlers - now call window.module.updateActiveFilters()
-            handleSalesTimeFilterChange: function(e) {
+            handleSalesTimeFilterChange: function (e) {
                 state.salesTimeFilter = e.target.value;
-                
+
                 // Show/hide custom date range
                 const customDateRange = document.getElementById('customDateRange');
                 if (e.target.value === 'custom') {
@@ -9707,56 +10239,56 @@
                     state.salesFilters.customStartDate = null;
                     state.salesFilters.customEndDate = null;
                 }
-                
+
                 window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
-        
-            handleYearFilterChange: function(e) {
+
+            handleYearFilterChange: function (e) {
                 state.salesFilters.year = e.target.value;
                 window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
-        
-            handleMonthFilterChange: function(e) {
+
+            handleMonthFilterChange: function (e) {
                 state.salesFilters.month = e.target.value;
                 window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
-        
-            handleCategoryFilterChange: function(e) {
+
+            handleCategoryFilterChange: function (e) {
                 state.salesFilters.category = e.target.value;
                 window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
-        
-            handleProductFilterChange: function(e) {
+
+            handleProductFilterChange: function (e) {
                 state.salesFilters.product = e.target.value;
                 window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
-        
-            handlePaymentFilterChange: function(e) {
+
+            handlePaymentFilterChange: function (e) {
                 state.salesFilters.paymentStatus = e.target.value;
                 window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
-        
-            handleCustomDateChange: function() {
+
+            handleCustomDateChange: function () {
                 state.salesFilters.customStartDate = document.getElementById('customStartDate')?.value || null;
                 state.salesFilters.customEndDate = document.getElementById('customEndDate')?.value || null;
                 window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
-        
-            resetSalesFilters: function() {
+
+            resetSalesFilters: function () {
                 state.salesTimeFilter = 'last6months';
                 state.salesFilters = {
                     year: 'all',
@@ -9767,7 +10299,7 @@
                     customEndDate: null,
                     paymentStatus: 'all'
                 };
-                
+
                 // Reset UI elements
                 const timeSelect = document.getElementById('salesTimeFilterSelect');
                 const yearSelect = document.getElementById('salesYearFilter');
@@ -9776,7 +10308,7 @@
                 const productSelect = document.getElementById('salesProductFilter');
                 const paymentSelect = document.getElementById('salesPaymentFilter');
                 const customRange = document.getElementById('customDateRange');
-                
+
                 if (timeSelect) timeSelect.value = 'last6months';
                 if (yearSelect) yearSelect.value = 'all';
                 if (monthSelect) monthSelect.value = 'all';
@@ -9784,71 +10316,71 @@
                 if (productSelect) productSelect.value = 'all';
                 if (paymentSelect) paymentSelect.value = 'all';
                 if (customRange) customRange.classList.add('hidden');
-                
+
                 window.module.updateActiveFilters();  // ✅ Changed
                 renderSalesCharts();
                 resetTimer();
             },
 
-            refreshVendorOrders: function() {
+            refreshVendorOrders: function () {
                 const tableContainer = document.querySelector('.bg-white.rounded-xl.shadow-lg.overflow-hidden');
                 if (tableContainer && state.activeTab === 'vendorOrders') {
                     tableContainer.innerHTML = renderVendorOrdersTable();
                 }
-            },            
-        recalculateTariffInModal: function() {
-            const purchasePrice = parseFloat(document.getElementById('modal-purchase-price')?.value || 0);
-            const tariffRate = parseFloat(document.getElementById('modal-tariff-rate')?.value || 0);
-            
-            const purchasePriceCents = Math.round(purchasePrice * 100);
-            const tariffCents = Math.round((purchasePriceCents * tariffRate) / 100);
-            const landedCostCents = purchasePriceCents + tariffCents;
-            
-            const tariffCostEl = document.getElementById('modal-tariff-cost');
-            const landedCostEl = document.getElementById('modal-landed-cost');
-            
-            if (tariffCostEl) tariffCostEl.textContent = formatPriceDisplay(tariffCents);
-            if (landedCostEl) landedCostEl.textContent = formatPriceDisplay(landedCostCents);
-        },
-        
-        handleCountryChange: function() {
-            const country = document.getElementById('modal-country-origin')?.value;
-            const tariffInput = document.getElementById('modal-tariff-rate');
-            
-            if (!tariffInput) return;
-            
-            // Auto-set common tariff rates based on country
-            const defaultRates = {
-                'China': 25,      // Section 301 tariffs
-                'USA': 0,         // No tariff
-                'Mexico': 0,      // USMCA
-                'Canada': 0,      // USMCA
-                'Vietnam': 0,     // Favored nation status
-                'India': 0,       // Generally favored
-                'Unknown': 0,
-                'Other': 0
-            };
-            
-            tariffInput.value = defaultRates[country] || 0;
-            window.module.recalculateTariffInModal();
-        },
-        
-        applyCommonTariff: function(tariffType) {
-            const tariffInput = document.getElementById('modal-tariff-rate');
-            if (!tariffInput) return;
-            
-            const rates = {
-                'china10': 10,
-                'china25': 25,
-                'china60': 60,
-                'general': 2.5
-            };
-            
-            tariffInput.value = rates[tariffType] || 0;
-            window.module.recalculateTariffInModal();
-        },
-            
-            
+            },
+            recalculateTariffInModal: function () {
+                const purchasePrice = parseFloat(document.getElementById('modal-purchase-price')?.value || 0);
+                const tariffRate = parseFloat(document.getElementById('modal-tariff-rate')?.value || 0);
+
+                const purchasePriceCents = Math.round(purchasePrice * 100);
+                const tariffCents = Math.round((purchasePriceCents * tariffRate) / 100);
+                const landedCostCents = purchasePriceCents + tariffCents;
+
+                const tariffCostEl = document.getElementById('modal-tariff-cost');
+                const landedCostEl = document.getElementById('modal-landed-cost');
+
+                if (tariffCostEl) tariffCostEl.textContent = formatPriceDisplay(tariffCents);
+                if (landedCostEl) landedCostEl.textContent = formatPriceDisplay(landedCostCents);
+            },
+
+            handleCountryChange: function () {
+                const country = document.getElementById('modal-country-origin')?.value;
+                const tariffInput = document.getElementById('modal-tariff-rate');
+
+                if (!tariffInput) return;
+
+                // Auto-set common tariff rates based on country
+                const defaultRates = {
+                    'China': 25,      // Section 301 tariffs
+                    'USA': 0,         // No tariff
+                    'Mexico': 0,      // USMCA
+                    'Canada': 0,      // USMCA
+                    'Vietnam': 0,     // Favored nation status
+                    'India': 0,       // Generally favored
+                    'Unknown': 0,
+                    'Other': 0
+                };
+
+                tariffInput.value = defaultRates[country] || 0;
+                window.module.recalculateTariffInModal();
+            },
+
+            applyCommonTariff: function (tariffType) {
+                const tariffInput = document.getElementById('modal-tariff-rate');
+                if (!tariffInput) return;
+
+                const rates = {
+                    'china10': 10,
+                    'china25': 25,
+                    'china60': 60,
+                    'general': 2.5
+                };
+
+                tariffInput.value = rates[tariffType] || 0;
+                window.module.recalculateTariffInModal();
+            },
+
+
             // Enhanced updateDraftCartDisplay with shipping/tax breakdown
             updateDraftCartDisplay: function () {
                 const cartEl = document.getElementById('editOrderItemsDisplay');
@@ -10102,11 +10634,11 @@
             // EXTERNAL ORDERS MANAGEMENT
             // ==========================================
 
-            fetchExternalOrders: async function() {
+            fetchExternalOrders: async function () {
                 try {
                     // ✅ Wait for the table body to exist
                     await waitForElement('externalOrdersTableBody');
-                    
+
                     const idToken = await auth.currentUser.getIdToken();
                     const response = await fetch(GET_EXTERNAL_ORDERS, {
                         headers: {
@@ -10114,16 +10646,16 @@
                             'Content-Type': 'application/json'
                         }
                     });
-            
+
                     if (!response.ok) throw new Error('Failed to fetch external orders');
-                    
+
                     const data = await response.json();
                     allExternalOrders = data.orders || [];
                     window.module.renderExternalOrders();
                     window.module.updateExternalOrderStats();
                 } catch (error) {
                     console.error('Error fetching external orders:', error);
-                    
+
                     const tbody = document.getElementById('externalOrdersTableBody');
                     if (tbody) {
                         tbody.innerHTML = `
@@ -10137,15 +10669,15 @@
                 }
             },
 
-            renderExternalOrders: function() {
+            renderExternalOrders: function () {
                 const tbody = document.getElementById('externalOrdersTableBody');
-                
+
                 // ✅ Add safety check
                 if (!tbody) {
                     console.warn('External orders table body not found in DOM');
                     return;
                 }
-                
+
                 if (allExternalOrders.length === 0) {
                     tbody.innerHTML = `
                         <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
@@ -10154,9 +10686,9 @@
                     `;
                     return;
                 }
-            
+
                 const filteredOrders = window.module.getFilteredExternalOrders();
-                
+
                 if (filteredOrders.length === 0) {
                     tbody.innerHTML = `
                         <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">
@@ -10235,21 +10767,21 @@
                 window.module.updateExternalOrderStats();  // ✅ Add window.module.
             },
 
-            updateExternalOrderStats: function() {
+            updateExternalOrderStats: function () {
                 const filtered = window.module.getFilteredExternalOrders();
-                
+
                 // ✅ Add safety checks for all elements
                 const statTotal = document.getElementById('statTotal');
                 const statPending = document.getElementById('statPending');
                 const statProcessing = document.getElementById('statProcessing');
                 const statShipped = document.getElementById('statShipped');
                 const statDelivered = document.getElementById('statDelivered');
-                
+
                 if (!statTotal || !statPending || !statProcessing || !statShipped || !statDelivered) {
                     console.warn('Stats elements not found in DOM');
                     return;
                 }
-                
+
                 statTotal.textContent = filtered.length;
                 statPending.textContent = filtered.filter(o => o.status === 'Pending').length;
                 statProcessing.textContent = filtered.filter(o => o.status === 'Processing').length;
@@ -10257,14 +10789,14 @@
                 statDelivered.textContent = filtered.filter(o => o.status === 'Delivered').length;
             },
 
-            handleExternalProductSelect: function() {
+            handleExternalProductSelect: function () {
                 const selector = document.getElementById('orderProductSelector');
                 const selectedOption = selector.options[selector.selectedIndex];
-                
+
                 const productInput = document.getElementById('orderProduct');
                 const amountInput = document.getElementById('orderAmount');
                 const previewDiv = document.getElementById('productDetailsPreview');
-                
+
                 if (selectedOption.value === '') {
                     // No selection
                     productInput.value = '';
@@ -10287,23 +10819,23 @@
                     const price = selectedOption.dataset.price;
                     const sku = selectedOption.dataset.sku;
                     const description = selectedOption.dataset.description;
-                    
+
                     // Auto-populate fields
                     productInput.value = productName;
                     amountInput.value = price;
-                    
+
                     // Show preview with details
                     document.getElementById('previewSku').textContent = sku || 'N/A';
                     document.getElementById('previewDescription').textContent = description || 'No description';
                     document.getElementById('previewPrice').textContent = `$${price}`;
                     previewDiv.classList.remove('hidden');
-                    
+
                     // Make fields editable in case they need to adjust
                     productInput.readOnly = false;
                     amountInput.readOnly = false;
                 }
             },
-            
+
             showAddExternalOrderModal: function () {
                 document.getElementById('modalTitle').textContent = 'Add External Order';
                 document.getElementById('externalOrderForm').reset();
@@ -10334,7 +10866,7 @@
             closeExternalOrderModal: function () {
                 document.getElementById('externalOrderModal').classList.add('hidden');
                 document.getElementById('externalOrderForm').reset();
-            },            
+            },
 
             saveExternalOrder: async function (event) {
                 event.preventDefault();
@@ -10407,7 +10939,7 @@
                 return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
             },
 
-            handleStockAdjustment: async function(itemId, adjustment, setToZero = false) {
+            handleStockAdjustment: async function (itemId, adjustment, setToZero = false) {
                 resetTimer();
                 try {
                     const item = state.items.find(i => i.id === itemId);
@@ -10415,10 +10947,10 @@
                         showMessage('error', 'Product not found.', 3000, 'inventory');
                         return;
                     }
-            
+
                     const currentStock = item.stock || 0;
                     let newStock;
-                    
+
                     if (setToZero) {
                         if (!confirm(`Are you sure you want to set stock to 0 for "${item.name}"?`)) {
                             return;
@@ -10426,21 +10958,21 @@
                         newStock = 0;
                     } else {
                         newStock = Math.max(0, currentStock + adjustment);
-                        
+
                         // Prevent going below 0
                         if (newStock < 0) {
                             showMessage('warning', 'Stock cannot be negative. Setting to 0.', 3000, 'inventory');
                             newStock = 0;
                         }
                     }
-            
+
                     // Update Firestore
                     const itemRef = doc(db, ITEMS_COLLECTION, itemId);
                     await updateDoc(itemRef, {
                         stock: newStock,
                         updatedAt: serverTimestamp()
                     });
-            
+
                     // Log the stock adjustment
                     await logAdminAction('STOCK_ADJUSTED', {
                         productId: itemId,
@@ -10450,22 +10982,22 @@
                         adjustment: adjustment,
                         setToZero: setToZero
                     }, itemId);
-            
-                    const actionText = setToZero 
-                        ? 'set to 0' 
-                        : (adjustment > 0 
-                            ? `increased by ${adjustment}` 
+
+                    const actionText = setToZero
+                        ? 'set to 0'
+                        : (adjustment > 0
+                            ? `increased by ${adjustment}`
                             : `decreased by ${Math.abs(adjustment)}`);
-                            
+
                     showMessage('success', `Stock for "${item.name}" ${actionText}. New stock: ${newStock}`, 3000, 'inventory');
-            
+
                 } catch (error) {
                     console.error('Error adjusting stock:', error);
                     showMessage('error', 'Failed to adjust stock. Check console for details.', 5000, 'inventory');
                 }
             },
-            
-            handleStockDirectUpdate: async function(itemId, newStockValue) {
+
+            handleStockDirectUpdate: async function (itemId, newStockValue) {
                 resetTimer();
                 try {
                     const item = state.items.find(i => i.id === itemId);
@@ -10473,9 +11005,9 @@
                         showMessage('error', 'Product not found.', 3000, 'inventory');
                         return;
                     }
-            
+
                     const newStock = parseInt(newStockValue, 10);
-                    
+
                     if (isNaN(newStock) || newStock < 0) {
                         showMessage('error', 'Please enter a valid stock number (0 or greater).', 3000, 'inventory');
                         // Reset the input to the current stock
@@ -10483,20 +11015,20 @@
                         if (input) input.value = item.stock || 0;
                         return;
                     }
-            
+
                     const currentStock = item.stock || 0;
-                    
+
                     if (newStock === currentStock) {
                         return; // No change needed
                     }
-            
+
                     // Update Firestore
                     const itemRef = doc(db, ITEMS_COLLECTION, itemId);
                     await updateDoc(itemRef, {
                         stock: newStock,
                         updatedAt: serverTimestamp()
                     });
-            
+
                     // Log the stock adjustment
                     await logAdminAction('STOCK_UPDATED', {
                         productId: itemId,
@@ -10505,20 +11037,20 @@
                         newStock: newStock,
                         method: 'direct_input'
                     }, itemId);
-            
+
                     showMessage('success', `Stock for "${item.name}" updated to ${newStock}`, 2000, 'inventory');
-            
+
                 } catch (error) {
                     console.error('Error updating stock:', error);
                     showMessage('error', 'Failed to update stock. Check console for details.', 5000, 'inventory');
-                    
+
                     // Reset the input to the current stock on error
                     const item = state.items.find(i => i.id === itemId);
                     const input = document.getElementById(`stock-input-${itemId}`);
                     if (input && item) input.value = item.stock || 0;
                 }
             },
-            
+
 
 
             // ========================================================================
