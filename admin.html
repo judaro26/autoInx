@@ -6292,16 +6292,18 @@
         // SUMMARY CARDS
         // ============================================================================
                 
-          function renderProfitSummaryCards() {
+        function renderProfitSummaryCards() {
             const items = state.items || [];
             
             let totalProfitNoShipping = 0;
             let totalProfitWithShipping = 0;
             let totalMarginNoShipping = 0;
             let totalMarginWithShipping = 0;
+            let totalTariffCosts = 0;
             let itemsWithData = 0;
             let highMarginCount = 0;
             let negativeMarginsCount = 0;
+            let itemsWithTariffs = 0;
             
             items.forEach(item => {
                 const analysis = calculateItemProfit(item);
@@ -6311,7 +6313,9 @@
                     totalProfitWithShipping += analysis.profitWithShippingCents;
                     totalMarginNoShipping += analysis.marginWithoutShippingPercent;
                     totalMarginWithShipping += analysis.marginWithShippingPercent;
+                    totalTariffCosts += analysis.tariffCents;
                     
+                    if (analysis.tariffRate > 0) itemsWithTariffs++;
                     if (analysis.marginWithoutShippingPercent > 40) highMarginCount++;
                     if (analysis.marginWithoutShippingPercent < 0) negativeMarginsCount++;
                 }
@@ -6321,6 +6325,7 @@
             const avgProfitWithShipping = itemsWithData > 0 ? totalProfitWithShipping / itemsWithData : 0;
             const avgMarginNoShipping = itemsWithData > 0 ? totalMarginNoShipping / itemsWithData : 0;
             const avgMarginWithShipping = itemsWithData > 0 ? totalMarginWithShipping / itemsWithData : 0;
+            const avgTariffCost = itemsWithData > 0 ? totalTariffCosts / itemsWithData : 0;
             
             return `
                 <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
@@ -6335,20 +6340,19 @@
                     <p class="text-xs text-blue-600 mt-2">${avgMarginWithShipping.toFixed(1)}% margin • If you absorb shipping</p>
                 </div>
                 
+                <div class="bg-gradient-to-br from-red-50 to-rose-50 p-6 rounded-xl border-2 border-red-200">
+                    <p class="text-sm text-red-700 font-semibold mb-1">⚠️ Avg Tariff Cost</p>
+                    <p class="text-3xl font-black text-red-800">${formatPriceDisplay(Math.round(avgTariffCost))}</p>
+                    <p class="text-xs text-red-600 mt-2">${itemsWithTariffs} items affected • Per unit cost</p>
+                </div>
+                
                 <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-xl border-2 border-purple-200">
                     <p class="text-sm text-purple-700 font-semibold mb-1">High Margin Items</p>
                     <p class="text-3xl font-black text-purple-800">${highMarginCount}</p>
-                    <p class="text-xs text-purple-600 mt-2">Above 40% margin (excl. shipping)</p>
-                </div>
-                
-                <div class="bg-gradient-to-br from-red-50 to-rose-50 p-6 rounded-xl border-2 border-red-200">
-                    <p class="text-sm text-red-700 font-semibold mb-1">Loss Leaders</p>
-                    <p class="text-3xl font-black text-red-800">${negativeMarginsCount}</p>
-                    <p class="text-xs text-red-600 mt-2">Negative margin items</p>
+                    <p class="text-xs text-purple-600 mt-2">Above 40% margin (incl. tariffs)</p>
                 </div>
             `;
         }
-
         
         // ============================================================================
         // PRODUCTS TABLE
@@ -6371,31 +6375,58 @@
                 const marginClass = getMarginClass(analysis.marginWithoutShippingPercent);
                 const profitClass = analysis.profitWithoutShippingCents >= 0 ? 'profit-positive' : 'profit-negative';
                 
+                // ✅ NEW: Tariff badge
+                const tariffBadge = analysis.tariffRate > 0 
+                    ? `<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
+                         ${analysis.tariffRate}% tariff
+                       </span>`
+                    : '';
+                
                 return `
                     <tr class="${marginClass} hover:shadow-md transition cursor-pointer" 
                         onclick="window.module.showProfitDetailsModal('${item.id}')">
-                        <td class="p-3 text-sm font-semibold">${escapeHtml(item.name)}</td>
+                        <td class="p-3">
+                            <div class="text-sm font-semibold">${escapeHtml(item.name)}</div>
+                            <div class="text-xs text-gray-600 mt-1">
+                                ${analysis.countryOfOrigin !== 'Unknown' 
+                                    ? `<span class="inline-flex items-center">🌍 ${analysis.countryOfOrigin}</span>` 
+                                    : '<span class="text-gray-400">Origin not set</span>'}
+                                ${tariffBadge}
+                            </div>
+                        </td>
                         <td class="p-3 text-xs font-mono text-gray-600">${item.sku || 'N/A'}</td>
                         <td class="p-3 text-sm font-bold">${formatPriceDisplay(item.price)}</td>
                         
-                        <!-- ✅ NEW: Vendor Cost Only -->
                         <td class="p-3 text-sm ${analysis.hasData ? '' : 'text-gray-400 italic'}">
-                            ${analysis.hasData ? formatPriceDisplay(analysis.costPerUnitCents) : 'Not set'}
+                            ${analysis.hasData ? formatPriceDisplay(analysis.purchasePriceCents) : 'Not set'}
                         </td>
                         
-                        <!-- ✅ NEW: Shipping Cost Separate -->
+                        <td class="p-3 text-sm">
+                            ${analysis.tariffCents > 0 
+                                ? `<span class="font-bold text-red-600">${formatPriceDisplay(analysis.tariffCents)}</span>`
+                                : '<span class="text-gray-400">-</span>'}
+                        </td>
+                        
                         <td class="p-3 text-sm text-gray-600">
                             ${analysis.avgShippingCostCents > 0 ? formatPriceDisplay(analysis.avgShippingCostCents) : '-'}
                         </td>
                         
-                        <!-- ✅ NEW: Profit (Customer Pays Shipping) -->
                         <td class="p-3 text-sm font-bold ${profitClass}">
                             ${analysis.hasData ? formatPriceDisplay(analysis.profitWithoutShippingCents) : '-'}
+                            ${analysis.tariffCents > 0 
+                                ? `<div class="text-xs text-gray-500 mt-1">
+                                     (${formatPriceDisplay(analysis.profitWithoutTariffCents)} w/o tariff)
+                                   </div>`
+                                : ''}
                         </td>
                         
-                        <!-- ✅ NEW: Margin % (Customer Pays Shipping) -->
                         <td class="p-3 text-sm font-black ${profitClass}">
                             ${analysis.hasData ? analysis.marginWithoutShippingPercent.toFixed(1) + '%' : '-'}
+                            ${analysis.tariffCents > 0 
+                                ? `<div class="text-xs font-normal text-gray-500 mt-1">
+                                     (${analysis.marginWithoutTariffPercent.toFixed(1)}% w/o tariff)
+                                   </div>`
+                                : ''}
                         </td>
                         
                         <td class="p-3 text-xs">
@@ -6415,10 +6446,11 @@
                 <table class="w-full">
                     <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300">
                         <tr>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Product</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Product & Origin</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">SKU</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Selling Price</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Vendor Cost</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Tariff Cost</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Shipping Cost</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Profit/Unit</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Margin %</th>
@@ -6434,7 +6466,7 @@
                 <div class="p-4 bg-gray-50 border-t">
                     <div class="flex justify-between text-xs text-gray-600">
                         <span>Showing ${filteredItems.length} of ${state.items.length} products</span>
-                        <span class="font-semibold">💡 Profit shown: Customer pays shipping separately</span>
+                        <span class="font-semibold">💡 Profit shown: Customer pays shipping separately • Red text = tariff impact</span>
                     </div>
                 </div>
             `;
@@ -6449,13 +6481,17 @@
             const purchasePriceCents = item.purchasePriceCents || 0;
             const avgShippingCostCents = item.avgShippingCostCents || 0;
             
-            const hasData = purchasePriceCents > 0 || avgShippingCostCents > 0;
+            // ✅ NEW: Tariff calculations
+            const countryOfOrigin = item.countryOfOrigin || 'Unknown';
+            const tariffRate = item.tariffRate || 0; // Percentage (e.g., 25 for 25%)
+            const tariffCents = Math.round((purchasePriceCents * tariffRate) / 100);
             
-            // ✅ NEW: Separate calculations for with/without shipping
-            // Cost per unit (vendor cost only - NOT including shipping)
-            const costPerUnitCents = purchasePriceCents;
+            const hasData = purchasePriceCents > 0 || avgShippingCostCents > 0 || tariffCents > 0;
             
-            // Profit if customer pays shipping (matching Amazon free shipping model)
+            // Cost per unit (vendor cost + tariff)
+            const costPerUnitCents = purchasePriceCents + tariffCents;
+            
+            // Profit if customer pays shipping (most common scenario)
             const profitWithoutShippingCents = sellingPriceCents - costPerUnitCents;
             const marginWithoutShippingPercent = sellingPriceCents > 0 
                 ? (profitWithoutShippingCents / sellingPriceCents) * 100 
@@ -6470,27 +6506,43 @@
             // Break-even price if you were to offer free shipping (like Amazon)
             const breakEvenWithFreeShippingCents = costPerUnitCents + avgShippingCostCents;
             
+            // ✅ NEW: Calculate what profit would be WITHOUT tariffs (for comparison)
+            const profitWithoutTariffCents = sellingPriceCents - (purchasePriceCents + avgShippingCostCents);
+            const marginWithoutTariffPercent = sellingPriceCents > 0
+                ? ((sellingPriceCents - purchasePriceCents) / sellingPriceCents) * 100
+                : 0;
+            
             return {
                 hasData,
                 sellingPriceCents,
                 purchasePriceCents,
                 avgShippingCostCents,
                 
-                // ✅ NEW: Separate cost tracking
-                costPerUnitCents,  // Vendor cost only
+                // ✅ NEW: Tariff data
+                countryOfOrigin,
+                tariffRate,
+                tariffCents,
+                tariffImpactCents: tariffCents, // How much tariff adds to cost
                 
-                // ✅ NEW: Dual profit calculations
+                // Cost breakdown
+                costPerUnitCents,  // Vendor cost + tariff
+                
+                // Dual profit calculations (WITH tariffs)
                 profitWithoutShippingCents,      // When customer pays shipping
                 marginWithoutShippingPercent,    // Margin without shipping
                 profitWithShippingCents,         // If you absorb shipping
                 marginWithShippingPercent,       // Margin with shipping absorbed
                 
-                breakEvenWithFreeShippingCents,  // Price needed to match Amazon's free shipping
+                // ✅ NEW: Pre-tariff comparison
+                profitWithoutTariffCents,        // What profit would be without tariffs
+                marginWithoutTariffPercent,      // What margin would be without tariffs
                 
-                // ✅ DEPRECATED (kept for backward compatibility)
-                totalCostCents: costPerUnitCents,  // Now just vendor cost
-                profitCents: profitWithoutShippingCents,  // Default to without shipping
-                marginPercent: marginWithoutShippingPercent  // Default to without shipping
+                breakEvenWithFreeShippingCents,
+                
+                // Legacy (kept for backward compatibility)
+                totalCostCents: costPerUnitCents,
+                profitCents: profitWithoutShippingCents,
+                marginPercent: marginWithoutShippingPercent
             };
         }
         
@@ -6679,8 +6731,7 @@
                                     </div>
                                 </div>
                             </div>
-                            
-                            <!-- Cost Breakdown -->
+                            <!-- Cost Breakdown with Tariffs -->
                             <div class="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
                                 <h4 class="text-lg font-bold text-purple-800 mb-4">📦 Cost Breakdown</h4>
                                 <div class="space-y-4">
@@ -6693,8 +6744,80 @@
                                                    step="0.01" 
                                                    value="${(analysis.purchasePriceCents / 100).toFixed(2)}" 
                                                    placeholder="0.00"
+                                                   onchange="window.module.recalculateTariffInModal()"
                                                    class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
                                         </div>
+                                    </div>
+                                    
+                                    <!-- ✅ NEW: Country of Origin -->
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">🌍 Country of Origin</label>
+                                        <select id="modal-country-origin" 
+                                                onchange="window.module.handleCountryChange()"
+                                                class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                            <option value="Unknown" ${analysis.countryOfOrigin === 'Unknown' ? 'selected' : ''}>Unknown</option>
+                                            <option value="China" ${analysis.countryOfOrigin === 'China' ? 'selected' : ''}>🇨🇳 China</option>
+                                            <option value="USA" ${analysis.countryOfOrigin === 'USA' ? 'selected' : ''}>🇺🇸 USA (No Tariff)</option>
+                                            <option value="Mexico" ${analysis.countryOfOrigin === 'Mexico' ? 'selected' : ''}>🇲🇽 Mexico (USMCA)</option>
+                                            <option value="Canada" ${analysis.countryOfOrigin === 'Canada' ? 'selected' : ''}>🇨🇦 Canada (USMCA)</option>
+                                            <option value="Vietnam" ${analysis.countryOfOrigin === 'Vietnam' ? 'selected' : ''}>🇻🇳 Vietnam</option>
+                                            <option value="India" ${analysis.countryOfOrigin === 'India' ? 'selected' : ''}>🇮🇳 India</option>
+                                            <option value="Other" ${analysis.countryOfOrigin === 'Other' ? 'selected' : ''}>Other</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <!-- ✅ NEW: Tariff Rate -->
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Import Tariff Rate (%)</label>
+                                        <div class="flex gap-2 items-center">
+                                            <input type="number" 
+                                                   id="modal-tariff-rate" 
+                                                   step="0.1" 
+                                                   value="${analysis.tariffRate}" 
+                                                   placeholder="0"
+                                                   min="0"
+                                                   max="100"
+                                                   onchange="window.module.recalculateTariffInModal()"
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
+                                            <span class="text-lg">%</span>
+                                            <button type="button" 
+                                                    onclick="window.module.applyCommonTariff('china25')"
+                                                    class="px-3 py-2 bg-red-600 text-white text-xs rounded-lg hover:bg-red-700 font-bold whitespace-nowrap">
+                                                China 25%
+                                            </button>
+                                            <button type="button" 
+                                                    onclick="window.module.applyCommonTariff('china60')"
+                                                    class="px-3 py-2 bg-red-700 text-white text-xs rounded-lg hover:bg-red-800 font-bold whitespace-nowrap">
+                                                China 60%
+                                            </button>
+                                        </div>
+                                        <p class="text-xs text-gray-600 mt-1">Common rates: 10% (general), 25% (Section 301), 60% (proposed)</p>
+                                    </div>
+                                    
+                                    <!-- ✅ NEW: Calculated Tariff Cost -->
+                                    <div class="bg-red-50 p-3 rounded-lg border border-red-200">
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-sm font-semibold text-red-800">Calculated Tariff Cost:</span>
+                                            <span id="modal-tariff-cost" class="text-xl font-black text-red-600">
+                                                ${formatPriceDisplay(analysis.tariffCents)}
+                                            </span>
+                                        </div>
+                                        <p class="text-xs text-red-700 mt-1">
+                                            Based on ${analysis.tariffRate}% of purchase price
+                                        </p>
+                                    </div>
+                                    
+                                    <!-- ✅ NEW: Total Landed Cost -->
+                                    <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-sm font-semibold text-indigo-800">Total Landed Cost:</span>
+                                            <span id="modal-landed-cost" class="text-xl font-black text-indigo-600">
+                                                ${formatPriceDisplay(analysis.costPerUnitCents)}
+                                            </span>
+                                        </div>
+                                        <p class="text-xs text-indigo-700 mt-1">
+                                            Purchase price + tariff (excludes shipping)
+                                        </p>
                                     </div>
                                     
                                     <div>
@@ -6895,11 +7018,17 @@
             const headers = [
                 'Product Name',
                 'SKU',
+                'Country of Origin',
+                'Tariff Rate (%)',
                 'Selling Price (USD)',
                 'Vendor Cost (USD)',
+                'Tariff Cost (USD)',
                 'Shipping Cost (USD)',
+                'Total Landed Cost (USD)',
                 'Profit - Customer Pays Shipping (USD)',
                 'Margin - Customer Pays Shipping (%)',
+                'Profit WITHOUT Tariff (USD)',
+                'Margin WITHOUT Tariff (%)',
                 'Profit - Free Shipping (USD)',
                 'Margin - Free Shipping (%)',
                 'Amazon Price (USD)',
@@ -6914,11 +7043,17 @@
                 return [
                     `"${(item.name || '').replace(/"/g, '""')}"`,
                     item.sku || '',
+                    analysis.countryOfOrigin || 'Unknown',
+                    analysis.tariffRate.toFixed(1),
                     (item.price / 100).toFixed(2),
-                    (analysis.costPerUnitCents / 100).toFixed(2),
+                    (analysis.purchasePriceCents / 100).toFixed(2),
+                    (analysis.tariffCents / 100).toFixed(2),
                     (analysis.avgShippingCostCents / 100).toFixed(2),
+                    (analysis.costPerUnitCents / 100).toFixed(2),
                     (analysis.profitWithoutShippingCents / 100).toFixed(2),
                     analysis.marginWithoutShippingPercent.toFixed(2),
+                    (analysis.profitWithoutTariffCents / 100).toFixed(2),
+                    analysis.marginWithoutTariffPercent.toFixed(2),
                     (analysis.profitWithShippingCents / 100).toFixed(2),
                     analysis.marginWithShippingPercent.toFixed(2),
                     competitorPrices.amazon ? (competitorPrices.amazon / 100).toFixed(2) : '',
@@ -6930,7 +7065,7 @@
             const csvString = [headers.join(','), ...rows].join('\n');
             const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
-            const filename = `profit_analysis_enhanced_${new Date().toISOString().slice(0, 10)}.csv`;
+            const filename = `profit_analysis_with_tariffs_${new Date().toISOString().slice(0, 10)}.csv`;
             
             if (link.download !== undefined) {
                 const url = URL.createObjectURL(blob);
@@ -6959,6 +7094,10 @@
             const ebayPrice = parseFloat(document.getElementById('modal-ebay-price')?.value || 0);
             const amazonPrice = parseFloat(document.getElementById('modal-amazon-price')?.value || 0);
             
+            // ✅ NEW: Get tariff data
+            const countryOfOrigin = document.getElementById('modal-country-origin')?.value || 'Unknown';
+            const tariffRate = parseFloat(document.getElementById('modal-tariff-rate')?.value || 0);
+            
             const purchasePriceCents = Math.round(purchasePrice * 100);
             const avgShippingCostCents = Math.round(shippingCost * 100);
             const competitorPrices = {};
@@ -6974,6 +7113,9 @@
                     avgShippingCostCents: avgShippingCostCents,
                     vendorUrl: vendorUrl,
                     competitorPrices: competitorPrices,
+                    // ✅ NEW: Save tariff data
+                    countryOfOrigin: countryOfOrigin,
+                    tariffRate: tariffRate,
                     updatedAt: serverTimestamp()
                 });
                 
@@ -6981,7 +7123,9 @@
                     itemId,
                     purchasePriceCents,
                     avgShippingCostCents,
-                    competitorPrices
+                    competitorPrices,
+                    countryOfOrigin,
+                    tariffRate
                 }, itemId);
                 
                 showMessage('success', 'Profit data saved successfully!', 3000, 'catalog');
@@ -7327,6 +7471,58 @@
                 resetTimer();
             },
 
+        recalculateTariffInModal: function() {
+            const purchasePrice = parseFloat(document.getElementById('modal-purchase-price')?.value || 0);
+            const tariffRate = parseFloat(document.getElementById('modal-tariff-rate')?.value || 0);
+            
+            const purchasePriceCents = Math.round(purchasePrice * 100);
+            const tariffCents = Math.round((purchasePriceCents * tariffRate) / 100);
+            const landedCostCents = purchasePriceCents + tariffCents;
+            
+            const tariffCostEl = document.getElementById('modal-tariff-cost');
+            const landedCostEl = document.getElementById('modal-landed-cost');
+            
+            if (tariffCostEl) tariffCostEl.textContent = formatPriceDisplay(tariffCents);
+            if (landedCostEl) landedCostEl.textContent = formatPriceDisplay(landedCostCents);
+        },
+        
+        handleCountryChange: function() {
+            const country = document.getElementById('modal-country-origin')?.value;
+            const tariffInput = document.getElementById('modal-tariff-rate');
+            
+            if (!tariffInput) return;
+            
+            // Auto-set common tariff rates based on country
+            const defaultRates = {
+                'China': 25,      // Section 301 tariffs
+                'USA': 0,         // No tariff
+                'Mexico': 0,      // USMCA
+                'Canada': 0,      // USMCA
+                'Vietnam': 0,     // Favored nation status
+                'India': 0,       // Generally favored
+                'Unknown': 0,
+                'Other': 0
+            };
+            
+            tariffInput.value = defaultRates[country] || 0;
+            window.module.recalculateTariffInModal();
+        },
+        
+        applyCommonTariff: function(tariffType) {
+            const tariffInput = document.getElementById('modal-tariff-rate');
+            if (!tariffInput) return;
+            
+            const rates = {
+                'china10': 10,
+                'china25': 25,
+                'china60': 60,
+                'general': 2.5
+            };
+            
+            tariffInput.value = rates[tariffType] || 0;
+            window.module.recalculateTariffInModal();
+        },
+            
             
             // Enhanced updateDraftCartDisplay with shipping/tax breakdown
             updateDraftCartDisplay: function () {
