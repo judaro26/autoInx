@@ -6329,27 +6329,47 @@
             
             return `
                 <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
-                    <p class="text-sm text-green-700 font-semibold mb-1">Avg Profit (Customer Pays Shipping)</p>
+                    <p class="text-sm text-green-700 font-semibold mb-1">Avg Profit (After Tariffs)</p>
                     <p class="text-3xl font-black text-green-800">${formatPriceDisplay(Math.round(avgProfitNoShipping))}</p>
-                    <p class="text-xs text-green-600 mt-2">${avgMarginNoShipping.toFixed(1)}% margin • ${itemsWithData} items tracked</p>
+                    <p class="text-xs text-green-600 mt-2">
+                        ${avgMarginNoShipping.toFixed(1)}% margin • Customer pays shipping
+                    </p>
+                    <p class="text-xs text-green-700 mt-1 font-semibold">
+                        ✅ Tariffs included in calculation
+                    </p>
                 </div>
                 
                 <div class="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-xl border-2 border-blue-200">
                     <p class="text-sm text-blue-700 font-semibold mb-1">Avg Profit (Free Shipping)</p>
                     <p class="text-3xl font-black text-blue-800">${formatPriceDisplay(Math.round(avgProfitWithShipping))}</p>
-                    <p class="text-xs text-blue-600 mt-2">${avgMarginWithShipping.toFixed(1)}% margin • If you absorb shipping</p>
+                    <p class="text-xs text-blue-600 mt-2">
+                        ${avgMarginWithShipping.toFixed(1)}% margin • If you absorb shipping
+                    </p>
+                    <p class="text-xs text-blue-700 mt-1 font-semibold">
+                        ✅ Tariffs included in calculation
+                    </p>
                 </div>
                 
                 <div class="bg-gradient-to-br from-red-50 to-rose-50 p-6 rounded-xl border-2 border-red-200">
-                    <p class="text-sm text-red-700 font-semibold mb-1">⚠️ Avg Tariff Cost</p>
+                    <p class="text-sm text-red-700 font-semibold mb-1">⚠️ Avg Tariff Impact</p>
                     <p class="text-3xl font-black text-red-800">${formatPriceDisplay(Math.round(avgTariffCost))}</p>
-                    <p class="text-xs text-red-600 mt-2">${itemsWithTariffs} items affected • Per unit cost</p>
+                    <p class="text-xs text-red-600 mt-2">
+                        ${itemsWithTariffs} of ${itemsWithData} items affected
+                    </p>
+                    <p class="text-xs text-red-700 mt-1 font-semibold">
+                        Per unit additional cost
+                    </p>
                 </div>
                 
                 <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-xl border-2 border-purple-200">
                     <p class="text-sm text-purple-700 font-semibold mb-1">High Margin Items</p>
                     <p class="text-3xl font-black text-purple-800">${highMarginCount}</p>
-                    <p class="text-xs text-purple-600 mt-2">Above 40% margin (incl. tariffs)</p>
+                    <p class="text-xs text-purple-600 mt-2">
+                        Above 40% margin (after tariffs)
+                    </p>
+                    <p class="text-xs text-purple-700 mt-1">
+                        ${negativeMarginsCount} items with negative margins
+                    </p>
                 </div>
             `;
         }
@@ -6452,8 +6472,14 @@
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Vendor Cost</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Tariff Cost</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Shipping Cost</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Profit/Unit</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Margin %</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">
+                                Profit/Unit
+                                <div class="text-xs font-normal text-gray-500">(includes tariffs)</div>
+                            </th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">
+                                Margin %
+                                <div class="text-xs font-normal text-gray-500">(includes tariffs)</div>
+                            </th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Competitors</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Actions</th>
                         </tr>
@@ -6466,7 +6492,9 @@
                 <div class="p-4 bg-gray-50 border-t">
                     <div class="flex justify-between text-xs text-gray-600">
                         <span>Showing ${filteredItems.length} of ${state.items.length} products</span>
-                        <span class="font-semibold">💡 Profit shown: Customer pays shipping separately • Red text = tariff impact</span>
+                        <span class="font-semibold">
+                            💡 Profit/Margin shown: Includes tariff costs • Customer pays shipping separately
+                        </span>
                     </div>
                 </div>
             `;
@@ -6631,109 +6659,162 @@
         // ============================================================================
         // DETAILS MODAL
         // ============================================================================
-        
         function showProfitDetailsModal(itemId) {
+            resetTimer();
+            
             const item = state.items.find(i => i.id === itemId);
-            if (!item) return;
+            if (!item) {
+                console.error('Item not found for profit details:', itemId);
+                return;
+            }
             
             const analysis = calculateItemProfit(item);
             const competitorPrices = item.competitorPrices || {};
             
+            // Get the modal container
+            const modalContainer = document.getElementById('profitAnalysisModalContainer');
+            if (!modalContainer) {
+                console.error('Modal container not found');
+                return;
+            }
+            
             const modalHtml = `
-                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
-                     onclick="window.module.closeProfitDetailsModal()">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto" 
-                         onclick="event.stopPropagation()">
+                <div id="profitDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+                     onclick="if(event.target.id === 'profitDetailsModal') window.module.closeProfitDetailsModal()">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
                         
                         <!-- Header -->
                         <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-2xl">
-                            <h3 class="text-2xl font-bold">${escapeHtml(item.name)}</h3>
-                            <p class="text-sm opacity-90 mt-1">SKU: ${item.sku || 'N/A'}</p>
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <h3 class="text-2xl font-bold">${escapeHtml(item.name)}</h3>
+                                    <p class="text-sm mt-1 opacity-90">SKU: ${item.sku || 'N/A'}</p>
+                                </div>
+                                <button onclick="window.module.closeProfitDetailsModal()" 
+                                        class="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition">
+                                    <span class="text-2xl">×</span>
+                                </button>
+                            </div>
                         </div>
                         
-                        <!-- Content -->
                         <div class="p-6 space-y-6">
                             
-                            <!-- ✅ NEW: Dual Profit Analysis Comparison -->
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Tariff Impact Callout -->
+                            ${analysis.tariffRate > 0 ? `
+                                <div class="bg-yellow-50 border-2 border-yellow-300 p-4 rounded-xl">
+                                    <div class="flex items-start gap-3">
+                                        <span class="text-2xl">⚠️</span>
+                                        <div>
+                                            <p class="text-sm font-bold text-yellow-900">TARIFF-ADJUSTED CALCULATIONS</p>
+                                            <p class="text-xs text-yellow-800 mt-1">
+                                                All profit and margin calculations below <strong>INCLUDE</strong> the ${analysis.tariffRate}% tariff cost (${formatPriceDisplay(analysis.tariffCents)} per unit).
+                                                Without tariffs, your margin would be ${analysis.marginWithoutTariffPercent.toFixed(1)}%.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : `
+                                <div class="bg-blue-50 border-2 border-blue-300 p-4 rounded-xl">
+                                    <div class="flex items-start gap-3">
+                                        <span class="text-2xl">ℹ️</span>
+                                        <div>
+                                            <p class="text-sm font-bold text-blue-900">NO TARIFF CURRENTLY APPLIED</p>
+                                            <p class="text-xs text-blue-800 mt-1">
+                                                Set the country of origin and tariff rate below to see the impact on your margins.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            `}
+                            
+                            <!-- Profit Scenarios (WITH TARIFFS) -->
+                            <div class="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
+                                <h4 class="text-lg font-bold text-green-800 mb-4">💰 Profit Scenarios (WITH TARIFFS INCLUDED)</h4>
                                 
-                                <!-- Scenario 1: Customer Pays Shipping -->
-                                <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-300">
-                                    <div class="flex items-center gap-2 mb-4">
-                                        <span class="text-2xl">📦</span>
-                                        <h4 class="text-lg font-bold text-green-900">Customer Pays Shipping</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <!-- Scenario 1: Customer Pays Shipping -->
+                                    <div class="bg-white p-4 rounded-lg shadow">
+                                        <p class="text-sm font-semibold text-gray-700 mb-2">Scenario 1: Customer Pays Shipping</p>
+                                        <p class="text-xs text-gray-600 mb-3">Most common - customer pays shipping at checkout</p>
+                                        
+                                        <div class="space-y-2 text-sm">
+                                            <div class="flex justify-between">
+                                                <span>Selling Price:</span>
+                                                <span class="font-semibold">${formatPriceDisplay(analysis.sellingPriceCents)}</span>
+                                            </div>
+                                            <div class="flex justify-between text-gray-600">
+                                                <span>- Vendor Cost:</span>
+                                                <span>${formatPriceDisplay(analysis.purchasePriceCents)}</span>
+                                            </div>
+                                            ${analysis.tariffCents > 0 ? `
+                                                <div class="flex justify-between text-red-600 font-semibold">
+                                                    <span>- Tariff (${analysis.tariffRate}%):</span>
+                                                    <span>${formatPriceDisplay(analysis.tariffCents)}</span>
+                                                </div>
+                                            ` : ''}
+                                            <div class="border-t-2 border-gray-300 pt-2 flex justify-between font-bold text-lg ${analysis.profitWithoutShippingCents >= 0 ? 'text-green-700' : 'text-red-700'}">
+                                                <span>Profit:</span>
+                                                <span>${formatPriceDisplay(analysis.profitWithoutShippingCents)}</span>
+                                            </div>
+                                            <div class="flex justify-between font-bold text-lg ${analysis.marginWithoutShippingPercent >= 0 ? 'text-green-700' : 'text-red-700'}">
+                                                <span>Margin:</span>
+                                                <span>${analysis.marginWithoutShippingPercent.toFixed(1)}%</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="space-y-3">
-                                        <div class="flex justify-between">
-                                            <span class="text-sm text-gray-700">Selling Price:</span>
-                                            <span class="font-bold text-gray-900">${formatPriceDisplay(analysis.sellingPriceCents)}</span>
+                                    
+                                    <!-- Scenario 2: Free Shipping -->
+                                    <div class="bg-white p-4 rounded-lg shadow">
+                                        <p class="text-sm font-semibold text-gray-700 mb-2">Scenario 2: Free Shipping (You Absorb Cost)</p>
+                                        <p class="text-xs text-gray-600 mb-3">Competing with Amazon Prime-style free shipping</p>
+                                        
+                                        <div class="space-y-2 text-sm">
+                                            <div class="flex justify-between">
+                                                <span>Selling Price:</span>
+                                                <span class="font-semibold">${formatPriceDisplay(analysis.sellingPriceCents)}</span>
+                                            </div>
+                                            <div class="flex justify-between text-gray-600">
+                                                <span>- Vendor Cost:</span>
+                                                <span>${formatPriceDisplay(analysis.purchasePriceCents)}</span>
+                                            </div>
+                                            ${analysis.tariffCents > 0 ? `
+                                                <div class="flex justify-between text-red-600 font-semibold">
+                                                    <span>- Tariff (${analysis.tariffRate}%):</span>
+                                                    <span>${formatPriceDisplay(analysis.tariffCents)}</span>
+                                                </div>
+                                            ` : ''}
+                                            <div class="flex justify-between text-gray-600">
+                                                <span>- Shipping Cost:</span>
+                                                <span>${formatPriceDisplay(analysis.avgShippingCostCents)}</span>
+                                            </div>
+                                            <div class="border-t-2 border-gray-300 pt-2 flex justify-between font-bold text-lg ${analysis.profitWithShippingCents >= 0 ? 'text-blue-700' : 'text-red-700'}">
+                                                <span>Profit:</span>
+                                                <span>${formatPriceDisplay(analysis.profitWithShippingCents)}</span>
+                                            </div>
+                                            <div class="flex justify-between font-bold text-lg ${analysis.marginWithShippingPercent >= 0 ? 'text-blue-700' : 'text-red-700'}">
+                                                <span>Margin:</span>
+                                                <span>${analysis.marginWithShippingPercent.toFixed(1)}%</span>
+                                            </div>
                                         </div>
-                                        <div class="flex justify-between">
-                                            <span class="text-sm text-gray-700">Vendor Cost:</span>
-                                            <span class="font-bold text-gray-900">-${formatPriceDisplay(analysis.costPerUnitCents)}</span>
-                                        </div>
-                                        <div class="border-t-2 border-green-200 pt-3 flex justify-between">
-                                            <span class="text-sm font-bold text-green-800">Profit/Unit:</span>
-                                            <span class="text-xl font-black ${analysis.profitWithoutShippingCents >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                                ${formatPriceDisplay(analysis.profitWithoutShippingCents)}
-                                            </span>
-                                        </div>
-                                        <div class="flex justify-between">
-                                            <span class="text-sm font-bold text-green-800">Margin:</span>
-                                            <span class="text-xl font-black ${analysis.profitWithoutShippingCents >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                                ${analysis.marginWithoutShippingPercent.toFixed(1)}%
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div class="mt-4 p-3 bg-white rounded-lg border border-green-200">
-                                        <p class="text-xs text-green-800">
-                                            <strong>💡 Best for:</strong> Competing with Amazon (they offer free shipping, but you charge separately)
-                                        </p>
                                     </div>
                                 </div>
                                 
-                                <!-- Scenario 2: Free Shipping (You Absorb Cost) -->
-                                <div class="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-xl border-2 border-blue-300">
-                                    <div class="flex items-center gap-2 mb-4">
-                                        <span class="text-2xl">🚚</span>
-                                        <h4 class="text-lg font-bold text-blue-900">Free Shipping (You Absorb)</h4>
-                                    </div>
-                                    <div class="space-y-3">
-                                        <div class="flex justify-between">
-                                            <span class="text-sm text-gray-700">Selling Price:</span>
-                                            <span class="font-bold text-gray-900">${formatPriceDisplay(analysis.sellingPriceCents)}</span>
-                                        </div>
-                                        <div class="flex justify-between">
-                                            <span class="text-sm text-gray-700">Vendor Cost:</span>
-                                            <span class="font-bold text-gray-900">-${formatPriceDisplay(analysis.costPerUnitCents)}</span>
-                                        </div>
-                                        <div class="flex justify-between">
-                                            <span class="text-sm text-gray-700">Shipping Cost:</span>
-                                            <span class="font-bold text-gray-900">-${formatPriceDisplay(analysis.avgShippingCostCents)}</span>
-                                        </div>
-                                        <div class="border-t-2 border-blue-200 pt-3 flex justify-between">
-                                            <span class="text-sm font-bold text-blue-800">Profit/Unit:</span>
-                                            <span class="text-xl font-black ${analysis.profitWithShippingCents >= 0 ? 'text-blue-600' : 'text-red-600'}">
-                                                ${formatPriceDisplay(analysis.profitWithShippingCents)}
-                                            </span>
-                                        </div>
-                                        <div class="flex justify-between">
-                                            <span class="text-sm font-bold text-blue-800">Margin:</span>
-                                            <span class="text-xl font-black ${analysis.profitWithShippingCents >= 0 ? 'text-blue-600' : 'text-red-600'}">
-                                                ${analysis.marginWithShippingPercent.toFixed(1)}%
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div class="mt-4 p-3 bg-white rounded-lg border border-blue-200">
-                                        <p class="text-xs text-blue-800">
-                                            <strong>💡 Need price of:</strong> ${formatPriceDisplay(analysis.breakEvenWithFreeShippingCents)} to break even with free shipping
-                                        </p>
+                                <!-- Break-even Analysis -->
+                                <div class="mt-4 bg-indigo-50 p-4 rounded-lg border border-indigo-200">
+                                    <p class="text-sm font-semibold text-indigo-900 mb-2">💡 Competitive Pricing Insights</p>
+                                    <div class="text-xs space-y-1 text-indigo-800">
+                                        <p>• To break even with free shipping, minimum price: <strong>${formatPriceDisplay(analysis.breakEvenWithFreeShippingCents)}</strong></p>
+                                        <p>• Current selling price is <strong>${formatPriceDisplay(analysis.sellingPriceCents - analysis.breakEvenWithFreeShippingCents)}</strong> ${analysis.sellingPriceCents >= analysis.breakEvenWithFreeShippingCents ? 'above' : 'below'} break-even</p>
+                                        ${analysis.tariffCents > 0 ? `
+                                            <p class="text-red-700 font-semibold">• Tariff adds ${formatPriceDisplay(analysis.tariffCents)} to your cost per unit</p>
+                                        ` : ''}
                                     </div>
                                 </div>
                             </div>
+                            
                             <!-- Cost Breakdown with Tariffs -->
                             <div class="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
-                                <h4 class="text-lg font-bold text-purple-800 mb-4">📦 Cost Breakdown</h4>
+                                <h4 class="text-lg font-bold text-purple-800 mb-4">📦 Cost Breakdown & Tariff Settings</h4>
                                 <div class="space-y-4">
                                     <div>
                                         <label class="block text-sm font-semibold mb-2">Purchase Price (from vendor)</label>
@@ -6749,7 +6830,7 @@
                                         </div>
                                     </div>
                                     
-                                    <!-- ✅ NEW: Country of Origin -->
+                                    <!-- Country of Origin -->
                                     <div>
                                         <label class="block text-sm font-semibold mb-2">🌍 Country of Origin</label>
                                         <select id="modal-country-origin" 
@@ -6762,14 +6843,15 @@
                                             <option value="Canada" ${analysis.countryOfOrigin === 'Canada' ? 'selected' : ''}>🇨🇦 Canada (USMCA)</option>
                                             <option value="Vietnam" ${analysis.countryOfOrigin === 'Vietnam' ? 'selected' : ''}>🇻🇳 Vietnam</option>
                                             <option value="India" ${analysis.countryOfOrigin === 'India' ? 'selected' : ''}>🇮🇳 India</option>
+                                            <option value="Taiwan" ${analysis.countryOfOrigin === 'Taiwan' ? 'selected' : ''}>🇹🇼 Taiwan</option>
                                             <option value="Other" ${analysis.countryOfOrigin === 'Other' ? 'selected' : ''}>Other</option>
                                         </select>
                                     </div>
                                     
-                                    <!-- ✅ NEW: Tariff Rate -->
+                                    <!-- Tariff Rate -->
                                     <div>
                                         <label class="block text-sm font-semibold mb-2">Import Tariff Rate (%)</label>
-                                        <div class="flex gap-2 items-center">
+                                        <div class="flex gap-2 items-center flex-wrap">
                                             <input type="number" 
                                                    id="modal-tariff-rate" 
                                                    step="0.1" 
@@ -6778,23 +6860,28 @@
                                                    min="0"
                                                    max="100"
                                                    onchange="window.module.recalculateTariffInModal()"
-                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
+                                                   class="flex-1 min-w-[100px] p-2 border-2 border-gray-300 rounded-lg text-lg">
                                             <span class="text-lg">%</span>
+                                            <button type="button" 
+                                                    onclick="window.module.applyCommonTariff('china10')"
+                                                    class="px-3 py-2 bg-orange-500 text-white text-xs rounded-lg hover:bg-orange-600 font-bold whitespace-nowrap">
+                                                10%
+                                            </button>
                                             <button type="button" 
                                                     onclick="window.module.applyCommonTariff('china25')"
                                                     class="px-3 py-2 bg-red-600 text-white text-xs rounded-lg hover:bg-red-700 font-bold whitespace-nowrap">
-                                                China 25%
+                                                25%
                                             </button>
                                             <button type="button" 
                                                     onclick="window.module.applyCommonTariff('china60')"
                                                     class="px-3 py-2 bg-red-700 text-white text-xs rounded-lg hover:bg-red-800 font-bold whitespace-nowrap">
-                                                China 60%
+                                                60%
                                             </button>
                                         </div>
                                         <p class="text-xs text-gray-600 mt-1">Common rates: 10% (general), 25% (Section 301), 60% (proposed)</p>
                                     </div>
                                     
-                                    <!-- ✅ NEW: Calculated Tariff Cost -->
+                                    <!-- Calculated Tariff Cost -->
                                     <div class="bg-red-50 p-3 rounded-lg border border-red-200">
                                         <div class="flex justify-between items-center">
                                             <span class="text-sm font-semibold text-red-800">Calculated Tariff Cost:</span>
@@ -6807,16 +6894,16 @@
                                         </p>
                                     </div>
                                     
-                                    <!-- ✅ NEW: Total Landed Cost -->
+                                    <!-- Total Landed Cost -->
                                     <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
                                         <div class="flex justify-between items-center">
-                                            <span class="text-sm font-semibold text-indigo-800">Total Landed Cost:</span>
+                                            <span class="text-sm font-semibold text-indigo-800">Total Landed Cost (per unit):</span>
                                             <span id="modal-landed-cost" class="text-xl font-black text-indigo-600">
                                                 ${formatPriceDisplay(analysis.costPerUnitCents)}
                                             </span>
                                         </div>
                                         <p class="text-xs text-indigo-700 mt-1">
-                                            Purchase price + tariff (excludes shipping)
+                                            Purchase price + tariff (excludes shipping to customer)
                                         </p>
                                     </div>
                                     
@@ -6845,12 +6932,12 @@
                                 </div>
                             </div>
                             
-                            <!-- Competitor Prices -->
+                            <!-- Competitor Pricing -->
                             <div class="bg-orange-50 p-6 rounded-xl border-2 border-orange-200">
-                                <h4 class="text-lg font-bold text-orange-800 mb-4">🏪 Competitor Pricing (Free Shipping)</h4>
-                                <div class="grid grid-cols-2 gap-4">
+                                <h4 class="text-lg font-bold text-orange-800 mb-4">🏪 Competitor Pricing</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label class="block text-sm font-semibold mb-2">Amazon Lowest Price</label>
+                                        <label class="block text-sm font-semibold mb-2">Amazon Price</label>
                                         <div class="flex gap-2">
                                             <span class="text-lg">$</span>
                                             <input type="number" 
@@ -6858,13 +6945,19 @@
                                                    step="0.01" 
                                                    value="${competitorPrices.amazon ? (competitorPrices.amazon / 100).toFixed(2) : ''}" 
                                                    placeholder="0.00"
-                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
                                         </div>
-                                        <p class="text-xs text-orange-700 mt-1">🚚 Includes free shipping</p>
+                                        ${competitorPrices.amazon ? `
+                                            <p class="text-xs mt-2 ${item.price < competitorPrices.amazon ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}">
+                                                ${item.price < competitorPrices.amazon 
+                                                    ? `✅ You're ${formatPriceDisplay(competitorPrices.amazon - item.price)} cheaper` 
+                                                    : `⚠️ You're ${formatPriceDisplay(item.price - competitorPrices.amazon)} more expensive`}
+                                            </p>
+                                        ` : ''}
                                     </div>
                                     
                                     <div>
-                                        <label class="block text-sm font-semibold mb-2">eBay Lowest Price</label>
+                                        <label class="block text-sm font-semibold mb-2">eBay Price</label>
                                         <div class="flex gap-2">
                                             <span class="text-lg">$</span>
                                             <input type="number" 
@@ -6872,37 +6965,80 @@
                                                    step="0.01" 
                                                    value="${competitorPrices.ebay ? (competitorPrices.ebay / 100).toFixed(2) : ''}" 
                                                    placeholder="0.00"
-                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
                                         </div>
-                                        <p class="text-xs text-orange-700 mt-1">📦 May or may not include shipping</p>
+                                        ${competitorPrices.ebay ? `
+                                            <p class="text-xs mt-2 ${item.price < competitorPrices.ebay ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}">
+                                                ${item.price < competitorPrices.ebay 
+                                                    ? `✅ You're ${formatPriceDisplay(competitorPrices.ebay - item.price)} cheaper` 
+                                                    : `⚠️ You're ${formatPriceDisplay(item.price - competitorPrices.ebay)} more expensive`}
+                                            </p>
+                                        ` : ''}
                                     </div>
                                 </div>
                             </div>
                             
-                            <!-- ✅ NEW: Enhanced Pricing Recommendations -->
-                            ${renderEnhancedPriceRecommendations(item, analysis)}
+                            <!-- Calculation Breakdown (Debug) -->
+                            <div class="bg-gray-100 p-4 rounded-xl border-2 border-gray-300">
+                                <h4 class="text-sm font-bold text-gray-700 mb-2">🔍 Calculation Breakdown</h4>
+                                <div class="text-xs font-mono space-y-1">
+                                    <div class="flex justify-between">
+                                        <span>Selling Price:</span>
+                                        <strong>${formatPriceDisplay(analysis.sellingPriceCents)}</strong>
+                                    </div>
+                                    <div class="flex justify-between text-gray-600">
+                                        <span>- Vendor Cost:</span>
+                                        <strong>${formatPriceDisplay(analysis.purchasePriceCents)}</strong>
+                                    </div>
+                                    <div class="flex justify-between text-red-600">
+                                        <span>- Tariff (${analysis.tariffRate}%):</span>
+                                        <strong>${formatPriceDisplay(analysis.tariffCents)}</strong>
+                                    </div>
+                                    <div class="border-t border-gray-400 pt-1 mt-1 flex justify-between">
+                                        <span>= Total Landed Cost:</span>
+                                        <strong>${formatPriceDisplay(analysis.costPerUnitCents)}</strong>
+                                    </div>
+                                    <div class="border-t border-gray-400 pt-1 mt-1 flex justify-between">
+                                        <span>= Profit (Cust Pays Ship):</span>
+                                        <strong class="text-green-600">${formatPriceDisplay(analysis.profitWithoutShippingCents)}</strong>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span>Margin:</span>
+                                        <strong>${analysis.marginWithoutShippingPercent.toFixed(2)}%</strong>
+                                    </div>
+                                    ${analysis.tariffCents > 0 ? `
+                                        <div class="mt-2 pt-2 border-t border-gray-400 text-gray-600">
+                                            <div class="flex justify-between">
+                                                <span>Profit WITHOUT tariff:</span>
+                                                <span>${formatPriceDisplay(analysis.profitWithoutTariffCents)}</span>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <span>Margin WITHOUT tariff:</span>
+                                                <span>${analysis.marginWithoutTariffPercent.toFixed(2)}%</span>
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
                             
-                        </div>
-                        
-                        <!-- Footer -->
-                        <div class="bg-gray-100 p-6 rounded-b-2xl border-t-2 border-gray-300 flex gap-3">
-                            <button onclick="window.module.saveProfitData('${itemId}')" 
-                                    class="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 font-bold shadow-lg">
-                                💾 Save All Changes
-                            </button>
-                            <button onclick="window.module.closeProfitDetailsModal()" 
-                                    class="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-bold">
-                                Cancel
-                            </button>
+                            <!-- Action Buttons -->
+                            <div class="flex gap-4 pt-4">
+                                <button onclick="window.module.saveProfitData('${itemId}')" 
+                                        class="flex-1 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg font-bold hover:from-indigo-700 hover:to-purple-700 shadow-lg transition">
+                                    💾 Save All Changes
+                                </button>
+                                <button onclick="window.module.closeProfitDetailsModal()" 
+                                        class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-400 transition">
+                                    Cancel
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             `;
             
-            const container = document.getElementById('profitAnalysisModalContainer');
-            if (container) {
-                container.innerHTML = modalHtml;
-            }
+            modalContainer.innerHTML = modalHtml;
+            document.body.style.overflow = 'hidden';
         }
                 
         function renderEnhancedPriceRecommendations(item, analysis) {
