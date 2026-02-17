@@ -2194,65 +2194,153 @@
         function renderInventorySection() {
             const el = document.getElementById('inventoryContent');
             if (!el) return '';
-
-            const lowStockThreshold = 10;
+        
             const items = state.items;
-
+        
             const inventoryListHtml = items.map(item => {
-                const isLowStock = item.stock <= lowStockThreshold;
-                const stockColor = isLowStock ? 'text-red-600 font-bold' : 'text-green-700 font-semibold';
-                const rowClass = isLowStock ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200';
-
+                const currentStock = item.stock || 0;
+                
+                // Stock status styling
+                let stockClass = '';
+                let stockIcon = '';
+                if (currentStock === 0) {
+                    stockClass = 'bg-red-100 text-red-700 font-bold';
+                    stockIcon = '❌';
+                } else if (currentStock <= 5) {
+                    stockClass = 'bg-orange-100 text-orange-700 font-bold';
+                    stockIcon = '⚠️';
+                } else if (currentStock <= 10) {
+                    stockClass = 'bg-yellow-100 text-yellow-700 font-semibold';
+                    stockIcon = '⚡';
+                } else {
+                    stockClass = 'bg-green-100 text-green-700';
+                    stockIcon = '✅';
+                }
+        
+                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+        
                 return `
-                    <div class="grid grid-cols-12 gap-4 items-center p-3 border-b ${rowClass}">
-                        <div class="col-span-4 truncate text-sm font-medium">
-                            ${item.name} 
-                            <span class="text-xs text-gray-500 ml-2">(${item.sku})</span>
-                        </div>
-                        <div class="col-span-2 text-center ${stockColor}">${item.stock}</div>
-                        <div class="col-span-6">
-                            <form onsubmit="window.module.handleUpdateStock(event, '${item.id}')" class="flex space-x-2 items-center">
-                                <input type="number" name="stockAdjustment" placeholder="Amount" min="1" required 
-                                       class="w-20 p-1 border rounded text-sm">
-                                <select name="stockAction" class="p-1 border rounded text-sm">
-                                    <option value="add">Add Stock</option>
-                                    <option value="remove">Remove Stock</option>
-                                </select>
-                                <button type="submit" 
-                                        class="px-3 py-1 bg-indigo-500 text-white text-sm rounded hover:bg-indigo-600 transition duration-150">
-                                    Update
-                                </button>
-                                <button type="button" 
-                                        onclick="window.module.showPurchaseOrderForm('${item.id}', '${escapeAttribute(item.name)}')" 
-                                        class="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition duration-150">
-                                    Order More
-                                </button>
-                                <button type="button" 
-                                        onclick="window.module.printInventoryLabel('${item.id}')" 
-                                        class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition duration-150 whitespace-nowrap">
-                                    🖨️ Print Label
-                                </button>
-                            </form>
+                    <div class="border-b border-gray-200 hover:bg-gray-50 transition p-4">
+                        <!-- Product Info Row -->
+                        <div class="grid grid-cols-12 gap-4 items-center mb-3">
+                            <div class="col-span-4">
+                                <div class="flex items-center gap-3">
+                                    <img src="${item.imageUrls?.[0] || item.imageUrl || 'https://placehold.co/50x50/e5e7eb/9ca3af?text=No+Image'}" 
+                                         alt="${escapeHtml(item.name)}" 
+                                         class="w-12 h-12 object-cover rounded border"
+                                         onerror="this.src='https://placehold.co/50x50/e5e7eb/9ca3af?text=No+Image'">
+                                    <div>
+                                        <p class="font-semibold text-gray-800 text-sm">${escapeHtml(item.name)}</p>
+                                        <p class="text-xs text-gray-500">${escapeHtml(cat)} • SKU: ${item.sku || 'N/A'}</p>
+                                        <p class="text-xs text-gray-600 font-semibold">${formatPriceDisplay(item.price)}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-span-2 text-center">
+                                <span class="inline-block px-3 py-1 rounded-full text-sm ${stockClass}">
+                                    ${stockIcon} ${currentStock}
+                                </span>
+                            </div>
+                            
+                            <div class="col-span-6">
+                                <div class="flex items-center justify-end gap-2">
+                                    <!-- Decrease buttons -->
+                                    <button onclick="window.module.handleStockAdjustment('${item.id}', -10)" 
+                                            class="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold text-sm shadow-md"
+                                            ${currentStock === 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}
+                                            title="Decrease by 10">
+                                        -10
+                                    </button>
+                                    <button onclick="window.module.handleStockAdjustment('${item.id}', -1)" 
+                                            class="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 font-bold text-sm shadow-md"
+                                            ${currentStock === 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}
+                                            title="Decrease by 1">
+                                        -1
+                                    </button>
+                                    
+                                    <!-- Current stock input -->
+                                    <input type="number" 
+                                           id="stock-input-${item.id}"
+                                           value="${currentStock}"
+                                           min="0"
+                                           class="w-20 px-3 py-2 border-2 border-gray-300 rounded-lg text-center font-bold text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                                           onchange="window.module.handleStockDirectUpdate('${item.id}', this.value)">
+                                    
+                                    <!-- Increase buttons -->
+                                    <button onclick="window.module.handleStockAdjustment('${item.id}', 1)" 
+                                            class="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-bold text-sm shadow-md"
+                                            title="Increase by 1">
+                                        +1
+                                    </button>
+                                    <button onclick="window.module.handleStockAdjustment('${item.id}', 10)" 
+                                            class="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold text-sm shadow-md"
+                                            title="Increase by 10">
+                                        +10
+                                    </button>
+                                    
+                                    <!-- Quick Actions -->
+                                    <button onclick="window.module.handleStockAdjustment('${item.id}', 0, true)" 
+                                            class="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-bold shadow-md"
+                                            ${currentStock === 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}
+                                            title="Set to 0">
+                                        Set to 0
+                                    </button>
+                                    
+                                    <button onclick="window.module.printInventoryLabel('${item.id}')" 
+                                            class="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-bold shadow-md whitespace-nowrap"
+                                            title="Print Label">
+                                        🖨️
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 `;
             }).join('');
-
+        
             el.innerHTML = `
-                <div class="space-y-4">
-                    <div class="grid grid-cols-12 gap-4 font-bold bg-gray-100 p-3 rounded-lg border-b border-gray-300">
-                        <div class="col-span-4">Product Name (SKU)</div>
+                <div class="space-y-2">
+                    <!-- Header Row -->
+                    <div class="grid grid-cols-12 gap-4 font-bold bg-gradient-to-r from-indigo-100 to-purple-100 p-4 rounded-lg border-b-2 border-indigo-300">
+                        <div class="col-span-4">Product Details</div>
                         <div class="col-span-2 text-center">Current Stock</div>
-                        <div class="col-span-6">Adjust Stock / Order / Label</div>
+                        <div class="col-span-6 text-right">Stock Adjustments</div>
                     </div>
-                    <div id="inventoryList" class="space-y-1 custom-scrollbar max-h-[60vh] overflow-y-auto">
-                        ${inventoryListHtml.length > 0 ? inventoryListHtml : '<p class="text-center p-4 text-gray-500">No products found in inventory.</p>'}
+                    
+                    <!-- Product List -->
+                    <div class="bg-white rounded-lg shadow-lg overflow-hidden max-h-[70vh] overflow-y-auto custom-scrollbar">
+                        ${inventoryListHtml.length > 0 ? inventoryListHtml : '<p class="text-center p-8 text-gray-500">No products found in inventory.</p>'}
+                    </div>
+                    
+                    <!-- Summary Stats -->
+                    <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <h4 class="font-bold text-blue-800 mb-2">📋 Inventory Summary</h4>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div>
+                                <p class="text-gray-600">Total Products:</p>
+                                <p class="text-xl font-bold text-gray-800">${items.length}</p>
+                            </div>
+                            <div>
+                                <p class="text-gray-600">Out of Stock:</p>
+                                <p class="text-xl font-bold text-red-600">${items.filter(i => (i.stock || 0) === 0).length}</p>
+                            </div>
+                            <div>
+                                <p class="text-gray-600">Low Stock (≤5):</p>
+                                <p class="text-xl font-bold text-orange-600">${items.filter(i => (i.stock || 0) > 0 && (i.stock || 0) <= 5).length}</p>
+                            </div>
+                            <div>
+                                <p class="text-gray-600">Total Units:</p>
+                                <p class="text-xl font-bold text-green-600">${items.reduce((sum, i) => sum + (i.stock || 0), 0)}</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
                 <!-- Hidden Print Label Container -->
                 <div id="printLabel" style="display: none;"></div>
             `;
+            
             return '';
         }
 
@@ -7779,6 +7867,119 @@
                 const date = new Date(dateString);
                 return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
             },
+
+            handleStockAdjustment: async function(itemId, adjustment, setToZero = false) {
+                resetTimer();
+                try {
+                    const item = state.items.find(i => i.id === itemId);
+                    if (!item) {
+                        showMessage('error', 'Product not found.', 3000, 'inventory');
+                        return;
+                    }
+            
+                    const currentStock = item.stock || 0;
+                    let newStock;
+                    
+                    if (setToZero) {
+                        if (!confirm(`Are you sure you want to set stock to 0 for "${item.name}"?`)) {
+                            return;
+                        }
+                        newStock = 0;
+                    } else {
+                        newStock = Math.max(0, currentStock + adjustment);
+                        
+                        // Prevent going below 0
+                        if (newStock < 0) {
+                            showMessage('warning', 'Stock cannot be negative. Setting to 0.', 3000, 'inventory');
+                            newStock = 0;
+                        }
+                    }
+            
+                    // Update Firestore
+                    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+                    await updateDoc(itemRef, {
+                        stock: newStock,
+                        updatedAt: serverTimestamp()
+                    });
+            
+                    // Log the stock adjustment
+                    await logAdminAction('STOCK_ADJUSTED', {
+                        productId: itemId,
+                        productName: item.name,
+                        previousStock: currentStock,
+                        newStock: newStock,
+                        adjustment: adjustment,
+                        setToZero: setToZero
+                    }, itemId);
+            
+                    const actionText = setToZero 
+                        ? 'set to 0' 
+                        : (adjustment > 0 
+                            ? `increased by ${adjustment}` 
+                            : `decreased by ${Math.abs(adjustment)}`);
+                            
+                    showMessage('success', `Stock for "${item.name}" ${actionText}. New stock: ${newStock}`, 3000, 'inventory');
+            
+                } catch (error) {
+                    console.error('Error adjusting stock:', error);
+                    showMessage('error', 'Failed to adjust stock. Check console for details.', 5000, 'inventory');
+                }
+            },
+            
+            handleStockDirectUpdate: async function(itemId, newStockValue) {
+                resetTimer();
+                try {
+                    const item = state.items.find(i => i.id === itemId);
+                    if (!item) {
+                        showMessage('error', 'Product not found.', 3000, 'inventory');
+                        return;
+                    }
+            
+                    const newStock = parseInt(newStockValue, 10);
+                    
+                    if (isNaN(newStock) || newStock < 0) {
+                        showMessage('error', 'Please enter a valid stock number (0 or greater).', 3000, 'inventory');
+                        // Reset the input to the current stock
+                        const input = document.getElementById(`stock-input-${itemId}`);
+                        if (input) input.value = item.stock || 0;
+                        return;
+                    }
+            
+                    const currentStock = item.stock || 0;
+                    
+                    if (newStock === currentStock) {
+                        return; // No change needed
+                    }
+            
+                    // Update Firestore
+                    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
+                    await updateDoc(itemRef, {
+                        stock: newStock,
+                        updatedAt: serverTimestamp()
+                    });
+            
+                    // Log the stock adjustment
+                    await logAdminAction('STOCK_UPDATED', {
+                        productId: itemId,
+                        productName: item.name,
+                        previousStock: currentStock,
+                        newStock: newStock,
+                        method: 'direct_input'
+                    }, itemId);
+            
+                    showMessage('success', `Stock for "${item.name}" updated to ${newStock}`, 2000, 'inventory');
+            
+                } catch (error) {
+                    console.error('Error updating stock:', error);
+                    showMessage('error', 'Failed to update stock. Check console for details.', 5000, 'inventory');
+                    
+                    // Reset the input to the current stock on error
+                    const item = state.items.find(i => i.id === itemId);
+                    const input = document.getElementById(`stock-input-${itemId}`);
+                    if (input && item) input.value = item.stock || 0;
+                }
+            },
+            
 
 
             // ========================================================================
