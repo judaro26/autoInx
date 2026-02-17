@@ -172,6 +172,7 @@
         let orders = [];
         let lastCategorySalesData = { tableData: [] };
         let allExternalOrders = [];
+        let orderItemCounter = 0;
         const GET_EXTERNAL_ORDERS = '/.netlify/functions/getExternalOrders';
         const SAVE_EXTERNAL_ORDER = '/.netlify/functions/saveExternalOrder';
         const DELETE_EXTERNAL_ORDER = '/.netlify/functions/deleteExternalOrder';
@@ -249,6 +250,13 @@
             selectedUsers: [],
             editingItem: null,
             editingCategoryId: null,
+            vendorOrders: [],
+            vendorOrderFilters: {
+                searchTerm: '',
+                supplier: 'all',
+                status: 'all',
+                sortBy: 'date-desc'
+            },
             previewMode: false,
             adminCart: {},
 
@@ -305,7 +313,8 @@
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
         const EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendOrderConfirmation'; // Added Email Function
         const RECEIPT_EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendReceiptConfirmation';
-        const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection
+        const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection;
+        const VENDOR_ORDERS_COLLECTION = 'vendor_orders';
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -1017,8 +1026,10 @@
                     return renderOrderCreateForm();
                 }
             } else if (state.activeTab === 'financials') {
-                return window.module.renderFinancialsSection();
-            } else if (state.activeTab === 'externalOrders') {
+                return window.module.renderFinancialsSection();    
+            } else if (state.activeTab === 'vendorOrders') {
+                return renderVendorOrdersSection();
+            }else if (state.activeTab === 'externalOrders') {
                 return `
                     <section class="space-y-8">
                         <div class="flex justify-between items-center">
@@ -2698,6 +2709,16 @@
                 console.error("Error listening to categories:", err);
                 showMessage('error', 'Failed to fetch categories.', 5000, 'catalog');
             });
+            onSnapshot(collection(db, VENDOR_ORDERS_COLLECTION), snap => {
+                state.vendorOrders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                
+                if (state.activeTab === 'vendorOrders' && !state.previewMode) {
+                    refreshVendorOrders();
+                }
+            }, err => {
+                console.error("Error listening to vendor orders:", err);
+                showMessage('error', 'Failed to fetch vendor orders.', 5000, 'vendorOrder');
+            });
 
             // Listener for Items (Products)
             onSnapshot(collection(db, ITEMS_COLLECTION), snap => {
@@ -2865,7 +2886,7 @@
             state.previewMode = false;
             
             renderAdminPage(auth.currentUser?.email || 'Admin');
-            resetTimer();
+            resetTimer();            
         
             if (tab === 'externalOrders') {
                 window.module.fetchExternalOrders();
@@ -2874,7 +2895,13 @@
                     window.module.fetchAdminConfig();
                     window.module.displayStaticIps();
                 }, 100);
-            } else if (tab === 'users') {
+            } else if (tab === 'vendorOrders') {
+                // Vendor orders are already loaded via realtime listener
+                // Just render the section
+                setTimeout(() => {
+                    refreshVendorOrders();
+                }, 100);
+            }else if (tab === 'users') {
                 const grid = document.getElementById('usersGrid');
                 if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove());
                 window.module.fetchUsers(null);
@@ -5726,6 +5753,10 @@
                             class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'financials' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
                         ${t('tabFinancials')}
                     </button>
+                    <button onclick="window.module.switchAdminTab('vendorOrders')"
+                            class="tab-button ${state.activeTab === 'vendorOrders' ? 'active' : ''} px-6 py-3 rounded-lg font-semibold transition whitespace-nowrap">
+                        🏭 Vendor Orders
+                    </button>
                     <button onclick="window.module.switchAdminTab('profitAnalysis')" 
                             class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'profitAnalysis' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
                         📊 Profit Analysis
@@ -5855,7 +5886,722 @@
                 showMessage('error', `Failed to add payment: ${error.message}`, 5000, 'orders');
             }
         }
-
+        function renderVendorOrdersSection() {
+            const vendorOrders = state.vendorOrders || [];
+            
+            // Calculate summary stats
+            let totalSpent = 0;
+            let totalTariffs = 0;
+            let totalShipping = 0;
+            let ordersThisMonth = 0;
+            
+            const now = new Date();
+            const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            
+            vendorOrders.forEach(order => {
+                totalSpent += order.totalCostCents || 0;
+                totalTariffs += order.tariffCostCents || 0;
+                totalShipping += order.shippingCostCents || 0;
+                
+                if (order.orderDate && new Date(order.orderDate) >= firstDayOfMonth) {
+                    ordersThisMonth++;
+                }
+            });
+            
+            return `
+                <section class="space-y-8">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h2 class="text-3xl font-bold text-indigo-700">🏭 Vendor Orders (Alibaba/Supplier Purchases)</h2>
+                            <p class="text-sm text-gray-600 mt-1">Track your inventory purchases from suppliers including costs, tariffs, and shipping</p>
+                        </div>
+                        <button onclick="window.module.showAddVendorOrderModal()" 
+                                class="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg transition">
+                            ➕ Add Vendor Order
+                        </button>
+                    </div>
+                    
+                    <div id="vendorOrderMessage"></div>
+                    
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-xl border-2 border-blue-200">
+                            <p class="text-sm text-blue-700 font-semibold mb-1">Total Spent (All Time)</p>
+                            <p class="text-3xl font-black text-blue-800">${formatPriceDisplay(totalSpent)}</p>
+                            <p class="text-xs text-blue-600 mt-2">${vendorOrders.length} orders total</p>
+                        </div>
+                        
+                        <div class="bg-gradient-to-br from-red-50 to-rose-50 p-6 rounded-xl border-2 border-red-200">
+                            <p class="text-sm text-red-700 font-semibold mb-1">Total Tariffs Paid</p>
+                            <p class="text-3xl font-black text-red-800">${formatPriceDisplay(totalTariffs)}</p>
+                            <p class="text-xs text-red-600 mt-2">Import duties & taxes</p>
+                        </div>
+                        
+                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-6 rounded-xl border-2 border-purple-200">
+                            <p class="text-sm text-purple-700 font-semibold mb-1">Total Shipping Paid</p>
+                            <p class="text-3xl font-black text-purple-800">${formatPriceDisplay(totalShipping)}</p>
+                            <p class="text-xs text-purple-600 mt-2">Freight from suppliers</p>
+                        </div>
+                        
+                        <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
+                            <p class="text-sm text-green-700 font-semibold mb-1">Orders This Month</p>
+                            <p class="text-3xl font-black text-green-800">${ordersThisMonth}</p>
+                            <p class="text-xs text-green-600 mt-2">${formatPriceDisplay(vendorOrders.filter(o => o.orderDate && new Date(o.orderDate) >= firstDayOfMonth).reduce((sum, o) => sum + (o.totalCostCents || 0), 0))} spent</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Filters -->
+                    <div class="bg-white p-4 rounded-xl shadow-lg">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <input type="text" 
+                                   oninput="window.module.handleVendorOrderSearch(event)" 
+                                   placeholder="Search by order ID, supplier, or product..." 
+                                   class="p-2 border rounded-lg">
+                            
+                            <select onchange="window.module.handleVendorOrderSupplierFilter(event)" 
+                                    class="p-2 border rounded-lg">
+                                <option value="all">All Suppliers</option>
+                                <option value="Alibaba">Alibaba</option>
+                                <option value="AliExpress">AliExpress</option>
+                                <option value="DHgate">DHgate</option>
+                                <option value="Other">Other</option>
+                            </select>
+                            
+                            <select onchange="window.module.handleVendorOrderStatusFilter(event)" 
+                                    class="p-2 border rounded-lg">
+                                <option value="all">All Statuses</option>
+                                <option value="Ordered">Ordered</option>
+                                <option value="Paid">Paid</option>
+                                <option value="Shipped">Shipped</option>
+                                <option value="In Transit">In Transit</option>
+                                <option value="Delivered">Delivered</option>
+                                <option value="Cancelled">Cancelled</option>
+                            </select>
+                            
+                            <select onchange="window.module.handleVendorOrderSort(event)" 
+                                    class="p-2 border rounded-lg">
+                                <option value="date-desc">Newest First</option>
+                                <option value="date-asc">Oldest First</option>
+                                <option value="cost-desc">Highest Cost</option>
+                                <option value="cost-asc">Lowest Cost</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Orders Table -->
+                    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                        ${renderVendorOrdersTable()}
+                    </div>
+                    
+                    <!-- Modal Container -->
+                    <div id="vendorOrderModalContainer"></div>
+                </section>
+            `;
+        }
+         function renderVendorOrdersTable() {
+            const vendorOrders = getFilteredVendorOrders();
+            
+            if (vendorOrders.length === 0) {
+                return `
+                    <div class="p-8 text-center text-gray-500">
+                        <p class="text-lg font-semibold">No vendor orders found</p>
+                        <p class="text-sm mt-2">Click "Add Vendor Order" to track your first purchase from suppliers</p>
+                    </div>
+                `;
+            }
+            
+            const rows = vendorOrders.map(order => {
+                const statusClass = {
+                    'Ordered': 'bg-yellow-100 text-yellow-800',
+                    'Paid': 'bg-blue-100 text-blue-800',
+                    'Shipped': 'bg-purple-100 text-purple-800',
+                    'In Transit': 'bg-indigo-100 text-indigo-800',
+                    'Delivered': 'bg-green-100 text-green-800',
+                    'Cancelled': 'bg-red-100 text-red-800'
+                }[order.status] || 'bg-gray-100 text-gray-800';
+                
+                const itemCount = order.items?.length || 0;
+                const totalUnits = order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
+                
+                return `
+                    <tr class="hover:bg-gray-50 transition cursor-pointer" 
+                        onclick="window.module.showVendorOrderDetailsModal('${order.id}')">
+                        <td class="p-3">
+                            <div class="text-sm font-semibold text-indigo-700">${escapeHtml(order.orderId || order.id)}</div>
+                            <div class="text-xs text-gray-600 mt-1">${formatDate(order.orderDate)}</div>
+                        </td>
+                        <td class="p-3">
+                            <div class="text-sm font-semibold">${escapeHtml(order.supplier || 'Unknown')}</div>
+                            ${order.supplierOrderUrl ? `
+                                <a href="${escapeHtml(order.supplierOrderUrl)}" 
+                                   target="_blank" 
+                                   onclick="event.stopPropagation()"
+                                   class="text-xs text-blue-600 hover:underline">View on supplier site →</a>
+                            ` : ''}
+                        </td>
+                        <td class="p-3">
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${statusClass}">
+                                ${order.status || 'Unknown'}
+                            </span>
+                        </td>
+                        <td class="p-3 text-sm">
+                            <div>${itemCount} product${itemCount !== 1 ? 's' : ''}</div>
+                            <div class="text-xs text-gray-600">${totalUnits} units total</div>
+                        </td>
+                        <td class="p-3 text-sm font-semibold">${formatPriceDisplay(order.subtotalCents || 0)}</td>
+                        <td class="p-3 text-sm font-bold text-red-600">${formatPriceDisplay(order.tariffCostCents || 0)}</td>
+                        <td class="p-3 text-sm text-purple-600">${formatPriceDisplay(order.shippingCostCents || 0)}</td>
+                        <td class="p-3 text-lg font-black text-indigo-700">${formatPriceDisplay(order.totalCostCents || 0)}</td>
+                        <td class="p-3">
+                            <button onclick="event.stopPropagation(); window.module.showVendorOrderDetailsModal('${order.id}')" 
+                                    class="px-3 py-1 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 font-semibold">
+                                📋 Details
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            return `
+                <table class="w-full">
+                    <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300">
+                        <tr>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Order ID & Date</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Supplier</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Status</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Items</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Subtotal</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Tariffs</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Shipping</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Total Cost</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+                
+                <div class="p-4 bg-gray-50 border-t">
+                    <div class="text-xs text-gray-600">
+                        Showing ${vendorOrders.length} of ${state.vendorOrders?.length || 0} orders
+                    </div>
+                </div>
+            `;
+        }   
+        function getFilteredVendorOrders() {
+            let orders = state.vendorOrders || [];
+            
+            // Apply search filter
+            if (state.vendorOrderFilters?.searchTerm) {
+                const term = state.vendorOrderFilters.searchTerm.toLowerCase();
+                orders = orders.filter(order => 
+                    (order.orderId || '').toLowerCase().includes(term) ||
+                    (order.supplier || '').toLowerCase().includes(term) ||
+                    (order.items || []).some(item => 
+                        (item.productName || '').toLowerCase().includes(term) ||
+                        (item.sku || '').toLowerCase().includes(term)
+                    )
+                );
+            }
+            
+            // Apply supplier filter
+            if (state.vendorOrderFilters?.supplier && state.vendorOrderFilters.supplier !== 'all') {
+                orders = orders.filter(order => order.supplier === state.vendorOrderFilters.supplier);
+            }
+            
+            // Apply status filter
+            if (state.vendorOrderFilters?.status && state.vendorOrderFilters.status !== 'all') {
+                orders = orders.filter(order => order.status === state.vendorOrderFilters.status);
+            }
+            
+            // Apply sorting
+            const sortBy = state.vendorOrderFilters?.sortBy || 'date-desc';
+            orders.sort((a, b) => {
+                switch(sortBy) {
+                    case 'date-desc':
+                        return new Date(b.orderDate || 0) - new Date(a.orderDate || 0);
+                    case 'date-asc':
+                        return new Date(a.orderDate || 0) - new Date(b.orderDate || 0);
+                    case 'cost-desc':
+                        return (b.totalCostCents || 0) - (a.totalCostCents || 0);
+                    case 'cost-asc':
+                        return (a.totalCostCents || 0) - (b.totalCostCents || 0);
+                    default:
+                        return 0;
+                }
+            });
+            
+            return orders;
+        }
+        
+        function handleVendorOrderSearch(e) {
+            if (!state.vendorOrderFilters) state.vendorOrderFilters = {};
+            state.vendorOrderFilters.searchTerm = e.target.value;
+            refreshVendorOrders();
+            resetTimer();
+        }
+        
+        function handleVendorOrderSupplierFilter(e) {
+            if (!state.vendorOrderFilters) state.vendorOrderFilters = {};
+            state.vendorOrderFilters.supplier = e.target.value;
+            refreshVendorOrders();
+            resetTimer();
+        }
+        
+        function handleVendorOrderStatusFilter(e) {
+            if (!state.vendorOrderFilters) state.vendorOrderFilters = {};
+            state.vendorOrderFilters.status = e.target.value;
+            refreshVendorOrders();
+            resetTimer();
+        }
+        
+        function handleVendorOrderSort(e) {
+            if (!state.vendorOrderFilters) state.vendorOrderFilters = {};
+            state.vendorOrderFilters.sortBy = e.target.value;
+            refreshVendorOrders();
+            resetTimer();
+        }
+        
+        function refreshVendorOrders() {
+            const tableContainer = document.querySelector('#vendorOrdersTable');
+            if (tableContainer) {
+                tableContainer.innerHTML = renderVendorOrdersTable();
+            }
+        }
+        
+        function showAddVendorOrderModal() {
+            resetTimer();
+            
+            const modalContainer = document.getElementById('vendorOrderModalContainer');
+            if (!modalContainer) return;
+            
+            const modalHtml = `
+                <div id="addVendorOrderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+                     onclick="if(event.target.id === 'addVendorOrderModal') window.module.closeVendorOrderModal()">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                        
+                        <div class="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-6 rounded-t-2xl">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <h3 class="text-2xl font-bold">➕ Add Vendor Order</h3>
+                                    <p class="text-sm mt-1 opacity-90">Track a new purchase from your supplier</p>
+                                </div>
+                                <button onclick="window.module.closeVendorOrderModal()" 
+                                        class="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition">
+                                    <span class="text-2xl">×</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="p-6 space-y-6">
+                            
+                            <!-- Order Information -->
+                            <div class="bg-blue-50 p-6 rounded-xl border-2 border-blue-200">
+                                <h4 class="text-lg font-bold text-blue-800 mb-4">📝 Order Information</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Supplier Order ID *</label>
+                                        <input type="text" 
+                                               id="new-order-id" 
+                                               placeholder="e.g., ALI-2024-001234"
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Supplier *</label>
+                                        <select id="new-supplier" class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                            <option value="">Select supplier...</option>
+                                            <option value="Alibaba">Alibaba</option>
+                                            <option value="AliExpress">AliExpress</option>
+                                            <option value="DHgate">DHgate</option>
+                                            <option value="Global Sources">Global Sources</option>
+                                            <option value="Made-in-China">Made-in-China</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Order Date *</label>
+                                        <input type="date" 
+                                               id="new-order-date" 
+                                               value="${new Date().toISOString().split('T')[0]}"
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Status *</label>
+                                        <select id="new-status" class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                            <option value="Ordered">Ordered</option>
+                                            <option value="Paid" selected>Paid</option>
+                                            <option value="Shipped">Shipped</option>
+                                            <option value="In Transit">In Transit</option>
+                                            <option value="Delivered">Delivered</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="md:col-span-2">
+                                        <label class="block text-sm font-semibold mb-2">Supplier Order URL</label>
+                                        <input type="url" 
+                                               id="new-supplier-url" 
+                                               placeholder="https://alibaba.com/order/123456"
+                                               class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Products in Order -->
+                            <div class="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
+                                <div class="flex justify-between items-center mb-4">
+                                    <h4 class="text-lg font-bold text-purple-800">📦 Products in Order</h4>
+                                    <button onclick="window.module.addOrderItemRow()" 
+                                            class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm">
+                                        ➕ Add Product
+                                    </button>
+                                </div>
+                                
+                                <div id="order-items-container" class="space-y-3">
+                                    <!-- Items will be added here -->
+                                </div>
+                            </div>
+                            
+                            <!-- Cost Breakdown -->
+                            <div class="bg-yellow-50 p-6 rounded-xl border-2 border-yellow-200">
+                                <h4 class="text-lg font-bold text-yellow-800 mb-4">💰 Cost Breakdown</h4>
+                                <div class="space-y-4">
+                                    <div class="bg-white p-3 rounded-lg border border-gray-300">
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-sm font-semibold">Products Subtotal:</span>
+                                            <span id="order-subtotal" class="text-xl font-black text-gray-700">$0.00</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Tariff Rate (%)</label>
+                                        <div class="flex gap-2">
+                                            <input type="number" 
+                                                   id="new-tariff-rate" 
+                                                   step="0.1" 
+                                                   value="0"
+                                                   min="0"
+                                                   max="100"
+                                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                            <button type="button" 
+                                                    onclick="document.getElementById('new-tariff-rate').value = 25; window.module.recalculateVendorOrderTotal();"
+                                                    class="px-3 py-2 bg-red-600 text-white text-xs rounded-lg hover:bg-red-700 font-bold">
+                                                25%
+                                            </button>
+                                            <button type="button" 
+                                                    onclick="document.getElementById('new-tariff-rate').value = 60; window.module.recalculateVendorOrderTotal();"
+                                                    class="px-3 py-2 bg-red-700 text-white text-xs rounded-lg hover:bg-red-800 font-bold">
+                                                60%
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="bg-red-50 p-3 rounded-lg border border-red-200">
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-sm font-semibold text-red-800">Tariff Cost:</span>
+                                            <span id="order-tariff-cost" class="text-xl font-black text-red-600">$0.00</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-semibold mb-2">Shipping Cost from Supplier</label>
+                                        <div class="flex gap-2">
+                                            <span class="text-lg">$</span>
+                                            <input type="number" 
+                                                   id="new-shipping-cost" 
+                                                   step="0.01" 
+                                                   value="0"
+                                                   placeholder="0.00"
+                                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="bg-indigo-50 p-4 rounded-lg border-2 border-indigo-300">
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-lg font-bold text-indigo-900">TOTAL COST:</span>
+                                            <span id="order-total-cost" class="text-2xl font-black text-indigo-700">$0.00</span>
+                                        </div>
+                                        <p class="text-xs text-indigo-700 mt-1">Subtotal + Tariff + Shipping</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Notes -->
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Notes (optional)</label>
+                                <textarea id="new-order-notes" 
+                                          rows="3" 
+                                          placeholder="Add any notes about this order..."
+                                          class="w-full p-2 border-2 border-gray-300 rounded-lg"></textarea>
+                            </div>
+                            
+                            <!-- Action Buttons -->
+                            <div class="flex gap-4 pt-4">
+                                <button onclick="window.module.saveVendorOrder()" 
+                                        class="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg transition">
+                                    💾 Save Vendor Order
+                                </button>
+                                <button onclick="window.module.closeVendorOrderModal()" 
+                                        class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-400 transition">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            modalContainer.innerHTML = modalHtml;
+            document.body.style.overflow = 'hidden';
+            
+            // Add first product row
+            addOrderItemRow();
+        }
+        function addOrderItemRow() {
+            const container = document.getElementById('order-items-container');
+            if (!container) return;
+            
+            orderItemCounter++;
+            const rowId = `order-item-${orderItemCounter}`;
+            
+            const catalogItems = state.items || [];
+            const productOptions = catalogItems.map(item => 
+                `<option value="${item.id}" data-name="${escapeHtml(item.name)}" data-sku="${item.sku || ''}">${escapeHtml(item.name)} ${item.sku ? `(${item.sku})` : ''}</option>`
+            ).join('');
+            
+            const rowHtml = `
+                <div id="${rowId}" class="bg-white p-4 rounded-lg border-2 border-gray-300">
+                    <div class="grid grid-cols-12 gap-3 items-end">
+                        <div class="col-span-5">
+                            <label class="block text-xs font-semibold mb-1">Product</label>
+                            <select class="order-item-product w-full p-2 border rounded text-sm" 
+                                    onchange="window.module.handleProductSelect(this, '${rowId}')">
+                                <option value="">Select from catalog...</option>
+                                ${productOptions}
+                            </select>
+                        </div>
+                        
+                        <div class="col-span-2">
+                            <label class="block text-xs font-semibold mb-1">Quantity</label>
+                            <input type="number" 
+                                   class="order-item-quantity w-full p-2 border rounded text-sm" 
+                                   value="1" 
+                                   min="1"
+                                   onchange="window.module.recalculateVendorOrderTotal()">
+                        </div>
+                        
+                        <div class="col-span-2">
+                            <label class="block text-xs font-semibold mb-1">Unit Price ($)</label>
+                            <input type="number" 
+                                   class="order-item-price w-full p-2 border rounded text-sm" 
+                                   step="0.01" 
+                                   value="0"
+                                   onchange="window.module.recalculateVendorOrderTotal()">
+                        </div>
+                        
+                        <div class="col-span-2">
+                            <label class="block text-xs font-semibold mb-1">Total</label>
+                            <div class="order-item-total p-2 bg-gray-100 rounded text-sm font-bold text-center">$0.00</div>
+                        </div>
+                        
+                        <div class="col-span-1">
+                            <button onclick="window.module.removeOrderItemRow('${rowId}')" 
+                                    class="w-full p-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                    <input type="hidden" class="order-item-id" value="">
+                    <input type="hidden" class="order-item-name" value="">
+                    <input type="hidden" class="order-item-sku" value="">
+                </div>
+            `;
+            
+            container.insertAdjacentHTML('beforeend', rowHtml);
+        }
+        
+        function handleProductSelect(selectElement, rowId) {
+            const row = document.getElementById(rowId);
+            if (!row) return;
+            
+            const selectedOption = selectElement.options[selectElement.selectedIndex];
+            const productId = selectElement.value;
+            const productName = selectedOption.getAttribute('data-name') || '';
+            const productSku = selectedOption.getAttribute('data-sku') || '';
+            
+            row.querySelector('.order-item-id').value = productId;
+            row.querySelector('.order-item-name').value = productName;
+            row.querySelector('.order-item-sku').value = productSku;
+            
+            // Try to prefill price from catalog
+            const item = state.items?.find(i => i.id === productId);
+            if (item && item.purchasePriceCents) {
+                row.querySelector('.order-item-price').value = (item.purchasePriceCents / 100).toFixed(2);
+            }
+            
+            recalculateVendorOrderTotal();
+        }
+        
+        function removeOrderItemRow(rowId) {
+            const row = document.getElementById(rowId);
+            if (row) {
+                row.remove();
+                recalculateVendorOrderTotal();
+            }
+        }
+        
+        function recalculateVendorOrderTotal() {
+            const rows = document.querySelectorAll('[id^="order-item-"]');
+            let subtotalCents = 0;
+            
+            rows.forEach(row => {
+                const quantity = parseInt(row.querySelector('.order-item-quantity')?.value || 0);
+                const unitPrice = parseFloat(row.querySelector('.order-item-price')?.value || 0);
+                const itemTotal = quantity * unitPrice;
+                
+                const totalEl = row.querySelector('.order-item-total');
+                if (totalEl) {
+                    totalEl.textContent = `$${itemTotal.toFixed(2)}`;
+                }
+                
+                subtotalCents += Math.round(itemTotal * 100);
+            });
+            
+            const tariffRate = parseFloat(document.getElementById('new-tariff-rate')?.value || 0);
+            const shippingCost = parseFloat(document.getElementById('new-shipping-cost')?.value || 0);
+            
+            const tariffCents = Math.round((subtotalCents * tariffRate) / 100);
+            const shippingCents = Math.round(shippingCost * 100);
+            const totalCents = subtotalCents + tariffCents + shippingCents;
+            
+            // Update displays
+            document.getElementById('order-subtotal').textContent = formatPriceDisplay(subtotalCents);
+            document.getElementById('order-tariff-cost').textContent = formatPriceDisplay(tariffCents);
+            document.getElementById('order-total-cost').textContent = formatPriceDisplay(totalCents);
+        }
+        async function saveVendorOrder() {
+            resetTimer();
+            
+            const orderId = document.getElementById('new-order-id')?.value?.trim();
+            const supplier = document.getElementById('new-supplier')?.value;
+            const orderDate = document.getElementById('new-order-date')?.value;
+            const status = document.getElementById('new-status')?.value;
+            const supplierUrl = document.getElementById('new-supplier-url')?.value?.trim() || null;
+            const tariffRate = parseFloat(document.getElementById('new-tariff-rate')?.value || 0);
+            const shippingCost = parseFloat(document.getElementById('new-shipping-cost')?.value || 0);
+            const notes = document.getElementById('new-order-notes')?.value?.trim() || null;
+            
+            // Validation
+            if (!orderId) {
+                showMessage('error', 'Please enter an order ID', 3000, 'vendorOrder');
+                return;
+            }
+            
+            if (!supplier) {
+                showMessage('error', 'Please select a supplier', 3000, 'vendorOrder');
+                return;
+            }
+            
+            if (!orderDate) {
+                showMessage('error', 'Please enter an order date', 3000, 'vendorOrder');
+                return;
+            }
+            
+            // Collect items
+            const itemRows = document.querySelectorAll('[id^="order-item-"]');
+            const items = [];
+            let subtotalCents = 0;
+            
+            itemRows.forEach(row => {
+                const productId = row.querySelector('.order-item-id')?.value;
+                const productName = row.querySelector('.order-item-name')?.value;
+                const sku = row.querySelector('.order-item-sku')?.value;
+                const quantity = parseInt(row.querySelector('.order-item-quantity')?.value || 0);
+                const unitPrice = parseFloat(row.querySelector('.order-item-price')?.value || 0);
+                
+                if (productId && quantity > 0 && unitPrice > 0) {
+                    const unitPriceCents = Math.round(unitPrice * 100);
+                    const totalPriceCents = unitPriceCents * quantity;
+                    
+                    items.push({
+                        productId,
+                        productName,
+                        sku,
+                        quantity,
+                        unitPriceCents,
+                        totalPriceCents
+                    });
+                    
+                    subtotalCents += totalPriceCents;
+                }
+            });
+            
+            if (items.length === 0) {
+                showMessage('error', 'Please add at least one product to the order', 3000, 'vendorOrder');
+                return;
+            }
+            
+            const tariffCents = Math.round((subtotalCents * tariffRate) / 100);
+            const shippingCents = Math.round(shippingCost * 100);
+            const totalCents = subtotalCents + tariffCents + shippingCents;
+            
+            try {
+                const orderData = {
+                    orderId,
+                    supplier,
+                    supplierOrderUrl,
+                    orderDate,
+                    status,
+                    items,
+                    subtotalCents,
+                    tariffRate,
+                    tariffCostCents: tariffCents,
+                    shippingCostCents: shippingCents,
+                    totalCostCents: totalCents,
+                    notes,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                };
+                
+                const ordersRef = collection(db, VENDOR_ORDERS_COLLECTION);
+                const docRef = await addDoc(ordersRef, orderData);
+                
+                await logAdminAction('VENDOR_ORDER_CREATED', {
+                    vendorOrderId: docRef.id,
+                    orderId,
+                    supplier,
+                    totalCostCents,
+                    itemCount: items.length
+                });
+                
+                showMessage('success', 'Vendor order saved successfully!', 3000, 'vendorOrder');
+                closeVendorOrderModal();
+                
+                // Refresh if on vendor orders tab
+                if (state.activeTab === 'vendorOrders') {
+                    renderAdminPage(auth.currentUser?.email || 'Admin');
+                }
+                
+            } catch (error) {
+                console.error('Error saving vendor order:', error);
+                showMessage('error', `Failed to save: ${error.message}`, 5000, 'vendorOrder');
+            }
+        }
+        
+        function closeVendorOrderModal() {
+            const modalContainer = document.getElementById('vendorOrderModalContainer');
+            if (modalContainer) {
+                modalContainer.innerHTML = '';
+            }
+            document.body.style.overflow = 'auto';
+            orderItemCounter = 0;
+            resetTimer();
+        }
         async function removePayment(orderId, paymentIndex) {
             resetTimer();
 
@@ -7340,6 +8086,12 @@
                 summaryContainer.innerHTML = renderProfitSummaryCards();
             }
         }
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+        
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
@@ -7433,7 +8185,20 @@
             closeProfitDetailsModal,
             saveProfitData,
             exportProfitAnalysis,
-
+            // Vendor Orders
+            showAddVendorOrderModal,
+            closeVendorOrderModal,
+            addOrderItemRow,
+            removeOrderItemRow,
+            handleProductSelect,
+            recalculateVendorOrderTotal,
+            saveVendorOrder,
+            handleVendorOrderSearch,
+            handleVendorOrderSupplierFilter,
+            handleVendorOrderStatusFilter,
+            handleVendorOrderSort,
+            showVendorOrderDetailsModal,
+            
             // ========================================================================
             // ORDER EDITING & DRAFT CART
             // ========================================================================
@@ -7448,6 +8213,9 @@
             handleEditCatalog,
             startEditingCategory,
             cancelCategoryEdit,
+            refreshVendorOrders,
+            renderVendorOrdersSection,
+            getFilteredVendorOrders,
             
 
             updateActiveFilters: function() {
@@ -8152,7 +8920,7 @@
             closeExternalOrderModal: function () {
                 document.getElementById('externalOrderModal').classList.add('hidden');
                 document.getElementById('externalOrderForm').reset();
-            },
+            },            
 
             saveExternalOrder: async function (event) {
                 event.preventDefault();
