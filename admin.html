@@ -8071,6 +8071,159 @@
             refreshProfitAnalysis();
             resetTimer();
         }
+        function showVendorOrderDetailsModal(orderId) {
+            const order = state.vendorOrders.find(o => o.id === orderId);
+            if (!order) {
+                showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
+                return;
+            }
+        
+            const formatCurrency = (val) => `$${parseFloat(val || 0).toFixed(2)}`;
+            const formatDate = (val) => {
+                if (!val) return 'N/A';
+                if (val.toDate) return val.toDate().toLocaleDateString();
+                return new Date(val).toLocaleDateString();
+            };
+        
+            const landedCost = (parseFloat(order.orderCost || 0) + parseFloat(order.shippingCost || 0) + parseFloat(order.tariffs || 0));
+        
+            const statusColors = {
+                pending:    'bg-yellow-100 text-yellow-800',
+                ordered:    'bg-blue-100 text-blue-800',
+                shipped:    'bg-purple-100 text-purple-800',
+                delivered:  'bg-green-100 text-green-800',
+                cancelled:  'bg-red-100 text-red-800'
+            };
+            const statusClass = statusColors[order.status?.toLowerCase()] || 'bg-gray-100 text-gray-800';
+        
+            const itemsHTML = (order.items && order.items.length > 0)
+                ? `
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-gray-50 text-gray-600 uppercase text-xs">
+                            <th class="px-4 py-2 text-left">Product</th>
+                            <th class="px-4 py-2 text-center">Qty</th>
+                            <th class="px-4 py-2 text-right">Unit Cost</th>
+                            <th class="px-4 py-2 text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        ${order.items.map(item => `
+                            <tr>
+                                <td class="px-4 py-2 text-gray-800">${item.name || item.productName || 'N/A'}</td>
+                                <td class="px-4 py-2 text-center text-gray-600">${item.quantity || 0}</td>
+                                <td class="px-4 py-2 text-right text-gray-600">${formatCurrency(item.unitCost || item.cost)}</td>
+                                <td class="px-4 py-2 text-right font-medium">${formatCurrency((item.quantity || 0) * (item.unitCost || item.cost || 0))}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>`
+                : `<p class="text-gray-500 text-sm text-center py-4">No items listed for this order.</p>`;
+        
+            const modalHTML = `
+            <div id="vendorOrderDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                    
+                    <!-- Header -->
+                    <div class="flex items-center justify-between p-6 border-b border-gray-100">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-800">Vendor Order Details</h2>
+                            <p class="text-sm text-gray-500 mt-1">Order #${order.orderNumber || order.id}</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusClass}">
+                                ${order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Unknown'}
+                            </span>
+                            <button onclick="document.getElementById('vendorOrderDetailsModal').remove()"
+                                class="text-gray-400 hover:text-gray-600 transition-colors">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+        
+                    <!-- Body -->
+                    <div class="p-6 space-y-6">
+        
+                        <!-- Supplier & Dates -->
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-gray-50 rounded-xl p-4">
+                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Supplier</p>
+                                <p class="text-gray-800 font-medium">${order.supplier || 'N/A'}</p>
+                            </div>
+                            <div class="bg-gray-50 rounded-xl p-4">
+                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Order Date</p>
+                                <p class="text-gray-800 font-medium">${formatDate(order.orderDate)}</p>
+                            </div>
+                            <div class="bg-gray-50 rounded-xl p-4">
+                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Expected Delivery</p>
+                                <p class="text-gray-800 font-medium">${formatDate(order.expectedDelivery)}</p>
+                            </div>
+                            <div class="bg-gray-50 rounded-xl p-4">
+                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Tracking Number</p>
+                                <p class="text-gray-800 font-medium">${order.trackingNumber || 'N/A'}</p>
+                            </div>
+                        </div>
+        
+                        <!-- Cost Breakdown -->
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Cost Breakdown</h3>
+                            <div class="bg-gray-50 rounded-xl overflow-hidden divide-y divide-gray-100">
+                                <div class="flex justify-between px-4 py-3">
+                                    <span class="text-gray-600">Order Cost</span>
+                                    <span class="font-medium">${formatCurrency(order.orderCost)}</span>
+                                </div>
+                                <div class="flex justify-between px-4 py-3">
+                                    <span class="text-gray-600">Shipping Cost</span>
+                                    <span class="font-medium">${formatCurrency(order.shippingCost)}</span>
+                                </div>
+                                <div class="flex justify-between px-4 py-3">
+                                    <span class="text-gray-600">Tariffs / Duties</span>
+                                    <span class="font-medium">${formatCurrency(order.tariffs)}</span>
+                                </div>
+                                <div class="flex justify-between px-4 py-3 bg-blue-50">
+                                    <span class="font-bold text-blue-800">Total Landed Cost</span>
+                                    <span class="font-bold text-blue-800">${formatCurrency(landedCost)}</span>
+                                </div>
+                            </div>
+                        </div>
+        
+                        <!-- Items -->
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Items</h3>
+                            <div class="border border-gray-100 rounded-xl overflow-hidden">
+                                ${itemsHTML}
+                            </div>
+                        </div>
+        
+                        ${order.notes ? `
+                        <!-- Notes -->
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Notes</h3>
+                            <p class="text-gray-600 bg-gray-50 rounded-xl p-4 text-sm">${order.notes}</p>
+                        </div>` : ''}
+        
+                    </div>
+        
+                    <!-- Footer -->
+                    <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                        <button onclick="document.getElementById('vendorOrderDetailsModal').remove()"
+                            class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                            Close
+                        </button>
+                    </div>
+        
+                </div>
+            </div>`;
+        
+            // Remove any existing modal first
+            const existing = document.getElementById('vendorOrderDetailsModal');
+            if (existing) existing.remove();
+        
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+        }
+        
         
         function refreshProfitAnalysis() {
             // Only update the parts that need updating, not the entire page
