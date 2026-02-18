@@ -40,8 +40,7 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, addDoc, collection, serverTimestamp, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
+    import { getFirestore, addDoc, collection, serverTimestamp, doc, getDoc,updateDoc, getDocs, query, where, increment, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     let db, auth, userId, cartData = {}, cartTotalCents = 0;
     let currentLang = localStorage.getItem('checkoutLang') || (navigator.language.startsWith('en') ? 'en' : 'es');
     let map, marker, autocomplete;
@@ -65,7 +64,9 @@
         country: 'US'
     };
     let validatedAddress = null;
-
+    let appliedDiscount = null;      // The validated discount object from Firestore
+    let discountCents = 0;           // Calculated discount amount in cents
+    let discountValidating = false;  // Prevents double-clicks
 
     const TEXT = {
         es: {
@@ -85,6 +86,19 @@
             shippingError: 'No se pudo calcular el envío. Estimado: $10.00',
             shippingNote: 'El costo final de envío puede ser menor según el transportista seleccionado',
             maxShipping: 'Costo máximo de envío',
+             discountCode: 'Código de Descuento',
+             discountPlaceholder: 'Ingresa tu código de cupón',
+             discountApply: 'Aplicar',
+             discountRemove: 'Quitar',
+             discountApplied: 'Descuento aplicado',
+             discountInvalid: 'Código inválido o inactivo',
+             discountExpired: 'Este código ha expirado',
+             discountMaxUsed: 'Este código ha alcanzado su límite de uso',
+             discountMinOrder: 'Pedido mínimo requerido',
+             discountNotApplicable: 'Este código no aplica a los productos en tu carrito',
+             discountValidating: 'Validando...',
+             discountLabel: 'Descuento',
+             discountHave: '¿Tienes un código de descuento?', 
         },
         en: {
             title: 'Checkout', return: 'Back', email: 'Email Address', name: 'Full Name',
@@ -103,6 +117,19 @@
             shippingError: 'Could not calculate shipping. Estimated: $10.00',
             shippingNote: 'Final shipping cost may be higher based on selected carrier',
             maxShipping: 'Maximum shipping cost',
+             discountCode: 'Discount Code',
+             discountPlaceholder: 'Enter your coupon code',
+             discountApply: 'Apply',
+             discountRemove: 'Remove',
+             discountApplied: 'Discount applied',
+             discountInvalid: 'Invalid or inactive code',
+             discountExpired: 'This code has expired',
+             discountMaxUsed: 'This code has reached its usage limit',
+             discountMinOrder: 'Minimum order required',
+             discountNotApplicable: 'This code does not apply to items in your cart',
+             discountValidating: 'Validating...',
+             discountLabel: 'Discount',
+             discountHave: 'Have a discount code?',       
         }
     };
 
@@ -132,19 +159,339 @@
             </header>
         `;
     }
+function renderDiscountInput() {
+    if (appliedDiscount) {
+        // Show applied discount with remove option
+        return `
+            <div class="bg-green-50 border-2 border-green-300 rounded-2xl p-5 transition-all duration-300">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">🏷️</span>
+                        <div>
+                            <p class="font-bold text-green-800 text-sm">${t('discountApplied')}</p>
+                            <p class="font-mono font-black text-green-700 text-lg">${appliedDiscount.code}</p>
+                            <p class="text-xs text-green-600 mt-0.5">${getCheckoutDiscountSummary()}</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="removeCheckoutDiscount()"
+                            class="px-4 py-2 bg-red-100 text-red-700 rounded-xl text-sm font-bold hover:bg-red-200 transition border-2 border-red-300">
+                        ✕ ${t('discountRemove')}
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    // Show collapsible input field
+    return `
+        <div id="discount-section" class="border-2 border-dashed border-gray-300 rounded-2xl overflow-hidden transition-all duration-300">
+            <button type="button" onclick="toggleDiscountInput()"
+                    class="w-full p-4 flex items-center justify-between text-left hover:bg-gray-50 transition">
+                <span class="flex items-center gap-2 text-sm font-semibold text-gray-600">
+                    🏷️ ${t('discountHave')}
+                </span>
+                <span id="discount-toggle-icon" class="text-gray-400 transition-transform duration-300">▼</span>
+            </button>
+            
+            <div id="discount-input-area" class="hidden px-4 pb-4 -mt-1">
+                <div class="flex gap-2">
+                    <input type="text" id="checkout-discount-code"
+                           placeholder="${t('discountPlaceholder')}"
+                           class="flex-1 p-3 border-2 border-gray-300 rounded-xl text-sm font-mono uppercase focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                           style="text-transform: uppercase;"
+                           onkeydown="if(event.key==='Enter'){event.preventDefault();applyCheckoutDiscount();}">
+                    <button type="button" onclick="applyCheckoutDiscount()" id="discount-apply-btn"
+                            class="px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition shadow-md">
+                        ${t('discountApply')}
+                    </button>
+                </div>
+                <div id="discount-message" class="mt-2"></div>
+            </div>
+        </div>
+    `;
+}
+
+
+/**
+ * Toggles the discount input area visibility.
+ */
+function toggleDiscountInput() {
+    const area = document.getElementById('discount-input-area');
+    const icon = document.getElementById('discount-toggle-icon');
+    if (!area) return;
+
+    const isHidden = area.classList.contains('hidden');
+    area.classList.toggle('hidden', !isHidden);
+    if (icon) icon.style.transform = isHidden ? 'rotate(180deg)' : '';
+
+    // Focus the input when opening
+    if (isHidden) {
+        setTimeout(() => {
+            document.getElementById('checkout-discount-code')?.focus();
+        }, 100);
+    }
+}
+
+
+/**
+ * Validates and applies a discount code.
+ * Queries Firestore directly for the discount document.
+ */
+async function applyCheckoutDiscount() {
+    if (discountValidating) return;
+
+    const codeInput = document.getElementById('checkout-discount-code');
+    const msgEl = document.getElementById('discount-message');
+    const applyBtn = document.getElementById('discount-apply-btn');
+    const code = codeInput?.value?.trim().toUpperCase();
+
+    if (!code) {
+        if (msgEl) msgEl.innerHTML = `<p class="text-red-600 text-sm font-semibold">❌ ${t('discountPlaceholder')}</p>`;
+        return;
+    }
+
+    // Show loading state
+    discountValidating = true;
+    if (applyBtn) {
+        applyBtn.disabled = true;
+        applyBtn.innerHTML = `<span class="calculating-spinner"></span>`;
+    }
+    if (msgEl) msgEl.innerHTML = `<p class="text-gray-500 text-sm">${t('discountValidating')}</p>`;
+
+    try {
+        // Query Firestore for the discount code
+        const discountsPath = 'artifacts/default-app-id/public/data/discounts';
+        const q = query(
+            collection(db, discountsPath),
+            where('code', '==', code),
+            where('enabled', '==', true)
+        );
+
+        const snap = await getDocs(q);
+
+        if (snap.empty) {
+            showDiscountError(msgEl, t('discountInvalid'));
+            return;
+        }
+
+        const discountDoc = snap.docs[0];
+        const discount = { id: discountDoc.id, ...discountDoc.data() };
+
+        // --- Validation checks ---
+
+        // Expiration
+        if (discount.expiresAt && new Date(discount.expiresAt) < new Date()) {
+            showDiscountError(msgEl, t('discountExpired'));
+            return;
+        }
+
+        // Usage limit
+        if (discount.maxUses > 0 && (discount.currentUses || 0) >= discount.maxUses) {
+            showDiscountError(msgEl, t('discountMaxUsed'));
+            return;
+        }
+
+        // Minimum order
+        if (discount.minOrderCents > 0 && cartTotalCents < discount.minOrderCents) {
+            const minDollars = (discount.minOrderCents / 100).toFixed(2);
+            const msg = currentLang === 'es'
+                ? `${t('discountMinOrder')}: $${minDollars}`
+                : `${t('discountMinOrder')}: $${minDollars}`;
+            showDiscountError(msgEl, msg);
+            return;
+        }
+
+        // Category restriction
+        if (discount.appliesToCategory && discount.appliesToCategory !== 'all') {
+            const cartItems = Object.values(cartData);
+            const hasMatch = cartItems.some(entry => entry.item.catalogId === discount.appliesToCategory);
+            if (!hasMatch) {
+                showDiscountError(msgEl, t('discountNotApplicable'));
+                return;
+            }
+        }
+
+        // Product restriction
+        if (discount.appliesToProduct && discount.appliesToProduct !== 'all') {
+            const cartItems = Object.values(cartData);
+            const hasProduct = cartItems.some(entry => entry.item.id === discount.appliesToProduct);
+            if (!hasProduct) {
+                showDiscountError(msgEl, t('discountNotApplicable'));
+                return;
+            }
+        }
+
+        // --- Calculate savings ---
+        let savedCents = 0;
+
+        if (discount.type === 'percentage') {
+            savedCents = Math.round(cartTotalCents * (discount.value / 100));
+            if (discount.maxDiscountCents > 0 && savedCents > discount.maxDiscountCents) {
+                savedCents = discount.maxDiscountCents;
+            }
+        } else if (discount.type === 'fixed') {
+            savedCents = discount.valueCents || Math.round(discount.value * 100);
+            if (savedCents > cartTotalCents) savedCents = cartTotalCents;
+        } else if (discount.type === 'freeShipping') {
+            // Free shipping — savings calculated at shipping time
+            savedCents = shippingCents; // Remove current shipping cost
+        }
+
+        // --- Apply the discount ---
+        appliedDiscount = { ...discount, savedCents };
+        discountCents = savedCents;
+
+        // Re-render just the discount section and cart summary (no full re-render)
+        const discountSection = document.getElementById('discount-section')?.parentElement;
+        if (discountSection) {
+            // Replace the discount section container
+            const wrapper = document.createElement('div');
+            wrapper.id = 'discount-wrapper';
+            wrapper.innerHTML = renderDiscountInput();
+
+            const existingWrapper = document.getElementById('discount-wrapper');
+            if (existingWrapper) {
+                existingWrapper.replaceWith(wrapper);
+            } else {
+                // Find and replace the discount-section's parent
+                const section = document.getElementById('discount-section');
+                if (section) {
+                    wrapper.innerHTML = renderDiscountInput();
+                    section.replaceWith(wrapper);
+                }
+            }
+        }
+
+        updateCartSummary();
+
+        console.log(`✅ Discount applied: ${discount.code} — saves ${formatPrice(savedCents)}`);
+
+    } catch (error) {
+        console.error('❌ Discount validation error:', error);
+        showDiscountError(msgEl, t('discountInvalid'));
+    } finally {
+        discountValidating = false;
+        if (applyBtn) {
+            applyBtn.disabled = false;
+            applyBtn.innerHTML = t('discountApply');
+        }
+    }
+}
+
+
+/**
+ * Removes the currently applied discount.
+ */
+function removeCheckoutDiscount() {
+    appliedDiscount = null;
+    discountCents = 0;
+
+    // Replace the applied discount display with the input form
+    const wrapper = document.getElementById('discount-wrapper');
+    if (wrapper) {
+        const newWrapper = document.createElement('div');
+        newWrapper.id = 'discount-wrapper';
+        newWrapper.innerHTML = renderDiscountInput();
+        wrapper.replaceWith(newWrapper);
+    }
+
+    updateCartSummary();
+    console.log('🏷️ Discount removed');
+}
+
+
+/**
+ * Shows an error message in the discount input area.
+ */
+function showDiscountError(msgEl, message) {
+    if (msgEl) {
+        msgEl.innerHTML = `
+            <div class="flex items-center gap-2 mt-1 p-2 bg-red-50 rounded-lg border border-red-200">
+                <span class="text-red-500">❌</span>
+                <p class="text-red-700 text-sm font-semibold">${message}</p>
+            </div>
+        `;
+    }
+    // Clear error after 5 seconds
+    setTimeout(() => {
+        if (msgEl) msgEl.innerHTML = '';
+    }, 5000);
+}
+
+
+/**
+ * Returns a human-readable summary of the applied discount.
+ */
+function getCheckoutDiscountSummary() {
+    if (!appliedDiscount) return '';
+
+    if (appliedDiscount.type === 'percentage') {
+        let text = `${appliedDiscount.value}% ${currentLang === 'es' ? 'de descuento' : 'off'}`;
+        text += ` — ${currentLang === 'es' ? 'Ahorras' : 'You save'} ${formatPrice(discountCents)}`;
+        return text;
+    } else if (appliedDiscount.type === 'fixed') {
+        return `${formatPrice(discountCents)} ${currentLang === 'es' ? 'de descuento' : 'off'}`;
+    } else if (appliedDiscount.type === 'freeShipping') {
+        return currentLang === 'es' ? '¡Envío gratis!' : 'Free shipping!';
+    }
+    return '';
+}
+
+
+/**
+ * Records discount usage in Firestore after successful order.
+ * Call this inside handleSubmit() after the order is created.
+ */
+async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
+    if (!discount || !discount.id) return;
+
+    try {
+        const discountRef = doc(db, 'artifacts/default-app-id/public/data/discounts', discount.id);
+
+        const usageEntry = {
+            orderId: orderId,
+            orderNumber: orderId.substring(0, 8),
+            date: new Date().toISOString(),
+            savedCents: discountCents,
+            customerEmail: orderData.buyerEmail || 'Unknown',
+            source: 'checkout'  // Distinguishes from admin-applied discounts
+        };
+
+        await updateDoc(discountRef, {
+            currentUses: increment(1),
+            usageLog: arrayUnion(usageEntry),
+            updatedAt: new Date().toISOString()
+        });
+
+        console.log(`✅ Discount usage recorded: ${discount.code} for order ${orderId}`);
+    } catch (error) {
+        console.error('❌ Error recording discount usage:', error);
+        // Don't fail the order if this fails
+    }
+}
 
     // ✅ NEW: Update only the cart summary without full re-render
     function updateCartSummary() {
         const summaryContainer = document.getElementById('cart-summary-breakdown');
         if (!summaryContainer) return;
-
-        const grandTotal = cartTotalCents + shippingCents + taxCents;
-
+    
+        const grandTotal = Math.max(0, cartTotalCents - discountCents) + shippingCents + taxCents;
+    
         summaryContainer.innerHTML = `
             <div class="flex justify-between text-base font-semibold text-gray-700">
                 <span>${t('subtotal')}</span>
                 <span>${formatPrice(cartTotalCents)}</span>
             </div>
+    
+            ${discountCents > 0 && appliedDiscount ? `
+                <div class="flex justify-between text-base text-green-700 font-semibold bg-green-50 -mx-2 px-2 py-1 rounded-lg">
+                    <span class="flex items-center gap-2">
+                        🏷️ ${t('discountLabel')}
+                        <span class="text-xs font-mono bg-green-200 px-2 py-0.5 rounded-full">${appliedDiscount.code}</span>
+                    </span>
+                    <span>-${formatPrice(discountCents)}</span>
+                </div>
+            ` : ''}
             
             ${shippingCents > 0 ? `
                 <div class="flex justify-between text-base text-gray-600">
@@ -190,14 +537,12 @@
                 <span class="text-indigo-700">${formatPrice(grandTotal)}</span>
             </div>
         `;
-
-        // Update submit button text with new total
+    
         const btnSubmit = $('btnSubmit');
         if (btnSubmit && !btnSubmit.disabled) {
             btnSubmit.innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
         }
     }
-
     function render() {
         // ✅ Don't re-render if order is complete
         if (orderCompleted) {
@@ -275,14 +620,16 @@
                                                 : 'Yes, I want SMS/Text notifications'}
                                         </label>
                                     </div>
-                                </div>
-                                
+                                </div>                                
                                 <p class="text-[10px] text-gray-500 mt-3 italic">
                                     ${currentLang === 'es' 
                                         ? '* Recibirás confirmación del pedido y actualizaciones de entrega' 
                                         : '* You will receive order confirmation and delivery updates'}
                                 </p>
-                            </div>                            
+                            </div>   
+                            <div id="discount-wrapper">
+                                ${renderDiscountInput()}
+                            </div>
                             <div class="address-highlight-container">
                                 <label class="flex items-center gap-3 text-xl font-black text-indigo-900 mb-4">📍 ${t('address')}</label>
                                 <input type="text" id="delivery-address" required class="address-input" data-validated="false" placeholder="${t('addressHelp')}">
@@ -792,7 +1139,10 @@
             // Add to page
             document.body.insertAdjacentHTML('beforeend', modalHtml);
         }
-        
+        window.applyCheckoutDiscount = applyCheckoutDiscount;
+        window.removeCheckoutDiscount = removeCheckoutDiscount;
+        window.toggleDiscountInput = toggleDiscountInput;
+    
         // ✅ Define both functions at window scope
         window.selectShipping = async function(index) {
             const rate = window.availableRates[index];
@@ -864,7 +1214,7 @@
             updateCartSummary();
             
             $('btnSubmit').disabled = false;
-            const grandTotal = cartTotalCents + shippingCents + taxCents;
+            const grandTotal = Math.max(0, cartTotalCents - discountCents) + shippingCents + taxCents;
             $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
         };
         
@@ -945,7 +1295,8 @@
             subtotalCents: cartTotalCents,
             shippingCents: shippingCents,
             taxCents: taxCents,
-            totalCents: cartTotalCents + shippingCents + taxCents,
+            discountCents: discountCents, discount: appliedDiscount ? {code: appliedDiscount.code, type: appliedDiscount.type, value: appliedDiscount.value,savedCents: discountCents,discountId: appliedDiscount.id} : null,
+            totalCents: Math.max(0, cartTotalCents - discountCents) + shippingCents + taxCents,        
             shippingDetails: shippingDetails,
             taxDetails: taxDetails,
             status: "Pending",
@@ -966,7 +1317,14 @@
             // 1. Create order in Firestore
             const docRef = await addDoc(collection(db, "artifacts", "default-app-id", "public", "data", "orders"), order);
             console.log("✅ Order created with ID:", docRef.id);
-            
+             if (appliedDiscount) {
+                 try {
+                     await recordCheckoutDiscountUsage(appliedDiscount, docRef.id, order);
+                 } catch (discountError) {
+                     console.error('❌ Discount usage recording failed:', discountError);
+                 }
+             }
+                
             // 2. Generate Stripe Payment Link
             let paymentUrl = null;
             try {
@@ -1125,6 +1483,12 @@
                                     <span>Subtotal:</span>
                                     <span class="font-semibold">${formatPrice(order.subtotalCents)}</span>
                                 </div>
+                                 ${order.discountCents > 0 ? `
+                                     <div class="flex justify-between text-green-700">
+                                         <span>🏷️ ${order.discount?.code || 'Discount'}:</span>
+                                         <span class="font-semibold">-${formatPrice(order.discountCents)}</span>
+                                     </div>
+                                 ` : ''}                                
                                 <div class="flex justify-between">
                                     <span>Envío:</span>
                                     <span class="font-semibold">${formatPrice(order.shippingCents)}</span>
@@ -1214,6 +1578,12 @@
                                     <span>Subtotal:</span>
                                     <span class="font-semibold">${formatPrice(order.subtotalCents)}</span>
                                 </div>
+                                     ${order.discountCents > 0 ? `
+                                         <div class="flex justify-between text-green-700">
+                                             <span>🏷️ ${order.discount?.code || 'Discount'}:</span>
+                                             <span class="font-semibold">-${formatPrice(order.discountCents)}</span>
+                                         </div>
+                                     ` : ''}
                                 <div class="flex justify-between">
                                     <span>Shipping:</span>
                                     <span class="font-semibold">${formatPrice(order.shippingCents)}</span>
@@ -1255,7 +1625,7 @@
             console.error("❌ Order submission error:", error);
             alert(`Error creating order: ${error.message}\n\nPlease try again or contact support.`); 
             $('btnSubmit').disabled = false; 
-            const grandTotal = cartTotalCents + shippingCents + taxCents;
+            const grandTotal = Math.max(0, cartTotalCents - discountCents) + shippingCents + taxCents;
             $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
             orderCompleted = false; // Allow retry
         }
