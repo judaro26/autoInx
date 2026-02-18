@@ -3850,197 +3850,138 @@
             updateSubmitButtonState();
         }
 
-        async function updateOrder(orderId) {
-            resetTimer();
+async function updateOrder_WITH_DISCOUNT(orderId) {
+    resetTimer();
+    try {
+        const order = state.orders.find(o => o.id === orderId);
+        if (!order) throw new Error('Order not found');
+
+        // Build new items array from draft cart
+        const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
+            id: entry.item.id,
+            name: entry.item.name,
+            price: entry.item.price,
+            quantity: entry.quantity,
+            sku: entry.item.sku
+        }));
+
+        const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+        // Get shipping & tax from the modal inputs
+        const shippingCents = Math.round((parseFloat(document.getElementById('editShippingCents')?.value) || 0) * 100);
+        const taxCents = Math.round((parseFloat(document.getElementById('editTaxCents')?.value) || 0) * 100);
+
+        // ✅ DISCOUNT: Determine discount to apply
+        const pendingDiscount = state.editingOrderDiscount;
+        let discountData = order.discount || null;    // Existing discount by default
+        let discountCents = order.discountCents || 0;
+
+        if (pendingDiscount) {
+            // Re-validate the pending discount against current cart
+            const cartItems = newItems.map(item => ({
+                item: { ...item, catalogId: state.items.find(i => i.id === item.id)?.catalogId },
+                id: item.id,
+                quantity: item.quantity
+            }));
+
+            const validation = validateDiscount(pendingDiscount.code, cartItems, newSubtotal);
+
+            if (validation.valid) {
+                discountData = {
+                    code: pendingDiscount.code,
+                    type: pendingDiscount.type,
+                    value: pendingDiscount.value,
+                    savedCents: validation.savedCents,
+                    discountId: pendingDiscount.id,
+                    appliedAt: new Date().toISOString(),
+                    appliedBy: auth.currentUser?.email || 'admin'
+                };
+                discountCents = validation.savedCents;
+            } else {
+                // Discount no longer valid — warn but continue saving without it
+                showMessage('error', `Discount "${pendingDiscount.code}" is no longer valid: ${validation.message}. Order saved without discount.`, 8000, 'orders');
+                discountData = null;
+                discountCents = 0;
+            }
+        }
+
+        // ✅ DISCOUNT: Calculate final total with discount applied
+        const discountedSubtotal = Math.max(0, newSubtotal - discountCents);
+        const newTotal = discountedSubtotal + shippingCents + taxCents;
+
+        // Get new status
+        const newStatus = document.getElementById('editOrderStatus')?.value || order.status;
+
+        // Build Firestore update
+        const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
+        const path = getOrdersCollectionPath(targetId);
+        const orderRef = doc(db, path, orderId);
+
+        const updatePayload = {
+            items: newItems,
+            subtotalCents: newSubtotal,
+            shippingCents: shippingCents,
+            taxCents: taxCents,
+            totalCents: newTotal,
+            status: newStatus,
+            // ✅ DISCOUNT: Include discount fields
+            discount: discountData,
+            discountCents: discountCents,
+            updatedAt: serverTimestamp()
+        };
+
+        await updateDoc(orderRef, updatePayload);
+
+        // ✅ DISCOUNT: Record usage if this is a NEW discount (not already on the order)
+        if (pendingDiscount && discountData && (!order.discount || order.discount.code !== pendingDiscount.code)) {
+            await recordDiscountUsage(
+                pendingDiscount,
+                orderId,
+                order.orderNumber || orderId.substring(0, 8),
+                discountCents
+            );
+        }
+
+        // Send status update email if status changed
+        if (newStatus !== order.status) {
             try {
-                const order = state.orders.find(o => o.id === orderId);
-                if (!order) throw new Error('Order not found');
-
-                const newItems = Object.values(state.editingOrderDraftCart).map(entry => ({
-                    id: entry.item.id,
-                    name: entry.item.name,
-                    price: entry.item.price,
-                    quantity: entry.quantity,
-                    sku: entry.item.sku
-                }));
-
-                const newSubtotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-                const newTotal = newSubtotal + (order.shippingCents || 0) + (order.taxCents || 0);
-
-                // ✅ Get the new status from dropdown
-                const newStatus = document.getElementById('editOrderStatus')?.value || order.status;
-
-                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
-                const path = getOrdersCollectionPath(targetId);
-                const orderRef = doc(db, path, orderId);
-
-                await updateDoc(orderRef, {
-                    items: newItems,
-                    subtotalCents: newSubtotal,
-                    totalCents: newTotal,
-                    status: newStatus, // ✅ Update status
-                    updatedAt: serverTimestamp()
+                await fetch('/.netlify/functions/sendStatusUpdate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderId: orderId,
+                        orderNumber: order.orderNumber || orderId.substring(0, 8),
+                        buyerEmail: order.buyerEmail,
+                        buyerName: order.buyerName,
+                        newStatus: newStatus,
+                        language: order.language || 'en'
+                    })
                 });
-
-                // ✅ Send email if status changed
-                if (newStatus !== order.status) {
-                    try {
-                        await fetch('/.netlify/functions/sendStatusUpdate', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                orderId: orderId,
-                                orderNumber: order.orderNumber || orderId.substring(0, 8),
-                                buyerEmail: order.buyerEmail,
-                                buyerName: order.buyerName,
-                                newStatus: newStatus,
-                                language: order.language || 'en'
-                            })
-                        });
-                    } catch (emailError) {
-                        console.warn('Email failed:', emailError);
-                    }
-                }
-
-                await logAdminAction('ORDER_UPDATED', { orderId, newItems, newStatus }, orderId);
-                showMessage('success', 'Order updated successfully!', 3000, 'orders');
-                closeEditModal();
-
-            } catch (error) {
-                console.error('Error updating order:', error);
-                showMessage('error', `Failed to update order: ${error.message}`, 5000, 'orders');
+            } catch (emailError) {
+                console.warn('Email failed:', emailError);
             }
         }
 
+        await logAdminAction('ORDER_UPDATED', {
+            orderId,
+            newItems,
+            newStatus,
+            discount: discountData,
+            discountCents,
+            newTotal
+        }, orderId);
 
-        // ✅ NEW: Calculate shipping and tax for manual orders
-        async function calculateAdminOrderShippingTax() {
-            const addressInput = document.getElementById('deliveryAddress');
-            const address = addressInput?.value?.trim();
+        // ✅ DISCOUNT: Clear editing state
+        state.editingOrderDiscount = null;
 
-            if (!address || addressInput.dataset.validated !== 'true') {
-                // Reset if address is invalid
-                state.adminOrderShippingCents = 0;
-                state.adminOrderTaxCents = 0;
-                state.adminOrderShippingDetails = null;
-                state.adminOrderTaxDetails = null;
-                updateAdminCartDisplay();
-                return;
-            }
+        showMessage('success', `Order updated! ${discountData ? `Discount "${discountData.code}" applied (saves ${formatPriceDisplay(discountCents)}).` : ''} Total: ${formatPriceDisplay(newTotal)}`, 5000, 'orders');
+        closeEditModal();
 
-            const submitButton = document.getElementById('submitOrderButton');
-            if (submitButton) {
-                submitButton.disabled = true;
-                submitButton.textContent = 'Calculating shipping...';
-            }
-
-            try {
-                // Parse address for state/zip
-                const addressParts = address.split(',');
-                const stateZip = addressParts[addressParts.length - 2]?.trim().split(' ') || [];
-                const orderState = stateZip[0] || 'CA';
-                const zipCode = stateZip[1] || '00000';
-
-                // Calculate total weight (1 lb per item as example)
-                const totalWeight = Object.values(state.adminCart).reduce((sum, e) => sum + e.quantity, 0);
-                const cartTotalCents = Object.values(state.adminCart).reduce((s, e) => s + e.item.price * e.quantity, 0);
-
-                // 1. Calculate Shipping
-                try {
-                    const shippingRes = await fetch('/.netlify/functions/calculateShipping', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            addressTo: {
-                                name: document.getElementById('buyerName')?.value || 'Customer',
-                                street1: addressParts[0]?.trim() || address,
-                                city: addressParts[1]?.trim() || 'Unknown',
-                                state: orderState,
-                                zip: zipCode,
-                                country: 'US'
-                            },
-                            parcels: [{
-                                length: "12",
-                                width: "8",
-                                height: "6",
-                                distance_unit: "in",
-                                weight: Math.max(1, totalWeight).toString(),
-                                mass_unit: "lb"
-                            }]
-                        })
-                    });
-
-                    if (shippingRes.ok) {
-                        const shippingData = await shippingRes.json();
-                        if (shippingData.bestRate) {
-                            state.adminOrderShippingCents = Math.round(shippingData.bestRate.amount * 100);
-                            state.adminOrderShippingDetails = {
-                                provider: shippingData.bestRate.provider,
-                                servicelevel: shippingData.bestRate.servicelevel?.name || 'Standard',
-                                amount: shippingData.bestRate.amount,
-                                estimated_days: shippingData.bestRate.estimated_days
-                            };
-                            console.log('✅ Shipping calculated:', shippingData.bestRate);
-                        }
-                    } else {
-                        console.warn('Shipping API failed, using default');
-                        state.adminOrderShippingCents = 1000; // $10 default
-                        state.adminOrderShippingDetails = { provider: 'Standard', amount: 10 };
-                    }
-                } catch (shippingError) {
-                    console.error('Shipping calculation error:', shippingError);
-                    state.adminOrderShippingCents = 1000;
-                    state.adminOrderShippingDetails = { provider: 'Standard', amount: 10 };
-                }
-
-                if (submitButton) submitButton.textContent = 'Calculating tax...';
-
-                // 2. Calculate Tax
-                try {
-                    const taxRes = await fetch('/.netlify/functions/calculateTax', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            subtotalCents: cartTotalCents,
-                            state: orderState,
-                            zipCode: zipCode,
-                            // ✅ NEW: Parse from delivery address
-                            street: addressParts[0]?.trim() || '',
-                            city: addressParts[1]?.trim() || '',
-                            country: 'US'
-                        })
-                    });
-
-                    if (taxRes.ok) {
-                        const taxData = await taxRes.json();
-                        state.adminOrderTaxCents = taxData.taxCents || 0;
-                        state.adminOrderTaxDetails = {
-                            rate: taxData.taxRate,
-                            ratePercent: taxData.taxRatePercent
-                        };
-                        console.log('✅ Tax calculated:', taxData);
-                    } else {
-                        console.warn('Tax API failed, using 0');
-                        state.adminOrderTaxCents = 0;
-                    }
-                } catch (taxError) {
-                    console.error('Tax calculation error:', taxError);
-                    state.adminOrderTaxCents = 0;
-                }
-
-                // Re-render cart with updated totals
-                updateAdminCartDisplay();
-
-            } catch (error) {
-                console.error('Calculation error:', error);
-                showMessage('error', 'Failed to calculate shipping/tax. Using defaults.', 5000, 'orders');
-            } finally {
-                if (submitButton) {
-                    submitButton.disabled = false;
-                    submitButton.textContent = 'SUBMIT ORDER & SEND EMAIL';
-                }
-            }
-        }
+    } catch (error) {
+        console.error('Error updating order:', error);
+        showMessage('error', `Failed to update order: ${error.message}`, 5000, 'orders');
+    }
+}
 
 
         // NEW: Renders the item selector dropdown with search results
@@ -4850,6 +4791,12 @@
                         <p class="text-xs text-gray-600 mb-2">${escapeHtml(order.buyerEmail)}</p>
                         <p class="text-xs mb-2"><strong>Items:</strong> ${itemsList}</p>
                         <p class="text-sm font-bold text-green-700">Total: ${formatPriceDisplay(order.totalCents)}</p>
+                         ${order.discount ? `
+                             <p class="text-xs text-purple-700 mt-1">
+                                 🏷️ Discount: <span class="font-mono font-bold">${escapeHtml(order.discount.code)}</span>
+                                     — Saved ${formatPriceDisplay(order.discountCents || order.discount.savedCents || 0)}
+                             </p>
+                         ` : ''}
                         <p class="text-xs text-gray-500 mt-1 flex items-start gap-1">
                             <span>📍</span>
                             <span class="truncate">${escapeHtml(order.deliveryAddress || 'No address on file')}</span>
@@ -5099,6 +5046,7 @@
 
             state.editingOrderId = orderId;
             initializeDraftCart(order.items, order.paidCents || 0);
+            state.editingOrderDiscount = null; 
 
             const modalContainer = document.getElementById('editModalContainer');
             if (modalContainer) {
@@ -5168,8 +5116,272 @@
                 });
             }
         }
+        function renderEditOrderDiscountSection(order) {
+            const existingDiscount = order.discount || null;
+            const existingDiscountCents = order.discountCents || existingDiscount?.savedCents || 0;
+            const pendingDiscount = state.editingOrderDiscount;
+        
+            // Calculate current subtotal from draft cart
+            const draftItems = Object.values(state.editingOrderDraftCart || {});
+            const subtotalCents = draftItems.reduce((sum, e) => sum + (e.item.price * e.quantity), 0);
+        
+            return `
+                <div class="bg-purple-50 p-4 rounded-lg border-2 border-purple-200">
+                    <h4 class="font-bold text-lg mb-3 text-purple-800">🏷️ Discount Code</h4>
+        
+                    ${existingDiscount && !pendingDiscount ? `
+                        <!-- STATE A: Order already has a discount -->
+                        <div class="p-3 bg-green-50 rounded-lg border-2 border-green-300 mb-3">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <p class="text-sm font-bold text-green-800">
+                                        ✅ Discount Applied: <span class="font-mono">${escapeHtml(existingDiscount.code)}</span>
+                                    </p>
+                                    <p class="text-xs text-green-700 mt-1">
+                                        ${existingDiscount.type === 'percentage' ? `${existingDiscount.value}% off` : 
+                                          existingDiscount.type === 'fixed' ? `${formatPriceDisplay(existingDiscount.savedCents || existingDiscountCents)} off` : 
+                                          'Free Shipping'}
+                                        — Saved ${formatPriceDisplay(existingDiscountCents)}
+                                    </p>
+                                </div>
+                                <button type="button" onclick="window.module.removeEditOrderDiscount('${order.id}')"
+                                        class="px-3 py-2 bg-red-500 text-white rounded-lg text-xs font-bold hover:bg-red-600 shadow-md">
+                                    ✕ Remove
+                                </button>
+                            </div>
+                        </div>
+                    ` : pendingDiscount ? `
+                        <!-- STATE C: Pending discount (just applied, not yet saved) -->
+                        <div class="p-3 bg-yellow-50 rounded-lg border-2 border-yellow-400 mb-3">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <p class="text-sm font-bold text-yellow-800">
+                                        🏷️ Pending Discount: <span class="font-mono">${escapeHtml(pendingDiscount.code)}</span>
+                                    </p>
+                                    <p class="text-xs text-yellow-700 mt-1">
+                                        ${pendingDiscount.type === 'percentage' ? `${pendingDiscount.value}% off` : 
+                                          pendingDiscount.type === 'fixed' ? `${formatPriceDisplay(pendingDiscount.savedCents)} off` : 
+                                          'Free Shipping'}
+                                        — Will save ${formatPriceDisplay(pendingDiscount.savedCents)}
+                                    </p>
+                                    <p class="text-xs text-orange-600 mt-1 font-semibold">⚠️ Click "Save All Changes" to apply</p>
+                                </div>
+                                <button type="button" onclick="window.module.clearEditOrderDiscount()"
+                                        class="px-3 py-2 bg-red-500 text-white rounded-lg text-xs font-bold hover:bg-red-600 shadow-md">
+                                    ✕ Remove
+                                </button>
+                            </div>
+                        </div>
+                    ` : `
+                        <!-- STATE B: No discount — show input to apply one -->
+                        <div class="flex gap-2 mb-2">
+                            <input type="text" id="editOrderDiscountCode"
+                                   placeholder="Enter discount code (e.g., SAVE10)"
+                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-sm font-mono uppercase"
+                                   style="text-transform: uppercase;">
+                            <button type="button" onclick="window.module.applyEditOrderDiscount('${order.id}')"
+                                    class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold hover:bg-purple-700 shadow-md">
+                                Apply
+                            </button>
+                        </div>
+                    `}
+        
+                    <div id="editDiscountMessage"></div>
+        
+                    <!-- Discount impact on total -->
+                    ${(existingDiscountCents > 0 || (pendingDiscount?.savedCents || 0) > 0) ? `
+                        <div class="mt-2 p-2 bg-green-50 rounded border border-green-200 text-sm">
+                            <div class="flex justify-between text-green-800">
+                                <span>Subtotal before discount:</span>
+                                <span class="font-semibold">${formatPriceDisplay(subtotalCents)}</span>
+                            </div>
+                            <div class="flex justify-between text-green-700 font-bold">
+                                <span>Discount (${escapeHtml((pendingDiscount || existingDiscount)?.code || '')}):</span>
+                                <span>-${formatPriceDisplay(pendingDiscount?.savedCents || existingDiscountCents)}</span>
+                            </div>
+                            <div class="flex justify-between text-green-900 font-black border-t border-green-300 pt-1 mt-1">
+                                <span>Subtotal after discount:</span>
+                                <span>${formatPriceDisplay(Math.max(0, subtotalCents - (pendingDiscount?.savedCents || existingDiscountCents)))}</span>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+/ ─────────────────────────────────────────────────────────────────────────────
+// DISCOUNT ACTIONS FOR EDIT MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Validates and stages a discount code for the order being edited.
+ * The discount is NOT saved to Firestore until "Save All Changes" is clicked.
+ */
+function applyEditOrderDiscount(orderId) {
+    resetTimer();
+    const codeInput = document.getElementById('editOrderDiscountCode');
+    const code = codeInput?.value?.trim();
+    const msgEl = document.getElementById('editDiscountMessage');
+
+    if (!code) {
+        if (msgEl) msgEl.innerHTML = '<p class="text-red-600 text-sm mt-1">❌ Please enter a discount code.</p>';
+        return;
+    }
+
+    // Build cart items from draft cart
+    const cartItems = Object.values(state.editingOrderDraftCart || {}).map(entry => ({
+        item: entry.item,
+        quantity: entry.quantity,
+        id: entry.item.id
+    }));
+
+    if (cartItems.length === 0) {
+        if (msgEl) msgEl.innerHTML = '<p class="text-red-600 text-sm mt-1">❌ Order has no items. Add items first.</p>';
+        return;
+    }
+
+    const subtotalCents = cartItems.reduce((sum, e) => sum + (e.item.price * e.quantity), 0);
+
+    // Use existing validateDiscount function
+    const result = validateDiscount(code, cartItems, subtotalCents);
+
+    if (msgEl) {
+        msgEl.innerHTML = result.valid
+            ? `<p class="text-green-700 text-sm font-semibold mt-1">${result.message}</p>`
+            : `<p class="text-red-600 text-sm font-semibold mt-1">❌ ${result.message}</p>`;
+    }
+
+    if (result.valid) {
+        // Stage the discount — will be saved when user clicks "Save All Changes"
+        state.editingOrderDiscount = {
+            ...result.discount,
+            savedCents: result.savedCents
+        };
+
+        // Re-render the modal to show the pending discount
+        const order = state.orders.find(o => o.id === orderId);
+        if (order) {
+            refreshEditModalDiscountSection(order);
+            updateEditModalTotals(order);
+        }
+
+        showMessage('success', `Discount "${code}" staged. Click "Save All Changes" to apply.`, 3000, 'orders');
+    } else {
+        state.editingOrderDiscount = null;
+    }
+}
+
+/**
+ * Clears a pending (not yet saved) discount from the edit modal.
+ */
+function clearEditOrderDiscount() {
+    resetTimer();
+    state.editingOrderDiscount = null;
+
+    const order = state.orders.find(o => o.id === state.editingOrderId);
+    if (order) {
+        refreshEditModalDiscountSection(order);
+        updateEditModalTotals(order);
+    }
+
+    const msgEl = document.getElementById('editDiscountMessage');
+    if (msgEl) msgEl.innerHTML = '<p class="text-blue-600 text-sm mt-1">Discount removed.</p>';
+}
+
+/**
+ * Removes an EXISTING (already saved) discount from an order.
+ * This immediately updates Firestore — no need to click "Save All Changes".
+ */
+async function removeEditOrderDiscount(orderId) {
+    if (!confirm('Remove the discount from this order? The order total will be recalculated.')) return;
+    resetTimer();
+
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    try {
+        const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
+        const path = getOrdersCollectionPath(targetId);
+        const orderRef = doc(db, path, orderId);
+
+        // Recalculate totals without discount
+        const itemsSubtotal = (order.items || []).reduce((sum, item) => {
+            const data = getSafeItemData(item);
+            return sum + (data.price * data.quantity);
+        }, 0);
+
+        const shippingCents = order.shippingCents || 0;
+        const taxCents = order.taxCents || 0;
+        const newTotal = itemsSubtotal + shippingCents + taxCents;
+
+        const oldDiscount = order.discount;
+        const oldDiscountCents = order.discountCents || oldDiscount?.savedCents || 0;
+
+        await updateDoc(orderRef, {
+            discount: null,
+            discountCents: 0,
+            subtotalCents: itemsSubtotal,
+            totalCents: newTotal,
+            updatedAt: serverTimestamp()
+        });
+
+        await logAdminAction('ORDER_DISCOUNT_REMOVED', {
+            orderId,
+            removedCode: oldDiscount?.code || 'Unknown',
+            removedSavedCents: oldDiscountCents,
+            newTotal
+        }, orderId);
+
+        showMessage('success', `Discount "${oldDiscount?.code || ''}" removed. Order total updated to ${formatPriceDisplay(newTotal)}.`, 5000, 'orders');
+
+        // Refresh the modal
+        closeEditModal();
+
+    } catch (error) {
+        console.error('Error removing discount:', error);
+        showMessage('error', `Failed to remove discount: ${error.message}`, 5000, 'orders');
+    }
+}
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: Refresh just the discount section of the modal without full re-render
+// ─────────────────────────────────────────────────────────────────────────────
+
+function refreshEditModalDiscountSection(order) {
+    const discountContainer = document.getElementById('editOrderDiscountContainer');
+    if (discountContainer) {
+        discountContainer.innerHTML = renderEditOrderDiscountSection(order);
+    }
+}
+
+/**
+ * Updates the pricing breakdown in the edit modal to reflect discount changes.
+ */
+function updateEditModalTotals(order) {
+    const subtotalEl = document.getElementById('editOrderSubtotal');
+    const totalEl = document.getElementById('editOrderTotal');
+    if (!subtotalEl || !totalEl) return;
+
+    const draftItems = Object.values(state.editingOrderDraftCart || {});
+    const subtotalCents = draftItems.reduce((sum, e) => sum + (e.item.price * e.quantity), 0);
+
+    const shippingCents = Math.round((parseFloat(document.getElementById('editShippingCents')?.value) || 0) * 100);
+    const taxCents = Math.round((parseFloat(document.getElementById('editTaxCents')?.value) || 0) * 100);
+
+    // Determine active discount
+    const discountCents = state.editingOrderDiscount?.savedCents
+        || order.discountCents
+        || order.discount?.savedCents
+        || 0;
+
+    const discountedSubtotal = Math.max(0, subtotalCents - discountCents);
+    const grandTotal = discountedSubtotal + shippingCents + taxCents;
+
+    subtotalEl.textContent = formatPriceDisplay(subtotalCents);
+    totalEl.textContent = formatPriceDisplay(grandTotal);
+}
+        
         function renderOrderEditModal(order) {
             const statusOptions = ['Pending', 'Processing', 'Delivered', 'Cancelled'];
             const statusDropdown = statusOptions.map(status =>
@@ -5295,6 +5507,11 @@
                 }
                                     </div>
                                 </div>
+
+                                       <!-- DISCOUNT CODE -->
+                               <div id="editOrderDiscountContainer">
+                                    ${renderEditOrderDiscountSection(order)}
+                                </div>
         
                                 <!-- ADD PAYMENT FORM -->
                                 <div class="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
@@ -5415,7 +5632,9 @@
                                         </div>
                                     </div>
                                 </div>
-        
+                                <div id="editOrderDiscountContainer">
+                                   ${renderEditOrderDiscountSection(order)}
+                               </div>
                                 <!-- ORDER ITEMS -->
                                 <div class="bg-purple-50 p-4 rounded-lg border-2 border-purple-200">
                                     <h4 class="font-bold text-lg mb-3 text-purple-800">🛒 Order Items</h4>
@@ -5448,6 +5667,10 @@
                                         <div class="flex justify-between text-sm">
                                             <span>Subtotal:</span>
                                             <span id="editOrderSubtotal" class="font-bold"></span>
+                                        </div>
+                                        <div class="flex justify-between text-sm text-green-700 ${!(order.discount || state.editingOrderDiscount) ? 'hidden' : ''}" id="editDiscountPricingRow">
+                                                   <span>🏷️ Discount:</span>
+                                                   <span class="font-bold">-${formatPriceDisplay(order.discountCents || order.discount?.savedCents || state.editingOrderDiscount?.savedCents || 0)}</span>
                                         </div>
                                         <div class="flex justify-between items-center text-sm">
                                             <span>Shipping:</span>
@@ -5483,7 +5706,7 @@
         
                         <!-- FOOTER - Fixed at bottom -->
                         <div class="bg-gray-100 p-4 rounded-b-2xl border-t-2 border-gray-300 flex gap-3 flex-shrink-0">
-                            <button onclick="window.module.updateOrder('${order.id}')" 
+                            <button onclick="window.module.updateOrder_WITH_DISCOUNT('${order.id}')"
                                     class="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-bold shadow-lg">
                                 💾 Save All Changes
                             </button>
@@ -10135,6 +10358,11 @@
             showRateSelectionModal,
             selectRate,
             showLabelDetailsModal,
+            renderEditOrderDiscountSection,
+            applyEditOrderDiscount,
+            clearEditOrderDiscount,
+            removeEditOrderDiscount,
+            updateOrder_WITH_DISCOUNT,
 
             updateActiveFilters: function () {
                 const display = document.getElementById('activeFiltersDisplay');
