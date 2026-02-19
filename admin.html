@@ -10699,7 +10699,38 @@
                     newRefundStatus,
                     newPaymentStatus
                 }, orderId);
-
+               try {
+                    console.log('📧 Sending refund confirmation email...');
+        
+                    await fetch('/.netlify/functions/sendOrderConfirmation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            orderId: order.id,
+                            buyerEmail: order.buyerEmail,
+                            buyerName: order.buyerName,
+                            items: order.items,
+                            totalCents: order.totalCents,
+                            communicationLang: order.communicationLang || order.language || 'en',
+        
+                            // 🔄 This triggers refund mode in the Netlify function
+                            refundData: {
+                                amountCents: amountCents,
+                                reason: reason,
+                                reasonDetail: note,
+                                refundId: refundRecord.refundId,
+                                refundStatus: newRefundStatus,         // 'full' or 'partial'
+                                totalRefundedCents: newTotalRefunded,
+                                isManual: refundRecord.isManual
+                            }
+                        })
+                    });
+        
+                    console.log('✅ Refund confirmation email sent');
+                } catch (emailError) {
+                    console.error('❌ Refund email failed (non-blocking):', emailError);
+                    // Don't fail the refund if email fails
+                }
                 showMessage('success',
                     `Refund of ${formatPriceDisplay(amountCents)} processed successfully! ${restock ? '📦 Inventory restocked.' : ''}`,
                     5000, 'orders'
