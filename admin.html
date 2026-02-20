@@ -314,6 +314,7 @@
                 status: 'all',
                 sortBy: 'date-desc'
             },
+            editingVendorOrderId: null,
 
             // ✅ CRITICAL FIX: Initialize the sales time filter
             salesTimeFilter: 'last6months',
@@ -6534,6 +6535,15 @@
                             </span>
                         </td>
                         <td class="p-3 text-sm">
+                            ${order.expectedDeliveryDate ? `
+                                <div class="${isVendorOrderOverdue(order) ? 'text-red-600 font-bold' : 'text-gray-700'}">
+                                    ${order.expectedDeliveryDate}
+                                </div>
+                                ${isVendorOrderOverdue(order) ? '<span class="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-bold">OVERDUE</span>' : ''}
+                            ` : '<span class="text-gray-400">—</span>'}
+                            ${order.trackingNumber ? `<div class="text-xs text-blue-600 font-mono mt-1">${escapeHtml(order.trackingNumber)}</div>` : ''}
+                        </td>
+                        <td class="p-3 text-sm">
                             <div>${itemCount} product${itemCount !== 1 ? 's' : ''}</div>
                             <div class="text-xs text-gray-600">${totalUnits} units total</div>
                         </td>
@@ -6542,11 +6552,21 @@
                         <td class="p-3 text-sm text-purple-600">${formatPriceDisplay(order.shippingCostCents || 0)}</td>
                         <td class="p-3 text-lg font-black text-indigo-700">${formatPriceDisplay(order.totalCostCents || 0)}</td>
                         <td class="p-3">
-                            <button onclick="event.stopPropagation(); window.module.showVendorOrderDetailsModal('${order.id}')" 
-                                    class="px-3 py-1 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 font-semibold">
-                                📋 Details
-                            </button>
-                        </td>
+                            <div class="flex flex-col gap-1">
+                                <button onclick="event.stopPropagation(); window.module.showVendorOrderDetailsModal('${order.id}')" 
+                                        class="px-3 py-1 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 font-semibold">
+                                    📋 Details
+                                </button>
+                                <button onclick="event.stopPropagation(); window.module.showEditVendorOrderModal('${order.id}')" 
+                                        class="px-3 py-1 bg-yellow-500 text-white text-xs rounded-lg hover:bg-yellow-600 font-semibold">
+                                    ✏️ Edit
+                                </button>
+                                <button onclick="event.stopPropagation(); window.module.deleteVendorOrder('${order.id}')" 
+                                        class="px-3 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 font-semibold">
+                                    🗑️ Delete
+                                </button>
+                            </div>
+                        </td>                        
                     </tr>
                 `;
             }).join('');
@@ -6558,6 +6578,7 @@
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Order ID & Date</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Supplier</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Status</th>
+                            <th class="p-3 text-left text-xs font-bold text-gray-700">Delivery & Tracking</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Items</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Subtotal</th>
                             <th class="p-3 text-left text-xs font-bold text-gray-700">Tariffs</th>
@@ -6663,198 +6684,20 @@
             }
         }
 
-        function showAddVendorOrderModal() {
-            resetTimer();
+function showAddVendorOrderModal() {
+    resetTimer();
+    state.editingVendorOrderId = null;  // Ensure we're in "add" mode
 
-            const modalContainer = document.getElementById('vendorOrderModalContainer');
-            if (!modalContainer) return;
+    const modalContainer = document.getElementById('vendorOrderModalContainer');
+    if (!modalContainer) return;
 
-            const modalHtml = `
-                <div id="addVendorOrderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
-                     onclick="if(event.target.id === 'addVendorOrderModal') window.module.closeVendorOrderModal()">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
-                        
-                        <div class="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-6 rounded-t-2xl">
-                            <div class="flex justify-between items-start">
-                                <div>
-                                    <h3 class="text-2xl font-bold">➕ Add Vendor Order</h3>
-                                    <p class="text-sm mt-1 opacity-90">Track a new purchase from your supplier</p>
-                                </div>
-                                <button onclick="window.module.closeVendorOrderModal()" 
-                                        class="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition">
-                                    <span class="text-2xl">×</span>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="p-6 space-y-6">
-                            
-                            <!-- Order Information -->
-                            <div class="bg-blue-50 p-6 rounded-xl border-2 border-blue-200">
-                                <h4 class="text-lg font-bold text-blue-800 mb-4">📝 Order Information</h4>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-2">Supplier Order ID *</label>
-                                        <input type="text" 
-                                               id="new-order-id" 
-                                               placeholder="e.g., ALI-2024-001234"
-                                               class="w-full p-2 border-2 border-gray-300 rounded-lg">
-                                    </div>
-                                    
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-2">Supplier *</label>
-                                        <select id="new-supplier" class="w-full p-2 border-2 border-gray-300 rounded-lg">
-                                            <option value="">Select supplier...</option>
-                                            <option value="Alibaba">Alibaba</option>
-                                            <option value="AliExpress">AliExpress</option>
-                                            <option value="DHgate">DHgate</option>
-                                            <option value="Global Sources">Global Sources</option>
-                                            <option value="Made-in-China">Made-in-China</option>
-                                            <option value="Other">Other</option>
-                                        </select>
-                                    </div>
-                                    
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-2">Order Date *</label>
-                                        <input type="date" 
-                                               id="new-order-date" 
-                                               value="${new Date().toISOString().split('T')[0]}"
-                                               class="w-full p-2 border-2 border-gray-300 rounded-lg">
-                                    </div>
-                                    
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-2">Status *</label>
-                                        <select id="new-status" class="w-full p-2 border-2 border-gray-300 rounded-lg">
-                                            <option value="Ordered">Ordered</option>
-                                            <option value="Paid" selected>Paid</option>
-                                            <option value="Shipped">Shipped</option>
-                                            <option value="In Transit">In Transit</option>
-                                            <option value="Delivered">Delivered</option>
-                                        </select>
-                                    </div>
-                                    
-                                    <div class="md:col-span-2">
-                                        <label class="block text-sm font-semibold mb-2">Supplier Order URL</label>
-                                        <input type="url" 
-                                               id="new-supplier-url" 
-                                               placeholder="https://alibaba.com/order/123456"
-                                               class="w-full p-2 border-2 border-gray-300 rounded-lg">
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Products in Order -->
-                            <div class="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
-                                <div class="flex justify-between items-center mb-4">
-                                    <h4 class="text-lg font-bold text-purple-800">📦 Products in Order</h4>
-                                    <button onclick="window.module.addOrderItemRow()" 
-                                            class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm">
-                                        ➕ Add Product
-                                    </button>
-                                </div>
-                                
-                                <div id="order-items-container" class="space-y-3">
-                                    <!-- Items will be added here -->
-                                </div>
-                            </div>
-                            
-                            <!-- Cost Breakdown -->
-                            <div class="bg-yellow-50 p-6 rounded-xl border-2 border-yellow-200">
-                                <h4 class="text-lg font-bold text-yellow-800 mb-4">💰 Cost Breakdown</h4>
-                                <div class="space-y-4">
-                                    <div class="bg-white p-3 rounded-lg border border-gray-300">
-                                        <div class="flex justify-between items-center">
-                                            <span class="text-sm font-semibold">Products Subtotal:</span>
-                                            <span id="order-subtotal" class="text-xl font-black text-gray-700">$0.00</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-2">Tariff Rate (%)</label>
-                                        <div class="flex gap-2">
-                                            <input type="number" 
-                                                   id="new-tariff-rate" 
-                                                   step="0.1" 
-                                                   value="0"
-                                                   min="0"
-                                                   max="100"
-                                                   onchange="window.module.recalculateVendorOrderTotal()"
-                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
-                                            <button type="button" 
-                                                    onclick="document.getElementById('new-tariff-rate').value = 25; window.module.recalculateVendorOrderTotal();"
-                                                    class="px-3 py-2 bg-red-600 text-white text-xs rounded-lg hover:bg-red-700 font-bold">
-                                                25%
-                                            </button>
-                                            <button type="button" 
-                                                    onclick="document.getElementById('new-tariff-rate').value = 60; window.module.recalculateVendorOrderTotal();"
-                                                    class="px-3 py-2 bg-red-700 text-white text-xs rounded-lg hover:bg-red-800 font-bold">
-                                                60%
-                                            </button>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="bg-red-50 p-3 rounded-lg border border-red-200">
-                                        <div class="flex justify-between items-center">
-                                            <span class="text-sm font-semibold text-red-800">Tariff Cost:</span>
-                                            <span id="order-tariff-cost" class="text-xl font-black text-red-600">$0.00</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-2">Shipping Cost from Supplier</label>
-                                        <div class="flex gap-2">
-                                            <span class="text-lg">$</span>
-                                            <input type="number" 
-                                                   id="new-shipping-cost" 
-                                                   step="0.01" 
-                                                   value="0"
-                                                   placeholder="0.00"
-                                                   onchange="window.module.recalculateVendorOrderTotal()"
-                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="bg-indigo-50 p-4 rounded-lg border-2 border-indigo-300">
-                                        <div class="flex justify-between items-center">
-                                            <span class="text-lg font-bold text-indigo-900">TOTAL COST:</span>
-                                            <span id="order-total-cost" class="text-2xl font-black text-indigo-700">$0.00</span>
-                                        </div>
-                                        <p class="text-xs text-indigo-700 mt-1">Subtotal + Tariff + Shipping</p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Notes -->
-                            <div>
-                                <label class="block text-sm font-semibold mb-2">Notes (optional)</label>
-                                <textarea id="new-order-notes" 
-                                          rows="3" 
-                                          placeholder="Add any notes about this order..."
-                                          class="w-full p-2 border-2 border-gray-300 rounded-lg"></textarea>
-                            </div>
-                            
-                            <!-- Action Buttons -->
-                            <div class="flex gap-4 pt-4">
-                                <button onclick="window.module.saveVendorOrder()" 
-                                        class="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg transition">
-                                    💾 Save Vendor Order
-                                </button>
-                                <button onclick="window.module.closeVendorOrderModal()" 
-                                        class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-400 transition">
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
+    modalContainer.innerHTML = buildVendorOrderModalHtml(null);
+    document.body.style.overflow = 'hidden';
 
-            modalContainer.innerHTML = modalHtml;
-            document.body.style.overflow = 'hidden';
-
-            // Add first product row
-            addOrderItemRow();
-        }
+    // Add first product row
+    addOrderItemRow();
+}
+        
         function addOrderItemRow() {
             const container = document.getElementById('order-items-container');
             if (!container) return;
@@ -6977,124 +6820,150 @@
             document.getElementById('order-tariff-cost').textContent = formatPriceDisplay(tariffCents);
             document.getElementById('order-total-cost').textContent = formatPriceDisplay(totalCents);
         }
-        async function saveVendorOrder() {
-            resetTimer();
+async function saveVendorOrder() {
+    resetTimer();
 
-            const orderId = document.getElementById('new-order-id')?.value?.trim();
-            const supplier = document.getElementById('new-supplier')?.value;
-            const orderDate = document.getElementById('new-order-date')?.value;
-            const status = document.getElementById('new-status')?.value;
-            const supplierUrl = document.getElementById('new-supplier-url')?.value?.trim() || null;
-            const tariffRate = parseFloat(document.getElementById('new-tariff-rate')?.value || 0);
-            const shippingCost = parseFloat(document.getElementById('new-shipping-cost')?.value || 0);
-            const notes = document.getElementById('new-order-notes')?.value?.trim() || null;
+    const orderId = document.getElementById('new-order-id')?.value?.trim();
+    const supplier = document.getElementById('new-supplier')?.value;
+    const orderDate = document.getElementById('new-order-date')?.value;
+    const expectedDeliveryDate = document.getElementById('new-expected-delivery')?.value || null;
+    const status = document.getElementById('new-status')?.value;
+    const supplierUrl = document.getElementById('new-supplier-url')?.value?.trim() || null;
+    const trackingNumber = document.getElementById('new-tracking-number')?.value?.trim() || null;
+    const tariffRate = parseFloat(document.getElementById('new-tariff-rate')?.value || 0);
+    const shippingCost = parseFloat(document.getElementById('new-shipping-cost')?.value || 0);
+    const notes = document.getElementById('new-order-notes')?.value?.trim() || null;
 
-            // Validation
-            if (!orderId) {
-                showMessage('error', 'Please enter an order ID', 3000, 'vendorOrder');
-                return;
-            }
+    // Validation
+    if (!orderId) {
+        showMessage('error', 'Please enter an order ID', 3000, 'vendorOrder');
+        return;
+    }
+    if (!supplier) {
+        showMessage('error', 'Please select a supplier', 3000, 'vendorOrder');
+        return;
+    }
+    if (!orderDate) {
+        showMessage('error', 'Please enter an order date', 3000, 'vendorOrder');
+        return;
+    }
 
-            if (!supplier) {
-                showMessage('error', 'Please select a supplier', 3000, 'vendorOrder');
-                return;
-            }
+    // Collect items
+    const itemRows = document.querySelectorAll('[id^="order-item-"]');
+    const items = [];
+    let subtotalCents = 0;
 
-            if (!orderDate) {
-                showMessage('error', 'Please enter an order date', 3000, 'vendorOrder');
-                return;
-            }
+    itemRows.forEach(row => {
+        const productId = row.querySelector('.order-item-id')?.value;
+        const productName = row.querySelector('.order-item-name')?.value;
+        const sku = row.querySelector('.order-item-sku')?.value;
+        const quantity = parseInt(row.querySelector('.order-item-quantity')?.value || 0);
+        const unitPrice = parseFloat(row.querySelector('.order-item-price')?.value || 0);
 
-            // Collect items
-            const itemRows = document.querySelectorAll('[id^="order-item-"]');
-            const items = [];
-            let subtotalCents = 0;
+        if (productId && quantity > 0 && unitPrice > 0) {
+            const unitPriceCents = Math.round(unitPrice * 100);
+            const totalPriceCents = unitPriceCents * quantity;
 
-            itemRows.forEach(row => {
-                const productId = row.querySelector('.order-item-id')?.value;
-                const productName = row.querySelector('.order-item-name')?.value;
-                const sku = row.querySelector('.order-item-sku')?.value;
-                const quantity = parseInt(row.querySelector('.order-item-quantity')?.value || 0);
-                const unitPrice = parseFloat(row.querySelector('.order-item-price')?.value || 0);
-
-                if (productId && quantity > 0 && unitPrice > 0) {
-                    const unitPriceCents = Math.round(unitPrice * 100);
-                    const totalPriceCents = unitPriceCents * quantity;
-
-                    items.push({
-                        productId,
-                        productName,
-                        sku,
-                        quantity,
-                        unitPriceCents,
-                        totalPriceCents
-                    });
-
-                    subtotalCents += totalPriceCents;
-                }
+            items.push({
+                productId,
+                productName,
+                sku,
+                quantity,
+                unitPriceCents,
+                totalPriceCents
             });
 
-            if (items.length === 0) {
-                showMessage('error', 'Please add at least one product to the order', 3000, 'vendorOrder');
-                return;
-            }
+            subtotalCents += totalPriceCents;
+        }
+    });
 
-            const tariffCents = Math.round((subtotalCents * tariffRate) / 100);
-            const shippingCents = Math.round(shippingCost * 100);
-            const totalCents = subtotalCents + tariffCents + shippingCents;
+    if (items.length === 0) {
+        showMessage('error', 'Please add at least one product to the order', 3000, 'vendorOrder');
+        return;
+    }
 
-            try {
-                const orderData = {
-                    orderId,
-                    supplier,
-                    supplierOrderUrl: supplierUrl,
-                    orderDate,
-                    status,
-                    items,
-                    subtotalCents,
-                    tariffRate,
-                    tariffCostCents: tariffCents,
-                    shippingCostCents: shippingCents,
-                    totalCostCents: totalCents,
-                    notes,
-                    createdAt: serverTimestamp(),
-                    updatedAt: serverTimestamp()
-                };
+    const tariffCents = Math.round((subtotalCents * tariffRate) / 100);
+    const shippingCents = Math.round(shippingCost * 100);
+    const totalCents = subtotalCents + tariffCents + shippingCents;
 
-                const ordersRef = collection(db, VENDOR_ORDERS_COLLECTION);
-                const docRef = await addDoc(ordersRef, orderData);
+    const isEdit = !!state.editingVendorOrderId;
 
-                await logAdminAction('VENDOR_ORDER_CREATED', {
-                    vendorOrderId: docRef.id,
-                    orderId,
-                    supplier,
-                    totalCostCents: totalCents,    // ← fixed
-                    itemCount: items.length
-                });
+    try {
+        const orderData = {
+            orderId,
+            supplier,
+            supplierOrderUrl: supplierUrl,
+            orderDate,
+            expectedDeliveryDate,
+            status,
+            trackingNumber,
+            items,
+            subtotalCents,
+            tariffRate,
+            tariffCostCents: tariffCents,
+            shippingCostCents: shippingCents,
+            totalCostCents: totalCents,
+            notes,
+            updatedAt: serverTimestamp()
+        };
 
-                showMessage('success', 'Vendor order saved successfully!', 3000, 'vendorOrder');
-                closeVendorOrderModal();
+        if (isEdit) {
+            // ── UPDATE existing vendor order ──
+            const docRef = doc(db, VENDOR_ORDERS_COLLECTION, state.editingVendorOrderId);
+            await updateDoc(docRef, orderData);
 
-                // Refresh if on vendor orders tab
-                if (state.activeTab === 'vendorOrders') {
-                    renderAdminPage(auth.currentUser?.email || 'Admin');
-                }
+            await logAdminAction('VENDOR_ORDER_UPDATED', {
+                vendorOrderId: state.editingVendorOrderId,
+                orderId,
+                supplier,
+                totalCostCents: totalCents,
+                itemCount: items.length
+            });
 
-            } catch (error) {
-                console.error('Error saving vendor order:', error);
-                showMessage('error', `Failed to save: ${error.message}`, 5000, 'vendorOrder');
-            }
+            showMessage('success', `Vendor order "${orderId}" updated successfully!`, 3000, 'vendorOrder');
+        } else {
+            // ── CREATE new vendor order ──
+            orderData.createdAt = serverTimestamp();
+
+            const ordersRef = collection(db, VENDOR_ORDERS_COLLECTION);
+            const docRef = await addDoc(ordersRef, orderData);
+
+            await logAdminAction('VENDOR_ORDER_CREATED', {
+                vendorOrderId: docRef.id,
+                orderId,
+                supplier,
+                totalCostCents: totalCents,
+                itemCount: items.length
+            });
+
+            showMessage('success', 'Vendor order saved successfully!', 3000, 'vendorOrder');
         }
 
-        function closeVendorOrderModal() {
-            const modalContainer = document.getElementById('vendorOrderModalContainer');
-            if (modalContainer) {
-                modalContainer.innerHTML = '';
-            }
-            document.body.style.overflow = 'auto';
-            orderItemCounter = 0;
-            resetTimer();
+        state.editingVendorOrderId = null;
+        closeVendorOrderModal();
+
+        // Refresh if on vendor orders tab
+        if (state.activeTab === 'vendorOrders') {
+            renderAdminPage(auth.currentUser?.email || 'Admin');
         }
+
+    } catch (error) {
+        console.error('Error saving vendor order:', error);
+        showMessage('error', `Failed to save: ${error.message}`, 5000, 'vendorOrder');
+    }
+}
+
+
+function closeVendorOrderModal() {
+    const modalContainer = document.getElementById('vendorOrderModalContainer');
+    if (modalContainer) {
+        modalContainer.innerHTML = '';
+    }
+    document.body.style.overflow = 'auto';
+    orderItemCounter = 0;
+    state.editingVendorOrderId = null;  // Clear edit state
+    resetTimer();
+}
         async function removePayment(orderId, paymentIndex) {
             resetTimer();
 
@@ -10985,8 +10854,314 @@
             showMessage('success', `Exported ${rows.length - 1} refund records.`, 3000, 'orders');
         }
 
+function buildVendorOrderModalHtml(existing) {
+    const isEdit = !!existing;
+    const title = isEdit ? '✏️ Edit Vendor Order' : '➕ Add Vendor Order';
+    const subtitle = isEdit
+        ? `Editing order: ${escapeHtml(existing.orderId)}`
+        : 'Track a new purchase from your supplier';
+    const btnText = isEdit ? '💾 Update Vendor Order' : '💾 Save Vendor Order';
+    const headerGradient = isEdit
+        ? 'from-yellow-600 to-orange-600'
+        : 'from-green-600 to-emerald-600';
 
+    return `
+        <div id="addVendorOrderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+             onclick="if(event.target.id === 'addVendorOrderModal') window.module.closeVendorOrderModal()">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                
+                <div class="bg-gradient-to-r ${headerGradient} text-white p-6 rounded-t-2xl">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="text-2xl font-bold">${title}</h3>
+                            <p class="text-sm mt-1 opacity-90">${subtitle}</p>
+                        </div>
+                        <button onclick="window.module.closeVendorOrderModal()" 
+                                class="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition">
+                            <span class="text-2xl">×</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="p-6 space-y-6">
+                    
+                    <!-- Order Information -->
+                    <div class="bg-blue-50 p-6 rounded-xl border-2 border-blue-200">
+                        <h4 class="text-lg font-bold text-blue-800 mb-4">📝 Order Information</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Supplier Order ID *</label>
+                                <input type="text" 
+                                       id="new-order-id" 
+                                       placeholder="e.g., ALI-2024-001234"
+                                       value="${isEdit ? escapeAttribute(existing.orderId) : ''}"
+                                       class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Supplier *</label>
+                                <select id="new-supplier" class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                    <option value="">Select supplier...</option>
+                                    <option value="Alibaba" ${isEdit && existing.supplier === 'Alibaba' ? 'selected' : ''}>Alibaba</option>
+                                    <option value="AliExpress" ${isEdit && existing.supplier === 'AliExpress' ? 'selected' : ''}>AliExpress</option>
+                                    <option value="DHgate" ${isEdit && existing.supplier === 'DHgate' ? 'selected' : ''}>DHgate</option>
+                                    <option value="Global Sources" ${isEdit && existing.supplier === 'Global Sources' ? 'selected' : ''}>Global Sources</option>
+                                    <option value="Made-in-China" ${isEdit && existing.supplier === 'Made-in-China' ? 'selected' : ''}>Made-in-China</option>
+                                    <option value="Other" ${isEdit && existing.supplier === 'Other' ? 'selected' : ''}>Other</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Order Date *</label>
+                                <input type="date" 
+                                       id="new-order-date" 
+                                       value="${isEdit ? existing.orderDate : new Date().toISOString().split('T')[0]}"
+                                       class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Expected Delivery Date</label>
+                                <input type="date" 
+                                       id="new-expected-delivery" 
+                                       value="${isEdit && existing.expectedDeliveryDate ? existing.expectedDeliveryDate : ''}"
+                                       class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Status *</label>
+                                <select id="new-status" class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                                    <option value="Ordered" ${isEdit && existing.status === 'Ordered' ? 'selected' : ''}>Ordered</option>
+                                    <option value="Paid" ${(!isEdit || existing.status === 'Paid') ? 'selected' : ''}>Paid</option>
+                                    <option value="Shipped" ${isEdit && existing.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+                                    <option value="In Transit" ${isEdit && existing.status === 'In Transit' ? 'selected' : ''}>In Transit</option>
+                                    <option value="Customs" ${isEdit && existing.status === 'Customs' ? 'selected' : ''}>Customs</option>
+                                    <option value="Delivered" ${isEdit && existing.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                                    <option value="Cancelled" ${isEdit && existing.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Tracking Number</label>
+                                <input type="text" 
+                                       id="new-tracking-number" 
+                                       placeholder="e.g., SF1234567890"
+                                       value="${isEdit && existing.trackingNumber ? escapeAttribute(existing.trackingNumber) : ''}"
+                                       class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                            </div>
+                            
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-semibold mb-2">Supplier Order URL</label>
+                                <input type="url" 
+                                       id="new-supplier-url" 
+                                       placeholder="https://alibaba.com/order/123456"
+                                       value="${isEdit && existing.supplierOrderUrl ? escapeAttribute(existing.supplierOrderUrl) : ''}"
+                                       class="w-full p-2 border-2 border-gray-300 rounded-lg">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Products in Order -->
+                    <div class="bg-purple-50 p-6 rounded-xl border-2 border-purple-200">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="text-lg font-bold text-purple-800">📦 Products in Order</h4>
+                            <button onclick="window.module.addOrderItemRow()" 
+                                    class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold text-sm">
+                                ➕ Add Product
+                            </button>
+                        </div>
+                        
+                        <div id="order-items-container" class="space-y-3">
+                            <!-- Items will be added here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Cost Breakdown -->
+                    <div class="bg-yellow-50 p-6 rounded-xl border-2 border-yellow-200">
+                        <h4 class="text-lg font-bold text-yellow-800 mb-4">💰 Cost Breakdown</h4>
+                        <div class="space-y-4">
+                            <div class="bg-white p-3 rounded-lg border border-gray-300">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-sm font-semibold">Products Subtotal:</span>
+                                    <span id="order-subtotal" class="text-xl font-black text-gray-700">$0.00</span>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Tariff Rate (%)</label>
+                                <div class="flex gap-2">
+                                    <input type="number" 
+                                           id="new-tariff-rate" 
+                                           step="0.1" 
+                                           value="${isEdit ? existing.tariffRate || 0 : 0}"
+                                           min="0"
+                                           max="100"
+                                           onchange="window.module.recalculateVendorOrderTotal()"
+                                           class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                    <button type="button" 
+                                            onclick="document.getElementById('new-tariff-rate').value = 25; window.module.recalculateVendorOrderTotal();"
+                                            class="px-3 py-2 bg-red-600 text-white text-xs rounded-lg hover:bg-red-700 font-bold">
+                                        25%
+                                    </button>
+                                    <button type="button" 
+                                            onclick="document.getElementById('new-tariff-rate').value = 60; window.module.recalculateVendorOrderTotal();"
+                                            class="px-3 py-2 bg-red-700 text-white text-xs rounded-lg hover:bg-red-800 font-bold">
+                                        60%
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-red-50 p-3 rounded-lg border border-red-200">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-sm font-semibold text-red-800">Tariff Cost:</span>
+                                    <span id="order-tariff-cost" class="text-xl font-black text-red-600">$0.00</span>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-semibold mb-2">Shipping Cost from Supplier</label>
+                                <div class="flex gap-2">
+                                    <span class="text-lg">$</span>
+                                    <input type="number" 
+                                           id="new-shipping-cost" 
+                                           step="0.01" 
+                                           value="${isEdit ? ((existing.shippingCostCents || 0) / 100).toFixed(2) : '0'}"
+                                           placeholder="0.00"
+                                           onchange="window.module.recalculateVendorOrderTotal()"
+                                           class="flex-1 p-2 border-2 border-gray-300 rounded-lg">
+                                </div>
+                            </div>
+                            
+                            <div class="bg-indigo-50 p-4 rounded-lg border-2 border-indigo-300">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-lg font-bold text-indigo-900">TOTAL COST:</span>
+                                    <span id="order-total-cost" class="text-2xl font-black text-indigo-700">$0.00</span>
+                                </div>
+                                <p class="text-xs text-indigo-700 mt-1">Subtotal + Tariff + Shipping</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Notes -->
+                    <div>
+                        <label class="block text-sm font-semibold mb-2">Notes (optional)</label>
+                        <textarea id="new-order-notes" 
+                                  rows="3" 
+                                  placeholder="Add any notes about this order..."
+                                  class="w-full p-2 border-2 border-gray-300 rounded-lg">${isEdit && existing.notes ? escapeHtml(existing.notes) : ''}</textarea>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="flex gap-4 pt-4">
+                        <button onclick="window.module.saveVendorOrder()" 
+                                class="flex-1 px-6 py-3 bg-gradient-to-r ${isEdit ? 'from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700' : 'from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700'} text-white rounded-lg font-bold shadow-lg transition">
+                            ${btnText}
+                        </button>
+                        <button onclick="window.module.closeVendorOrderModal()" 
+                                class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-400 transition">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+function showEditVendorOrderModal(vendorDocId) {
+    resetTimer();
 
+    const order = state.vendorOrders.find(o => o.id === vendorDocId);
+    if (!order) {
+        showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
+        return;
+    }
+
+    state.editingVendorOrderId = vendorDocId;
+
+    const modalContainer = document.getElementById('vendorOrderModalContainer');
+    if (!modalContainer) return;
+
+    modalContainer.innerHTML = buildVendorOrderModalHtml(order);
+    document.body.style.overflow = 'hidden';
+
+    // Populate existing items
+    const itemsContainer = document.getElementById('order-items-container');
+    if (itemsContainer) itemsContainer.innerHTML = '';  // Clear default
+
+    if (order.items && order.items.length > 0) {
+        order.items.forEach(item => {
+            addOrderItemRow();
+
+            // Get the last added row
+            const rows = document.querySelectorAll('[id^="order-item-"]');
+            const lastRow = rows[rows.length - 1];
+            if (!lastRow) return;
+
+            // Populate the fields
+            const idSelect = lastRow.querySelector('.order-item-id');
+            const nameInput = lastRow.querySelector('.order-item-name');
+            const skuInput = lastRow.querySelector('.order-item-sku');
+            const qtyInput = lastRow.querySelector('.order-item-quantity');
+            const priceInput = lastRow.querySelector('.order-item-price');
+
+            if (idSelect) idSelect.value = item.productId || '';
+            if (nameInput) nameInput.value = item.productName || '';
+            if (skuInput) skuInput.value = item.sku || '';
+            if (qtyInput) qtyInput.value = item.quantity || 0;
+            if (priceInput) priceInput.value = item.unitPriceCents ? (item.unitPriceCents / 100).toFixed(2) : '0.00';
+        });
+    } else {
+        addOrderItemRow();
+    }
+
+    // Recalculate totals after populating items
+    setTimeout(() => {
+        recalculateVendorOrderTotal();
+    }, 100);
+}
+
+async function deleteVendorOrder(vendorDocId) {
+    resetTimer();
+
+    const order = state.vendorOrders.find(o => o.id === vendorDocId);
+    if (!order) {
+        showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
+        return;
+    }
+
+    const confirmMsg = `Are you sure you want to delete vendor order "${order.orderId}" from ${order.supplier}?\n\n`
+        + `Total: $${((order.totalCostCents || 0) / 100).toFixed(2)}\n`
+        + `Items: ${(order.items || []).length}\n\n`
+        + `This action cannot be undone.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        await deleteDoc(doc(db, VENDOR_ORDERS_COLLECTION, vendorDocId));
+
+        await logAdminAction('VENDOR_ORDER_DELETED', {
+            vendorOrderId: vendorDocId,
+            orderId: order.orderId,
+            supplier: order.supplier,
+            totalCostCents: order.totalCostCents
+        });
+
+        showMessage('success', `Vendor order "${order.orderId}" deleted.`, 3000, 'vendorOrder');
+
+        // Refresh
+        if (state.activeTab === 'vendorOrders') {
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+        }
+
+    } catch (error) {
+        console.error('Error deleting vendor order:', error);
+        showMessage('error', `Failed to delete: ${error.message}`, 5000, 'vendorOrder');
+    }
+}
+function isVendorOrderOverdue(order) {
+    if (!order.expectedDeliveryDate) return false;
+    if (order.status === 'Delivered' || order.status === 'Cancelled') return false;
+    return new Date(order.expectedDeliveryDate) < new Date();
+}
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
@@ -11081,13 +11256,10 @@
             saveProfitData,
             exportProfitAnalysis,
             // Vendor Orders
-            showAddVendorOrderModal,
-            closeVendorOrderModal,
             addOrderItemRow,
             removeOrderItemRow,
             handleProductSelect,
             recalculateVendorOrderTotal,
-            saveVendorOrder,
             handleVendorOrderSearch,
             handleVendorOrderSupplierFilter,
             handleVendorOrderStatusFilter,
@@ -11143,6 +11315,12 @@
             handleDiscountTypeToggle,
             handleDiscountSearchInput,
             handleDiscountStatusFilter,
+            showAddVendorOrderModal,      // (replaces existing)
+            showEditVendorOrderModal,     // NEW
+            deleteVendorOrder,            // NEW
+            saveVendorOrder,              // (replaces existing)
+            closeVendorOrderModal,        // (replaces existing)
+            isVendorOrderOverdue,         // NEW (for use in templates)
 
 
             updateActiveFilters: function () {
