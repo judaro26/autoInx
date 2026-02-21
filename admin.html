@@ -11801,6 +11801,87 @@ function autoCalcTariffAmount() {
     recalculateVendorOrderTotal();
 }
 
+async function saveVendorOrder(editOrderId = null) {
+    const form = document.getElementById('vendorOrderForm');
+    if (!form) return;
+
+    const getValue = (name) => form.querySelector(`[name="${name}"]`)?.value?.trim() || '';
+    const getNumber = (name) => parseFloat(form.querySelector(`[name="${name}"]`)?.value || 0) || 0;
+
+    const supplier = getValue('supplier');
+    if (!supplier) {
+        showMessage('error', 'Supplier name is required.', 3000, 'vendorOrder');
+        return;
+    }
+
+    // Collect items from rows
+    const rows = form.querySelectorAll('.item-row');
+    const items = [];
+    rows.forEach(row => {
+        const productSelect = row.querySelector('[name="itemProductId[]"]');
+        const qtyInput      = row.querySelector('[name="itemQty[]"]');
+        const costInput     = row.querySelector('[name="itemUnitCost[]"]');
+
+        const productId = productSelect?.value;
+        const qty       = parseInt(qtyInput?.value || 0);
+        const unitCost  = parseFloat(costInput?.value || 0);
+
+        if (productId && qty > 0) {
+            const product = state.items?.find(i => i.id === productId);
+            items.push({
+                productId,
+                name:     product?.name || '',
+                sku:      product?.sku  || '',
+                quantity: qty,
+                unitCost: unitCost
+            });
+        }
+    });
+
+    const orderData = {
+        supplier,
+        status:         getValue('status') || 'pending',
+        orderDate:      getValue('orderDate') || new Date().toISOString().split('T')[0],
+        expectedDelivery: getValue('expectedDelivery') || null,
+        trackingNumber: getValue('trackingNumber') || null,
+        items,
+        orderCost:      getNumber('orderCost'),
+        shippingCost:   getNumber('shippingCost'),
+        tariffs:        getNumber('tariffs'),
+        processingFee:  getNumber('processingFee'),  // ✅ NEW
+        salesTax:       getNumber('salesTax'),        // ✅ NEW
+        landedCost:     getNumber('orderCost') + getNumber('shippingCost') +
+                        getNumber('tariffs') + getNumber('processingFee') +
+                        getNumber('salesTax'),
+        notes:          getValue('notes') || null,
+        updatedAt:      serverTimestamp()
+    };
+
+    try {
+        const VENDOR_ORDERS_COLLECTION = 'vendorOrders'; // ← adjust to your actual collection name/path
+
+        if (editOrderId) {
+            // Update existing
+            const docRef = doc(db, VENDOR_ORDERS_COLLECTION, editOrderId);
+            await updateDoc(docRef, orderData);
+            showMessage('success', `Vendor order updated successfully.`, 3000, 'vendorOrder');
+            logAdminAction('VENDOR_ORDER_UPDATED', { supplier, editOrderId });
+        } else {
+            // Create new
+            orderData.createdAt = serverTimestamp();
+            await addDoc(collection(db, VENDOR_ORDERS_COLLECTION), orderData);
+            showMessage('success', `Vendor order created successfully.`, 3000, 'vendorOrder');
+            logAdminAction('VENDOR_ORDER_CREATED', { supplier });
+        }
+
+        closeVendorOrderModal();
+        refreshVendorOrders(); // triggers a re-fetch or re-render
+
+    } catch (error) {
+        console.error('Error saving vendor order:', error);
+        showMessage('error', `Failed to save order: ${error.message}`, 5000, 'vendorOrder');
+    }
+}
 
 
         // --- EXPOSE TO WINDOW ---
