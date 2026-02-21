@@ -6479,126 +6479,155 @@
                     </div>
                     
                     <!-- Orders Table -->
-                    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-                        ${renderVendorOrdersTable()}
-                    </div>
+                   <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                       <div class="overflow-x-auto">
+                           ... table ...
+                       </div> 
+                   </div>
                     
                     <!-- Modal Container -->
                     <div id="vendorOrderModalContainer"></div>
                 </section>
             `;
         }
-        function renderVendorOrdersTable() {
-            const vendorOrders = getFilteredVendorOrders();
+function renderVendorOrdersTable() {
+    const vendorOrders = getFilteredVendorOrders();
 
-            if (vendorOrders.length === 0) {
-                return `
-                    <div class="p-8 text-center text-gray-500">
-                        <p class="text-lg font-semibold">No vendor orders found</p>
-                        <p class="text-sm mt-2">Click "Add Vendor Order" to track your first purchase from suppliers</p>
+    if (vendorOrders.length === 0) {
+        return `
+            <div class="p-8 text-center text-gray-500">
+                <p class="text-lg font-semibold">No vendor orders found</p>
+                <p class="text-sm mt-2">Click "Add Vendor Order" to track your first purchase from suppliers</p>
+            </div>`;
+    }
+
+    const rows = vendorOrders.map(order => {
+        const statusClass = {
+            'Ordered':    'bg-yellow-100 text-yellow-800',
+            'Paid':       'bg-blue-100 text-blue-800',
+            'Shipped':    'bg-purple-100 text-purple-800',
+            'In Transit': 'bg-indigo-100 text-indigo-800',
+            'Delivered':  'bg-green-100 text-green-800',
+            'Cancelled':  'bg-red-100 text-red-800'
+        }[order.status] || 'bg-gray-100 text-gray-800';
+
+        const itemCount  = order.items?.length || 0;
+        const totalUnits = order.items?.reduce((sum, i) => sum + (i.quantity || 0), 0) || 0;
+
+        // Cost values — support both cents and dollar schemas
+        const subtotalCents     = order.subtotalCents     ?? Math.round((order.orderCost    || 0) * 100);
+        const shippingCostCents = order.shippingCostCents ?? Math.round((order.shippingCost || 0) * 100);
+        const tariffCostCents   = order.tariffCostCents   ?? Math.round((order.tariffs      || 0) * 100);
+        const processingCents   = order.processingFeeCents ?? Math.round((order.processingFee || 0) * 100);
+        const salesTaxCents     = order.salesTaxCents      ?? Math.round((order.salesTax     || 0) * 100);
+        const totalCostCents    = order.totalCostCents     ??
+            (subtotalCents + shippingCostCents + tariffCostCents + processingCents + salesTaxCents);
+
+        const hasExtras = processingCents > 0 || salesTaxCents > 0;
+
+        return `
+            <tr class="hover:bg-gray-50 transition cursor-pointer border-b border-gray-100"
+                onclick="window.module.showVendorOrderDetailsModal('${order.id}')">
+                <td class="p-3 min-w-[140px]">
+                    <div class="text-sm font-semibold text-indigo-700">${escapeHtml(order.orderId || order.id.slice(0,8))}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">${formatDate(order.orderDate)}</div>
+                </td>
+                <td class="p-3 min-w-[140px]">
+                    <div class="text-sm font-semibold">${escapeHtml(order.supplier || 'Unknown')}</div>
+                    ${order.supplierOrderUrl ? `
+                        <a href="${escapeHtml(order.supplierOrderUrl)}" target="_blank"
+                           onclick="event.stopPropagation()"
+                           class="text-xs text-blue-600 hover:underline">View order →</a>` : ''}
+                </td>
+                <td class="p-3 min-w-[100px]">
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${statusClass}">
+                        ${order.status || 'Unknown'}
+                    </span>
+                </td>
+                <td class="p-3 min-w-[130px] text-sm">
+                    ${order.expectedDeliveryDate ? `
+                        <div class="${isVendorOrderOverdue(order) ? 'text-red-600 font-bold' : 'text-gray-700'}">
+                            ${order.expectedDeliveryDate}
+                        </div>
+                        ${isVendorOrderOverdue(order) ? '<span class="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-bold">OVERDUE</span>' : ''}
+                    ` : '<span class="text-gray-400">—</span>'}
+                    ${order.trackingNumber ? `<div class="text-xs text-blue-600 font-mono mt-1 truncate max-w-[120px]">${escapeHtml(order.trackingNumber)}</div>` : ''}
+                </td>
+                <td class="p-3 min-w-[90px] text-sm">
+                    <div>${itemCount} product${itemCount !== 1 ? 's' : ''}</div>
+                    <div class="text-xs text-gray-500">${totalUnits} units</div>
+                </td>
+                <td class="p-3 min-w-[100px] text-sm font-semibold text-gray-800">
+                    ${formatPriceDisplay(subtotalCents)}
+                </td>
+                <td class="p-3 min-w-[100px]">
+                    <div class="text-sm font-bold text-red-600">${formatPriceDisplay(tariffCostCents)}</div>
+                    ${order.tariffRate ? `<div class="text-xs text-red-400">${parseFloat(order.tariffRate).toFixed(1)}%</div>` : ''}
+                </td>
+                <td class="p-3 min-w-[100px] text-sm text-purple-600 font-semibold">
+                    ${formatPriceDisplay(shippingCostCents)}
+                </td>
+                <td class="p-3 min-w-[120px]">
+                    ${hasExtras ? `
+                    <div class="text-xs space-y-0.5">
+                        ${processingCents > 0 ? `<div class="text-orange-600">💳 ${formatPriceDisplay(processingCents)}</div>` : ''}
+                        ${salesTaxCents   > 0 ? `<div class="text-yellow-600">🧾 ${formatPriceDisplay(salesTaxCents)}</div>`   : ''}
+                    </div>` : '<span class="text-gray-400 text-xs">—</span>'}
+                </td>
+                <td class="p-3 min-w-[110px] text-base font-black text-indigo-700">
+                    ${formatPriceDisplay(totalCostCents)}
+                </td>
+                <td class="p-3 min-w-[110px]">
+                    <div class="flex flex-col gap-1">
+                        <button onclick="event.stopPropagation(); window.module.showVendorOrderDetailsModal('${order.id}')"
+                                class="px-3 py-1 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 font-semibold">
+                            📋 Details
+                        </button>
+                        <button onclick="event.stopPropagation(); window.module.showEditVendorOrderModal('${order.id}')"
+                                class="px-3 py-1 bg-yellow-500 text-white text-xs rounded-lg hover:bg-yellow-600 font-semibold">
+                            ✏️ Edit
+                        </button>
+                        <button onclick="event.stopPropagation(); window.module.deleteVendorOrder('${order.id}')"
+                                class="px-3 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 font-semibold">
+                            🗑️ Delete
+                        </button>
                     </div>
-                `;
-            }
+                </td>
+            </tr>`;
+    }).join('');
 
-            const rows = vendorOrders.map(order => {
-                const statusClass = {
-                    'Ordered': 'bg-yellow-100 text-yellow-800',
-                    'Paid': 'bg-blue-100 text-blue-800',
-                    'Shipped': 'bg-purple-100 text-purple-800',
-                    'In Transit': 'bg-indigo-100 text-indigo-800',
-                    'Delivered': 'bg-green-100 text-green-800',
-                    'Cancelled': 'bg-red-100 text-red-800'
-                }[order.status] || 'bg-gray-100 text-gray-800';
-
-                const itemCount = order.items?.length || 0;
-                const totalUnits = order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
-
-                return `
-                    <tr class="hover:bg-gray-50 transition cursor-pointer" 
-                        onclick="window.module.showVendorOrderDetailsModal('${order.id}')">
-                        <td class="p-3">
-                            <div class="text-sm font-semibold text-indigo-700">${escapeHtml(order.orderId || order.id)}</div>
-                            <div class="text-xs text-gray-600 mt-1">${formatDate(order.orderDate)}</div>
-                        </td>
-                        <td class="p-3">
-                            <div class="text-sm font-semibold">${escapeHtml(order.supplier || 'Unknown')}</div>
-                            ${order.supplierOrderUrl ? `
-                                <a href="${escapeHtml(order.supplierOrderUrl)}" 
-                                   target="_blank" 
-                                   onclick="event.stopPropagation()"
-                                   class="text-xs text-blue-600 hover:underline">View on supplier site →</a>
-                            ` : ''}
-                        </td>
-                        <td class="p-3">
-                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${statusClass}">
-                                ${order.status || 'Unknown'}
-                            </span>
-                        </td>
-                        <td class="p-3 text-sm">
-                            ${order.expectedDeliveryDate ? `
-                                <div class="${isVendorOrderOverdue(order) ? 'text-red-600 font-bold' : 'text-gray-700'}">
-                                    ${order.expectedDeliveryDate}
-                                </div>
-                                ${isVendorOrderOverdue(order) ? '<span class="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-bold">OVERDUE</span>' : ''}
-                            ` : '<span class="text-gray-400">—</span>'}
-                            ${order.trackingNumber ? `<div class="text-xs text-blue-600 font-mono mt-1">${escapeHtml(order.trackingNumber)}</div>` : ''}
-                        </td>
-                        <td class="p-3 text-sm">
-                            <div>${itemCount} product${itemCount !== 1 ? 's' : ''}</div>
-                            <div class="text-xs text-gray-600">${totalUnits} units total</div>
-                        </td>
-                        <td class="p-3 text-sm font-semibold">${formatPriceDisplay(order.subtotalCents || 0)}</td>
-                        <td class="p-3 text-sm font-bold text-red-600">${formatPriceDisplay(order.tariffCostCents || 0)}</td>
-                        <td class="p-3 text-sm text-purple-600">${formatPriceDisplay(order.shippingCostCents || 0)}</td>
-                        <td class="p-3 text-lg font-black text-indigo-700">${formatPriceDisplay(order.totalCostCents || 0)}</td>
-                        <td class="p-3">
-                            <div class="flex flex-col gap-1">
-                                <button onclick="event.stopPropagation(); window.module.showVendorOrderDetailsModal('${order.id}')" 
-                                        class="px-3 py-1 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-700 font-semibold">
-                                    📋 Details
-                                </button>
-                                <button onclick="event.stopPropagation(); window.module.showEditVendorOrderModal('${order.id}')" 
-                                        class="px-3 py-1 bg-yellow-500 text-white text-xs rounded-lg hover:bg-yellow-600 font-semibold">
-                                    ✏️ Edit
-                                </button>
-                                <button onclick="event.stopPropagation(); window.module.deleteVendorOrder('${order.id}')" 
-                                        class="px-3 py-1 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 font-semibold">
-                                    🗑️ Delete
-                                </button>
-                            </div>
-                        </td>                        
+    // ✅ Key change: overflow-x-auto on a wrapping div + min-w on table
+    // so the table scrolls horizontally rather than breaking layout
+    return `
+        <div class="overflow-x-auto w-full">
+            <table class="w-full min-w-[1100px] border-collapse">
+                <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300 sticky top-0 z-10">
+                    <tr>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Order ID & Date</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Supplier</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Status</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Delivery & Tracking</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Items</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Subtotal</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Tariffs</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Shipping</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Fees & Tax</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Total Cost</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Actions</th>
                     </tr>
-                `;
-            }).join('');
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    ${rows}
+                </tbody>
+            </table>
+        </div>
 
-            return `
-                <table class="w-full">
-                    <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300">
-                        <tr>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Order ID & Date</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Supplier</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Status</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Delivery & Tracking</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Items</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Subtotal</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Tariffs</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Shipping</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Total Cost</th>
-                            <th class="p-3 text-left text-xs font-bold text-gray-700">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${rows}
-                    </tbody>
-                </table>
-                
-                <div class="p-4 bg-gray-50 border-t">
-                    <div class="text-xs text-gray-600">
-                        Showing ${vendorOrders.length} of ${state.vendorOrders?.length || 0} orders
-                    </div>
-                </div>
-            `;
-        }
+        <div class="px-4 py-3 bg-gray-50 border-t text-xs text-gray-500 flex justify-between items-center">
+            <span>Showing ${vendorOrders.length} of ${state.vendorOrders?.length || 0} orders</span>
+            <span class="text-gray-400">← Scroll to see all columns →</span>
+        </div>`;
+}
+
         function getFilteredVendorOrders() {
             let orders = state.vendorOrders || [];
 
@@ -6826,7 +6855,7 @@ function showAddVendorOrderModal() {
                     <div class="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase mb-1 px-1">
                         <div class="col-span-5">Product</div>
                         <div class="col-span-2">Qty</div>
-                        <div class="col-span-2">Subtotal ($) <span class="text-yellow-600">●</span></div>
+                        <div class="col-span-2">Subtotal ($) <span class="text-yellow-500">●</span></div>
                         <div class="col-span-2">Unit Cost ($)</div>
                         <div class="col-span-1"></div>
                     </div>
@@ -6835,56 +6864,90 @@ function showAddVendorOrderModal() {
                         ${firstRowHTML}
                     </div>
                     <p class="text-xs text-gray-400 mt-1">
-                        <span class="text-yellow-600">●</span> Enter subtotal to auto-calculate unit cost, or enter unit cost to auto-calculate subtotal.
+                        <span class="text-yellow-500">●</span> Enter subtotal to auto-calculate unit cost, or enter unit cost to auto-calculate subtotal.
                     </p>
                 </div>
 
                 <!-- Cost Breakdown -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-2">Cost Breakdown</label>
-                    <div class="grid grid-cols-2 gap-4">
+                    <div class="grid grid-cols-2 gap-4 mb-4">
                         <div>
                             <label class="block text-xs text-gray-600 mb-1">Product Subtotal ($)</label>
                             <input type="number" name="orderCost" step="0.01" min="0" placeholder="0.00"
-                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   oninput="window.module.recalculateVendorOrderTotal(); window.module.autoCalcTariffRate()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
                             <label class="block text-xs text-gray-600 mb-1">Shipping Cost ($)</label>
                             <input type="number" name="shippingCost" step="0.01" min="0" placeholder="0.00"
-                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   oninput="window.module.recalculateVendorOrderTotal()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
                             <label class="block text-xs text-gray-600 mb-1">Tariffs / Import Duties ($)</label>
                             <input type="number" name="tariffs" step="0.01" min="0" placeholder="0.00"
-                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   oninput="window.module.recalculateVendorOrderTotal(); window.module.autoCalcTariffRate()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label class="block text-xs text-gray-600 mb-1">Tariff Rate (%)</label>
-                            <input type="number" name="tariffRate" step="0.1" min="0" placeholder="e.g. 69.8"
-                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                            <label class="block text-xs text-gray-600 mb-1">
+                                Tariff Rate (%)
+                                <span class="text-indigo-500 font-normal">— auto-calculated</span>
+                            </label>
+                            <div class="relative">
+                                <input type="number" name="tariffRate" step="0.01" min="0" placeholder="Auto"
+                                       oninput="window.module.autoCalcTariffAmount()"
+                                       class="w-full px-3 py-2 border border-indigo-200 bg-indigo-50 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 font-semibold pr-8">
+                                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">%</span>
+                            </div>
                         </div>
                         <div>
                             <label class="block text-xs text-gray-600 mb-1">Processing / Platform Fee ($)</label>
                             <input type="number" name="processingFee" step="0.01" min="0" placeholder="0.00"
-                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   oninput="window.module.recalculateVendorOrderTotal()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
                             <label class="block text-xs text-gray-600 mb-1">Sales Tax ($)</label>
                             <input type="number" name="salesTax" step="0.01" min="0" placeholder="0.00"
-                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   oninput="window.module.recalculateVendorOrderTotal()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
-                </div>
 
-                <!-- Total -->
-                <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex justify-between items-center">
-                    <span class="font-bold text-indigo-800">Total Landed Cost</span>
-                    <span id="vendorOrderLandedCost" class="text-2xl font-black text-indigo-800">$0.00</span>
+                    <!-- Live cost breakdown display -->
+                    <div class="rounded-xl border border-gray-200 overflow-hidden">
+                        <div class="divide-y divide-gray-100 text-sm">
+                            <div class="flex justify-between items-center px-4 py-2 bg-white">
+                                <span class="text-gray-600">Product Subtotal</span>
+                                <span id="vo_subtotalDisplay" class="font-medium text-gray-800">$0.00</span>
+                            </div>
+                            <div class="flex justify-between items-center px-4 py-2 bg-white">
+                                <span class="text-gray-600">Shipping</span>
+                                <span id="vo_shippingDisplay" class="font-medium text-gray-800">$0.00</span>
+                            </div>
+                            <div class="flex justify-between items-center px-4 py-2 bg-red-50">
+                                <span class="text-red-700 font-medium flex items-center gap-1">
+                                    🛃 Tariffs / Import Duties
+                                    <span id="vo_tariffRateDisplay" class="text-xs text-red-400 font-normal"></span>
+                                </span>
+                                <span id="vo_tariffDisplay" class="font-semibold text-red-700">$0.00</span>
+                            </div>
+                            <div id="vo_processingFeeRow" class="hidden justify-between items-center px-4 py-2 bg-orange-50">
+                                <span class="text-orange-700 font-medium">💳 Processing / Platform Fee</span>
+                                <span id="vo_processingFeeDisplay" class="font-semibold text-orange-700">$0.00</span>
+                            </div>
+                            <div id="vo_salesTaxRow" class="hidden justify-between items-center px-4 py-2 bg-yellow-50">
+                                <span class="text-yellow-700 font-medium">🧾 Sales Tax</span>
+                                <span id="vo_salesTaxDisplay" class="font-semibold text-yellow-700">$0.00</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center px-4 py-3 bg-indigo-600">
+                            <span class="font-bold text-white text-sm">Total Landed Cost</span>
+                            <span id="vendorOrderLandedCost" class="text-xl font-black text-white">$0.00</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Notes -->
@@ -7014,120 +7077,53 @@ function recalculateVendorOrderTotal() {
     if (!form) return;
 
     const getNum = (name) => parseFloat(form.querySelector(`[name="${name}"]`)?.value || 0) || 0;
+    const fmt    = (val)  => `$${val.toFixed(2)}`;
 
-    const total = getNum('orderCost')
-                + getNum('shippingCost')
-                + getNum('tariffs')
-                + getNum('processingFee')
-                + getNum('salesTax');
+    const orderCost     = getNum('orderCost');
+    const shippingCost  = getNum('shippingCost');
+    const tariffs       = getNum('tariffs');
+    const processingFee = getNum('processingFee');
+    const salesTax      = getNum('salesTax');
+    const tariffRate    = getNum('tariffRate');
 
-    const el = document.getElementById('vendorOrderLandedCost');
-    if (el) el.textContent = `$${total.toFixed(2)}`;
-}
-async function saveVendorOrder(editOrderId = null) {
-    const form = document.getElementById('vendorOrderForm');
-    if (!form) return;
+    const total = orderCost + shippingCost + tariffs + processingFee + salesTax;
 
-    const getValue  = (name) => form.querySelector(`[name="${name}"]`)?.value?.trim() || '';
-    const getNumber = (name) => parseFloat(form.querySelector(`[name="${name}"]`)?.value || 0) || 0;
+    // Main total
+    const totalEl = document.getElementById('vendorOrderLandedCost');
+    if (totalEl) totalEl.textContent = fmt(total);
 
-    const supplier = getValue('supplier');
-    if (!supplier) {
-        showMessage('error', 'Supplier name is required.', 3000, 'vendorOrder');
-        return;
-    }
-
-    // Collect item rows
-    const rows = form.querySelectorAll('.item-row');
-    const items = [];
-    rows.forEach(row => {
-        const productSelect = row.querySelector('[name="itemProductId[]"]');
-        const qtyInput      = row.querySelector('[name="itemQty[]"]');
-        const costInput     = row.querySelector('[name="itemUnitCost[]"]');
-        const subtotalInput = row.querySelector('[name="itemSubtotal[]"]');
-
-        const productId = productSelect?.value;
-        const qty       = parseInt(qtyInput?.value   || 0);
-        const unitCost  = parseFloat(costInput?.value || 0);  // dollars
-        const subtotal  = parseFloat(subtotalInput?.value || (qty * unitCost).toFixed(2));
-
-        if (productId && qty > 0) {
-            const product = state.items?.find(i => i.id === productId);
-            items.push({
-                productId,
-                productName:    product?.name || '',
-                sku:            product?.sku  || '',
-                quantity:       qty,
-                // Save in cents to match existing schema
-                unitPriceCents:  Math.round(unitCost * 100),
-                totalPriceCents: Math.round(subtotal * 100),
-            });
-        }
-    });
-
-    // Read dollar values from form, convert to cents for storage
-    const subtotalDollars      = getNumber('orderCost');
-    const shippingDollars      = getNumber('shippingCost');
-    const tariffDollars        = getNumber('tariffs');
-    const processingFeeDollars = getNumber('processingFee');
-    const salesTaxDollars      = getNumber('salesTax');
-    const tariffRate           = getNumber('tariffRate'); // percentage, store as-is
-
-    const subtotalCents      = Math.round(subtotalDollars * 100);
-    const shippingCostCents  = Math.round(shippingDollars * 100);
-    const tariffCostCents    = Math.round(tariffDollars * 100);
-    const processingFeeCents = Math.round(processingFeeDollars * 100);
-    const salesTaxCents      = Math.round(salesTaxDollars * 100);
-    const totalCostCents     = subtotalCents + shippingCostCents + tariffCostCents
-                             + processingFeeCents + salesTaxCents;
-
-    const orderData = {
-        supplier:           supplier,
-        orderId:            getValue('orderId'),
-        supplierOrderUrl:   getValue('orderLink') || getValue('supplierOrderUrl') || null,
-        status:             getValue('status') || 'Ordered',
-        orderDate:          getValue('orderDate') || null,
-        expectedDeliveryDate: getValue('expectedDelivery') || null,
-        trackingNumber:     getValue('trackingNumber') || null,
-        notes:              getValue('notes') || null,
-        items,
-
-        // Store in cents — matches your existing Firestore schema
-        subtotalCents,
-        shippingCostCents,
-        tariffCostCents,
-        tariffRate,
-        processingFeeCents,
-        salesTaxCents,
-        totalCostCents,
-
-        updatedAt: serverTimestamp(),
+    // Individual line items
+    const set = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = fmt(val);
     };
 
-    try {
-        if (editOrderId) {
-            // ✅ Uses global VENDOR_ORDERS_COLLECTION — no local override
-            const docRef = doc(db, VENDOR_ORDERS_COLLECTION, editOrderId);
-            await updateDoc(docRef, orderData);
-            showMessage('success', 'Vendor order updated successfully.', 3000, 'vendorOrder');
-            await logAdminAction('VENDOR_ORDER_UPDATED', { supplier, editOrderId }, editOrderId);
-        } else {
-            orderData.createdAt = serverTimestamp();
-            const docRef = await addDoc(collection(db, VENDOR_ORDERS_COLLECTION), orderData);
-            showMessage('success', 'Vendor order created successfully.', 3000, 'vendorOrder');
-            await logAdminAction('VENDOR_ORDER_CREATED', { supplier }, docRef.id);
-        }
+    set('vo_subtotalDisplay',  orderCost);
+    set('vo_shippingDisplay',  shippingCost);
+    set('vo_tariffDisplay',    tariffs);
 
-        closeVendorOrderModal();
-        refreshVendorOrders();
-
-    } catch (error) {
-        console.error('Error saving vendor order:', error);
-        showMessage('error', `Failed to save order: ${error.message}`, 5000, 'vendorOrder');
+    // Tariff rate badge next to label
+    const rateLabel = document.getElementById('vo_tariffRateDisplay');
+    if (rateLabel) {
+        rateLabel.textContent = tariffRate > 0 ? `(${tariffRate.toFixed(2)}%)` : '';
     }
+
+    // Processing fee row — show/hide
+    const pfRow = document.getElementById('vo_processingFeeRow');
+    if (pfRow) {
+        pfRow.classList.toggle('hidden', processingFee <= 0);
+        pfRow.classList.toggle('flex',   processingFee > 0);
+    }
+    set('vo_processingFeeDisplay', processingFee);
+
+    // Sales tax row — show/hide
+    const taxRow = document.getElementById('vo_salesTaxRow');
+    if (taxRow) {
+        taxRow.classList.toggle('hidden', salesTax <= 0);
+        taxRow.classList.toggle('flex',   salesTax > 0);
+    }
+    set('vo_salesTaxDisplay', salesTax);
 }
-
-
 
 function closeVendorOrderModal() {
     document.getElementById('vendorOrderModal')?.remove();
@@ -11771,6 +11767,41 @@ function addVendorOrderItemRow() {
     container.appendChild(row);
 }
 
+function autoCalcTariffRate() {
+    const form = document.getElementById('vendorOrderForm');
+    if (!form) return;
+
+    const orderCost = parseFloat(form.querySelector('[name="orderCost"]')?.value || 0);
+    const tariffs   = parseFloat(form.querySelector('[name="tariffs"]')?.value   || 0);
+    const rateInput = form.querySelector('[name="tariffRate"]');
+
+    if (orderCost > 0 && tariffs >= 0 && rateInput) {
+        rateInput.value = ((tariffs / orderCost) * 100).toFixed(2);
+    } else if (rateInput && tariffs === 0) {
+        rateInput.value = '';
+    }
+}
+
+/**
+ * When tariff rate % is typed manually → back-calculate tariff $
+ * Tariff $ = (rate / 100) * orderCost
+ */
+function autoCalcTariffAmount() {
+    const form = document.getElementById('vendorOrderForm');
+    if (!form) return;
+
+    const orderCost  = parseFloat(form.querySelector('[name="orderCost"]')?.value   || 0);
+    const rate       = parseFloat(form.querySelector('[name="tariffRate"]')?.value   || 0);
+    const tariffInput = form.querySelector('[name="tariffs"]');
+
+    if (rate > 0 && orderCost > 0 && tariffInput) {
+        tariffInput.value = ((rate / 100) * orderCost).toFixed(2);
+    }
+
+    recalculateVendorOrderTotal();
+}
+
+
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
@@ -11933,6 +11964,8 @@ function addVendorOrderItemRow() {
             autoCalcSubtotal,
             showAddVendorOrderModal,
             addVendorOrderItemRow,
+            autoCalcTariffRate,
+            autoCalcTariffAmount,
 
 
             updateActiveFilters: function () {
