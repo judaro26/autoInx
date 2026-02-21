@@ -6684,18 +6684,297 @@
             }
         }
 
-function showAddVendorOrderModal() {
-    resetTimer();
-    state.editingVendorOrderId = null;  // Ensure we're in "add" mode
+function showAddVendorOrderModal(editOrderId = null) {
+    // If editing, load existing order
+    const editOrder = editOrderId ? state.vendorOrders.find(o => o.id === editOrderId) : null;
+    const isEditing = !!editOrder;
 
-    const modalContainer = document.getElementById('vendorOrderModalContainer');
-    if (!modalContainer) return;
+    const formatDateForInput = (val) => {
+        if (!val) return '';
+        if (val.toDate) return val.toDate().toISOString().split('T')[0];
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
+    };
 
-    modalContainer.innerHTML = buildVendorOrderModalHtml(null);
-    document.body.style.overflow = 'hidden';
+    // Build product options — mark selected item if editing
+    const resolveItemIdFromOrder = (order) => {
+        if (!order || !order.items || order.items.length === 0) return null;
+        const firstItem = order.items[0];
+        return firstItem.productId || firstItem.id || null;
+    };
 
-    // Add first product row
-    addOrderItemRow();
+    const existingProductId = editOrder ? resolveItemIdFromOrder(editOrder) : null;
+
+    const productOptions = (state.items || []).map(item =>
+        `<option value="${item.id}" 
+                 data-price="${(item.price / 100).toFixed(2)}"
+                 data-sku="${item.sku || ''}"
+                 ${existingProductId === item.id ? 'selected' : ''}>
+            ${escapeHtml(item.name)} ${item.sku ? `(${item.sku})` : ''}
+        </option>`
+    ).join('');
+
+    // If editing with multiple items, build rows for each
+    const buildItemRows = () => {
+        if (!editOrder || !editOrder.items || editOrder.items.length === 0) {
+            return `
+            <div class="item-row grid grid-cols-12 gap-2 items-center" data-row="0">
+                <div class="col-span-6">
+                    <select name="itemProductId[]" 
+                            onchange="window.module.handleProductSelect(this)"
+                            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Select Product —</option>
+                        ${productOptions}
+                    </select>
+                </div>
+                <div class="col-span-2">
+                    <input type="number" name="itemQty[]" placeholder="Qty" min="1" value="1"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                           onchange="window.module.recalculateVendorOrderTotal()">
+                </div>
+                <div class="col-span-3">
+                    <input type="number" name="itemUnitCost[]" placeholder="Unit Cost" step="0.01" min="0"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                           onchange="window.module.recalculateVendorOrderTotal()">
+                </div>
+                <div class="col-span-1">
+                    <button type="button" onclick="window.module.removeOrderItemRow(this)"
+                            class="text-red-500 hover:text-red-700 font-bold text-lg">×</button>
+                </div>
+            </div>`;
+        }
+
+        return editOrder.items.map((item, idx) => {
+            // Resolve product ID
+            const productId = item.productId || item.id || '';
+            const unitCost  = parseFloat(item.unitCost ?? item.cost ?? 0).toFixed(2);
+            const qty       = parseInt(item.quantity || 1);
+
+            // Build options with this item's product selected
+            const rowProductOptions = (state.items || []).map(p =>
+                `<option value="${p.id}" 
+                         data-price="${(p.price / 100).toFixed(2)}"
+                         data-sku="${p.sku || ''}"
+                         ${p.id === productId ? 'selected' : ''}>
+                    ${escapeHtml(p.name)} ${p.sku ? `(${p.sku})` : ''}
+                </option>`
+            ).join('');
+
+            return `
+            <div class="item-row grid grid-cols-12 gap-2 items-center" data-row="${idx}">
+                <div class="col-span-6">
+                    <select name="itemProductId[]"
+                            onchange="window.module.handleProductSelect(this)"
+                            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Select Product —</option>
+                        ${rowProductOptions}
+                    </select>
+                </div>
+                <div class="col-span-2">
+                    <input type="number" name="itemQty[]" placeholder="Qty" min="1" value="${qty}"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                           onchange="window.module.recalculateVendorOrderTotal()">
+                </div>
+                <div class="col-span-3">
+                    <input type="number" name="itemUnitCost[]" placeholder="Unit Cost" step="0.01" min="0"
+                           value="${unitCost}"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                           onchange="window.module.recalculateVendorOrderTotal()">
+                </div>
+                <div class="col-span-1">
+                    <button type="button" onclick="window.module.removeOrderItemRow(this)"
+                            class="text-red-500 hover:text-red-700 font-bold text-lg">×</button>
+                </div>
+            </div>`;
+        }).join('');
+    };
+
+    const modalHTML = `
+    <div id="vendorOrderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+            
+            <!-- Header -->
+            <div class="flex items-center justify-between p-6 border-b border-gray-100">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">
+                        ${isEditing ? `Edit Vendor Order <span class="text-blue-600">#${editOrder.orderNumber || editOrderId.substring(0,8)}</span>` : 'New Vendor Order'}
+                    </h2>
+                    <p class="text-sm text-gray-500 mt-1">${isEditing ? 'Update the order details below' : 'Track a new purchase from a supplier'}</p>
+                </div>
+                <button onclick="window.module.closeVendorOrderModal()"
+                    class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Form -->
+            <form id="vendorOrderForm" class="p-6 space-y-5">
+                ${isEditing ? `<input type="hidden" name="editOrderId" value="${editOrderId}">` : ''}
+
+                <!-- Supplier / Status / Dates -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Supplier *</label>
+                        <input type="text" name="supplier" required
+                               value="${editOrder ? escapeAttribute(editOrder.supplier || '') : ''}"
+                               placeholder="e.g., Alibaba Supplier Co."
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Status *</label>
+                        <select name="status" required
+                                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                            <option value="pending"   ${editOrder?.status === 'pending'   ? 'selected' : ''}>Pending</option>
+                            <option value="ordered"   ${editOrder?.status === 'ordered'   ? 'selected' : ''}>Ordered</option>
+                            <option value="shipped"   ${editOrder?.status === 'shipped'   ? 'selected' : ''}>Shipped</option>
+                            <option value="delivered" ${editOrder?.status === 'delivered' ? 'selected' : ''}>Delivered</option>
+                            <option value="cancelled" ${editOrder?.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Order Date</label>
+                        <input type="date" name="orderDate"
+                               value="${editOrder ? formatDateForInput(editOrder.orderDate) : new Date().toISOString().split('T')[0]}"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Expected Delivery</label>
+                        <input type="date" name="expectedDelivery"
+                               value="${editOrder ? formatDateForInput(editOrder.expectedDelivery) : ''}"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+
+                <!-- Tracking Number -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Tracking Number</label>
+                    <input type="text" name="trackingNumber"
+                           value="${editOrder ? escapeAttribute(editOrder.trackingNumber || '') : ''}"
+                           placeholder="e.g., 1Z999AA10123456784"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <!-- Items -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm font-semibold text-gray-700">Items Ordered</label>
+                        <button type="button" onclick="window.module.addOrderItemRow()"
+                                class="text-xs text-blue-600 hover:text-blue-800 font-semibold">+ Add Item</button>
+                    </div>
+                    <div class="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase mb-1 px-1">
+                        <div class="col-span-6">Product</div>
+                        <div class="col-span-2">Qty</div>
+                        <div class="col-span-3">Unit Cost ($)</div>
+                        <div class="col-span-1"></div>
+                    </div>
+                    <div id="vendorOrderItemsContainer" class="space-y-2">
+                        ${buildItemRows()}
+                    </div>
+                </div>
+
+                <!-- Cost Breakdown -->
+                <div class="border-t border-gray-100 pt-4">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Cost Breakdown</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Order / Product Cost ($)</label>
+                            <input type="number" name="orderCost" step="0.01" min="0"
+                                   value="${editOrder ? parseFloat(editOrder.orderCost || 0).toFixed(2) : ''}"
+                                   placeholder="0.00"
+                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Shipping Cost ($)</label>
+                            <input type="number" name="shippingCost" step="0.01" min="0"
+                                   value="${editOrder ? parseFloat(editOrder.shippingCost || 0).toFixed(2) : ''}"
+                                   placeholder="0.00"
+                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">Tariffs / Import Duties ($)</label>
+                            <input type="number" name="tariffs" step="0.01" min="0"
+                                   value="${editOrder ? parseFloat(editOrder.tariffs || 0).toFixed(2) : ''}"
+                                   placeholder="0.00"
+                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <!-- ✅ NEW: Processing Fee -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">
+                                Processing / Platform Fee ($)
+                                <span class="text-gray-400 font-normal">(Alibaba, PayPal, etc.)</span>
+                            </label>
+                            <input type="number" name="processingFee" step="0.01" min="0"
+                                   value="${editOrder ? parseFloat(editOrder.processingFee || 0).toFixed(2) : ''}"
+                                   placeholder="0.00"
+                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <!-- ✅ NEW: Sales Tax -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1">
+                                Sales Tax ($)
+                                <span class="text-gray-400 font-normal">(if applicable)</span>
+                            </label>
+                            <input type="number" name="salesTax" step="0.01" min="0"
+                                   value="${editOrder ? parseFloat(editOrder.salesTax || 0).toFixed(2) : ''}"
+                                   placeholder="0.00"
+                                   onchange="window.module.recalculateVendorOrderTotal()"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+
+                    <!-- Landed Cost Summary -->
+                    <div class="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+                        <div class="flex justify-between items-center">
+                            <span class="font-bold text-blue-800">Total Landed Cost</span>
+                            <span id="vendorOrderLandedCost" class="text-2xl font-black text-blue-800">
+                                $${editOrder ? (
+                                    parseFloat(editOrder.orderCost    || 0) +
+                                    parseFloat(editOrder.shippingCost || 0) +
+                                    parseFloat(editOrder.tariffs      || 0) +
+                                    parseFloat(editOrder.processingFee|| 0) +
+                                    parseFloat(editOrder.salesTax     || 0)
+                                ).toFixed(2) : '0.00'}
+                            </span>
+                        </div>
+                        <p class="text-xs text-blue-600 mt-1">Order + Shipping + Tariffs + Processing Fee + Sales Tax</p>
+                    </div>
+                </div>
+
+                <!-- Notes -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
+                    <textarea name="notes" rows="2"
+                              placeholder="Optional internal notes..."
+                              class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">${editOrder ? escapeHtml(editOrder.notes || '') : ''}</textarea>
+                </div>
+
+            </form>
+
+            <!-- Footer -->
+            <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50">
+                <button onclick="window.module.closeVendorOrderModal()"
+                    class="px-5 py-2 text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors text-sm">
+                    Cancel
+                </button>
+                <button onclick="window.module.saveVendorOrder(${isEditing ? `'${editOrderId}'` : 'null'})"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold shadow-md">
+                    ${isEditing ? '💾 Save Changes' : '➕ Create Order'}
+                </button>
+            </div>
+
+        </div>
+    </div>`;
+
+    const existing = document.getElementById('vendorOrderModal');
+    if (existing) existing.remove();
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
 }
         
         function addOrderItemRow() {
@@ -6791,165 +7070,99 @@ function showAddVendorOrderModal() {
             }
         }
 
-        function recalculateVendorOrderTotal() {
-            const rows = document.querySelectorAll('[id^="order-item-"]');
-            let subtotalCents = 0;
+function recalculateVendorOrderTotal() {
+    const getValue = (name) => parseFloat(document.querySelector(`[name="${name}"]`)?.value || 0) || 0;
 
-            rows.forEach(row => {
-                const quantity = parseInt(row.querySelector('.order-item-quantity')?.value || 0);
-                const unitPrice = parseFloat(row.querySelector('.order-item-price')?.value || 0);
-                const itemTotal = quantity * unitPrice;
+    const orderCost     = getValue('orderCost');
+    const shippingCost  = getValue('shippingCost');
+    const tariffs       = getValue('tariffs');
+    const processingFee = getValue('processingFee');
+    const salesTax      = getValue('salesTax');
 
-                const totalEl = row.querySelector('.order-item-total');
-                if (totalEl) {
-                    totalEl.textContent = `$${itemTotal.toFixed(2)}`;
-                }
+    const total = orderCost + shippingCost + tariffs + processingFee + salesTax;
 
-                subtotalCents += Math.round(itemTotal * 100);
-            });
+    const el = document.getElementById('vendorOrderLandedCost');
+    if (el) el.textContent = `$${total.toFixed(2)}`;
+}
+async function saveVendorOrder(editOrderId = null) {
+    const form = document.getElementById('vendorOrderForm');
+    if (!form) return;
 
-            const tariffRate = parseFloat(document.getElementById('new-tariff-rate')?.value || 0);
-            const shippingCost = parseFloat(document.getElementById('new-shipping-cost')?.value || 0);
+    const getValue = (name) => form.querySelector(`[name="${name}"]`)?.value?.trim() || '';
+    const getNumber = (name) => parseFloat(form.querySelector(`[name="${name}"]`)?.value || 0) || 0;
 
-            const tariffCents = Math.round((subtotalCents * tariffRate) / 100);
-            const shippingCents = Math.round(shippingCost * 100);
-            const totalCents = subtotalCents + tariffCents + shippingCents;
-
-            // Update displays
-            document.getElementById('order-subtotal').textContent = formatPriceDisplay(subtotalCents);
-            document.getElementById('order-tariff-cost').textContent = formatPriceDisplay(tariffCents);
-            document.getElementById('order-total-cost').textContent = formatPriceDisplay(totalCents);
-        }
-async function saveVendorOrder() {
-    resetTimer();
-
-    const orderId = document.getElementById('new-order-id')?.value?.trim();
-    const supplier = document.getElementById('new-supplier')?.value;
-    const orderDate = document.getElementById('new-order-date')?.value;
-    const expectedDeliveryDate = document.getElementById('new-expected-delivery')?.value || null;
-    const status = document.getElementById('new-status')?.value;
-    const supplierUrl = document.getElementById('new-supplier-url')?.value?.trim() || null;
-    const trackingNumber = document.getElementById('new-tracking-number')?.value?.trim() || null;
-    const tariffRate = parseFloat(document.getElementById('new-tariff-rate')?.value || 0);
-    const shippingCost = parseFloat(document.getElementById('new-shipping-cost')?.value || 0);
-    const notes = document.getElementById('new-order-notes')?.value?.trim() || null;
-
-    // Validation
-    if (!orderId) {
-        showMessage('error', 'Please enter an order ID', 3000, 'vendorOrder');
-        return;
-    }
+    const supplier = getValue('supplier');
     if (!supplier) {
-        showMessage('error', 'Please select a supplier', 3000, 'vendorOrder');
-        return;
-    }
-    if (!orderDate) {
-        showMessage('error', 'Please enter an order date', 3000, 'vendorOrder');
+        showMessage('error', 'Supplier name is required.', 3000, 'vendorOrder');
         return;
     }
 
-    // Collect items
-    const itemRows = document.querySelectorAll('[id^="order-item-"]');
+    // Collect items from rows
+    const rows = form.querySelectorAll('.item-row');
     const items = [];
-    let subtotalCents = 0;
+    rows.forEach(row => {
+        const productSelect = row.querySelector('[name="itemProductId[]"]');
+        const qtyInput      = row.querySelector('[name="itemQty[]"]');
+        const costInput     = row.querySelector('[name="itemUnitCost[]"]');
 
-    itemRows.forEach(row => {
-        const productId = row.querySelector('.order-item-id')?.value;
-        const productName = row.querySelector('.order-item-name')?.value;
-        const sku = row.querySelector('.order-item-sku')?.value;
-        const quantity = parseInt(row.querySelector('.order-item-quantity')?.value || 0);
-        const unitPrice = parseFloat(row.querySelector('.order-item-price')?.value || 0);
+        const productId = productSelect?.value;
+        const qty       = parseInt(qtyInput?.value || 0);
+        const unitCost  = parseFloat(costInput?.value || 0);
 
-        if (productId && quantity > 0 && unitPrice > 0) {
-            const unitPriceCents = Math.round(unitPrice * 100);
-            const totalPriceCents = unitPriceCents * quantity;
-
+        if (productId && qty > 0) {
+            const product = state.items?.find(i => i.id === productId);
             items.push({
                 productId,
-                productName,
-                sku,
-                quantity,
-                unitPriceCents,
-                totalPriceCents
+                name:     product?.name || '',
+                sku:      product?.sku  || '',
+                quantity: qty,
+                unitCost: unitCost
             });
-
-            subtotalCents += totalPriceCents;
         }
     });
 
-    if (items.length === 0) {
-        showMessage('error', 'Please add at least one product to the order', 3000, 'vendorOrder');
-        return;
-    }
-
-    const tariffCents = Math.round((subtotalCents * tariffRate) / 100);
-    const shippingCents = Math.round(shippingCost * 100);
-    const totalCents = subtotalCents + tariffCents + shippingCents;
-
-    const isEdit = !!state.editingVendorOrderId;
+    const orderData = {
+        supplier,
+        status:         getValue('status') || 'pending',
+        orderDate:      getValue('orderDate') || new Date().toISOString().split('T')[0],
+        expectedDelivery: getValue('expectedDelivery') || null,
+        trackingNumber: getValue('trackingNumber') || null,
+        items,
+        orderCost:      getNumber('orderCost'),
+        shippingCost:   getNumber('shippingCost'),
+        tariffs:        getNumber('tariffs'),
+        processingFee:  getNumber('processingFee'),  // ✅ NEW
+        salesTax:       getNumber('salesTax'),        // ✅ NEW
+        landedCost:     getNumber('orderCost') + getNumber('shippingCost') +
+                        getNumber('tariffs') + getNumber('processingFee') +
+                        getNumber('salesTax'),
+        notes:          getValue('notes') || null,
+        updatedAt:      serverTimestamp()
+    };
 
     try {
-        const orderData = {
-            orderId,
-            supplier,
-            supplierOrderUrl: supplierUrl,
-            orderDate,
-            expectedDeliveryDate,
-            status,
-            trackingNumber,
-            items,
-            subtotalCents,
-            tariffRate,
-            tariffCostCents: tariffCents,
-            shippingCostCents: shippingCents,
-            totalCostCents: totalCents,
-            notes,
-            updatedAt: serverTimestamp()
-        };
+        const VENDOR_ORDERS_COLLECTION = 'vendorOrders'; // ← adjust to your actual collection name/path
 
-        if (isEdit) {
-            // ── UPDATE existing vendor order ──
-            const docRef = doc(db, VENDOR_ORDERS_COLLECTION, state.editingVendorOrderId);
+        if (editOrderId) {
+            // Update existing
+            const docRef = doc(db, VENDOR_ORDERS_COLLECTION, editOrderId);
             await updateDoc(docRef, orderData);
-
-            await logAdminAction('VENDOR_ORDER_UPDATED', {
-                vendorOrderId: state.editingVendorOrderId,
-                orderId,
-                supplier,
-                totalCostCents: totalCents,
-                itemCount: items.length
-            });
-
-            showMessage('success', `Vendor order "${orderId}" updated successfully!`, 3000, 'vendorOrder');
+            showMessage('success', `Vendor order updated successfully.`, 3000, 'vendorOrder');
+            logAdminAction('VENDOR_ORDER_UPDATED', { supplier, editOrderId });
         } else {
-            // ── CREATE new vendor order ──
+            // Create new
             orderData.createdAt = serverTimestamp();
-
-            const ordersRef = collection(db, VENDOR_ORDERS_COLLECTION);
-            const docRef = await addDoc(ordersRef, orderData);
-
-            await logAdminAction('VENDOR_ORDER_CREATED', {
-                vendorOrderId: docRef.id,
-                orderId,
-                supplier,
-                totalCostCents: totalCents,
-                itemCount: items.length
-            });
-
-            showMessage('success', 'Vendor order saved successfully!', 3000, 'vendorOrder');
+            await addDoc(collection(db, VENDOR_ORDERS_COLLECTION), orderData);
+            showMessage('success', `Vendor order created successfully.`, 3000, 'vendorOrder');
+            logAdminAction('VENDOR_ORDER_CREATED', { supplier });
         }
 
-        state.editingVendorOrderId = null;
         closeVendorOrderModal();
-
-        // Refresh if on vendor orders tab
-        if (state.activeTab === 'vendorOrders') {
-            renderAdminPage(auth.currentUser?.email || 'Admin');
-        }
+        refreshVendorOrders(); // triggers a re-fetch or re-render
 
     } catch (error) {
         console.error('Error saving vendor order:', error);
-        showMessage('error', `Failed to save: ${error.message}`, 5000, 'vendorOrder');
+        showMessage('error', `Failed to save order: ${error.message}`, 5000, 'vendorOrder');
     }
 }
 
@@ -8434,158 +8647,204 @@ function closeVendorOrderModal() {
             refreshProfitAnalysis();
             resetTimer();
         }
-        function showVendorOrderDetailsModal(orderId) {
-            const order = state.vendorOrders.find(o => o.id === orderId);
-            if (!order) {
-                showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
-                return;
-            }
+function showVendorOrderDetailsModal(orderId) {
+    const order = state.vendorOrders.find(o => o.id === orderId);
+    if (!order) {
+        showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
+        return;
+    }
 
-            const formatCurrency = (val) => `$${parseFloat(val || 0).toFixed(2)}`;
-            const formatDate = (val) => {
-                if (!val) return 'N/A';
-                if (val.toDate) return val.toDate().toLocaleDateString();
-                return new Date(val).toLocaleDateString();
-            };
+    const formatCurrency = (val) => `$${parseFloat(val || 0).toFixed(2)}`;
+    const formatDate = (val) => {
+        if (!val) return 'N/A';
+        if (val.toDate) return val.toDate().toLocaleDateString();
+        return new Date(val).toLocaleDateString();
+    };
 
-            const landedCost = (parseFloat(order.orderCost || 0) + parseFloat(order.shippingCost || 0) + parseFloat(order.tariffs || 0));
+    // ✅ FIX: Include processingFee and salesTax in landed cost
+    const orderCost     = parseFloat(order.orderCost    || 0);
+    const shippingCost  = parseFloat(order.shippingCost || 0);
+    const tariffs       = parseFloat(order.tariffs      || 0);
+    const processingFee = parseFloat(order.processingFee|| 0);
+    const salesTax      = parseFloat(order.salesTax     || 0);
+    const landedCost    = orderCost + shippingCost + tariffs + processingFee + salesTax;
 
-            const statusColors = {
-                pending: 'bg-yellow-100 text-yellow-800',
-                ordered: 'bg-blue-100 text-blue-800',
-                shipped: 'bg-purple-100 text-purple-800',
-                delivered: 'bg-green-100 text-green-800',
-                cancelled: 'bg-red-100 text-red-800'
-            };
-            const statusClass = statusColors[order.status?.toLowerCase()] || 'bg-gray-100 text-gray-800';
+    const statusColors = {
+        pending:   'bg-yellow-100 text-yellow-800',
+        ordered:   'bg-blue-100 text-blue-800',
+        shipped:   'bg-purple-100 text-purple-800',
+        delivered: 'bg-green-100 text-green-800',
+        cancelled: 'bg-red-100 text-red-800'
+    };
+    const statusClass = statusColors[order.status?.toLowerCase()] || 'bg-gray-100 text-gray-800';
 
-            const itemsHTML = (order.items && order.items.length > 0)
-                ? `
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="bg-gray-50 text-gray-600 uppercase text-xs">
-                            <th class="px-4 py-2 text-left">Product</th>
-                            <th class="px-4 py-2 text-center">Qty</th>
-                            <th class="px-4 py-2 text-right">Unit Cost</th>
-                            <th class="px-4 py-2 text-right">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        ${order.items.map(item => `
-                            <tr>
-                                <td class="px-4 py-2 text-gray-800">${item.name || item.productName || 'N/A'}</td>
-                                <td class="px-4 py-2 text-center text-gray-600">${item.quantity || 0}</td>
-                                <td class="px-4 py-2 text-right text-gray-600">${formatCurrency(item.unitCost || item.cost)}</td>
-                                <td class="px-4 py-2 text-right font-medium">${formatCurrency((item.quantity || 0) * (item.unitCost || item.cost || 0))}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>`
-                : `<p class="text-gray-500 text-sm text-center py-4">No items listed for this order.</p>`;
-
-            const modalHTML = `
-            <div id="vendorOrderDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                    
-                    <!-- Header -->
-                    <div class="flex items-center justify-between p-6 border-b border-gray-100">
-                        <div>
-                            <h2 class="text-xl font-bold text-gray-800">Vendor Order Details</h2>
-                            <p class="text-sm text-gray-500 mt-1">Order #${order.orderNumber || order.id}</p>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusClass}">
-                                ${order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Unknown'}
-                            </span>
-                            <button onclick="document.getElementById('vendorOrderDetailsModal').remove()"
-                                class="text-gray-400 hover:text-gray-600 transition-colors">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-        
-                    <!-- Body -->
-                    <div class="p-6 space-y-6">
-        
-                        <!-- Supplier & Dates -->
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="bg-gray-50 rounded-xl p-4">
-                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Supplier</p>
-                                <p class="text-gray-800 font-medium">${order.supplier || 'N/A'}</p>
-                            </div>
-                            <div class="bg-gray-50 rounded-xl p-4">
-                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Order Date</p>
-                                <p class="text-gray-800 font-medium">${formatDate(order.orderDate)}</p>
-                            </div>
-                            <div class="bg-gray-50 rounded-xl p-4">
-                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Expected Delivery</p>
-                                <p class="text-gray-800 font-medium">${formatDate(order.expectedDelivery)}</p>
-                            </div>
-                            <div class="bg-gray-50 rounded-xl p-4">
-                                <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Tracking Number</p>
-                                <p class="text-gray-800 font-medium">${order.trackingNumber || 'N/A'}</p>
-                            </div>
-                        </div>
-        
-                        <!-- Cost Breakdown -->
-                        <div>
-                            <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Cost Breakdown</h3>
-                            <div class="bg-gray-50 rounded-xl overflow-hidden divide-y divide-gray-100">
-                                <div class="flex justify-between px-4 py-3">
-                                    <span class="text-gray-600">Order Cost</span>
-                                    <span class="font-medium">${formatCurrency(order.orderCost)}</span>
-                                </div>
-                                <div class="flex justify-between px-4 py-3">
-                                    <span class="text-gray-600">Shipping Cost</span>
-                                    <span class="font-medium">${formatCurrency(order.shippingCost)}</span>
-                                </div>
-                                <div class="flex justify-between px-4 py-3">
-                                    <span class="text-gray-600">Tariffs / Duties</span>
-                                    <span class="font-medium">${formatCurrency(order.tariffs)}</span>
-                                </div>
-                                <div class="flex justify-between px-4 py-3 bg-blue-50">
-                                    <span class="font-bold text-blue-800">Total Landed Cost</span>
-                                    <span class="font-bold text-blue-800">${formatCurrency(landedCost)}</span>
-                                </div>
-                            </div>
-                        </div>
-        
-                        <!-- Items -->
-                        <div>
-                            <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Items</h3>
-                            <div class="border border-gray-100 rounded-xl overflow-hidden">
-                                ${itemsHTML}
-                            </div>
-                        </div>
-        
-                        ${order.notes ? `
-                        <!-- Notes -->
-                        <div>
-                            <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Notes</h3>
-                            <p class="text-gray-600 bg-gray-50 rounded-xl p-4 text-sm">${order.notes}</p>
-                        </div>` : ''}
-        
-                    </div>
-        
-                    <!-- Footer -->
-                    <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
-                        <button onclick="document.getElementById('vendorOrderDetailsModal').remove()"
-                            class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-                            Close
-                        </button>
-                    </div>
-        
-                </div>
-            </div>`;
-
-            // Remove any existing modal first
-            const existing = document.getElementById('vendorOrderDetailsModal');
-            if (existing) existing.remove();
-
-            document.body.insertAdjacentHTML('beforeend', modalHTML);
+    // ✅ FIX: Normalize item fields — handle all common storage formats
+    const resolveItemName = (item) => {
+        // Try all common field names
+        if (item.name)        return item.name;
+        if (item.productName) return item.productName;
+        // If stored as productId, look up from state.items
+        if (item.productId) {
+            const found = state.items?.find(i => i.id === item.productId);
+            if (found) return found.name;
+            return item.productId; // fallback to ID
         }
+        return 'N/A';
+    };
+
+    const resolveUnitCost = (item) => {
+        return parseFloat(item.unitCost ?? item.cost ?? item.price ?? 0);
+    };
+
+    const itemsHTML = (order.items && order.items.length > 0)
+        ? `
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-gray-50 text-gray-600 uppercase text-xs">
+                    <th class="px-4 py-2 text-left">Product</th>
+                    <th class="px-4 py-2 text-center">Qty</th>
+                    <th class="px-4 py-2 text-right">Unit Cost</th>
+                    <th class="px-4 py-2 text-right">Total</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                ${order.items.map(item => {
+                    const name     = resolveItemName(item);
+                    const unitCost = resolveUnitCost(item);
+                    const qty      = parseInt(item.quantity || 0);
+                    return `
+                    <tr>
+                        <td class="px-4 py-2 text-gray-800">${name}</td>
+                        <td class="px-4 py-2 text-center text-gray-600">${qty}</td>
+                        <td class="px-4 py-2 text-right text-gray-600">${formatCurrency(unitCost)}</td>
+                        <td class="px-4 py-2 text-right font-medium">${formatCurrency(qty * unitCost)}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`
+        : `<p class="text-gray-500 text-sm text-center py-4">No items listed for this order.</p>`;
+
+    // ✅ FIX: Conditionally show processingFee and salesTax rows only if non-zero
+    const extraCostRows = `
+        ${processingFee > 0 ? `
+        <div class="flex justify-between px-4 py-3">
+            <span class="text-gray-600">Processing Fee</span>
+            <span class="font-medium">${formatCurrency(processingFee)}</span>
+        </div>` : ''}
+        ${salesTax > 0 ? `
+        <div class="flex justify-between px-4 py-3">
+            <span class="text-gray-600">Sales Tax</span>
+            <span class="font-medium">${formatCurrency(salesTax)}</span>
+        </div>` : ''}
+    `;
+
+    const modalHTML = `
+    <div id="vendorOrderDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            
+            <!-- Header -->
+            <div class="flex items-center justify-between p-6 border-b border-gray-100">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">Vendor Order Details</h2>
+                    <p class="text-sm text-gray-500 mt-1">Order #${order.orderNumber || order.id}</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusClass}">
+                        ${order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Unknown'}
+                    </span>
+                    <button onclick="document.getElementById('vendorOrderDetailsModal').remove()"
+                        class="text-gray-400 hover:text-gray-600 transition-colors">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="p-6 space-y-6">
+
+                <!-- Supplier & Dates -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Supplier</p>
+                        <p class="text-gray-800 font-medium">${order.supplier || 'N/A'}</p>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Order Date</p>
+                        <p class="text-gray-800 font-medium">${formatDate(order.orderDate)}</p>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Expected Delivery</p>
+                        <p class="text-gray-800 font-medium">${formatDate(order.expectedDelivery)}</p>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Tracking Number</p>
+                        <p class="text-gray-800 font-medium">${order.trackingNumber || 'N/A'}</p>
+                    </div>
+                </div>
+
+                <!-- Cost Breakdown -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Cost Breakdown</h3>
+                    <div class="bg-gray-50 rounded-xl overflow-hidden divide-y divide-gray-100">
+                        <div class="flex justify-between px-4 py-3">
+                            <span class="text-gray-600">Order Cost</span>
+                            <span class="font-medium">${formatCurrency(orderCost)}</span>
+                        </div>
+                        <div class="flex justify-between px-4 py-3">
+                            <span class="text-gray-600">Shipping Cost</span>
+                            <span class="font-medium">${formatCurrency(shippingCost)}</span>
+                        </div>
+                        <div class="flex justify-between px-4 py-3">
+                            <span class="text-gray-600">Tariffs / Duties</span>
+                            <span class="font-medium">${formatCurrency(tariffs)}</span>
+                        </div>
+                        ${extraCostRows}
+                        <div class="flex justify-between px-4 py-3 bg-blue-50">
+                            <span class="font-bold text-blue-800">Total Landed Cost</span>
+                            <span class="font-bold text-blue-800">${formatCurrency(landedCost)}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Items -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Items</h3>
+                    <div class="border border-gray-100 rounded-xl overflow-hidden">
+                        ${itemsHTML}
+                    </div>
+                </div>
+
+                ${order.notes ? `
+                <!-- Notes -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Notes</h3>
+                    <p class="text-gray-600 bg-gray-50 rounded-xl p-4 text-sm">${order.notes}</p>
+                </div>` : ''}
+
+            </div>
+
+            <!-- Footer -->
+            <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                <button onclick="window.module.showEditVendorOrderModal('${order.id}')"
+                    class="px-4 py-2 text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors font-semibold">
+                    ✏️ Edit Order
+                </button>
+                <button onclick="document.getElementById('vendorOrderDetailsModal').remove()"
+                    class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                    Close
+                </button>
+            </div>
+
+        </div>
+    </div>`;
+
+    const existing = document.getElementById('vendorOrderDetailsModal');
+    if (existing) existing.remove();
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
 
 
         function refreshProfitAnalysis() {
@@ -11066,59 +11325,19 @@ function buildVendorOrderModalHtml(existing) {
         </div>
     `;
 }
-function showEditVendorOrderModal(vendorDocId) {
-    resetTimer();
+function showEditVendorOrderModal(orderId) {
+    // Close details modal first
+    document.getElementById('vendorOrderDetailsModal')?.remove();
 
-    const order = state.vendorOrders.find(o => o.id === vendorDocId);
+    const order = state.vendorOrders.find(o => o.id === orderId);
     if (!order) {
         showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
         return;
     }
 
-    state.editingVendorOrderId = vendorDocId;
-
-    const modalContainer = document.getElementById('vendorOrderModalContainer');
-    if (!modalContainer) return;
-
-    modalContainer.innerHTML = buildVendorOrderModalHtml(order);
-    document.body.style.overflow = 'hidden';
-
-    // Populate existing items
-    const itemsContainer = document.getElementById('order-items-container');
-    if (itemsContainer) itemsContainer.innerHTML = '';  // Clear default
-
-    if (order.items && order.items.length > 0) {
-        order.items.forEach(item => {
-            addOrderItemRow();
-
-            // Get the last added row
-            const rows = document.querySelectorAll('[id^="order-item-"]');
-            const lastRow = rows[rows.length - 1];
-            if (!lastRow) return;
-
-            // Populate the fields
-            const idSelect = lastRow.querySelector('.order-item-id');
-            const nameInput = lastRow.querySelector('.order-item-name');
-            const skuInput = lastRow.querySelector('.order-item-sku');
-            const qtyInput = lastRow.querySelector('.order-item-quantity');
-            const priceInput = lastRow.querySelector('.order-item-price');
-
-            if (idSelect) idSelect.value = item.productId || '';
-            if (nameInput) nameInput.value = item.productName || '';
-            if (skuInput) skuInput.value = item.sku || '';
-            if (qtyInput) qtyInput.value = item.quantity || 0;
-            if (priceInput) priceInput.value = item.unitPriceCents ? (item.unitPriceCents / 100).toFixed(2) : '0.00';
-        });
-    } else {
-        addOrderItemRow();
-    }
-
-    // Recalculate totals after populating items
-    setTimeout(() => {
-        recalculateVendorOrderTotal();
-    }, 100);
+    // Open the add/edit modal in edit mode
+    showAddVendorOrderModal(orderId);
 }
-
 async function deleteVendorOrder(vendorDocId) {
     resetTimer();
 
