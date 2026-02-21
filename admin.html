@@ -7112,112 +7112,131 @@
             }
         }
 
-        function recalculateVendorOrderTotal() {
-            const getValue = (name) => parseFloat(document.querySelector(`[name="${name}"]`)?.value || 0) || 0;
+function recalculateVendorOrderTotal() {
+    const form = document.getElementById('vendorOrderForm');
+    if (!form) return;
 
-            const orderCost = getValue('orderCost');
-            const shippingCost = getValue('shippingCost');
-            const tariffs = getValue('tariffs');
-            const processingFee = getValue('processingFee');
-            const salesTax = getValue('salesTax');
+    const getNum = (name) => parseFloat(form.querySelector(`[name="${name}"]`)?.value || 0) || 0;
 
-            const total = orderCost + shippingCost + tariffs + processingFee + salesTax;
+    const total = getNum('orderCost')
+                + getNum('shippingCost')
+                + getNum('tariffs')
+                + getNum('processingFee')
+                + getNum('salesTax');
 
-            const el = document.getElementById('vendorOrderLandedCost');
-            if (el) el.textContent = `$${total.toFixed(2)}`;
-        }
-        async function saveVendorOrder(editOrderId = null) {
-            const form = document.getElementById('vendorOrderForm');
-            if (!form) return;
+    const el = document.getElementById('vendorOrderLandedCost');
+    if (el) el.textContent = `$${total.toFixed(2)}`;
+}
+async function saveVendorOrder(editOrderId = null) {
+    const form = document.getElementById('vendorOrderForm');
+    if (!form) return;
 
-            const getValue = (name) => form.querySelector(`[name="${name}"]`)?.value?.trim() || '';
-            const getNumber = (name) => parseFloat(form.querySelector(`[name="${name}"]`)?.value || 0) || 0;
+    const getValue  = (name) => form.querySelector(`[name="${name}"]`)?.value?.trim() || '';
+    const getNumber = (name) => parseFloat(form.querySelector(`[name="${name}"]`)?.value || 0) || 0;
 
-            const supplier = getValue('supplier');
-            if (!supplier) {
-                showMessage('error', 'Supplier name is required.', 3000, 'vendorOrder');
-                return;
-            }
+    const supplier = getValue('supplier');
+    if (!supplier) {
+        showMessage('error', 'Supplier name is required.', 3000, 'vendorOrder');
+        return;
+    }
 
-            // Collect items from rows
-            const rows = form.querySelectorAll('.item-row');
-            const items = [];
-            rows.forEach(row => {
-                const productSelect = row.querySelector('[name="itemProductId[]"]');
-                const qtyInput = row.querySelector('[name="itemQty[]"]');
-                const subtotalInput = row.querySelector('[name="itemSubtotal[]"]');  // ✅ NEW
-                const costInput = row.querySelector('[name="itemUnitCost[]"]');
+    // Collect item rows
+    const rows = form.querySelectorAll('.item-row');
+    const items = [];
+    rows.forEach(row => {
+        const productSelect = row.querySelector('[name="itemProductId[]"]');
+        const qtyInput      = row.querySelector('[name="itemQty[]"]');
+        const costInput     = row.querySelector('[name="itemUnitCost[]"]');
+        const subtotalInput = row.querySelector('[name="itemSubtotal[]"]');
 
-                const productId = productSelect?.value;
-                const qty = parseInt(qtyInput?.value || 0);
-                const unitCost = parseFloat(costInput?.value || 0);
-                const subtotal = parseFloat(subtotalInput?.value || (qty * unitCost).toFixed(2)); // ✅ NEW
+        const productId = productSelect?.value;
+        const qty       = parseInt(qtyInput?.value   || 0);
+        const unitCost  = parseFloat(costInput?.value || 0);  // dollars
+        const subtotal  = parseFloat(subtotalInput?.value || (qty * unitCost).toFixed(2));
 
-                if (productId && qty > 0) {
-                    const product = state.items?.find(i => i.id === productId);
-                    items.push({
-                        productId,
-                        name: product?.name || '',
-                        sku: product?.sku || '',
-                        quantity: qty,
-                        unitCost: unitCost,
-                        subtotal: subtotal  // ✅ NEW — stored for reference
-                    });
-                }
+        if (productId && qty > 0) {
+            const product = state.items?.find(i => i.id === productId);
+            items.push({
+                productId,
+                productName:    product?.name || '',
+                sku:            product?.sku  || '',
+                quantity:       qty,
+                // Save in cents to match existing schema
+                unitPriceCents:  Math.round(unitCost * 100),
+                totalPriceCents: Math.round(subtotal * 100),
             });
+        }
+    });
 
-            const orderData = {
-                supplier,
-                status: getValue('status') || 'pending',
-                orderDate: getValue('orderDate') || new Date().toISOString().split('T')[0],
-                expectedDelivery: getValue('expectedDelivery') || null,
-                trackingNumber: getValue('trackingNumber') || null,
-                items,
-                orderCost: getNumber('orderCost'),
-                shippingCost: getNumber('shippingCost'),
-                tariffs: getNumber('tariffs'),
-                processingFee: getNumber('processingFee'),  // ✅ NEW
-                salesTax: getNumber('salesTax'),        // ✅ NEW
-                orderLink: getValue('orderLink') || null,
-                landedCost: getNumber('orderCost') + getNumber('shippingCost') +
-                    getNumber('tariffs') + getNumber('processingFee') +
-                    getNumber('salesTax'),
-                notes: getValue('notes') || null,
-                updatedAt: serverTimestamp()
-            };
+    // Read dollar values from form, convert to cents for storage
+    const subtotalDollars      = getNumber('orderCost');
+    const shippingDollars      = getNumber('shippingCost');
+    const tariffDollars        = getNumber('tariffs');
+    const processingFeeDollars = getNumber('processingFee');
+    const salesTaxDollars      = getNumber('salesTax');
+    const tariffRate           = getNumber('tariffRate'); // percentage, store as-is
 
-            try {
-                
-                if (editOrderId) {
-                    // Update existing
-                    const docRef = doc(db, VENDOR_ORDERS_COLLECTION, editOrderId);
-                    await updateDoc(docRef, orderData);
-                    showMessage('success', `Vendor order updated successfully.`, 3000, 'vendorOrder');
-                    logAdminAction('VENDOR_ORDER_UPDATED', { supplier, editOrderId });
-                } else {
-                    // Create new
-                    orderData.createdAt = serverTimestamp();
-                    await addDoc(collection(db, VENDOR_ORDERS_COLLECTION), orderData);
-                    showMessage('success', `Vendor order created successfully.`, 3000, 'vendorOrder');
-                    logAdminAction('VENDOR_ORDER_CREATED', { supplier });
-                }
+    const subtotalCents      = Math.round(subtotalDollars * 100);
+    const shippingCostCents  = Math.round(shippingDollars * 100);
+    const tariffCostCents    = Math.round(tariffDollars * 100);
+    const processingFeeCents = Math.round(processingFeeDollars * 100);
+    const salesTaxCents      = Math.round(salesTaxDollars * 100);
+    const totalCostCents     = subtotalCents + shippingCostCents + tariffCostCents
+                             + processingFeeCents + salesTaxCents;
 
-                closeVendorOrderModal();
-                refreshVendorOrders(); // triggers a re-fetch or re-render
+    const orderData = {
+        supplier:           supplier,
+        orderId:            getValue('orderId'),
+        supplierOrderUrl:   getValue('orderLink') || getValue('supplierOrderUrl') || null,
+        status:             getValue('status') || 'Ordered',
+        orderDate:          getValue('orderDate') || null,
+        expectedDeliveryDate: getValue('expectedDelivery') || null,
+        trackingNumber:     getValue('trackingNumber') || null,
+        notes:              getValue('notes') || null,
+        items,
 
-            } catch (error) {
-                console.error('Error saving vendor order:', error);
-                showMessage('error', `Failed to save order: ${error.message}`, 5000, 'vendorOrder');
-            }
+        // Store in cents — matches your existing Firestore schema
+        subtotalCents,
+        shippingCostCents,
+        tariffCostCents,
+        tariffRate,
+        processingFeeCents,
+        salesTaxCents,
+        totalCostCents,
+
+        updatedAt: serverTimestamp(),
+    };
+
+    try {
+        if (editOrderId) {
+            // ✅ Uses global VENDOR_ORDERS_COLLECTION — no local override
+            const docRef = doc(db, VENDOR_ORDERS_COLLECTION, editOrderId);
+            await updateDoc(docRef, orderData);
+            showMessage('success', 'Vendor order updated successfully.', 3000, 'vendorOrder');
+            await logAdminAction('VENDOR_ORDER_UPDATED', { supplier, editOrderId }, editOrderId);
+        } else {
+            orderData.createdAt = serverTimestamp();
+            const docRef = await addDoc(collection(db, VENDOR_ORDERS_COLLECTION), orderData);
+            showMessage('success', 'Vendor order created successfully.', 3000, 'vendorOrder');
+            await logAdminAction('VENDOR_ORDER_CREATED', { supplier }, docRef.id);
         }
 
+        closeVendorOrderModal();
+        refreshVendorOrders();
 
-        function closeVendorOrderModal() {
-            // Handle both possible modal IDs
-            document.getElementById('vendorOrderModal')?.remove();
-            document.getElementById('addVendorOrderModal')?.remove();
-            document.getElementById('editVendorOrderModal')?.remove();
-        }
+    } catch (error) {
+        console.error('Error saving vendor order:', error);
+        showMessage('error', `Failed to save order: ${error.message}`, 5000, 'vendorOrder');
+    }
+}
+
+
+
+function closeVendorOrderModal() {
+    document.getElementById('vendorOrderModal')?.remove();
+    document.getElementById('addVendorOrderModal')?.remove();
+    document.getElementById('editVendorOrderModal')?.remove();
+}
 
         async function removePayment(orderId, paymentIndex) {
             resetTimer();
@@ -11368,19 +11387,296 @@ function showVendorOrderDetailsModal(orderId) {
         </div>
     `;
         }
-        function showEditVendorOrderModal(orderId) {
-            // Close details modal first
-            document.getElementById('vendorOrderDetailsModal')?.remove();
+function showEditVendorOrderModal(orderId) {
+    // Close details modal if open
+    document.getElementById('vendorOrderDetailsModal')?.remove();
 
-            const order = state.vendorOrders.find(o => o.id === orderId);
-            if (!order) {
-                showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
-                return;
-            }
+    const order = state.vendorOrders.find(o => o.id === orderId);
+    if (!order) {
+        showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
+        return;
+    }
 
-            // Open the add/edit modal in edit mode
-            showAddVendorOrderModal(orderId);
+    // Convert cents → dollars for form display
+    const toDollars = (cents) => cents != null ? (cents / 100).toFixed(2) : '0.00';
+
+    const subtotalDollars      = toDollars(order.subtotalCents);
+    const shippingDollars      = toDollars(order.shippingCostCents);
+    const tariffDollars        = toDollars(order.tariffCostCents);
+    const processingFeeDollars = toDollars(order.processingFeeCents);
+    const salesTaxDollars      = toDollars(order.salesTaxCents);
+    const totalDollars         = toDollars(order.totalCostCents);
+
+    // Build product options for each item row
+    const allProductOptions = (state.items || []).map(item =>
+        `<option value="${escapeAttribute(item.id)}">${escapeHtml(item.name)}</option>`
+    ).join('');
+
+    const buildItemRows = () => {
+        if (!order.items || order.items.length === 0) {
+            return `
+            <div class="item-row grid grid-cols-12 gap-2 items-center" data-row="0">
+                <div class="col-span-5">
+                    <select name="itemProductId[]"
+                            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Select Product —</option>
+                        ${allProductOptions}
+                    </select>
+                </div>
+                <div class="col-span-2">
+                    <input type="number" name="itemQty[]" placeholder="Qty" min="1" value="1"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                </div>
+                <div class="col-span-2">
+                    <input type="number" name="itemSubtotal[]" placeholder="0.00" step="0.01" min="0"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-yellow-50">
+                </div>
+                <div class="col-span-2">
+                    <input type="number" name="itemUnitCost[]" placeholder="0.00" step="0.01" min="0"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                </div>
+                <div class="col-span-1">
+                    <button type="button" onclick="this.closest('.item-row').remove()"
+                            class="text-red-500 hover:text-red-700 font-bold text-lg">×</button>
+                </div>
+            </div>`;
         }
+
+        return order.items.map((item, idx) => {
+            // Pre-select the correct product
+            const rowOptions = (state.items || []).map(p =>
+                `<option value="${escapeAttribute(p.id)}"
+                         ${p.id === item.productId ? 'selected' : ''}>
+                    ${escapeHtml(p.name)}
+                 </option>`
+            ).join('');
+
+            const unitCost = (item.unitPriceCents  || 0) / 100;
+            const subtotal = (item.totalPriceCents || 0) / 100;
+            const qty      = item.quantity || 1;
+
+            return `
+            <div class="item-row grid grid-cols-12 gap-2 items-center" data-row="${idx}">
+                <div class="col-span-5">
+                    <select name="itemProductId[]"
+                            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        <option value="">— Select Product —</option>
+                        ${rowOptions}
+                    </select>
+                </div>
+                <div class="col-span-2">
+                    <input type="number" name="itemQty[]" min="1" value="${qty}"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                           oninput="window.module.autoCalcUnitCost(this)">
+                </div>
+                <div class="col-span-2">
+                    <input type="number" name="itemSubtotal[]" step="0.01" min="0"
+                           value="${subtotal.toFixed(2)}"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-yellow-50"
+                           oninput="window.module.autoCalcUnitCost(this)">
+                </div>
+                <div class="col-span-2">
+                    <input type="number" name="itemUnitCost[]" step="0.0001" min="0"
+                           value="${unitCost.toFixed(4)}"
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                           oninput="window.module.autoCalcSubtotal(this)">
+                </div>
+                <div class="col-span-1">
+                    <button type="button" onclick="this.closest('.item-row').remove()"
+                            class="text-red-500 hover:text-red-700 font-bold text-lg">×</button>
+                </div>
+            </div>`;
+        }).join('');
+    };
+
+    const modalHTML = `
+    <div id="vendorOrderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+
+            <!-- Header -->
+            <div class="flex items-center justify-between p-6 border-b border-gray-100">
+                <h2 class="text-xl font-bold text-gray-800">Edit Vendor Order</h2>
+                <button onclick="window.module.closeVendorOrderModal()"
+                        class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Form -->
+            <form id="vendorOrderForm" class="p-6 space-y-5">
+
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Supplier -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Supplier</label>
+                        <input type="text" name="supplier" value="${escapeAttribute(order.supplier || '')}"
+                               required placeholder="e.g. Alibaba"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <!-- Status -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Status</label>
+                        <select name="status" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                            ${['Ordered','Paid','Shipped','In Transit','Delivered','Cancelled'].map(s =>
+                                `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+
+                    <!-- Supplier Order ID -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Supplier Order ID</label>
+                        <input type="text" name="orderId" value="${escapeAttribute(order.orderId || '')}"
+                               placeholder="e.g. 291954187001029840"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+
+                    <!-- Order Date -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Order Date</label>
+                        <input type="date" name="orderDate" value="${escapeAttribute(order.orderDate || '')}"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+
+                    <!-- Expected Delivery -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Expected Delivery</label>
+                        <input type="date" name="expectedDelivery" value="${escapeAttribute(order.expectedDeliveryDate || '')}"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+
+                    <!-- Tracking Number -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Tracking Number</label>
+                        <input type="text" name="trackingNumber" value="${escapeAttribute(order.trackingNumber || '')}"
+                               placeholder="Carrier tracking number"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                </div>
+
+                <!-- Order Link -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">
+                        Order Link
+                        <span class="text-gray-400 font-normal text-xs ml-1">(Alibaba, AliExpress, supplier portal)</span>
+                    </label>
+                    <div class="flex gap-2">
+                        <input type="url" name="orderLink"
+                               value="${escapeAttribute(order.supplierOrderUrl || order.orderLink || '')}"
+                               placeholder="https://..."
+                               class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        ${(order.supplierOrderUrl || order.orderLink) ? `
+                        <a href="${escapeAttribute(order.supplierOrderUrl || order.orderLink)}" target="_blank"
+                           class="px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-sm font-semibold flex items-center gap-1 whitespace-nowrap">
+                            ↗ Open
+                        </a>` : ''}
+                    </div>
+                </div>
+
+                <!-- Items -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-sm font-semibold text-gray-700">Items Ordered</label>
+                        <button type="button" onclick="window.module.addVendorOrderItemRow()"
+                                class="text-xs text-blue-600 hover:text-blue-800 font-semibold">+ Add Item</button>
+                    </div>
+                    <!-- Column headers -->
+                    <div class="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase mb-1 px-1">
+                        <div class="col-span-5">Product</div>
+                        <div class="col-span-2">Qty</div>
+                        <div class="col-span-2">Subtotal ($)</div>
+                        <div class="col-span-2">Unit Cost ($)</div>
+                        <div class="col-span-1"></div>
+                    </div>
+                    <div id="vendorOrderItemsContainer" class="space-y-2">
+                        ${buildItemRows()}
+                    </div>
+                </div>
+
+                <!-- Cost Fields -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Product Subtotal ($)</label>
+                        <input type="number" name="orderCost" step="0.01" min="0"
+                               value="${subtotalDollars}"
+                               onchange="window.module.recalculateVendorOrderTotal()"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Shipping Cost ($)</label>
+                        <input type="number" name="shippingCost" step="0.01" min="0"
+                               value="${shippingDollars}"
+                               onchange="window.module.recalculateVendorOrderTotal()"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Tariffs / Import Duties ($)</label>
+                        <input type="number" name="tariffs" step="0.01" min="0"
+                               value="${tariffDollars}"
+                               onchange="window.module.recalculateVendorOrderTotal()"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Tariff Rate (%)</label>
+                        <input type="number" name="tariffRate" step="0.1" min="0"
+                               value="${order.tariffRate || ''}"
+                               placeholder="e.g. 69.8"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Processing / Platform Fee ($)</label>
+                        <input type="number" name="processingFee" step="0.01" min="0"
+                               value="${processingFeeDollars}"
+                               onchange="window.module.recalculateVendorOrderTotal()"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Sales Tax ($)</label>
+                        <input type="number" name="salesTax" step="0.01" min="0"
+                               value="${salesTaxDollars}"
+                               onchange="window.module.recalculateVendorOrderTotal()"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    </div>
+                </div>
+
+                <!-- Total -->
+                <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex justify-between items-center">
+                    <span class="font-bold text-indigo-800">Total Landed Cost</span>
+                    <span id="vendorOrderLandedCost" class="text-2xl font-black text-indigo-800">$${totalDollars}</span>
+                </div>
+
+                <!-- Notes -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
+                    <textarea name="notes" rows="3" placeholder="Any additional notes..."
+                              class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">${escapeHtml(order.notes || '')}</textarea>
+                </div>
+
+            </form>
+
+            <!-- Footer -->
+            <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                <button type="button" onclick="window.module.closeVendorOrderModal()"
+                        class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                    Cancel
+                </button>
+                <button type="button" onclick="window.module.saveVendorOrder('${order.id}')"
+                        class="px-6 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-semibold">
+                    Save Changes
+                </button>
+            </div>
+
+        </div>
+    </div>`;
+
+    const existing = document.getElementById('vendorOrderModal');
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
         async function deleteVendorOrder(vendorDocId) {
             resetTimer();
 
