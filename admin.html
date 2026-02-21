@@ -336,7 +336,7 @@
         const EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendOrderConfirmation'; // Added Email Function
         const RECEIPT_EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendReceiptConfirmation';
         const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection;
-        const VENDOR_ORDERS_COLLECTION = `artifacts/${globalConfig.appId}/public/data/vendorOrders`;
+        const VENDOR_ORDERS_COLLECTION = `vendor_orders`;
         const SHIPPING_LABELS_COLLECTION = 'shippingLabels';
 
         // --- CORE FIREBASE SETUP ---
@@ -7214,15 +7214,12 @@
 
 
         function closeVendorOrderModal() {
-            const modalContainer = document.getElementById('vendorOrderModalContainer');
-            if (modalContainer) {
-                modalContainer.innerHTML = '';
-            }
-            document.body.style.overflow = 'auto';
-            orderItemCounter = 0;
-            state.editingVendorOrderId = null;  // Clear edit state
-            resetTimer();
+            // Handle both possible modal IDs
+            document.getElementById('vendorOrderModal')?.remove();
+            document.getElementById('addVendorOrderModal')?.remove();
+            document.getElementById('editVendorOrderModal')?.remove();
         }
+
         async function removePayment(orderId, paymentIndex) {
             resetTimer();
 
@@ -8693,97 +8690,79 @@
             refreshProfitAnalysis();
             resetTimer();
         }
-        function showVendorOrderDetailsModal(orderId) {
-            const order = state.vendorOrders.find(o => o.id === orderId);
-            if (!order) {
-                showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
-                return;
-            }
+function showVendorOrderDetailsModal(orderId) {
+    const raw = state.vendorOrders.find(o => o.id === orderId);
+    if (!raw) {
+        showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
+        return;
+    }
 
-            const formatCurrency = (val) => `$${parseFloat(val || 0).toFixed(2)}`;
-            const formatDate = (val) => {
-                if (!val) return 'N/A';
-                if (val.toDate) return val.toDate().toLocaleDateString();
-                return new Date(val).toLocaleDateString();
-            };
+    const order = normalizeVendorOrder(raw);
 
-            // Cost breakdown — includes processingFee and salesTax
-            const orderCost = parseFloat(order.orderCost || 0);
-            const shippingCost = parseFloat(order.shippingCost || 0);
-            const tariffs = parseFloat(order.tariffs || 0);
-            const processingFee = parseFloat(order.processingFee || 0);
-            const salesTax = parseFloat(order.salesTax || 0);
-            const landedCost = orderCost + shippingCost + tariffs + processingFee + salesTax;
+    const formatCurrency = (val) => `$${parseFloat(val || 0).toFixed(2)}`;
+    const formatDate = (val) => {
+        if (!val) return 'N/A';
+        if (val.toDate) return val.toDate().toLocaleDateString();
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
+    };
 
-            const statusColors = {
-                pending: 'bg-yellow-100 text-yellow-800',
-                ordered: 'bg-blue-100 text-blue-800',
-                shipped: 'bg-purple-100 text-purple-800',
-                delivered: 'bg-green-100 text-green-800',
-                cancelled: 'bg-red-100 text-red-800'
-            };
-            const statusClass = statusColors[order.status?.toLowerCase()] || 'bg-gray-100 text-gray-800';
+    const statusColors = {
+        pending:   'bg-yellow-100 text-yellow-800',
+        ordered:   'bg-blue-100 text-blue-800',
+        shipped:   'bg-purple-100 text-purple-800',
+        delivered: 'bg-green-100 text-green-800',
+        cancelled: 'bg-red-100 text-red-800',
+        paid:      'bg-green-100 text-green-800',
+    };
+    const statusKey = (order.status || '').toLowerCase();
+    const statusClass = statusColors[statusKey] || 'bg-gray-100 text-gray-800';
 
-            // Resolve item fields — handles all common storage formats
-            const resolveItemName = (item) => {
-                if (item.name) return item.name;
-                if (item.productName) return item.productName;
-                if (item.productId) {
-                    const found = state.items?.find(i => i.id === item.productId);
-                    if (found) return found.name;
-                    return item.productId;
-                }
-                return 'N/A';
-            };
-
-            const resolveUnitCost = (item) =>
-                parseFloat(item.unitCost ?? item.cost ?? item.price ?? 0);
-
-            // Items table
-            const itemsHTML = (order.items && order.items.length > 0)
-                ? `
+    // Items table
+    const itemsHTML = order.items.length > 0
+        ? `
         <table class="w-full text-sm">
             <thead>
                 <tr class="bg-gray-50 text-gray-600 uppercase text-xs">
                     <th class="px-4 py-2 text-left">Product</th>
+                    <th class="px-4 py-2 text-left">SKU</th>
                     <th class="px-4 py-2 text-center">Qty</th>
                     <th class="px-4 py-2 text-right">Unit Cost</th>
                     <th class="px-4 py-2 text-right">Subtotal</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-                ${order.items.map(item => {
-                    const name = resolveItemName(item);
-                    const unitCost = resolveUnitCost(item);
-                    const qty = parseInt(item.quantity || 0);
-                    const subtotal = item.subtotal ?? (qty * unitCost);
-                    return `
-                    <tr>
-                        <td class="px-4 py-2 text-gray-800">${name}</td>
-                        <td class="px-4 py-2 text-center text-gray-600">${qty}</td>
-                        <td class="px-4 py-2 text-right text-gray-600">${formatCurrency(unitCost)}</td>
-                        <td class="px-4 py-2 text-right font-medium">${formatCurrency(subtotal)}</td>
-                    </tr>`;
-                }).join('')}
+                ${order.items.map(item => `
+                <tr>
+                    <td class="px-4 py-2 text-gray-800">${escapeHtml(item.name)}</td>
+                    <td class="px-4 py-2 text-gray-500 font-mono text-xs">${escapeHtml(item.sku)}</td>
+                    <td class="px-4 py-2 text-center text-gray-600">${item.quantity}</td>
+                    <td class="px-4 py-2 text-right text-gray-600">${formatCurrency(item.unitCost)}</td>
+                    <td class="px-4 py-2 text-right font-medium">${formatCurrency(item.subtotal || item.quantity * item.unitCost)}</td>
+                </tr>`).join('')}
             </tbody>
         </table>`
-                : `<p class="text-gray-500 text-sm text-center py-4">No items listed for this order.</p>`;
+        : `<p class="text-gray-500 text-sm text-center py-4">No items listed for this order.</p>`;
 
-            // Extra cost rows — only shown when non-zero
-            const extraCostRows = `
-        ${processingFee > 0 ? `
+    // Only show non-zero extra cost rows
+    const extraCostRows = [
+        order.processingFee > 0 ? `
         <div class="flex justify-between px-4 py-3">
             <span class="text-gray-600">Processing / Platform Fee</span>
-            <span class="font-medium">${formatCurrency(processingFee)}</span>
-        </div>` : ''}
-        ${salesTax > 0 ? `
+            <span class="font-medium">${formatCurrency(order.processingFee)}</span>
+        </div>` : '',
+        order.salesTax > 0 ? `
         <div class="flex justify-between px-4 py-3">
             <span class="text-gray-600">Sales Tax</span>
-            <span class="font-medium">${formatCurrency(salesTax)}</span>
-        </div>` : ''}
-    `;
+            <span class="font-medium">${formatCurrency(order.salesTax)}</span>
+        </div>` : '',
+    ].join('');
 
-            const modalHTML = `
+    // Per-unit landed cost
+    const totalUnits = order.items.reduce((sum, i) => sum + i.quantity, 0);
+    const perUnitLanded = totalUnits > 0 ? order.landedCost / totalUnits : 0;
+
+    const modalHTML = `
     <div id="vendorOrderDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
 
@@ -8791,19 +8770,16 @@
             <div class="flex items-center justify-between p-6 border-b border-gray-100">
                 <div>
                     <h2 class="text-xl font-bold text-gray-800">Vendor Order Details</h2>
-                    <p class="text-sm text-gray-500 mt-1">Order #${order.orderNumber || order.id}</p>
+                    <p class="text-sm text-gray-500 mt-1">Order #${escapeHtml(order.orderNumber)}</p>
                 </div>
                 <div class="flex items-center gap-3">
                     <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusClass}">
-                        ${order.status
-                    ? order.status.charAt(0).toUpperCase() + order.status.slice(1)
-                    : 'Unknown'}
+                        ${order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : 'Unknown'}
                     </span>
                     <button onclick="document.getElementById('vendorOrderDetailsModal').remove()"
                         class="text-gray-400 hover:text-gray-600 transition-colors">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M6 18L18 6M6 6l12 12"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                         </svg>
                     </button>
                 </div>
@@ -8816,7 +8792,7 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div class="bg-gray-50 rounded-xl p-4">
                         <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Supplier</p>
-                        <p class="text-gray-800 font-medium">${order.supplier || 'N/A'}</p>
+                        <p class="text-gray-800 font-medium">${escapeHtml(order.supplier)}</p>
                     </div>
                     <div class="bg-gray-50 rounded-xl p-4">
                         <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Order Date</p>
@@ -8828,20 +8804,19 @@
                     </div>
                     <div class="bg-gray-50 rounded-xl p-4">
                         <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Tracking Number</p>
-                        <p class="text-gray-800 font-medium">${order.trackingNumber || 'N/A'}</p>
+                        <p class="text-gray-800 font-medium">${escapeHtml(order.trackingNumber || 'N/A')}</p>
                     </div>
 
-                    <!-- Order Link — spans full width, only shown if present -->
                     ${order.orderLink ? `
                     <div class="bg-gray-50 rounded-xl p-4 col-span-2">
                         <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Order Link</p>
-                        <a href="${order.orderLink}" target="_blank"
+                        <a href="${escapeAttribute(order.orderLink)}" target="_blank"
                            class="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center gap-2 break-all">
                             <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                       d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
                             </svg>
-                            ${order.orderLink}
+                            ${escapeHtml(order.orderLink)}
                         </a>
                     </div>` : ''}
                 </div>
@@ -8852,37 +8827,33 @@
                     <div class="bg-gray-50 rounded-xl overflow-hidden divide-y divide-gray-100">
                         <div class="flex justify-between px-4 py-3">
                             <span class="text-gray-600">Order / Product Cost</span>
-                            <span class="font-medium">${formatCurrency(orderCost)}</span>
+                            <span class="font-medium">${formatCurrency(order.orderCost)}</span>
                         </div>
                         <div class="flex justify-between px-4 py-3">
                             <span class="text-gray-600">Shipping Cost</span>
-                            <span class="font-medium">${formatCurrency(shippingCost)}</span>
+                            <span class="font-medium">${formatCurrency(order.shippingCost)}</span>
                         </div>
                         <div class="flex justify-between px-4 py-3">
                             <span class="text-gray-600">Tariffs / Import Duties</span>
-                            <span class="font-medium">${formatCurrency(tariffs)}</span>
+                            <span class="font-medium">${formatCurrency(order.tariffs)}</span>
                         </div>
                         ${extraCostRows}
                         <div class="flex justify-between px-4 py-3 bg-blue-50">
                             <span class="font-bold text-blue-800">Total Landed Cost</span>
-                            <span class="font-bold text-blue-800">${formatCurrency(landedCost)}</span>
+                            <span class="font-bold text-blue-800">${formatCurrency(order.landedCost)}</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Per-Unit Cost Summary (shown only when items exist) -->
-                ${(order.items && order.items.length > 0) ? (() => {
-                    const totalUnits = order.items.reduce((sum, i) => sum + parseInt(i.quantity || 0), 0);
-                    const perUnitLanded = totalUnits > 0 ? (landedCost / totalUnits) : 0;
-                    return `
-                    <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-center justify-between">
-                        <div>
-                            <p class="text-xs text-indigo-600 uppercase font-semibold">Avg Landed Cost Per Unit</p>
-                            <p class="text-xs text-gray-500 mt-0.5">Total landed ÷ ${totalUnits} unit${totalUnits !== 1 ? 's' : ''}</p>
-                        </div>
-                        <span class="text-2xl font-black text-indigo-800">${formatCurrency(perUnitLanded)}</span>
-                    </div>`;
-                })() : ''}
+                <!-- Per-Unit Cost -->
+                ${totalUnits > 0 ? `
+                <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-indigo-600 uppercase font-semibold">Avg Landed Cost Per Unit</p>
+                        <p class="text-xs text-gray-500 mt-0.5">Total landed ÷ ${totalUnits} unit${totalUnits !== 1 ? 's' : ''}</p>
+                    </div>
+                    <span class="text-2xl font-black text-indigo-800">${formatCurrency(perUnitLanded)}</span>
+                </div>` : ''}
 
                 <!-- Items Table -->
                 <div>
@@ -8892,11 +8863,10 @@
                     </div>
                 </div>
 
-                <!-- Notes -->
                 ${order.notes ? `
                 <div>
                     <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Notes</h3>
-                    <p class="text-gray-600 bg-gray-50 rounded-xl p-4 text-sm">${order.notes}</p>
+                    <p class="text-gray-600 bg-gray-50 rounded-xl p-4 text-sm">${escapeHtml(order.notes)}</p>
                 </div>` : ''}
 
             </div>
@@ -8916,11 +8886,10 @@
         </div>
     </div>`;
 
-            const existing = document.getElementById('vendorOrderDetailsModal');
-            if (existing) existing.remove();
-
-            document.body.insertAdjacentHTML('beforeend', modalHTML);
-        }
+    const existing = document.getElementById('vendorOrderDetailsModal');
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
 
         function refreshProfitAnalysis() {
             // Only update the parts that need updating, not the entire page
@@ -11506,7 +11475,64 @@
             recalculateVendorOrderTotal();
         }
 
+function normalizeVendorOrder(order) {
+    // If already normalized (has the new field names), return as-is
+    if (order._normalized) return order;
 
+    const get = (val, fallback = 0) => parseFloat(val ?? fallback) || 0;
+
+    // Convert cents to dollars where needed
+    const orderCost     = order.orderCost      != null ? get(order.orderCost)
+                        : order.subtotalCents   != null ? get(order.subtotalCents) / 100
+                        : 0;
+
+    const shippingCost  = order.shippingCost    != null ? get(order.shippingCost)
+                        : order.shippingCostCents != null ? get(order.shippingCostCents) / 100
+                        : 0;
+
+    const tariffs       = order.tariffs         != null ? get(order.tariffs)
+                        : order.tariffCostCents  != null ? get(order.tariffCostCents) / 100
+                        : 0;
+
+    const processingFee = get(order.processingFee ?? 0);
+    const salesTax      = get(order.salesTax ?? 0);
+
+    // Normalize items array — handle both field formats
+    const items = (order.items || []).map(item => ({
+        productId:  item.productId || item.id || '',
+        name:       item.productName || item.name || '',
+        sku:        item.sku || '',
+        quantity:   parseInt(item.quantity || 0),
+        unitCost:   item.unitCost    != null ? get(item.unitCost)
+                  : item.unitPriceCents != null ? get(item.unitPriceCents) / 100
+                  : 0,
+        subtotal:   item.subtotal    != null ? get(item.subtotal)
+                  : item.totalPriceCents != null ? get(item.totalPriceCents) / 100
+                  : 0,
+    }));
+
+    return {
+        ...order,
+        // Normalized dollar-value fields
+        orderCost,
+        shippingCost,
+        tariffs,
+        processingFee,
+        salesTax,
+        landedCost: orderCost + shippingCost + tariffs + processingFee + salesTax,
+        items,
+        // Normalize other field names
+        orderLink:      order.orderLink       || order.supplierOrderUrl || null,
+        trackingNumber: order.trackingNumber  || null,
+        orderDate:      order.orderDate       || null,
+        expectedDelivery: order.expectedDelivery || order.expectedDeliveryDate || null,
+        notes:          order.notes           || null,
+        status:         order.status          || 'pending',
+        supplier:       order.supplier        || 'N/A',
+        orderNumber:    order.orderNumber     || order.orderId || order.id,
+        _normalized: true
+    };
+}
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
