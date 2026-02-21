@@ -8757,15 +8757,7 @@
                 </div>
 
                 <!-- Per-Unit Cost -->
-                ${totalUnits > 0 ? `
-                <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-center justify-between">
-                    <div>
-                        <p class="text-xs text-indigo-600 uppercase font-semibold">Avg Landed Cost Per Unit</p>
-                        <p class="text-xs text-gray-500 mt-0.5">Total landed ÷ ${totalUnits} unit${totalUnits !== 1 ? 's' : ''}</p>
-                    </div>
-                    <span class="text-2xl font-black text-indigo-800">${formatCurrency(perUnitLanded)}</span>
-                </div>` : ''}
-
+                    ${renderPerUnitBreakdown(order, totalUnits)}
                 <!-- Items Table -->
                 <div>
                     <h3 class="text-sm font-semibold text-gray-700 uppercase mb-3">Items Ordered</h3>
@@ -11664,61 +11656,50 @@
         }
 
         function normalizeVendorOrder(order) {
-            // If already normalized (has the new field names), return as-is
             if (order._normalized) return order;
 
-            const get = (val, fallback = 0) => parseFloat(val ?? fallback) || 0;
+            const fromCentsOrDollars = (centsField, dollarsField) => {
+                if (order[centsField] != null) return order[centsField] / 100;
+                if (order[dollarsField] != null) return parseFloat(order[dollarsField]) || 0;
+                return 0;
+            };
 
-            // Convert cents to dollars where needed
-            const orderCost = order.orderCost != null ? get(order.orderCost)
-                : order.subtotalCents != null ? get(order.subtotalCents) / 100
-                    : 0;
+            const orderCost = fromCentsOrDollars('subtotalCents', 'orderCost');
+            const shippingCost = fromCentsOrDollars('shippingCostCents', 'shippingCost');
+            const tariffs = fromCentsOrDollars('tariffCostCents', 'tariffs');
+            const processingFee = fromCentsOrDollars('processingFeeCents', 'processingFee'); // ✅ fixed
+            const salesTax = fromCentsOrDollars('salesTaxCents', 'salesTax');      // ✅ fixed
+            const landedCost = orderCost + shippingCost + tariffs + processingFee + salesTax;
 
-            const shippingCost = order.shippingCost != null ? get(order.shippingCost)
-                : order.shippingCostCents != null ? get(order.shippingCostCents) / 100
-                    : 0;
-
-            const tariffs = order.tariffs != null ? get(order.tariffs)
-                : order.tariffCostCents != null ? get(order.tariffCostCents) / 100
-                    : 0;
-
-            const processingFee = get(order.processingFee ?? 0);
-            const salesTax = get(order.salesTax ?? 0);
-
-            // Normalize items array — handle both field formats
             const items = (order.items || []).map(item => ({
                 productId: item.productId || item.id || '',
                 name: item.productName || item.name || '',
                 sku: item.sku || '',
                 quantity: parseInt(item.quantity || 0),
-                unitCost: item.unitCost != null ? get(item.unitCost)
-                    : item.unitPriceCents != null ? get(item.unitPriceCents) / 100
-                        : 0,
-                subtotal: item.subtotal != null ? get(item.subtotal)
-                    : item.totalPriceCents != null ? get(item.totalPriceCents) / 100
-                        : 0,
+                unitCost: item.unitPriceCents != null ? item.unitPriceCents / 100
+                    : parseFloat(item.unitCost || 0),
+                subtotal: item.totalPriceCents != null ? item.totalPriceCents / 100
+                    : parseFloat(item.subtotal || 0),
             }));
 
             return {
                 ...order,
-                // Normalized dollar-value fields
                 orderCost,
                 shippingCost,
                 tariffs,
                 processingFee,
                 salesTax,
-                landedCost: orderCost + shippingCost + tariffs + processingFee + salesTax,
+                landedCost,
                 items,
-                // Normalize other field names
-                orderLink: order.orderLink || order.supplierOrderUrl || null,
+                orderLink: order.supplierOrderUrl || order.orderLink || null,
                 trackingNumber: order.trackingNumber || null,
                 orderDate: order.orderDate || null,
-                expectedDelivery: order.expectedDelivery || order.expectedDeliveryDate || null,
+                expectedDelivery: order.expectedDeliveryDate || order.expectedDelivery || null,
                 notes: order.notes || null,
                 status: order.status || 'pending',
                 supplier: order.supplier || 'N/A',
                 orderNumber: order.orderNumber || order.orderId || order.id,
-                _normalized: true
+                _normalized: true,
             };
         }
 
@@ -11904,6 +11885,73 @@
                 showMessage('error', `Failed to save order: ${error.message}`, 5000, 'vendorOrder');
             }
         }
+        function renderPerUnitBreakdown(order, totalUnits) {
+            if (totalUnits <= 0) return '';
+
+            const fmt = (val) => `$${parseFloat(val || 0).toFixed(4)}`;
+            const fmtShort = (val) => `$${parseFloat(val || 0).toFixed(2)}`;
+
+            const productCostPerUnit = order.orderCost / totalUnits;
+            const shippingPerUnit = order.shippingCost / totalUnits;
+            const tariffsPerUnit = order.tariffs / totalUnits;
+            const processingFeePerUnit = order.processingFee / totalUnits; // ✅ now included
+            const salesTaxPerUnit = order.salesTax / totalUnits;
+            const totalPerUnit = order.landedCost / totalUnits;
+
+            const rows = [
+                { label: 'Product Cost', value: productCostPerUnit, color: 'text-gray-700', show: true },
+                { label: 'Shipping', value: shippingPerUnit, color: 'text-purple-600', show: order.shippingCost > 0 },
+                { label: '🛃 Tariffs', value: tariffsPerUnit, color: 'text-red-600', show: order.tariffs > 0 },
+                { label: '💳 Processing Fee', value: processingFeePerUnit, color: 'text-orange-600', show: order.processingFee > 0 },
+                { label: '🧾 Sales Tax', value: salesTaxPerUnit, color: 'text-yellow-600', show: order.salesTax > 0 },
+            ].filter(r => r.show);
+
+            // Width of each bar relative to totalPerUnit
+            const barWidth = (val) => `${Math.min(100, (val / totalPerUnit) * 100).toFixed(1)}%`;
+
+            const barColors = {
+                'text-gray-700': 'bg-gray-400',
+                'text-purple-600': 'bg-purple-400',
+                'text-red-600': 'bg-red-400',
+                'text-orange-600': 'bg-orange-400',
+                'text-yellow-600': 'bg-yellow-400',
+            };
+
+            return `
+    <div class="bg-indigo-50 border border-indigo-200 rounded-xl overflow-hidden">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-3 bg-indigo-600">
+            <div>
+                <p class="text-xs text-indigo-200 uppercase font-semibold">Landed Cost Per Unit</p>
+                <p class="text-xs text-indigo-300 mt-0.5">Total ÷ ${totalUnits} unit${totalUnits !== 1 ? 's' : ''}</p>
+            </div>
+            <span class="text-3xl font-black text-white">${fmtShort(totalPerUnit)}</span>
+        </div>
+
+        <!-- Per-component breakdown -->
+        <div class="px-4 py-3 space-y-2">
+            ${rows.map(row => `
+            <div>
+                <div class="flex justify-between items-center mb-0.5">
+                    <span class="text-xs ${row.color} font-medium">${row.label}</span>
+                    <span class="text-xs font-mono ${row.color} font-semibold">${fmt(row.value)}</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-1.5">
+                    <div class="${barColors[row.color]} h-1.5 rounded-full transition-all"
+                         style="width: ${barWidth(row.value)}"></div>
+                </div>
+            </div>`).join('')}
+        </div>
+
+        <!-- Footer note -->
+        <div class="px-4 py-2 bg-indigo-100 border-t border-indigo-200">
+            <p class="text-xs text-indigo-600">
+                Use <strong>${fmtShort(totalPerUnit)}</strong> as your minimum price floor when listing this product.
+            </p>
+        </div>
+    </div>`;
+        }
+
 
         // --- EXPOSE TO WINDOW ---
         window.module = {
