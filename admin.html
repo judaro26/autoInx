@@ -6684,144 +6684,64 @@
             }
         }
 
-        function showAddVendorOrderModal(editOrderId = null) {
-            // If editing, load existing order
-            const editOrder = editOrderId ? state.vendorOrders.find(o => o.id === editOrderId) : null;
-            const isEditing = !!editOrder;
-
-            const formatDateForInput = (val) => {
-                if (!val) return '';
-                if (val.toDate) return val.toDate().toISOString().split('T')[0];
-                const d = new Date(val);
-                return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
-            };
-
-            // Build product options — mark selected item if editing
-            const resolveItemIdFromOrder = (order) => {
-                if (!order || !order.items || order.items.length === 0) return null;
-                const firstItem = order.items[0];
-                return firstItem.productId || firstItem.id || null;
-            };
-
-            const existingProductId = editOrder ? resolveItemIdFromOrder(editOrder) : null;
-
-            const productOptions = (state.items || []).map(item =>
-                `<option value="${item.id}" 
-                 data-price="${(item.price / 100).toFixed(2)}"
-                 data-sku="${item.sku || ''}"
-                 ${existingProductId === item.id ? 'selected' : ''}>
-            ${escapeHtml(item.name)} ${item.sku ? `(${item.sku})` : ''}
-        </option>`
+function showAddVendorOrderModal() {
+    // Build product options from state.items
+    const buildProductOptions = (selectedId = '') => {
+        if (!state.items || state.items.length === 0) {
+            return `<option value="">— No products found —</option>`;
+        }
+        return `<option value="">— Select Product —</option>` +
+            state.items.map(item =>
+                `<option value="${escapeAttribute(item.id)}"
+                         ${item.id === selectedId ? 'selected' : ''}>
+                    ${escapeHtml(item.name)} (SKU: ${escapeHtml(item.sku || 'N/A')})
+                 </option>`
             ).join('');
+    };
 
-            // If editing with multiple items, build rows for each
-            const buildItemRows = () => {
-                if (!editOrder || !editOrder.items || editOrder.items.length === 0) {
-                    return
-                    `<div class="item-row grid grid-cols-12 gap-2 items-center" data-row="0">
-                <div class="col-span-5">
-                    <select name="itemProductId[]"
-                            onchange="window.module.handleProductSelect(this)"
-                            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-                        <option value="">— Select Product —</option>
-                        ${productOptions}
-                    </select>
-                </div>
-                <div class="col-span-2">
-                    <input type="number" name="itemQty[]" placeholder="Qty" min="1" value="1"
-                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                           oninput="window.module.autoCalcUnitCost(this)"
-                           onchange="window.module.recalculateVendorOrderTotal()">
-                </div>
-                <div class="col-span-2">
-                    <input type="number" name="itemSubtotal[]" placeholder="0.00" step="0.01" min="0"
-                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-yellow-50 border-yellow-300"
-                           title="Enter total paid for this item — unit cost will be calculated automatically"
-                           oninput="window.module.autoCalcUnitCost(this)">
-                </div>
-                <div class="col-span-2">
-                    <input type="number" name="itemUnitCost[]" placeholder="0.00" step="0.01" min="0"
-                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                           title="Or enter unit cost directly — subtotal will update"
-                           oninput="window.module.autoCalcSubtotal(this)"
-                           onchange="window.module.recalculateVendorOrderTotal()">
-                </div>
-                <div class="col-span-1">
-                    <button type="button" onclick="window.module.removeOrderItemRow(this)"
-                            class="text-red-500 hover:text-red-700 font-bold text-lg">×</button>
-                </div>
-            </div>`;
-                }
+    // Store on window so addVendorOrderItemRow can access it
+    window._buildVendorProductOptions = buildProductOptions;
 
-                return editOrder.items.map((item, idx) => {
-                    // Resolve product ID
-                    const productId = item.productId || item.id || '';
-                    const unitCost = parseFloat(item.unitCost ?? item.cost ?? 0).toFixed(2);
-                    const qty = parseInt(item.quantity || 1);
+    const firstRowHTML = `
+        <div class="item-row grid grid-cols-12 gap-2 items-center">
+            <div class="col-span-5">
+                <select name="itemProductId[]"
+                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    ${buildProductOptions()}
+                </select>
+            </div>
+            <div class="col-span-2">
+                <input type="number" name="itemQty[]" placeholder="Qty" min="1" value="1"
+                       class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                       oninput="window.module.autoCalcUnitCost(this)">
+            </div>
+            <div class="col-span-2">
+                <input type="number" name="itemSubtotal[]" placeholder="0.00" step="0.01" min="0"
+                       title="Enter total paid — unit cost auto-calculated"
+                       class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-yellow-50 border-yellow-300"
+                       oninput="window.module.autoCalcUnitCost(this)">
+            </div>
+            <div class="col-span-2">
+                <input type="number" name="itemUnitCost[]" placeholder="0.0000" step="0.0001" min="0"
+                       title="Or enter unit cost — subtotal auto-calculated"
+                       class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                       oninput="window.module.autoCalcSubtotal(this)">
+            </div>
+            <div class="col-span-1 flex justify-center">
+                <button type="button" onclick="this.closest('.item-row').remove()"
+                        class="text-red-500 hover:text-red-700 font-bold text-xl leading-none">×</button>
+            </div>
+        </div>`;
 
-                    // Build options with this item's product selected
-                    const rowProductOptions = (state.items || []).map(p =>
-                        `<option value="${p.id}" 
-                         data-price="${(p.price / 100).toFixed(2)}"
-                         data-sku="${p.sku || ''}"
-                         ${p.id === productId ? 'selected' : ''}>
-                    ${escapeHtml(p.name)} ${p.sku ? `(${p.sku})` : ''}
-                </option>`
-                    ).join('');
-
-                    return `
-            <div class="item-row grid grid-cols-12 gap-2 items-center" data-row="${idx}">
-                    <div class="col-span-5">
-                        <select name="itemProductId[]"
-                                onchange="window.module.handleProductSelect(this)"
-                                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-                            <option value="">— Select Product —</option>
-                            ${rowProductOptions}
-                        </select>
-                    </div>
-                    <div class="col-span-2">
-                        <input type="number" name="itemQty[]" placeholder="Qty" min="1" value="${qty}"
-                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                               oninput="window.module.autoCalcUnitCost(this)"
-                               onchange="window.module.recalculateVendorOrderTotal()">
-                    </div>
-                    <div class="col-span-2">
-                        <input type="number" name="itemSubtotal[]" placeholder="0.00" step="0.01" min="0"
-                               value="${(qty * unitCost).toFixed(2)}"
-                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-yellow-50 border-yellow-300"
-                               title="Enter total paid — unit cost calculated automatically"
-                               oninput="window.module.autoCalcUnitCost(this)">
-                    </div>
-                    <div class="col-span-2">
-                        <input type="number" name="itemUnitCost[]" placeholder="0.00" step="0.01" min="0"
-                               value="${unitCost}"
-                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                               title="Or enter unit cost directly"
-                               oninput="window.module.autoCalcSubtotal(this)"
-                               onchange="window.module.recalculateVendorOrderTotal()">
-                    </div>
-                    <div class="col-span-1">
-                        <button type="button" onclick="window.module.removeOrderItemRow(this)"
-                                class="text-red-500 hover:text-red-700 font-bold text-lg">×</button>
-                    </div>
-                </div>`;
-                }).join('');
-            };
-
-            const modalHTML = `
+    const modalHTML = `
     <div id="vendorOrderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
-            
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+
             <!-- Header -->
             <div class="flex items-center justify-between p-6 border-b border-gray-100">
-                <div>
-                    <h2 class="text-xl font-bold text-gray-800">
-                        ${isEditing ? `Edit Vendor Order <span class="text-blue-600">#${editOrder.orderNumber || editOrderId.substring(0, 8)}</span>` : 'New Vendor Order'}
-                    </h2>
-                    <p class="text-sm text-gray-500 mt-1">${isEditing ? 'Update the order details below' : 'Track a new purchase from a supplier'}</p>
-                </div>
-                <button onclick="window.module.closeVendorOrderModal()"
-                    class="text-gray-400 hover:text-gray-600 transition-colors">
+                <h2 class="text-xl font-bold text-gray-800">Add Vendor Order</h2>
+                <button type="button" onclick="window.module.closeVendorOrderModal()"
+                        class="text-gray-400 hover:text-gray-600 transition-colors">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
@@ -6829,195 +6749,172 @@
             </div>
 
             <!-- Form -->
-            <form id="vendorOrderForm" class="p-6 space-y-5">
-                ${isEditing ? `<input type="hidden" name="editOrderId" value="${editOrderId}">` : ''}
+            <form id="vendorOrderForm" class="p-6 space-y-5" onsubmit="return false;">
 
-                <!-- Supplier / Status / Dates -->
                 <div class="grid grid-cols-2 gap-4">
+                    <!-- Supplier -->
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Supplier *</label>
-                        <input type="text" name="supplier" required
-                               value="${editOrder ? escapeAttribute(editOrder.supplier || '') : ''}"
-                               placeholder="e.g., Alibaba Supplier Co."
+                        <input type="text" name="supplier" required placeholder="e.g. Alibaba, AliExpress"
                                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                     </div>
+
+                    <!-- Status -->
                     <div>
-                        <label class="block text-sm font-semibold text-gray-700 mb-1">Status *</label>
-                        <select name="status" required
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Status</label>
+                        <select name="status"
                                 class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-                            <option value="pending"   ${editOrder?.status === 'pending' ? 'selected' : ''}>Pending</option>
-                            <option value="ordered"   ${editOrder?.status === 'ordered' ? 'selected' : ''}>Ordered</option>
-                            <option value="shipped"   ${editOrder?.status === 'shipped' ? 'selected' : ''}>Shipped</option>
-                            <option value="delivered" ${editOrder?.status === 'delivered' ? 'selected' : ''}>Delivered</option>
-                            <option value="cancelled" ${editOrder?.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                            <option value="Ordered">Ordered</option>
+                            <option value="Paid">Paid</option>
+                            <option value="Shipped">Shipped</option>
+                            <option value="In Transit">In Transit</option>
+                            <option value="Delivered">Delivered</option>
+                            <option value="Cancelled">Cancelled</option>
                         </select>
                     </div>
+
+                    <!-- Supplier Order ID -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Supplier Order ID</label>
+                        <input type="text" name="orderId" placeholder="e.g. 291954187001029840"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <!-- Order Date -->
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Order Date</label>
                         <input type="date" name="orderDate"
-                               value="${editOrder ? formatDateForInput(editOrder.orderDate) : new Date().toISOString().split('T')[0]}"
                                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                     </div>
+
+                    <!-- Expected Delivery -->
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Expected Delivery</label>
                         <input type="date" name="expectedDelivery"
-                               value="${editOrder ? formatDateForInput(editOrder.expectedDelivery) : ''}"
+                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <!-- Tracking Number -->
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Tracking Number</label>
+                        <input type="text" name="trackingNumber" placeholder="Carrier tracking number"
                                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                     </div>
                 </div>
 
-                <!-- Tracking Number -->
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">Tracking Number</label>
-                    <input type="text" name="trackingNumber"
-                           value="${editOrder ? escapeAttribute(editOrder.trackingNumber || '') : ''}"
-                           placeholder="e.g., 1Z999AA10123456784"
-                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-                </div>
-                    <!-- Order Link (Alibaba, AliExpress, etc.) -->
+                <!-- Order Link -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">
                         Order Link
-                        <span class="text-gray-400 font-normal text-xs ml-1">(Alibaba, AliExpress, supplier portal, etc.)</span>
+                        <span class="text-gray-400 font-normal text-xs ml-1">(Alibaba, AliExpress, supplier portal)</span>
                     </label>
-                    <div class="flex gap-2">
-                        <input type="url" name="orderLink"
-                               value="${editOrder ? escapeAttribute(editOrder.orderLink || '') : ''}"
-                               placeholder="https://trade.alibaba.com/order/..."
-                               class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-                        ${editOrder?.orderLink ? `
-                            <a href="${escapeAttribute(editOrder.orderLink)}" target="_blank"
-                               class="px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1 whitespace-nowrap">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-                                </svg>
-                                Open
-                            </a>` : ''}
-                    </div>
+                    <input type="url" name="orderLink" placeholder="https://biz.alibaba.com/..."
+                           class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                 </div>
 
-                <!-- Items -->
+                <!-- Items Section -->
                 <div>
-                    <div class="flex items-center justify-between mb-2">
+                    <div class="flex justify-between items-center mb-2">
                         <label class="block text-sm font-semibold text-gray-700">Items Ordered</label>
-                        <button type="button" onclick="window.module.addOrderItemRow()"
-                                class="text-xs text-blue-600 hover:text-blue-800 font-semibold">+ Add Item</button>
+                        <button type="button" onclick="window.module.addVendorOrderItemRow()"
+                                class="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded-lg font-semibold transition-colors">
+                            + Add Item
+                        </button>
                     </div>
+
+                    <!-- Column Headers -->
                     <div class="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase mb-1 px-1">
                         <div class="col-span-5">Product</div>
                         <div class="col-span-2">Qty</div>
-                        <div class="col-span-2">Subtotal ($)</div>
+                        <div class="col-span-2">Subtotal ($) <span class="text-yellow-600">●</span></div>
                         <div class="col-span-2">Unit Cost ($)</div>
                         <div class="col-span-1"></div>
                     </div>
+
                     <div id="vendorOrderItemsContainer" class="space-y-2">
-                        ${buildItemRows()}
+                        ${firstRowHTML}
                     </div>
+                    <p class="text-xs text-gray-400 mt-1">
+                        <span class="text-yellow-600">●</span> Enter subtotal to auto-calculate unit cost, or enter unit cost to auto-calculate subtotal.
+                    </p>
                 </div>
 
                 <!-- Cost Breakdown -->
-                <div class="border-t border-gray-100 pt-4">
-                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Cost Breakdown</h3>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Cost Breakdown</label>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold text-gray-600 mb-1">Order / Product Cost ($)</label>
-                            <input type="number" name="orderCost" step="0.01" min="0"
-                                   value="${editOrder ? parseFloat(editOrder.orderCost || 0).toFixed(2) : ''}"
-                                   placeholder="0.00"
+                            <label class="block text-xs text-gray-600 mb-1">Product Subtotal ($)</label>
+                            <input type="number" name="orderCost" step="0.01" min="0" placeholder="0.00"
                                    onchange="window.module.recalculateVendorOrderTotal()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-gray-600 mb-1">Shipping Cost ($)</label>
-                            <input type="number" name="shippingCost" step="0.01" min="0"
-                                   value="${editOrder ? parseFloat(editOrder.shippingCost || 0).toFixed(2) : ''}"
-                                   placeholder="0.00"
+                            <label class="block text-xs text-gray-600 mb-1">Shipping Cost ($)</label>
+                            <input type="number" name="shippingCost" step="0.01" min="0" placeholder="0.00"
                                    onchange="window.module.recalculateVendorOrderTotal()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-gray-600 mb-1">Tariffs / Import Duties ($)</label>
-                            <input type="number" name="tariffs" step="0.01" min="0"
-                                   value="${editOrder ? parseFloat(editOrder.tariffs || 0).toFixed(2) : ''}"
-                                   placeholder="0.00"
+                            <label class="block text-xs text-gray-600 mb-1">Tariffs / Import Duties ($)</label>
+                            <input type="number" name="tariffs" step="0.01" min="0" placeholder="0.00"
                                    onchange="window.module.recalculateVendorOrderTotal()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
-                        <!-- ✅ NEW: Processing Fee -->
                         <div>
-                            <label class="block text-xs font-semibold text-gray-600 mb-1">
-                                Processing / Platform Fee ($)
-                                <span class="text-gray-400 font-normal">(Alibaba, PayPal, etc.)</span>
-                            </label>
-                            <input type="number" name="processingFee" step="0.01" min="0"
-                                   value="${editOrder ? parseFloat(editOrder.processingFee || 0).toFixed(2) : ''}"
-                                   placeholder="0.00"
+                            <label class="block text-xs text-gray-600 mb-1">Tariff Rate (%)</label>
+                            <input type="number" name="tariffRate" step="0.1" min="0" placeholder="e.g. 69.8"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">Processing / Platform Fee ($)</label>
+                            <input type="number" name="processingFee" step="0.01" min="0" placeholder="0.00"
                                    onchange="window.module.recalculateVendorOrderTotal()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
-                        <!-- ✅ NEW: Sales Tax -->
                         <div>
-                            <label class="block text-xs font-semibold text-gray-600 mb-1">
-                                Sales Tax ($)
-                                <span class="text-gray-400 font-normal">(if applicable)</span>
-                            </label>
-                            <input type="number" name="salesTax" step="0.01" min="0"
-                                   value="${editOrder ? parseFloat(editOrder.salesTax || 0).toFixed(2) : ''}"
-                                   placeholder="0.00"
+                            <label class="block text-xs text-gray-600 mb-1">Sales Tax ($)</label>
+                            <input type="number" name="salesTax" step="0.01" min="0" placeholder="0.00"
                                    onchange="window.module.recalculateVendorOrderTotal()"
                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
+                </div>
 
-                    <!-- Landed Cost Summary -->
-                    <div class="mt-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
-                        <div class="flex justify-between items-center">
-                            <span class="font-bold text-blue-800">Total Landed Cost</span>
-                            <span id="vendorOrderLandedCost" class="text-2xl font-black text-blue-800">
-                                $${editOrder ? (
-                    parseFloat(editOrder.orderCost || 0) +
-                    parseFloat(editOrder.shippingCost || 0) +
-                    parseFloat(editOrder.tariffs || 0) +
-                    parseFloat(editOrder.processingFee || 0) +
-                    parseFloat(editOrder.salesTax || 0)
-                ).toFixed(2) : '0.00'}
-                            </span>
-                        </div>
-                        <p class="text-xs text-blue-600 mt-1">Order + Shipping + Tariffs + Processing Fee + Sales Tax</p>
-                    </div>
+                <!-- Total -->
+                <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex justify-between items-center">
+                    <span class="font-bold text-indigo-800">Total Landed Cost</span>
+                    <span id="vendorOrderLandedCost" class="text-2xl font-black text-indigo-800">$0.00</span>
                 </div>
 
                 <!-- Notes -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
-                    <textarea name="notes" rows="2"
-                              placeholder="Optional internal notes..."
-                              class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">${editOrder ? escapeHtml(editOrder.notes || '') : ''}</textarea>
+                    <textarea name="notes" rows="3" placeholder="Additional notes about this order..."
+                              class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"></textarea>
                 </div>
 
             </form>
 
             <!-- Footer -->
-            <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50">
-                <button onclick="window.module.closeVendorOrderModal()"
-                    class="px-5 py-2 text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors text-sm">
+            <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                <button type="button" onclick="window.module.closeVendorOrderModal()"
+                        class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
                     Cancel
                 </button>
-                <button onclick="window.module.saveVendorOrder(${isEditing ? `'${editOrderId}'` : 'null'})"
-                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold shadow-md">
-                    ${isEditing ? '💾 Save Changes' : '➕ Create Order'}
+                <button type="button" onclick="window.module.saveVendorOrder(null)"
+                        class="px-6 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-semibold">
+                    Save Order
                 </button>
             </div>
 
         </div>
     </div>`;
 
-            const existing = document.getElementById('vendorOrderModal');
-            if (existing) existing.remove();
-
-            document.body.insertAdjacentHTML('beforeend', modalHTML);
-        }
+    const existing = document.getElementById('vendorOrderModal');
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
 
         function addOrderItemRow() {
             const container = document.getElementById('order-items-container');
@@ -11829,6 +11726,52 @@ function normalizeVendorOrder(order) {
     };
 }
 
+function addVendorOrderItemRow() {
+    const container = document.getElementById('vendorOrderItemsContainer');
+    if (!container) return;
+
+    const buildOptions = window._buildVendorProductOptions || (() =>
+        (state.items || []).map(item =>
+            `<option value="${escapeAttribute(item.id)}">
+                ${escapeHtml(item.name)} (SKU: ${escapeHtml(item.sku || 'N/A')})
+             </option>`
+        ).join('')
+    );
+
+    const row = document.createElement('div');
+    row.className = 'item-row grid grid-cols-12 gap-2 items-center';
+    row.innerHTML = `
+        <div class="col-span-5">
+            <select name="itemProductId[]"
+                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                <option value="">— Select Product —</option>
+                ${buildOptions()}
+            </select>
+        </div>
+        <div class="col-span-2">
+            <input type="number" name="itemQty[]" placeholder="Qty" min="1" value="1"
+                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                   oninput="window.module.autoCalcUnitCost(this)">
+        </div>
+        <div class="col-span-2">
+            <input type="number" name="itemSubtotal[]" placeholder="0.00" step="0.01" min="0"
+                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-yellow-50 border-yellow-300"
+                   oninput="window.module.autoCalcUnitCost(this)">
+        </div>
+        <div class="col-span-2">
+            <input type="number" name="itemUnitCost[]" placeholder="0.0000" step="0.0001" min="0"
+                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                   oninput="window.module.autoCalcSubtotal(this)">
+        </div>
+        <div class="col-span-1 flex justify-center">
+            <button type="button" onclick="this.closest('.item-row').remove()"
+                    class="text-red-500 hover:text-red-700 font-bold text-xl leading-none">×</button>
+        </div>
+    `;
+    container.appendChild(row);
+}
+
+
         // --- EXPOSE TO WINDOW ---
         window.module = {
             // ========================================================================
@@ -11981,7 +11924,6 @@ function normalizeVendorOrder(order) {
             handleDiscountTypeToggle,
             handleDiscountSearchInput,
             handleDiscountStatusFilter,
-            showAddVendorOrderModal,      // (replaces existing)
             showEditVendorOrderModal,     // NEW
             deleteVendorOrder,            // NEW
             saveVendorOrder,              // (replaces existing)
@@ -11989,6 +11931,8 @@ function normalizeVendorOrder(order) {
             isVendorOrderOverdue,         // NEW (for use in templates)
             autoCalcUnitCost,
             autoCalcSubtotal,
+            showAddVendorOrderModal,
+            addVendorOrderItemRow,
 
 
             updateActiveFilters: function () {
