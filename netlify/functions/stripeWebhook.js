@@ -86,11 +86,37 @@ async function handleCheckoutComplete(session) {
         return;
     }
 
+    // Retrieve the full session with tax details expanded
+    const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
+        expand: ['total_details']
+    });
+
+    // These are the Stripe-authoritative amounts — what was actually collected
+    const taxCentsActual      = fullSession.total_details?.amount_tax      || 0;
+    const shippingCentsActual = fullSession.total_details?.amount_shipping  || 0;
+    const totalCentsActual    = fullSession.amount_total                    || 0;
+    const subtotalCentsActual = fullSession.amount_subtotal                 || 0;
+
+    console.log(`💰 Amounts collected for order ${orderId}:`);
+    console.log(`   Subtotal: $${(subtotalCentsActual / 100).toFixed(2)}`);
+    console.log(`   Tax:      $${(taxCentsActual      / 100).toFixed(2)}`);
+    console.log(`   Shipping: $${(shippingCentsActual / 100).toFixed(2)}`);
+    console.log(`   Total:    $${(totalCentsActual    / 100).toFixed(2)}`);
+
     await updateOrderStatus(orderId, 'Processing', {
-        stripeSessionId: session.id,
-        stripePaymentStatus: session.payment_status,
-        amountTotal: session.amount_total,
-        paidAt: new Date().toISOString()
+        stripeSessionId:      session.id,
+        stripePaymentStatus:  session.payment_status,
+        stripeCustomerId:     session.customer || null,
+        // Reconciled actuals — what Stripe actually charged and reported as tax
+        taxCentsActual,
+        shippingCentsActual,
+        totalCentsActual,
+        subtotalCentsActual,
+        amountTotal:          totalCentsActual,  // keep legacy field too
+        paidAt:               new Date().toISOString(),
+        ...(session.customer_details?.email && {
+            stripeCustomerEmail: session.customer_details.email
+        })
     });
 }
 
@@ -139,17 +165,18 @@ async function updateOrderStatus(orderId, newStatus, paymentData) {
         const orderRef = db.doc(`artifacts/default-app-id/public/data/orders/${orderId}`);
         
         const updateData = {
-            status: newStatus,
+            status:        newStatus,
             paymentStatus: 'Paid',
-            paymentData: paymentData,
+            paymentData:   paymentData,
+            // Also write key fields at the top level for easy querying in admin dashboard
+            ...(paymentData.taxCentsActual   !== undefined && { taxCentsActual:   paymentData.taxCentsActual }),
+            ...(paymentData.totalCentsActual !== undefined && { totalCentsActual: paymentData.totalCentsActual }),
+            ...(paymentData.paidAt           !== undefined && { paidAt:           paymentData.paidAt }),
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         };
 
         await orderRef.update(updateData);
         console.log(`✅ Order ${orderId} updated to ${newStatus} (Paid)`);
-
-        // Optionally send a "Payment Received" email here
-        // await sendPaymentConfirmationEmail(orderId);
 
     } catch (error) {
         console.error(`❌ Failed to update order ${orderId}:`, error);
