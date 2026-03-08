@@ -57,8 +57,14 @@
             background-color: #f3f4f6;
         }
         
-        /* Preserve line breaks and formatting */
+        /* Description content — supports both plain text and rich HTML */
         .product-description-content {
+            white-space: normal;
+            overflow-wrap: break-word;
+        }
+
+        /* Preserve line breaks for plain-text-only descriptions */
+        .product-description-content:not(:has(p, ul, ol, table, h1, h2, h3, h4, strong, em, br)) {
             white-space: pre-wrap;
         }
         
@@ -218,6 +224,7 @@
             productSearchTerm: '',
             selectedCategoryId: 'all',
             selectedItem: null,
+            modalImageIndex: 0,
             captchaToken: null,
             branding: null,        // ✅ ADD THIS
             footerConfig: null     // ✅ ADD THIS
@@ -365,8 +372,12 @@
             const images = item.imageUrls && item.imageUrls.length > 0
                 ? item.imageUrls
                 : [item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing'];
+
+            const imgIdx = Math.min(state.modalImageIndex || 0, images.length - 1);
+            const currentImage = images[imgIdx];
+            const hasMultiple = images.length > 1;
         
-            // ✅ NEW: Stock display logic
+            // Stock display logic
             const stock = item.stock || 0;
             let stockDisplay = '';
             
@@ -393,24 +404,55 @@
                         </button>
         
                         <div class="flex flex-col lg:flex-row gap-8">
+                            <!-- IMAGE COLUMN -->
                             <div class="w-full lg:w-1/2 space-y-4">
-                                <div class="relative aspect-square overflow-hidden rounded-lg shadow-inner bg-gray-100">
-                                    <img id="main-modal-image" src="${images[0]}" alt="${item.name}"
-                                         class="w-full h-full object-contain transition-opacity duration-300">
+                                <!-- Main image with prev/next arrows -->
+                                <div class="relative aspect-square overflow-hidden rounded-lg shadow-inner bg-gray-100 group">
+                                    <img id="main-modal-image"
+                                         src="${currentImage}"
+                                         alt="${item.name}"
+                                         class="w-full h-full object-contain transition-opacity duration-300"
+                                         onerror="this.src='https://placehold.co/400x300/a3a3a3/ffffff?text=No+Image'">
+
+                                    ${hasMultiple ? `
+                                    <!-- Prev arrow -->
+                                    <button onclick="window.module.modalImageNav(-1)"
+                                            class="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white text-gray-700 rounded-full w-9 h-9 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 z-10"
+                                            aria-label="Previous image">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                                        </svg>
+                                    </button>
+                                    <!-- Next arrow -->
+                                    <button onclick="window.module.modalImageNav(1)"
+                                            class="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white text-gray-700 rounded-full w-9 h-9 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 z-10"
+                                            aria-label="Next image">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                        </svg>
+                                    </button>
+                                    <!-- Image counter pill -->
+                                    <div class="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-3 py-1 rounded-full backdrop-blur-sm pointer-events-none select-none">
+                                        ${imgIdx + 1} / ${images.length}
+                                    </div>
+                                    ` : ''}
                                 </div>
                                 
-                                ${images.length > 1 ? `
+                                <!-- Thumbnail strip -->
+                                ${hasMultiple ? `
                                 <div class="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
                                     ${images.map((img, idx) => `
-                                        <img src="${img}" 
-                                             onclick="document.getElementById('main-modal-image').src='${img}'"
-                                             class="h-16 w-16 object-cover rounded border-2 border-transparent hover:border-indigo-500 cursor-pointer transition-all flex-shrink-0"
-                                             onerror="this.style.display='none'">
+                                        <img src="${img}"
+                                             onclick="window.module.modalImageGoTo(${idx})"
+                                             class="h-16 w-16 object-cover rounded border-2 cursor-pointer transition-all flex-shrink-0 ${idx === imgIdx ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-transparent hover:border-indigo-400'}"
+                                             onerror="this.style.display='none'"
+                                             alt="Photo ${idx + 1}">
                                     `).join('')}
                                 </div>
                                 ` : ''}
                             </div>
                             
+                            <!-- DETAILS COLUMN -->
                             <div class="flex-grow">
                                 <h2 class="text-3xl font-extrabold text-indigo-700 mb-2">${item.name}</h2>
                                 <p class="text-2xl font-bold text-pink-600 mb-4">${formatPrice(item.price)}</p>
@@ -1225,10 +1267,24 @@
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
         function openItemDetailModal(item) {
             state.selectedItem = item;
+            state.modalImageIndex = 0;
             render();
         }
         function closeItemDetailModal() {
             state.selectedItem = null;
+            state.modalImageIndex = 0;
+            render();
+        }
+        function modalImageNav(direction) {
+            if (!state.selectedItem) return;
+            const images = state.selectedItem.imageUrls && state.selectedItem.imageUrls.length > 0
+                ? state.selectedItem.imageUrls
+                : [state.selectedItem.imageUrl || ''];
+            state.modalImageIndex = (state.modalImageIndex + direction + images.length) % images.length;
+            render();
+        }
+        function modalImageGoTo(idx) {
+            state.modalImageIndex = idx;
             render();
         }
 
@@ -1662,6 +1718,8 @@
             setLanguage,
             openItemDetailModal,
             closeItemDetailModal,
+            modalImageNav,
+            modalImageGoTo,
             openChatWidget,
             // Added T&C Modal controls here
             openTosModal: () => { state.isTosModalOpen = true; render(); },
