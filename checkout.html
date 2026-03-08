@@ -53,6 +53,7 @@
     let taxCents = 0;
     let shippingDetails = null;
     let taxDetails = null;
+    let taxCalculationId = null;  // Stripe Tax calculation ID — forwarded to payment link
     
     // ✅ NEW: Store the selected place globally
     let selectedPlace = null;
@@ -1027,9 +1028,10 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             try {
                 const { street, city, state, zipCode, country } = selectedAddressComponents;
                 const taxPayload = {
-                    state: state,  // Now has the real value!
-                    zipCode: zipCode,  // Now has the real ZIP!
+                    state: state,
+                    zipCode: zipCode,
                     subtotalCents: cartTotalCents,
+                    shippingCents: shippingCents,   // included so Stripe Tax can apply shipping tax code
                     street: street,
                     city: city,
                     country: country
@@ -1047,18 +1049,22 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                     const taxData = await taxRes.json();
                     console.log('✅ Tax response:', taxData);
                     taxCents = taxData.taxCents || 0;
+                    taxCalculationId = taxData.calculationId || null;
                     taxDetails = {
                         rate: taxData.taxRate,
                         ratePercent: taxData.taxRatePercent
                     };
+                    if (taxData.warning) console.warn('⚠️ Tax preview:', taxData.warning);
                 } else {
                     const errorText = await taxRes.text();
                     console.error('❌ Tax API failed:', errorText);
                     taxCents = 0;
+                    taxCalculationId = null;
                 }
             } catch (taxError) {
                 console.error('❌ Tax error:', taxError);
                 taxCents = 0;
+                taxCalculationId = null;
             }
     
             updateCartSummary();
@@ -1177,6 +1183,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 
                 const taxPayload = {
                     subtotalCents: cartTotalCents,
+                    shippingCents: shippingCents,   // included so Stripe Tax can apply shipping tax code
                     state: state,
                     zipCode: zipCode,
                     street: street,
@@ -1197,18 +1204,22 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                     const taxData = await taxRes.json();
                     console.log('✅ Tax response:', taxData);
                     taxCents = taxData.taxCents || 0;
+                    taxCalculationId = taxData.calculationId || null;
                     taxDetails = {
                         rate: taxData.taxRate,
                         ratePercent: taxData.taxRatePercent
                     };
+                    if (taxData.warning) console.warn('⚠️ Tax preview:', taxData.warning);
                 } else {
                     const errorText = await taxRes.text();
                     console.error('❌ Tax API failed:', errorText);
                     taxCents = 0;
+                    taxCalculationId = null;
                 }
             } catch (taxError) {
                 console.error('❌ Tax error:', taxError);
                 taxCents = 0;
+                taxCalculationId = null;
             }
             
             updateCartSummary();
@@ -1342,6 +1353,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                         subtotalCents: order.subtotalCents,
                         shippingCents: order.shippingCents,
                         taxCents: order.taxCents,
+                        taxCalculationId: taxCalculationId,  // Stripe Tax calculation ID for audit trail
                         language: currentLang
                     })
                 });
