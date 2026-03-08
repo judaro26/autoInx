@@ -226,8 +226,9 @@
             selectedItem: null,
             modalImageIndex: 0,
             captchaToken: null,
-            branding: null,        // ✅ ADD THIS
-            footerConfig: null     // ✅ ADD THIS
+            branding: null,
+            footerConfig: null,
+            cookieConsent: null   // null = not yet decided, 'accepted', 'declined'
         };
 
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
@@ -289,6 +290,7 @@
                     ${renderTosModal()}
                     ${renderItemDetailModal()}
                     ${renderChatWidget()}
+                    ${renderCookieBanner()}
                 </div>
             `;
         
@@ -1413,6 +1415,12 @@
                         closeModal();
                     }
                 } else {
+                    // Registration requires reCAPTCHA — check consent first
+                    if (state.cookieConsent === 'declined') {
+                        if (messageEl) messageEl.innerHTML = `⚠️ Registration requires security cookies (reCAPTCHA).<br><a href="javascript:void(0)" onclick="window.module.acceptCookies()" class="underline text-indigo-600 font-semibold">Click here to enable cookies</a> and try again.`;
+                        return;
+                    }
+
                     // Registration logic requires manual captcha for your Netlify verify function
                     let captchaToken = null;
                     if (typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined') {
@@ -1594,6 +1602,64 @@
         }
 
 
+        // --- COOKIE CONSENT ---
+        function initCookieConsent() {
+            const stored = localStorage.getItem('cookieConsent');
+            if (stored === 'accepted' || stored === 'declined') {
+                state.cookieConsent = stored;
+            }
+        }
+
+        function acceptCookies() {
+            state.cookieConsent = 'accepted';
+            localStorage.setItem('cookieConsent', 'accepted');
+            loadRecaptchaScript(); // now safe to load
+            render();
+        }
+
+        function declineCookies() {
+            state.cookieConsent = 'declined';
+            localStorage.setItem('cookieConsent', 'declined');
+            render();
+        }
+
+        function renderCookieBanner() {
+            if (state.cookieConsent !== null) return ''; // already decided
+
+            const msg = currentLang === 'es'
+                ? 'Usamos cookies de seguridad (Google reCAPTCHA) para proteger el registro de usuarios. ¿Aceptas el uso de cookies?'
+                : 'We use security cookies (Google reCAPTCHA) to protect user registration. Do you accept cookies?';
+            const privacyText = currentLang === 'es' ? 'Política de Privacidad' : 'Privacy Policy';
+            const acceptText = currentLang === 'es' ? 'Aceptar' : 'Accept';
+            const declineText = currentLang === 'es' ? 'Solo esenciales' : 'Essential only';
+
+            return `
+                <div id="cookie-banner"
+                     class="fixed bottom-0 left-0 right-0 z-50 bg-gray-900 text-white px-4 py-4 shadow-2xl"
+                     style="border-top: 3px solid #6366f1;">
+                    <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div class="flex items-start gap-3 flex-1 min-w-0">
+                            <span class="text-2xl flex-shrink-0">🍪</span>
+                            <p class="text-sm text-gray-300 leading-snug">
+                                ${msg}
+                                <a href="/terms.html" target="_blank" class="underline text-indigo-400 hover:text-indigo-300 ml-1">${privacyText}</a>
+                            </p>
+                        </div>
+                        <div class="flex gap-2 flex-shrink-0 w-full sm:w-auto">
+                            <button onclick="window.module.declineCookies()"
+                                    class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 transition border border-gray-600">
+                                ${declineText}
+                            </button>
+                            <button onclick="window.module.acceptCookies()"
+                                    class="flex-1 sm:flex-none px-5 py-2 rounded-lg text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md">
+                                ${acceptText} ✓
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         // --- CORE FIREBASE INITIALIZATION ---
         async function setupFirebase() {
             try {
@@ -1755,11 +1821,18 @@
             openChatWidget,
             // Added T&C Modal controls here
             openTosModal: () => { state.isTosModalOpen = true; render(); },
-            closeTosModal: () => { state.isTosModalOpen = false; render(); }
+            closeTosModal: () => { state.isTosModalOpen = false; render(); },
+            // Cookie consent
+            acceptCookies,
+            declineCookies
         };
         document.addEventListener('DOMContentLoaded', () => {
+            initCookieConsent();
             setupFirebase();
-            loadRecaptchaScript();
+            // Only load reCAPTCHA if the user has already accepted cookies
+            if (state.cookieConsent === 'accepted') {
+                loadRecaptchaScript();
+            }
         });
     </script>
 </head>
