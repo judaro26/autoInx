@@ -23,6 +23,7 @@ exports.handler = async (event) => {
     try {
         const { 
             subtotalCents, 
+            shippingCents = 0,
             state: orderState, 
             zipCode,
             street,
@@ -31,7 +32,8 @@ exports.handler = async (event) => {
         } = JSON.parse(event.body);
 
         console.log('📋 Calculating tax for:', { 
-            subtotalCents, 
+            subtotalCents,
+            shippingCents,
             address: `${street}, ${city}, ${orderState} ${zipCode}` 
         });
 
@@ -43,7 +45,16 @@ exports.handler = async (event) => {
                     {
                         amount: subtotalCents,
                         reference: 'order-subtotal',
+                        tax_behavior: 'exclusive',      // tax is added on top — matches checkout display
+                        tax_code: 'txcd_99999999',      // General tangible goods (auto parts)
                     },
+                    // Include shipping in the tax calculation if present
+                    ...(shippingCents > 0 ? [{
+                        amount: shippingCents,
+                        reference: 'shipping',
+                        tax_behavior: 'exclusive',
+                        tax_code: 'txcd_92010001',      // Shipping / delivery
+                    }] : []),
                 ],
                 customer_details: {
                     address: {
@@ -54,9 +65,6 @@ exports.handler = async (event) => {
                         country: country,
                     },
                     address_source: 'shipping',
-                },
-                shipping_cost: {
-                    amount: 0,
                 },
             });
 
