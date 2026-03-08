@@ -925,20 +925,42 @@
         }
 
         function renderCartSidebar(totalCartPrice) {
-            return `
-                <div class="md:col-span-1 mt-8 md:mt-0">
-                    <div class="bg-white p-4 rounded-xl shadow-lg border-t-4 border-pink-500 sticky top-4">
+            const cartEntries = Object.values(state.cart);
+            const itemCount = cartEntries.reduce((t, e) => t + e.quantity, 0);
+
+            // ── Mobile: fixed bottom bar (only when cart has items) ──
+            const mobileCart = itemCount > 0 ? `
+                <div class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-pink-400 shadow-2xl px-4 py-3">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="bg-pink-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center flex-shrink-0">${itemCount}</span>
+                            <div class="min-w-0">
+                                <p class="text-xs text-gray-500 leading-none">${t('shoppingCart')}</p>
+                                <p class="text-base font-extrabold text-gray-800">${formatPrice(totalCartPrice)}</p>
+                            </div>
+                        </div>
+                        <button onclick="window.module.continueToCheckout()"
+                                style="background: var(--color-checkout);"
+                                class="flex-shrink-0 text-white font-bold px-5 py-2 rounded-xl text-sm shadow-md hover:opacity-90 transition">
+                            ${t('checkout')} →
+                        </button>
+                    </div>
+                </div>
+            ` : '';
+
+            // ── Desktop: sticky right column (unchanged) ──
+            const desktopCart = `
+                <div class="hidden md:block md:col-span-2">
+                    <div class="bg-white p-4 rounded-xl shadow-lg border-t-4 border-pink-500 sticky top-24">
                         <h3 class="text-lg font-bold mb-3 text-pink-600 flex items-center">
                             <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43c.18.72.744 1.3 1.488 1.49l7.058 1.884c.732.195 1.57-.10 1.83-.75l2.3-5.75A.999.999 0 0017 9H7a1 1 0 010-2h11.234c.328 0 .633.203.774.512l1.745 4.363a2 2 0 01-1.928 2.575l-7.058-1.884a2 2 0 00-1.97.262l-1.358 5.43A.997.997 0 005.418 19H17a1 1 0 100-2H5.418a1 1 0 00-.986 1.157l1.4 5.6A3 3 0 113.1 20.157L2.5 17.5A1 1 0 003 16h14a1 1 0 100-2H6.22l-.305-1.222A2 2 0 005.418 9H17a1 1 0 100-2H4.22L3.915 3H3zM6 21a2 2 0 100-4 2 2 0 000 4zm11 0a2 2 0 100-4 2 2 0 000 4z"></path></svg>
                             ${t('shoppingCart')}
                         </h3>
                         <div class="space-y-3 max-h-64 custom-scrollbar overflow-y-auto pr-1">
-                            ${Object.values(state.cart).length > 0
-                    ? Object.values(state.cart).map(entry => `
+                            ${cartEntries.length > 0
+                                ? cartEntries.map(entry => `
                                     <div class="flex flex-col border-b pb-2 space-y-1">
-                                        <div class="flex justify-between items-start">
-                                            <p class="text-xs font-bold text-gray-900 line-clamp-2 leading-tight">${entry.item.name}</p>
-                                        </div>
+                                        <p class="text-xs font-bold text-gray-900 line-clamp-2 leading-tight">${entry.item.name}</p>
                                         <div class="flex justify-between items-center mt-1">
                                             <div class="flex items-center bg-gray-100 rounded-lg px-2">
                                                 <button onclick="window.module.updateCartQuantity('${entry.item.id}', -1)" class="text-gray-500 hover:text-red-500 font-bold px-1 text-sm">-</button>
@@ -949,18 +971,26 @@
                                         </div>
                                     </div>
                                 `).join('')
-                    : `<p class="text-xs text-gray-400 italic">${t('cartEmpty')}</p>`
-                }
+                                : `<p class="text-xs text-gray-400 italic">${t('cartEmpty')}</p>`
+                            }
                         </div>
                         <div class="pt-3 mt-3 border-t border-gray-200">
-                            <div class="flex justify-between font-bold text-lg text-gray-800">
+                            <div class="flex justify-between font-bold text-gray-800 mb-3">
                                 <span class="text-sm uppercase">${t('total') || 'Total'}:</span>
                                 <span>${formatPrice(totalCartPrice)}</span>
                             </div>
+                            ${cartEntries.length > 0 ? `
+                            <button onclick="window.module.continueToCheckout()"
+                                    style="background: var(--color-checkout);"
+                                    class="w-full text-white font-bold py-2 rounded-lg text-sm hover:opacity-90 transition shadow">
+                                ${t('checkout')} →
+                            </button>` : ''}
                         </div>
                     </div>
                 </div>
             `;
+
+            return mobileCart + desktopCart;
         }
         function renderAdminView() {
             if (state.view !== 'admin') return '';
@@ -978,9 +1008,13 @@
                     <p class="mt-2">${t('maintenanceMsg')}</p>
                 </div>`;
             }
+
+            const cartEntries = Object.values(state.cart);
+            // Add bottom padding on mobile when cart bar is visible so it doesn't cover products
+            const mobileBottomPad = cartEntries.length > 0 ? 'pb-24 md:pb-0' : '';
         
             return `
-                <div class="flex flex-col md:grid md:grid-cols-12 gap-6">
+                <div class="flex flex-col md:grid md:grid-cols-12 gap-6 ${mobileBottomPad}">
                     
                     <div class="md:col-span-2">
                         ${renderCategorySidebar()}
@@ -1000,9 +1034,7 @@
                         </div>
                     </div>
         
-                    <div class="md:col-span-2">
-                        ${renderCartSidebar(getTotalCartPrice())}
-                    </div>
+                    ${renderCartSidebar(getTotalCartPrice())}
                 </div>
             `;
         }
