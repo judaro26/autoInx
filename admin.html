@@ -1900,14 +1900,12 @@
                 const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
                 const imgCount = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
                 const imgDisplay = imgCount > 0 ? `🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}` : '❌ No Image';
-                // Strip HTML tags so rich descriptions don't break the grid row layout
-                const plainDesc = (item.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
                 return `
                             <div class="grid-item text-xs font-mono text-gray-700">${item.sku || 'N/A'}</div>
                             <div class="grid-item">
                                 <p class="font-semibold">${item.name}</p>
-                                <p class="text-xs text-gray-500">${plainDesc.substring(0, 80)}${plainDesc.length > 80 ? '…' : ''}</p>
+                                <p class="text-xs text-gray-500">${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}</p>
                             </div>
                             <div class="grid-item font-bold text-green-700">${formatPriceDisplay(item.price)}</div>
                             <div class="grid-item">${cat}</div>
@@ -6381,20 +6379,26 @@
         function renderVendorOrdersSection() {
             const vendorOrders = state.vendorOrders || [];
 
-            // Calculate summary stats
+            // Calculate summary stats — exclude cancelled+refunded from spend totals
             let totalSpent = 0;
             let totalTariffs = 0;
             let totalShipping = 0;
+            let totalRefunded = 0;
             let ordersThisMonth = 0;
 
             const now = new Date();
             const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
             vendorOrders.forEach(order => {
-                totalSpent += order.totalCostCents || 0;
-                totalTariffs += order.tariffCostCents || 0;
-                totalShipping += order.shippingCostCents || 0;
-
+                const isCancelledRefunded = order.status === 'Cancelled - Refunded';
+                if (!isCancelledRefunded) {
+                    totalSpent += order.totalCostCents || 0;
+                    totalTariffs += order.tariffCostCents || 0;
+                    totalShipping += order.shippingCostCents || 0;
+                }
+                if (isCancelledRefunded) {
+                    totalRefunded += order.refundedAmountCents || order.totalCostCents || 0;
+                }
                 if (order.orderDate && new Date(order.orderDate) >= firstDayOfMonth) {
                     ordersThisMonth++;
                 }
@@ -6416,11 +6420,11 @@
                     <div id="vendorOrderMessage"></div>
                     
                     <!-- Summary Cards -->
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
                         <div class="bg-gradient-to-br from-blue-50 to-cyan-50 p-6 rounded-xl border-2 border-blue-200">
                             <p class="text-sm text-blue-700 font-semibold mb-1">Total Spent (All Time)</p>
                             <p class="text-3xl font-black text-blue-800">${formatPriceDisplay(totalSpent)}</p>
-                            <p class="text-xs text-blue-600 mt-2">${vendorOrders.length} orders total</p>
+                            <p class="text-xs text-blue-600 mt-2">${vendorOrders.filter(o => o.status !== 'Cancelled - Refunded').length} active orders</p>
                         </div>
                         
                         <div class="bg-gradient-to-br from-red-50 to-rose-50 p-6 rounded-xl border-2 border-red-200">
@@ -6438,7 +6442,13 @@
                         <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
                             <p class="text-sm text-green-700 font-semibold mb-1">Orders This Month</p>
                             <p class="text-3xl font-black text-green-800">${ordersThisMonth}</p>
-                            <p class="text-xs text-green-600 mt-2">${formatPriceDisplay(vendorOrders.filter(o => o.orderDate && new Date(o.orderDate) >= firstDayOfMonth).reduce((sum, o) => sum + (o.totalCostCents || 0), 0))} spent</p>
+                            <p class="text-xs text-green-600 mt-2">${formatPriceDisplay(vendorOrders.filter(o => o.orderDate && new Date(o.orderDate) >= firstDayOfMonth && o.status !== 'Cancelled - Refunded').reduce((sum, o) => sum + (o.totalCostCents || 0), 0))} spent</p>
+                        </div>
+
+                        <div class="bg-gradient-to-br from-orange-50 to-amber-50 p-6 rounded-xl border-2 border-orange-200">
+                            <p class="text-sm text-orange-700 font-semibold mb-1">Cancelled & Refunded</p>
+                            <p class="text-3xl font-black text-orange-800">${formatPriceDisplay(totalRefunded)}</p>
+                            <p class="text-xs text-orange-600 mt-2">${vendorOrders.filter(o => o.status === 'Cancelled - Refunded').length} cancelled order${vendorOrders.filter(o => o.status === 'Cancelled - Refunded').length !== 1 ? 's' : ''}</p>
                         </div>
                     </div>
                     
@@ -6468,6 +6478,7 @@
                                 <option value="In Transit">In Transit</option>
                                 <option value="Delivered">Delivered</option>
                                 <option value="Cancelled">Cancelled</option>
+                                <option value="Cancelled - Refunded">Cancelled - Refunded</option>
                             </select>
                             
                             <select onchange="window.module.handleVendorOrderSort(event)" 
@@ -6510,7 +6521,8 @@
                     'Shipped': 'bg-purple-100 text-purple-800',
                     'In Transit': 'bg-indigo-100 text-indigo-800',
                     'Delivered': 'bg-green-100 text-green-800',
-                    'Cancelled': 'bg-red-100 text-red-800'
+                    'Cancelled': 'bg-red-100 text-red-800',
+                    'Cancelled - Refunded': 'bg-orange-100 text-orange-800'
                 }[order.status] || 'bg-gray-100 text-gray-800';
 
                 const itemCount = order.items?.length || 0;
@@ -6526,13 +6538,18 @@
                     (subtotalCents + shippingCostCents + tariffCostCents + processingCents + salesTaxCents);
 
                 const hasExtras = processingCents > 0 || salesTaxCents > 0;
+                const isCancelledRefunded = order.status === 'Cancelled - Refunded';
+
+                // Cost per unit = total landed cost / total units
+                const costPerUnitCents = totalUnits > 0 ? Math.round(totalCostCents / totalUnits) : null;
 
                 return `
-            <tr class="hover:bg-gray-50 transition cursor-pointer border-b border-gray-100"
+            <tr class="hover:bg-gray-50 transition cursor-pointer border-b border-gray-100 ${isCancelledRefunded ? 'opacity-60' : ''}"
                 onclick="window.module.showVendorOrderDetailsModal('${order.id}')">
                 <td class="p-3 min-w-[140px]">
                     <div class="text-sm font-semibold text-indigo-700">${escapeHtml(order.orderId || order.id.slice(0, 8))}</div>
                     <div class="text-xs text-gray-500 mt-0.5">${formatDate(order.orderDate)}</div>
+                    ${isCancelledRefunded ? `<div class="text-xs text-orange-600 font-semibold mt-0.5">↩ ${order.refundDate ? formatDate(order.refundDate) : 'Refunded'}</div>` : ''}
                 </td>
                 <td class="p-3 min-w-[140px]">
                     <div class="text-sm font-semibold">${escapeHtml(order.supplier || 'Unknown')}</div>
@@ -6543,8 +6560,9 @@
                 </td>
                 <td class="p-3 min-w-[100px]">
                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold ${statusClass}">
-                        ${order.status || 'Unknown'}
+                        ${isCancelledRefunded ? '↩ ' : ''}${order.status || 'Unknown'}
                     </span>
+                    ${isCancelledRefunded && order.cancelReason ? `<div class="text-xs text-gray-500 mt-1 max-w-[120px] truncate" title="${escapeHtml(order.cancelReason)}">${escapeHtml(order.cancelReason)}</div>` : ''}
                 </td>
                 <td class="p-3 min-w-[130px] text-sm">
                     ${order.expectedDeliveryDate ? `
@@ -6576,8 +6594,14 @@
                         ${salesTaxCents > 0 ? `<div class="text-yellow-600">🧾 ${formatPriceDisplay(salesTaxCents)}</div>` : ''}
                     </div>` : '<span class="text-gray-400 text-xs">—</span>'}
                 </td>
-                <td class="p-3 min-w-[110px] text-base font-black text-indigo-700">
+                <td class="p-3 min-w-[110px] text-base font-black ${isCancelledRefunded ? 'text-orange-600 line-through' : 'text-indigo-700'}">
                     ${formatPriceDisplay(totalCostCents)}
+                    ${isCancelledRefunded ? `<div class="text-xs font-semibold text-orange-700 no-underline" style="text-decoration:none">↩ ${formatPriceDisplay(order.refundedAmountCents || totalCostCents)}</div>` : ''}
+                </td>
+                <td class="p-3 min-w-[100px] text-sm font-semibold">
+                    ${costPerUnitCents !== null
+                        ? `<div class="text-indigo-700 font-bold">${formatPriceDisplay(costPerUnitCents)}</div><div class="text-xs text-gray-400">landed / unit</div>`
+                        : '<span class="text-gray-400">—</span>'}
                 </td>
                 <td class="p-3 min-w-[110px]">
                     <div class="flex flex-col gap-1">
@@ -6602,7 +6626,7 @@
             // so the table scrolls horizontally rather than breaking layout
             return `
         <div class="overflow-x-auto w-full">
-            <table class="w-full min-w-[1100px] border-collapse">
+            <table class="w-full min-w-[1300px] border-collapse">
                 <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300 sticky top-0 z-10">
                     <tr>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Order ID & Date</th>
@@ -6615,6 +6639,7 @@
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Shipping</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Fees & Tax</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Total Cost</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Cost / Unit</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Actions</th>
                     </tr>
                 </thead>
@@ -6793,7 +6818,7 @@
                     <!-- Status -->
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Status</label>
-                        <select name="status"
+                        <select name="status" onchange="window.module.toggleVendorRefundFields(this.value)"
                                 class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
                             <option value="Ordered">Ordered</option>
                             <option value="Paid">Paid</option>
@@ -6801,6 +6826,7 @@
                             <option value="In Transit">In Transit</option>
                             <option value="Delivered">Delivered</option>
                             <option value="Cancelled">Cancelled</option>
+                            <option value="Cancelled - Refunded">Cancelled - Refunded</option>
                         </select>
                     </div>
 
@@ -6952,22 +6978,39 @@
                     </div>
                 </div>
 
+                <!-- Cancellation / Refund Fields (shown only when status = Cancelled - Refunded) -->
+                <div id="vendorRefundFields" class="hidden bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
+                    <p class="text-sm font-bold text-orange-800">↩ Cancellation & Refund Details</p>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Cancellation Reason</label>
+                            <input type="text" name="cancelReason" placeholder="e.g. Item out of stock, supplier delay..."
+                                   class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Refund Date</label>
+                            <input type="date" name="refundDate"
+                                   class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Refunded Amount ($)</label>
+                            <input type="number" name="refundedAmount" step="0.01" min="0" placeholder="Leave blank = full order amount"
+                                   class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Refund Reference / ID</label>
+                            <input type="text" name="refundReference" placeholder="Supplier refund ID or transaction #"
+                                   class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Notes -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
                     <textarea name="notes" rows="3" placeholder="Additional notes about this order..."
                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"></textarea>
                 </div>
-
-            </form>
-
-            <!-- Footer -->
-            <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
-                <button type="button" onclick="window.module.closeVendorOrderModal()"
-                        class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-                    Cancel
-                </button>
-                <button type="button" onclick="window.module.saveVendorOrder(null)"
                         class="px-6 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-semibold">
                     Save Order
                 </button>
@@ -11406,8 +11449,9 @@
                     <!-- Status -->
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">Status</label>
-                        <select name="status" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-                            ${['Ordered', 'Paid', 'Shipped', 'In Transit', 'Delivered', 'Cancelled'].map(s =>
+                        <select name="status" onchange="window.module.toggleVendorRefundFields(this.value)"
+                                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                            ${['Ordered', 'Paid', 'Shipped', 'In Transit', 'Delivered', 'Cancelled', 'Cancelled - Refunded'].map(s =>
                 `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`
             ).join('')}
                         </select>
@@ -11535,22 +11579,43 @@
                     <span id="vendorOrderLandedCost" class="text-2xl font-black text-indigo-800">$${totalDollars}</span>
                 </div>
 
+                <!-- Cancellation / Refund Fields -->
+                <div id="vendorRefundFields" class="${order.status === 'Cancelled - Refunded' ? '' : 'hidden'} bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3">
+                    <p class="text-sm font-bold text-orange-800">↩ Cancellation & Refund Details</p>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Cancellation Reason</label>
+                            <input type="text" name="cancelReason" value="${escapeAttribute(order.cancelReason || '')}"
+                                   placeholder="e.g. Item out of stock, supplier delay..."
+                                   class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Refund Date</label>
+                            <input type="date" name="refundDate" value="${escapeAttribute(order.refundDate || '')}"
+                                   class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Refunded Amount ($)</label>
+                            <input type="number" name="refundedAmount" step="0.01" min="0"
+                                   value="${order.refundedAmountCents ? (order.refundedAmountCents / 100).toFixed(2) : ''}"
+                                   placeholder="Leave blank = full order amount"
+                                   class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Refund Reference / ID</label>
+                            <input type="text" name="refundReference" value="${escapeAttribute(order.refundReference || '')}"
+                                   placeholder="Supplier refund ID or transaction #"
+                                   class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Notes -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
                     <textarea name="notes" rows="3" placeholder="Any additional notes..."
                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">${escapeHtml(order.notes || '')}</textarea>
                 </div>
-
-            </form>
-
-            <!-- Footer -->
-            <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
-                <button type="button" onclick="window.module.closeVendorOrderModal()"
-                        class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
-                    Cancel
-                </button>
-                <button type="button" onclick="window.module.saveVendorOrder('${order.id}')"
                         class="px-6 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-semibold">
                     Save Changes
                 </button>
@@ -11565,6 +11630,16 @@
         }
 
         async function deleteVendorOrder(vendorDocId) {
+
+        function toggleVendorRefundFields(status) {
+            const el = document.getElementById('vendorRefundFields');
+            if (!el) return;
+            if (status === 'Cancelled - Refunded') {
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        }
             resetTimer();
 
             const order = state.vendorOrders.find(o => o.id === vendorDocId);
@@ -11862,6 +11937,14 @@
                 salesTaxCents,
                 totalCostCents,
 
+                // Cancellation / refund fields (only meaningful when status = Cancelled - Refunded)
+                cancelReason: getValue('cancelReason') || null,
+                refundDate: getValue('refundDate') || null,
+                refundedAmountCents: getValue('refundedAmount')
+                    ? Math.round(parseFloat(getValue('refundedAmount')) * 100)
+                    : totalCostCents,  // default = full order cost
+                refundReference: getValue('refundReference') || null,
+
                 updatedAt: serverTimestamp(),
             };
 
@@ -12057,6 +12140,7 @@
             handleVendorOrderStatusFilter,
             handleVendorOrderSort,
             showVendorOrderDetailsModal,
+            toggleVendorRefundFields,
 
             // ========================================================================
             // ORDER EDITING & DRAFT CART
