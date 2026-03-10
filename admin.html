@@ -7024,6 +7024,55 @@
             document.body.insertAdjacentHTML('beforeend', modalHTML);
         }
 
+        async function deleteVendorOrder(vendorDocId) {
+
+        function toggleVendorRefundFields(status) {
+            const el = document.getElementById('vendorRefundFields');
+            if (!el) return;
+            if (status === 'Cancelled - Refunded') {
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        }
+            resetTimer();
+
+            const order = state.vendorOrders.find(o => o.id === vendorDocId);
+            if (!order) {
+                showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder');
+                return;
+            }
+
+            const confirmMsg = `Are you sure you want to delete vendor order "${order.orderId}" from ${order.supplier}?\n\n`
+                + `Total: $${((order.totalCostCents || 0) / 100).toFixed(2)}\n`
+                + `Items: ${(order.items || []).length}\n\n`
+                + `This action cannot be undone.`;
+
+            if (!confirm(confirmMsg)) return;
+
+            try {
+                await deleteDoc(doc(db, VENDOR_ORDERS_COLLECTION, vendorDocId));
+
+                await logAdminAction('VENDOR_ORDER_DELETED', {
+                    vendorOrderId: vendorDocId,
+                    orderId: order.orderId,
+                    supplier: order.supplier,
+                    totalCostCents: order.totalCostCents
+                });
+
+                showMessage('success', `Vendor order "${order.orderId}" deleted.`, 3000, 'vendorOrder');
+
+                // Refresh
+                if (state.activeTab === 'vendorOrders') {
+                    renderAdminPage(auth.currentUser?.email || 'Admin');
+                }
+
+            } catch (error) {
+                console.error('Error deleting vendor order:', error);
+                showMessage('error', `Failed to delete: ${error.message}`, 5000, 'vendorOrder');
+            }
+        }
+
         function addOrderItemRow() {
             const container = document.getElementById('order-items-container');
             if (!container) return;
