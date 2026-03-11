@@ -604,6 +604,14 @@
                             <label class="block text-sm font-semibold mb-1">Image URLs (One per line)</label>
                             <textarea name="itemImageUrls" rows="3" placeholder="https://example.com/image1.jpg" class="w-full p-2 border rounded-lg text-sm font-mono">${imageUrlsText}</textarea>
                         </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold mb-1">🎬 Video URLs (One per line)</label>
+                            <textarea name="itemVideoUrls" rows="2"
+                                      placeholder="YouTube, Vimeo, or direct .mp4 URLs — one per line"
+                                      class="w-full p-2 border rounded-lg text-sm font-mono">${item.videoUrls ? item.videoUrls.join('\n') : ''}</textarea>
+                            <p class="text-xs text-gray-500 mt-1">Supports: youtube.com/watch?v=… • youtu.be/… • vimeo.com/… • direct .mp4 links</p>
+                        </div>
                         
                         <!-- ✅ NEW: Dimension Fields -->
                         <div class="mt-4 pt-4 border-t">
@@ -769,6 +777,10 @@
                                         </select>
                                     </div>
                                     <textarea name="itemImageUrls" placeholder="Image URLs (One per line) - Optional" rows="3" class="w-full p-2 border rounded-lg text-sm"></textarea>
+                                    <div>
+                                        <textarea name="itemVideoUrls" placeholder="🎬 Video URLs (One per line) — YouTube, Vimeo, or .mp4 — Optional" rows="2" class="w-full p-2 border rounded-lg text-sm"></textarea>
+                                        <p class="text-xs text-gray-500 mt-1">Supports: youtube.com/watch?v=… • youtu.be/… • vimeo.com/… • direct .mp4 links</p>
+                                    </div>
                                     <div class="mt-6 border-t pt-6">
                                         <h4 class="text-lg font-semibold text-gray-900 mb-4">📦 Shipping Dimensions</h4>
                                         <p class="text-sm text-gray-600 mb-4">Required for automatic shipping calculation</p>
@@ -3178,6 +3190,9 @@
                 const rawUrls = form.itemImageUrls.value.split('\n').map(url => url.trim()).filter(url => url !== '');
                 const imageUrls = rawUrls.length > 0 ? rawUrls : [`https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`];
 
+                const videoUrls = (form.itemVideoUrls?.value || '')
+                    .split('\n').map(u => u.trim()).filter(u => u !== '');
+
                 const newProduct = {
                     name: itemName,
                     description: itemDescription,
@@ -3189,6 +3204,8 @@
                     stock: initialStock,
                     createdAt: serverTimestamp(),
                 };
+
+                if (videoUrls.length > 0) newProduct.videoUrls = videoUrls;
 
                 // ✅ NEW: Add dimensions if provided
                 if (length > 0 && width > 0 && height > 0 && weight > 0) {
@@ -3367,6 +3384,9 @@
                 .map(url => url.trim())
                 .filter(url => url !== '');
 
+            const videoUrls = (form.itemVideoUrls?.value || '')
+                .split('\n').map(u => u.trim()).filter(u => u !== '');
+
             // ✅ NEW: Get dimensions
             const length = parseFloat(form.itemLength?.value) || 0;
             const width = parseFloat(form.itemWidth?.value) || 0;
@@ -3388,6 +3408,7 @@
                     catalogId: catalogId,
                     imageUrls: imageUrls,
                     imageUrl: imageUrls.length > 0 ? imageUrls[0] : `https://placehold.co/400x300/a3a3a3/ffffff?text=${encodeURIComponent(itemName)}`,
+                    videoUrls: videoUrls.length > 0 ? videoUrls : null,
                     updatedAt: serverTimestamp()
                 };
 
