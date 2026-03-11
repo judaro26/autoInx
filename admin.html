@@ -5012,6 +5012,10 @@
                             class="text-xs px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600">
                         Create Shipping Label
                     </button>
+                    <button onclick="window.module.downloadOrderReceiptPDF('${order.id}')"
+                            class="text-xs px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 font-semibold">
+                        📄 Receipt PDF
+                    </button>
                     <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value); this.value=''" 
                             class="text-xs px-2 py-1 border rounded">
                         <option value="">Change Status</option>
@@ -8911,6 +8915,13 @@
 
             <!-- Footer -->
             <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                <button onclick="window.module.downloadVendorOrderPDF('${order.id}')"
+                    class="px-4 py-2 text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors font-semibold flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    Download PDF
+                </button>
                 <button onclick="window.module.showEditVendorOrderModal('${order.id}')"
                     class="px-4 py-2 text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors font-semibold">
                     ✏️ Edit Order
@@ -9696,14 +9707,15 @@
                     <!-- Footer -->
                     <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
                         ${label.labelUrl ? `
-                            <a href="${label.labelUrl}" target="_blank"
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+                            <button id="labelDownloadBtn-${label.id}"
+                                    onclick="window.module.downloadShippingLabelPDF('${label.id}')"
+                                    class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 font-semibold">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                                           d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                                 </svg>
-                                Download Label
-                            </a>
+                                📥 Download Label PDF
+                            </button>
                         ` : ''}
                         <button onclick="document.getElementById('labelDetailsModal').remove()"
                             class="px-6 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
@@ -9718,6 +9730,315 @@
             if (existing) existing.remove();
 
             document.body.insertAdjacentHTML('beforeend', modalHTML);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────────
+        // PDF DOWNLOADS  (customer receipts, vendor receipts, shipping labels)
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        /** Opens a hidden print window with the given HTML and auto-triggers print dialog */
+        function _openPrintWindow(htmlContent, title = 'AutoInx') {
+            const win = window.open('', '_blank', 'width=900,height=700');
+            if (!win) { alert('Please allow pop-ups to download PDFs.'); return; }
+            win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>${title}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               font-size: 13px; color: #1a1a2e; background: #fff; padding: 32px; }
+        h1 { font-size: 22px; font-weight: 800; color: #3730a3; }
+        h2 { font-size: 14px; font-weight: 700; text-transform: uppercase;
+             letter-spacing: .05em; color: #374151; margin: 18px 0 8px; }
+        .logo-row { display: flex; justify-content: space-between; align-items: flex-start;
+                    border-bottom: 3px solid #e0e7ff; padding-bottom: 16px; margin-bottom: 20px; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px;
+                 font-size: 11px; font-weight: 700; }
+        .badge-green  { background: #dcfce7; color: #166534; }
+        .badge-blue   { background: #dbeafe; color: #1d4ed8; }
+        .badge-orange { background: #ffedd5; color: #9a3412; }
+        .badge-red    { background: #fee2e2; color: #991b1b; }
+        .badge-gray   { background: #f3f4f6; color: #374151; }
+        .badge-purple { background: #f3e8ff; color: #6b21a8; }
+        .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+        .info-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+        .info-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; }
+        .info-box .label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+                           color: #6b7280; font-weight: 600; margin-bottom: 3px; }
+        .info-box .value { font-size: 13px; font-weight: 600; color: #111827; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        thead tr { background: linear-gradient(135deg,#e0e7ff,#f3e8ff); }
+        th { padding: 8px 10px; text-align: left; font-size: 10px; text-transform: uppercase;
+             letter-spacing: .05em; color: #374151; font-weight: 700; border-bottom: 2px solid #c7d2fe; }
+        td { padding: 8px 10px; border-bottom: 1px solid #f3f4f6; color: #374151; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #f9fafb; }
+        .totals-table { margin-top: 12px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+        .totals-table td { padding: 9px 14px; border-bottom: 1px solid #f3f4f6; }
+        .totals-table tr:last-child td { background: #eef2ff; font-weight: 800; font-size: 14px;
+                                         color: #3730a3; border-bottom: none; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .mono { font-family: 'Courier New', monospace; }
+        .divider { border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }
+        .footer { margin-top: 24px; padding-top: 14px; border-top: 2px solid #e0e7ff;
+                  font-size: 11px; color: #9ca3af; text-align: center; }
+        @media print {
+            body { padding: 18px; }
+            button { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+${htmlContent}
+<script>setTimeout(() => { window.print(); }, 300 );<\/script>
+</body>
+</html>`);
+            win.document.close();
+        }
+
+        /** Download a PDF receipt for a customer order */
+        function downloadOrderReceiptPDF(orderId) {
+            const order = state.orders.find(o => o.id === orderId);
+            if (!order) { showMessage('error', 'Order not found.', 3000, 'orders'); return; }
+
+            const fmt = (cents) => {
+                const n = typeof cents === 'number' ? cents : 0;
+                return '$' + (n / 100).toFixed(2);
+            };
+            const fmtDate = (v) => {
+                if (!v) return 'N/A';
+                if (v?.toDate) return v.toDate().toLocaleString();
+                const d = new Date(v);
+                return isNaN(d) ? String(v) : d.toLocaleString();
+            };
+
+            const payBadgeClass = (order.paymentStatus === 'Paid' || order.isPaid) ? 'badge-green'
+                : order.paymentStatus === 'Refunded' ? 'badge-red'
+                : order.paymentStatus === 'Partially Refunded' ? 'badge-orange'
+                : 'badge-orange';
+            const payLabel = (order.paymentStatus === 'Paid' || order.isPaid) ? 'Paid'
+                : order.paymentStatus || 'Unpaid';
+
+            const statusBadgeClass = order.status === 'Delivered' ? 'badge-green'
+                : order.status === 'Cancelled' ? 'badge-red'
+                : order.status === 'Processing' ? 'badge-blue' : 'badge-orange';
+
+            const itemsRows = (order.items || []).map(i => {
+                const d = getSafeItemData(i);
+                const unitCents = d.unitPriceCents ?? Math.round((d.price || 0) * 100);
+                const lineCents = unitCents * d.quantity;
+                return `<tr>
+                    <td>${escapeHtml(d.name || 'Item')}</td>
+                    <td class="mono text-center">${escapeHtml(d.sku || '—')}</td>
+                    <td class="text-center">${d.quantity}</td>
+                    <td class="text-right">${fmt(unitCents)}</td>
+                    <td class="text-right">${fmt(lineCents)}</td>
+                </tr>`;
+            }).join('');
+
+            const discountRow = order.discount
+                ? `<tr><td>Discount (<span class="mono">${escapeHtml(order.discount.code || '')}</span>)</td>
+                   <td class="text-right" style="color:#7c3aed">− ${fmt(order.discountCents || order.discount?.savedCents || 0)}</td></tr>`
+                : '';
+
+            const refundRow = (order.totalRefundedCents > 0)
+                ? `<tr><td>Refunded (${order.refundStatus === 'full' ? 'Full' : 'Partial'})</td>
+                   <td class="text-right" style="color:#dc2626">− ${fmt(order.totalRefundedCents)}</td></tr>`
+                : '';
+
+            const shippingCents = order.shippingCents || 0;
+            const shippingRow = shippingCents > 0
+                ? `<tr><td>Shipping</td><td class="text-right">${fmt(shippingCents)}</td></tr>` : '';
+
+            const html = `
+<div class="logo-row">
+    <div>
+        <h1>AutoInx</h1>
+        <div style="color:#6b7280;font-size:12px;margin-top:4px;">Order Receipt</div>
+    </div>
+    <div style="text-align:right">
+        <div style="font-size:18px;font-weight:800;color:#111827">#${escapeHtml(order.orderNumber || order.id.substring(0,8))}</div>
+        <div style="color:#6b7280;font-size:11px;margin-top:2px;">${fmtDate(order.createdAt)}</div>
+        <div style="margin-top:6px;">
+            <span class="badge ${statusBadgeClass}">${order.status || 'Pending'}</span>
+            &nbsp;<span class="badge ${payBadgeClass}">${payLabel}</span>
+        </div>
+    </div>
+</div>
+
+<h2>Customer</h2>
+<div class="info-grid">
+    <div class="info-box"><div class="label">Name</div><div class="value">${escapeHtml(order.buyerName || 'N/A')}</div></div>
+    <div class="info-box"><div class="label">Email</div><div class="value">${escapeHtml(order.buyerEmail || 'N/A')}</div></div>
+    ${order.buyerPhone ? `<div class="info-box"><div class="label">Phone</div><div class="value">${escapeHtml(order.buyerPhone)}</div></div>` : ''}
+    <div class="info-box" ${order.buyerPhone ? '' : 'style="grid-column:span 2"'}>
+        <div class="label">Delivery Address</div>
+        <div class="value">${escapeHtml(order.deliveryAddress || 'No address on file')}</div>
+    </div>
+</div>
+
+<h2>Items Ordered</h2>
+<table>
+    <thead><tr>
+        <th>Product</th><th class="text-center">SKU</th>
+        <th class="text-center">Qty</th><th class="text-right">Unit Price</th><th class="text-right">Subtotal</th>
+    </tr></thead>
+    <tbody>${itemsRows || '<tr><td colspan="5" class="text-center" style="color:#9ca3af">No items</td></tr>'}</tbody>
+</table>
+
+<h2>Payment Summary</h2>
+<table class="totals-table">
+    <tbody>
+        ${shippingRow}
+        ${discountRow}
+        ${refundRow}
+        <tr><td style="font-weight:600">Total</td><td class="text-right">${fmt(order.totalCents)}</td></tr>
+    </tbody>
+</table>
+
+${order.paidAt ? `<p style="margin-top:10px;font-size:11px;color:#6b7280;">Payment received: ${fmtDate(order.paidAt)}</p>` : ''}
+
+<hr class="divider">
+<div class="footer">AutoInx &bull; Generated ${new Date().toLocaleString()} &bull; For internal use only</div>`;
+
+            _openPrintWindow(html, `Receipt – Order #${order.orderNumber || order.id.substring(0,8)}`);
+        }
+
+        /** Download a PDF receipt for a vendor order */
+        function downloadVendorOrderPDF(orderId) {
+            const raw = state.vendorOrders.find(o => o.id === orderId);
+            if (!raw) { showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder'); return; }
+
+            const order = normalizeVendorOrder(raw);
+            const fc = (v) => '$' + parseFloat(v || 0).toFixed(2);
+            const fd = (v) => {
+                if (!v) return 'N/A';
+                if (v?.toDate) return v.toDate().toLocaleDateString();
+                const d = new Date(v);
+                return isNaN(d) ? String(v) : d.toLocaleDateString();
+            };
+
+            const statusBadge = {
+                ordered: 'badge-blue', paid: 'badge-green', shipped: 'badge-purple',
+                'in transit': 'badge-blue', delivered: 'badge-green',
+                cancelled: 'badge-red', 'cancelled - refunded': 'badge-orange',
+            }[order.status?.toLowerCase()] || 'badge-gray';
+
+            const totalUnits = order.items.reduce((s, i) => s + i.quantity, 0);
+            const perUnit = totalUnits > 0 ? (order.landedCost / totalUnits) : 0;
+
+            const itemRows = order.items.map(i => `
+                <tr>
+                    <td>${escapeHtml(i.name || 'Item')}</td>
+                    <td class="mono text-center">${escapeHtml(i.sku || '—')}</td>
+                    <td class="text-center">${i.quantity}</td>
+                    <td class="text-right">${fc(i.unitCost)}</td>
+                    <td class="text-right">${fc(i.subtotal || i.quantity * i.unitCost)}</td>
+                </tr>`).join('') || '<tr><td colspan="5" class="text-center" style="color:#9ca3af">No items listed</td></tr>';
+
+            const extraRows = [
+                order.processingFee > 0 ? `<tr><td>Processing / Platform Fee</td><td class="text-right">${fc(order.processingFee)}</td></tr>` : '',
+                order.salesTax > 0 ? `<tr><td>Sales Tax</td><td class="text-right">${fc(order.salesTax)}</td></tr>` : '',
+            ].join('');
+
+            const isCancelledRefunded = order.status?.toLowerCase() === 'cancelled - refunded';
+
+            const html = `
+<div class="logo-row">
+    <div>
+        <h1>AutoInx</h1>
+        <div style="color:#6b7280;font-size:12px;margin-top:4px;">Vendor Purchase Order</div>
+    </div>
+    <div style="text-align:right">
+        <div style="font-size:18px;font-weight:800;color:#111827">#${escapeHtml(order.orderNumber)}</div>
+        <div style="color:#6b7280;font-size:11px;margin-top:2px;">Order Date: ${fd(order.orderDate)}</div>
+        <div style="margin-top:6px;"><span class="badge ${statusBadge}">${order.status}</span></div>
+    </div>
+</div>
+
+<h2>Supplier & Logistics</h2>
+<div class="info-grid cols-3">
+    <div class="info-box"><div class="label">Supplier</div><div class="value">${escapeHtml(order.supplier)}</div></div>
+    <div class="info-box"><div class="label">Expected Delivery</div><div class="value">${fd(order.expectedDelivery)}</div></div>
+    <div class="info-box"><div class="label">Tracking #</div><div class="value mono">${escapeHtml(order.trackingNumber || 'N/A')}</div></div>
+    ${order.orderLink ? `<div class="info-box" style="grid-column:span 3"><div class="label">Order Link</div><div class="value" style="word-break:break-all;font-size:11px;font-weight:400">${escapeHtml(order.orderLink)}</div></div>` : ''}
+</div>
+
+<h2>Items Ordered</h2>
+<table>
+    <thead><tr>
+        <th>Product</th><th class="text-center">SKU</th>
+        <th class="text-center">Qty</th><th class="text-right">Unit Cost</th><th class="text-right">Subtotal</th>
+    </tr></thead>
+    <tbody>${itemRows}</tbody>
+</table>
+
+<h2>Cost Breakdown</h2>
+<table class="totals-table">
+    <tbody>
+        <tr><td>Product / Order Cost</td><td class="text-right">${fc(order.orderCost)}</td></tr>
+        <tr><td>Freight / Shipping</td><td class="text-right">${fc(order.shippingCost)}</td></tr>
+        <tr><td>Tariffs / Import Duties ${order.tariffRate ? `<span style="color:#9ca3af;font-size:11px;">(${parseFloat(order.tariffRate).toFixed(1)}%)</span>` : ''}</td>
+            <td class="text-right" style="color:#dc2626">${fc(order.tariffs)}</td></tr>
+        ${extraRows}
+        <tr><td>Total Landed Cost</td><td class="text-right">${fc(order.landedCost)}</td></tr>
+    </tbody>
+</table>
+
+${totalUnits > 0 ? `
+<div style="margin-top:10px;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12px;">
+    <strong>Cost per Unit (landed):</strong> ${fc(perUnit)}
+    <span style="color:#6b7280;margin-left:8px;">(${totalUnits} total units across ${order.items.length} product${order.items.length !== 1 ? 's' : ''})</span>
+</div>` : ''}
+
+${isCancelledRefunded ? `
+<div style="margin-top:10px;padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:12px;">
+    <strong style="color:#9a3412">↩ Cancelled & Refunded</strong>
+    ${order.refundDate ? `<span style="color:#9a3412;margin-left:8px;">on ${fd(order.refundDate)}</span>` : ''}
+    ${order.cancelReason ? `<div style="color:#c2410c;margin-top:4px;">${escapeHtml(order.cancelReason)}</div>` : ''}
+    <div style="font-weight:700;color:#c2410c;margin-top:4px;">Refunded: ${fc((order.refundedAmountCents || 0) / 100)}</div>
+</div>` : ''}
+
+${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;font-size:12px;color:#374151">${escapeHtml(order.notes)}</div>` : ''}
+
+<hr class="divider">
+<div class="footer">AutoInx Internal &bull; Generated ${new Date().toLocaleString()} &bull; Confidential</div>`;
+
+            _openPrintWindow(html, `Vendor Order – #${order.orderNumber}`);
+        }
+
+        /** Force-download a shipping label PDF from Shippo URL */
+        async function downloadShippingLabelPDF(labelId) {
+            const label = state.shippingLabels.find(l => l.id === labelId);
+            if (!label?.labelUrl) {
+                showMessage('error', 'No label PDF available for this shipment.', 3000, 'shippingLabel');
+                return;
+            }
+
+            const btn = document.getElementById(`labelDownloadBtn-${labelId}`);
+            if (btn) { btn.textContent = '⏳ Downloading…'; btn.disabled = true; }
+
+            try {
+                const res = await fetch(label.labelUrl);
+                if (!res.ok) throw new Error('Fetch failed');
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `label-${label.trackingNumber || labelId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+            } catch {
+                // CORS fallback — open in new tab so user can File > Save
+                window.open(label.labelUrl, '_blank');
+            } finally {
+                if (btn) { btn.textContent = '📥 Download Label PDF'; btn.disabled = false; }
+            }
         }
 
         // ─────────────────────────────────────────────────────────────────────────────
@@ -12293,6 +12614,10 @@
             addVendorOrderItemRow,
             autoCalcTariffRate,
             autoCalcTariffAmount,
+            // PDF Downloads
+            downloadOrderReceiptPDF,
+            downloadVendorOrderPDF,
+            downloadShippingLabelPDF,
 
 
             updateActiveFilters: function () {
