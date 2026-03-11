@@ -6771,6 +6771,9 @@
                 wrapper.classList.remove('rounded-none');
                 document.body.style.overflow = '';
 
+                // Remove modal z-index override
+                document.getElementById('vendor-fs-modal-style')?.remove();
+
                 // Reset scroll area height
                 const scrollArea = wrapper.querySelector('.vendor-table-scroll-area');
                 if (scrollArea) scrollArea.style.maxHeight = '';
@@ -6801,6 +6804,17 @@
                     overflow: hidden;
                 `;
                 document.body.style.overflow = 'hidden';
+
+                // Boost vendor modal z-indexes so they render above the fullscreen wrapper
+                const styleTag = document.createElement('style');
+                styleTag.id = 'vendor-fs-modal-style';
+                styleTag.textContent = `
+                    #vendorOrderDetailsModal,
+                    #vendorOrderModal,
+                    #vendorOrderDetailsModal + *,
+                    #vendorOrderModal + * { z-index: 10100 !important; }
+                `;
+                document.head.appendChild(styleTag);
 
                 // Make scroll area fill remaining height
                 const scrollArea = wrapper.querySelector('.vendor-table-scroll-area');
@@ -12027,8 +12041,18 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     <textarea name="notes" rows="3" placeholder="Any additional notes..."
                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">${escapeHtml(order.notes || '')}</textarea>
                 </div>
+
+            </form>
+
+            <!-- Footer -->
+            <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                <button onclick="window.module.saveVendorOrder()"
                         class="px-6 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-semibold">
-                    Save Changes
+                    💾 Save Changes
+                </button>
+                <button onclick="window.module.closeVendorOrderModal()"
+                        class="px-6 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                    Cancel
                 </button>
             </div>
 
