@@ -6640,6 +6640,38 @@
                 Full Screen
             </button>
         </div>
+        <div id="vendorFsFilterBar" style="display:none" class="px-4 py-3 bg-indigo-50 border-b border-indigo-200">
+            <div class="flex flex-wrap items-center gap-3">
+                <span class="text-xs font-bold text-indigo-700 whitespace-nowrap">🔍 Filters:</span>
+                <input type="text"
+                       id="vendorFsSearch"
+                       oninput="window.module.handleVendorOrderSearch(event)"
+                       value="${escapeHtml(state.vendorOrderFilters?.searchTerm || '')}"
+                       placeholder="Search order ID, supplier, product…"
+                       class="flex-1 min-w-[180px] px-3 py-1.5 text-sm border border-indigo-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <select onchange="window.module.handleVendorOrderSupplierFilter(event)"
+                        class="px-3 py-1.5 text-sm border border-indigo-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <option value="all" ${!state.vendorOrderFilters?.supplier || state.vendorOrderFilters.supplier === 'all' ? 'selected' : ''}>All Suppliers</option>
+                    ${['Alibaba','AliExpress','DHgate','Other'].map(s =>
+                        `<option value="${s}" ${state.vendorOrderFilters?.supplier === s ? 'selected' : ''}>${s}</option>`
+                    ).join('')}
+                </select>
+                <select onchange="window.module.handleVendorOrderStatusFilter(event)"
+                        class="px-3 py-1.5 text-sm border border-indigo-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <option value="all" ${!state.vendorOrderFilters?.status || state.vendorOrderFilters.status === 'all' ? 'selected' : ''}>All Statuses</option>
+                    ${['Ordered','Paid','Shipped','In Transit','Delivered','Cancelled','Cancelled - Refunded'].map(s =>
+                        `<option value="${s}" ${state.vendorOrderFilters?.status === s ? 'selected' : ''}>${s}</option>`
+                    ).join('')}
+                </select>
+                <select onchange="window.module.handleVendorOrderSort(event)"
+                        class="px-3 py-1.5 text-sm border border-indigo-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <option value="date-desc" ${(!state.vendorOrderFilters?.sortBy || state.vendorOrderFilters.sortBy === 'date-desc') ? 'selected' : ''}>Newest First</option>
+                    <option value="date-asc"  ${state.vendorOrderFilters?.sortBy === 'date-asc'  ? 'selected' : ''}>Oldest First</option>
+                    <option value="cost-desc" ${state.vendorOrderFilters?.sortBy === 'cost-desc' ? 'selected' : ''}>Highest Cost</option>
+                    <option value="cost-asc"  ${state.vendorOrderFilters?.sortBy === 'cost-asc'  ? 'selected' : ''}>Lowest Cost</option>
+                </select>
+            </div>
+        </div>
         <div class="overflow-x-auto w-full vendor-table-scroll-area">
             <table class="w-full min-w-[1300px] border-collapse">
                 <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300 sticky top-0 z-10">
@@ -6774,6 +6806,10 @@
                 // Remove modal z-index override
                 document.getElementById('vendor-fs-modal-style')?.remove();
 
+                // Hide the in-wrapper filter bar
+                const fsFilterBar = wrapper.querySelector('#vendorFsFilterBar');
+                if (fsFilterBar) fsFilterBar.style.display = 'none';
+
                 // Reset scroll area height
                 const scrollArea = wrapper.querySelector('.vendor-table-scroll-area');
                 if (scrollArea) scrollArea.style.maxHeight = '';
@@ -6815,6 +6851,10 @@
                     #vendorOrderModal + * { z-index: 10100 !important; }
                 `;
                 document.head.appendChild(styleTag);
+
+                // Show the in-wrapper filter bar
+                const fsFilterBar = wrapper.querySelector('#vendorFsFilterBar');
+                if (fsFilterBar) fsFilterBar.style.display = 'block';
 
                 // Make scroll area fill remaining height
                 const scrollArea = wrapper.querySelector('.vendor-table-scroll-area');
