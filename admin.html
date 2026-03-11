@@ -6801,13 +6801,58 @@
         }
 
         function refreshVendorOrders() {
-            // Find the table container in the vendor orders section
             const section = document.querySelector('section');
             if (!section || state.activeTab !== 'vendorOrders') return;
 
             const tableContainer = section.querySelector('.bg-white.rounded-xl.shadow-lg.overflow-hidden');
-            if (tableContainer) {
-                tableContainer.innerHTML = renderVendorOrdersTable();
+            if (!tableContainer) return;
+
+            // Remember fullscreen state before innerHTML wipe
+            const isFullscreen = tableContainer.dataset.fullscreen === 'true';
+
+            tableContainer.innerHTML = renderVendorOrdersTable();
+
+            // Re-apply fullscreen styles if we were in fullscreen when the refresh fired
+            if (isFullscreen) {
+                tableContainer.dataset.fullscreen = 'true';
+                tableContainer.style.cssText = `
+                    position: fixed;
+                    inset: 0;
+                    z-index: 9999;
+                    background: white;
+                    display: flex;
+                    flex-direction: column;
+                    border-radius: 0;
+                    box-shadow: none;
+                    overflow: hidden;
+                `;
+
+                const filterBar = tableContainer.querySelector('#vendorFsFilterBar');
+                if (filterBar) filterBar.style.display = 'block';
+
+                const scrollArea = tableContainer.querySelector('.vendor-table-scroll-area');
+                if (scrollArea) {
+                    scrollArea.style.flex = '1';
+                    scrollArea.style.overflowX = 'auto';
+                    scrollArea.style.overflowY = 'auto';
+                }
+
+                const table = tableContainer.querySelector('table');
+                if (table) {
+                    table.classList.remove('min-w-[1300px]');
+                    table.style.minWidth = 'max-content';
+                    table.style.width = '100%';
+                }
+
+                const topBtn = tableContainer.querySelector('#vendorFullscreenBtn');
+                if (topBtn) topBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    Exit Full Screen`;
+
+                const footerHint = tableContainer.querySelector('#vendorFullscreenFooterHint');
+                if (footerHint) footerHint.textContent = '✕ Exit full screen';
             }
         }
 
