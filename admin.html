@@ -259,6 +259,8 @@
             discountSearch: '',                 // Search filter text for discounts list
             discountStatusFilter: 'all',        // 'all' | 'active' | 'expired' | 'disabled' | 'maxed'
             editingDiscount: null,              // Discount object currently being edited (or null)
+            emailNotifications: [],            // Email notification log
+            emailNotifFilters: { searchTerm: '', type: 'all', sortBy: 'newest' },
             appliedDiscount: null,              // Currently applied discount on the order create form
             editingOrderDiscount: null,         // Discount applied inside the edit-order modal
 
@@ -338,6 +340,7 @@
         const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection;
         const VENDOR_ORDERS_COLLECTION = `vendor_orders`;
         const SHIPPING_LABELS_COLLECTION = 'shippingLabels';
+        const EMAIL_NOTIFICATIONS_COLLECTION = 'email_notifications';
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -1060,6 +1063,8 @@
                 } else {
                     return renderOrderCreateForm();
                 }
+            } else if (state.activeTab === 'emailNotifications') {
+                return `<section id="emailNotifPage"></section>`;
             } else if (state.activeTab === 'marketing') {
                 return renderMarketingTab();
             } else if (state.activeTab === 'shippingLabels') {
@@ -2863,6 +2868,18 @@
                 console.error("Error listening to orders:", err);
                 showMessage('error', 'Failed to fetch orders in real-time.', 5000, 'orders');
             });
+
+            // Listener for Email Notifications
+            onSnapshot(
+                query(collection(db, EMAIL_NOTIFICATIONS_COLLECTION), orderBy('sentAt', 'desc')),
+                snap => {
+                    state.emailNotifications = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    if (state.activeTab === 'emailNotifications' && !state.previewMode) {
+                        renderEmailNotificationsSection();
+                    }
+                },
+                err => { console.error('Error listening to email notifications:', err); }
+            );
         }
 
         // function to help admin render orders
@@ -2915,6 +2932,21 @@
                     })
                 });
             } catch (e) { console.error("Log failed:", e); }
+        }
+
+        async function logEmailNotification(type, orderId, recipientEmail, recipientName, metadata = {}) {
+            try {
+                await addDoc(collection(db, EMAIL_NOTIFICATIONS_COLLECTION), {
+                    type,           // 'order_confirmation' | 'payment_link' | 'receipt_resent' | 'status_update'
+                    orderId:        orderId || null,
+                    recipientEmail: recipientEmail || null,
+                    recipientName:  recipientName  || null,
+                    sentBy:         auth.currentUser?.email || 'system',
+                    sentAt:         serverTimestamp(),
+                    status:         'sent',
+                    ...metadata
+                });
+            } catch (e) { console.error('Email log failed:', e); }
         }
 
         function generateUniqueSku() {
@@ -3013,6 +3045,8 @@
                 if (grid) Array.from(grid.children).slice(8).forEach(el => el.remove());
                 window.module.fetchUsers(null);
                 state.selectedUsers = [];
+            } else if (tab === 'emailNotifications') {
+                setTimeout(() => renderEmailNotificationsSection(), 100);
             } else if (tab === 'marketing') {
                 setTimeout(() => {
                     renderDiscountsList();
@@ -4416,6 +4450,9 @@
 
                     if (emailRes.ok) {
                         console.log('✅ Confirmation email sent');
+                        logEmailNotification('order_confirmation', finalOrderId,
+                            orderData.buyerEmail, orderData.buyerName,
+                            { orderNumber: finalOrderId.substring(0, 8), totalCents: finalTotalCents });
                     } else {
                         console.warn('⚠️ Email send failed, but order was created');
                     }
@@ -4914,6 +4951,9 @@
                         })
                     });
                     console.log('✅ Status update email sent');
+                    logEmailNotification('status_update', orderId,
+                        order.buyerEmail, order.buyerName,
+                        { newStatus, orderNumber: order.orderNumber || orderId.substring(0,8) });
                     showMessage('success', `Order status updated to: ${newStatus}. Email sent to customer.`, 5000, 'orders');
                 } catch (emailError) {
                     console.warn('⚠️ Email notification failed:', emailError);
@@ -5302,14 +5342,13 @@
                     const data = await response.json();
                     alert(`✅ Payment link sent!\n\n${data.paymentUrl.substring(0, 50)}...`);
 
-                    // Copy to clipboard
-                    try {
-                        await navigator.clipboard.writeText(data.paymentUrl);
-                    } catch (err) {
-                        console.log('Could not copy to clipboard:', err);
-                    }
+                    try { await navigator.clipboard.writeText(data.paymentUrl); } catch (err) {}
 
-                    // Refresh orders
+                    const order = state.orders.find(o => o.id === orderId);
+                    logEmailNotification('payment_link', orderId,
+                        order?.buyerEmail, order?.buyerName,
+                        { orderNumber: order?.orderNumber || orderId.substring(0,8) });
+
                     await fetchOrders();
 
                     // Close modal if open
@@ -5948,6 +5987,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ orderId, order })
                 });
+                logEmailNotification('receipt_resent', orderId,
+                    order.buyerEmail, order.buyerName,
+                    { orderNumber: order.orderNumber || orderId.substring(0,8) });
                 showMessage('success', 'Receipt resent successfully!', 3000, 'orders');
             } catch (error) {
                 showMessage('error', 'Failed to resend receipt', 3000, 'orders');
@@ -6301,6 +6343,10 @@
                     <button onclick="window.module.switchAdminTab('users')" 
                             class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
                         ${t('tabUsers')}
+                    </button>
+                    <button onclick="window.module.switchAdminTab('emailNotifications')"
+                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'emailNotifications' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
+                        📬 Email Log
                     </button>
                     <button onclick="window.module.switchAdminTab('config')" 
                             class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
@@ -10194,6 +10240,202 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
         }
 
         // ─────────────────────────────────────────────────────────────────────────────
+        // EMAIL NOTIFICATIONS LOG
+        // ─────────────────────────────────────────────────────────────────────────────
+
+        function getFilteredEmailNotifications() {
+            let items = state.emailNotifications || [];
+            const f = state.emailNotifFilters || {};
+
+            if (f.searchTerm) {
+                const term = f.searchTerm.toLowerCase();
+                items = items.filter(n =>
+                    (n.recipientEmail || '').toLowerCase().includes(term) ||
+                    (n.recipientName  || '').toLowerCase().includes(term) ||
+                    (n.orderId        || '').toLowerCase().includes(term) ||
+                    (n.orderNumber    || '').toLowerCase().includes(term)
+                );
+            }
+            if (f.type && f.type !== 'all') {
+                items = items.filter(n => n.type === f.type);
+            }
+            if (f.sortBy === 'oldest') items = [...items].reverse();
+            return items;
+        }
+
+        function renderEmailNotificationsSection() {
+            const el = document.getElementById('emailNotificationsContainer');
+            if (el) {
+                el.innerHTML = renderEmailNotificationsTable();
+                return;
+            }
+            // Full page render
+            const all   = state.emailNotifications || [];
+            const types = {
+                order_confirmation: { label: 'Order Confirmations', icon: '📦', color: 'blue'   },
+                payment_link:       { label: 'Payment Links',       icon: '💳', color: 'orange' },
+                receipt_resent:     { label: 'Receipts Resent',     icon: '🧾', color: 'purple' },
+                status_update:      { label: 'Status Updates',      icon: '🔄', color: 'green'  },
+            };
+            const countBy = (type) => all.filter(n => n.type === type).length;
+
+            const mainContent = document.querySelector('main');
+            if (mainContent) {
+                mainContent.innerHTML = `
+                <section class="space-y-6">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h2 class="text-3xl font-bold text-indigo-700">📬 Email Notifications Log</h2>
+                            <p class="text-sm text-gray-500 mt-1">All emails sent to customers from AutoInx</p>
+                        </div>
+                        <div class="text-sm text-gray-400">${all.length} total emails logged</div>
+                    </div>
+
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        ${Object.entries(types).map(([key, t]) => `
+                        <div class="bg-${t.color}-50 border-2 border-${t.color}-200 rounded-xl p-4 cursor-pointer hover:shadow-md transition"
+                             onclick="window.module.setEmailNotifTypeFilter('${key}')">
+                            <p class="text-2xl mb-1">${t.icon}</p>
+                            <p class="text-2xl font-black text-${t.color}-800">${countBy(key)}</p>
+                            <p class="text-xs font-semibold text-${t.color}-600 mt-1">${t.label}</p>
+                        </div>`).join('')}
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <input type="text" id="emailNotifSearch"
+                                   oninput="window.module.handleEmailNotifSearch(event)"
+                                   placeholder="Search by email, name, or order ID…"
+                                   value="${escapeHtml(state.emailNotifFilters?.searchTerm || '')}"
+                                   class="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+                            <select onchange="window.module.handleEmailNotifTypeFilter(event)"
+                                    class="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+                                <option value="all"               ${(!state.emailNotifFilters?.type || state.emailNotifFilters.type === 'all') ? 'selected' : ''}>All Types</option>
+                                <option value="order_confirmation"${state.emailNotifFilters?.type === 'order_confirmation' ? 'selected' : ''}>📦 Order Confirmations</option>
+                                <option value="payment_link"      ${state.emailNotifFilters?.type === 'payment_link'       ? 'selected' : ''}>💳 Payment Links</option>
+                                <option value="receipt_resent"    ${state.emailNotifFilters?.type === 'receipt_resent'     ? 'selected' : ''}>🧾 Receipts Resent</option>
+                                <option value="status_update"     ${state.emailNotifFilters?.type === 'status_update'      ? 'selected' : ''}>🔄 Status Updates</option>
+                            </select>
+                            <select onchange="window.module.handleEmailNotifSortFilter(event)"
+                                    class="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+                                <option value="newest" ${state.emailNotifFilters?.sortBy !== 'oldest' ? 'selected' : ''}>Newest First</option>
+                                <option value="oldest" ${state.emailNotifFilters?.sortBy === 'oldest' ? 'selected' : ''}>Oldest First</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <div id="emailNotificationsContainer" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        ${renderEmailNotificationsTable()}
+                    </div>
+                </section>`;
+            }
+        }
+
+        function renderEmailNotificationsTable() {
+            const items = getFilteredEmailNotifications();
+            const all   = state.emailNotifications || [];
+
+            const typeConfig = {
+                order_confirmation: { label: 'Order Confirmation', icon: '📦', bg: 'bg-blue-100',   text: 'text-blue-800'   },
+                payment_link:       { label: 'Payment Link',       icon: '💳', bg: 'bg-orange-100', text: 'text-orange-800' },
+                receipt_resent:     { label: 'Receipt Resent',     icon: '🧾', bg: 'bg-purple-100', text: 'text-purple-800' },
+                status_update:      { label: 'Status Update',      icon: '🔄', bg: 'bg-green-100',  text: 'text-green-800'  },
+            };
+
+            const fmtDate = (v) => {
+                if (!v) return '—';
+                const d = v?.toDate ? v.toDate() : new Date(v);
+                return isNaN(d) ? '—' : d.toLocaleString();
+            };
+
+            if (items.length === 0) {
+                return `<div class="p-12 text-center text-gray-400">
+                    <p class="text-4xl mb-3">📭</p>
+                    <p class="font-semibold text-lg">No emails logged yet</p>
+                    <p class="text-sm mt-1">${all.length > 0 ? 'No results match your current filters.' : 'Emails will appear here as they are sent.'}</p>
+                </div>`;
+            }
+
+            const rows = items.map(n => {
+                const tc = typeConfig[n.type] || { label: n.type, icon: '📧', bg: 'bg-gray-100', text: 'text-gray-700' };
+                return `
+                <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                    <td class="px-4 py-3 whitespace-nowrap">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${tc.bg} ${tc.text}">
+                            ${tc.icon} ${tc.label}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3">
+                        <p class="text-sm font-semibold text-gray-800">${escapeHtml(n.recipientName || '—')}</p>
+                        <p class="text-xs text-gray-400">${escapeHtml(n.recipientEmail || '—')}</p>
+                    </td>
+                    <td class="px-4 py-3">
+                        ${n.orderId ? `
+                        <button onclick="window.module.switchAdminTab('orders')"
+                                class="text-xs font-mono text-indigo-600 hover:underline"
+                                title="Go to Orders tab">
+                            #${escapeHtml(n.orderNumber || n.orderId.substring(0,8))}
+                        </button>` : '<span class="text-gray-300 text-xs">—</span>'}
+                        ${n.newStatus ? `<div class="text-xs text-green-600 font-semibold mt-0.5">→ ${escapeHtml(n.newStatus)}</div>` : ''}
+                    </td>
+                    <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${fmtDate(n.sentAt)}</td>
+                    <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">${escapeHtml(n.sentBy || '—')}</td>
+                    <td class="px-4 py-3">
+                        <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">✓ Sent</span>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            return `
+            <table class="w-full border-collapse text-sm">
+                <thead>
+                    <tr class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Type</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Recipient</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Order</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Sent At</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Sent By</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 bg-white">${rows}</tbody>
+            </table>
+            <div class="px-4 py-3 bg-gray-50 border-t text-xs text-gray-400">
+                Showing ${items.length} of ${all.length} notifications
+            </div>`;
+        }
+
+        function handleEmailNotifSearch(e) {
+            if (!state.emailNotifFilters) state.emailNotifFilters = {};
+            state.emailNotifFilters.searchTerm = e.target.value;
+            const el = document.getElementById('emailNotificationsContainer');
+            if (el) el.innerHTML = renderEmailNotificationsTable();
+        }
+
+        function handleEmailNotifTypeFilter(e) {
+            if (!state.emailNotifFilters) state.emailNotifFilters = {};
+            state.emailNotifFilters.type = e.target.value;
+            const el = document.getElementById('emailNotificationsContainer');
+            if (el) el.innerHTML = renderEmailNotificationsTable();
+        }
+
+        function handleEmailNotifSortFilter(e) {
+            if (!state.emailNotifFilters) state.emailNotifFilters = {};
+            state.emailNotifFilters.sortBy = e.target.value;
+            const el = document.getElementById('emailNotificationsContainer');
+            if (el) el.innerHTML = renderEmailNotificationsTable();
+        }
+
+        function setEmailNotifTypeFilter(type) {
+            if (!state.emailNotifFilters) state.emailNotifFilters = {};
+            state.emailNotifFilters.type = type;
+            renderEmailNotificationsSection();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────────────
         // DISCOUNT CRUD OPERATIONS
         // ─────────────────────────────────────────────────────────────────────────────
 
@@ -12795,6 +13037,12 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             downloadOrderReceiptPDF,
             downloadVendorOrderPDF,
             downloadShippingLabelPDF,
+            // Email Notifications Log
+            renderEmailNotificationsSection,
+            handleEmailNotifSearch,
+            handleEmailNotifTypeFilter,
+            handleEmailNotifSortFilter,
+            setEmailNotifTypeFilter,
 
 
             updateActiveFilters: function () {
