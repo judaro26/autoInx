@@ -6550,10 +6550,26 @@
                             <h2 class="text-3xl font-bold text-indigo-700">🏭 Vendor Orders (Alibaba/Supplier Purchases)</h2>
                             <p class="text-sm text-gray-600 mt-1">Track your inventory purchases from suppliers including costs, tariffs, and shipping</p>
                         </div>
-                        <button onclick="window.module.showAddVendorOrderModal()" 
-                                class="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg transition">
-                            ➕ Add Vendor Order
-                        </button>
+                        <div class="flex items-center gap-3">
+                            ${(() => {
+                                const dupeCount = (state.vendorOrders || []).reduce((acc, o) => {
+                                    if (o.orderId) acc[o.orderId] = (acc[o.orderId] || 0) + 1;
+                                    return acc;
+                                }, {});
+                                const hasDupes = Object.values(dupeCount).some(c => c > 1);
+                                return hasDupes ? `
+                                <button id="removeDupesBtn"
+                                        onclick="window.module.removeDuplicateVendorOrders()"
+                                        class="px-4 py-2 bg-orange-100 text-orange-700 border-2 border-orange-300 rounded-lg font-bold hover:bg-orange-200 transition text-sm"
+                                        title="Duplicate orders detected — click to clean up">
+                                    ⚠️ Remove Duplicates
+                                </button>` : '';
+                            })()}
+                            <button onclick="window.module.showAddVendorOrderModal()" 
+                                    class="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg transition">
+                                ➕ Add Vendor Order
+                            </button>
+                        </div>
                     </div>
                     
                     <div id="vendorOrderMessage"></div>
@@ -6842,6 +6858,36 @@
 
         function getFilteredVendorOrders() {
             let orders = state.vendorOrders || [];
+
+            // Deduplicate by supplier orderId — keep the most authoritative doc:
+            // prefer 'Cancelled - Refunded' status; otherwise keep the latest updatedAt/createdAt
+            const seen = new Map();
+            orders.forEach(order => {
+                const key = order.orderId; // supplier order number (e.g. "292451222501029840")
+                if (!key) return;          // no orderId = can't dedup, always show
+                const existing = seen.get(key);
+                if (!existing) {
+                    seen.set(key, order);
+                    return;
+                }
+                // Prefer Cancelled-Refunded as it's the terminal state
+                const currentIsCancelled = order.status === 'Cancelled - Refunded';
+                const existingIsCancelled = existing.status === 'Cancelled - Refunded';
+                if (currentIsCancelled && !existingIsCancelled) {
+                    seen.set(key, order);
+                    return;
+                }
+                if (!currentIsCancelled && existingIsCancelled) return;
+                // Both same status — keep whichever was updated most recently
+                const currentTs = order.updatedAt?.toMillis?.() || order.updatedAt || order.createdAt?.toMillis?.() || order.createdAt || 0;
+                const existingTs = existing.updatedAt?.toMillis?.() || existing.updatedAt || existing.createdAt?.toMillis?.() || existing.createdAt || 0;
+                if (currentTs > existingTs) seen.set(key, order);
+            });
+            // Rebuild orders: deduped entries + any that had no orderId
+            orders = [
+                ...seen.values(),
+                ...orders.filter(o => !o.orderId)
+            ];
 
             // Apply search filter
             if (state.vendorOrderFilters?.searchTerm) {
@@ -12630,6 +12676,68 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             }
         }
 
+        async function removeDuplicateVendorOrders() {
+            const all = state.vendorOrders || [];
+
+            // Group docs by supplier orderId
+            const groups = new Map();
+            all.forEach(order => {
+                if (!order.orderId) return;
+                if (!groups.has(order.orderId)) groups.set(order.orderId, []);
+                groups.get(order.orderId).push(order);
+            });
+
+            // Find groups with more than one doc
+            const dupes = [...groups.values()].filter(g => g.length > 1);
+
+            if (dupes.length === 0) {
+                alert('✅ No duplicate vendor orders found — your list is clean!');
+                return;
+            }
+
+            const totalToDelete = dupes.reduce((sum, g) => sum + g.length - 1, 0);
+            const preview = dupes.map(g => {
+                // Keep rule: prefer Cancelled-Refunded, then latest timestamp
+                const keep = g.reduce((best, cur) => {
+                    if (cur.status === 'Cancelled - Refunded' && best.status !== 'Cancelled - Refunded') return cur;
+                    if (cur.status !== 'Cancelled - Refunded' && best.status === 'Cancelled - Refunded') return best;
+                    const curTs  = cur.updatedAt?.toMillis?.()  || cur.updatedAt  || cur.createdAt?.toMillis?.()  || cur.createdAt  || 0;
+                    const bestTs = best.updatedAt?.toMillis?.() || best.updatedAt || best.createdAt?.toMillis?.() || best.createdAt || 0;
+                    return curTs > bestTs ? cur : best;
+                });
+                const remove = g.filter(o => o.id !== keep.id);
+                return { orderId: g[0].orderId, keep, remove };
+            });
+
+            const lines = preview.map(p =>
+                `• Order ${p.orderId}: keep "${p.keep.status}" (doc ${p.keep.id.substring(0,8)}…), ` +
+                `delete ${p.remove.length} duplicate${p.remove.length !== 1 ? 's' : ''}`
+            ).join('\n');
+
+            if (!confirm(
+                `🗑️ Found ${dupes.length} duplicate group${dupes.length !== 1 ? 's' : ''} — ${totalToDelete} extra doc${totalToDelete !== 1 ? 's' : ''} will be deleted:\n\n${lines}\n\nProceed?`
+            )) return;
+
+            const btn = document.getElementById('removeDupesBtn');
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Cleaning…'; }
+
+            try {
+                const toDelete = preview.flatMap(p => p.remove);
+                await Promise.all(toDelete.map(o => deleteDoc(doc(db, VENDOR_ORDERS_COLLECTION, o.id))));
+                await logAdminAction('VENDOR_ORDER_DUPES_REMOVED', {
+                    groupsFixed: dupes.length,
+                    docsDeleted: totalToDelete,
+                    orderIds: preview.map(p => p.orderId)
+                });
+                showMessage('success', `Removed ${totalToDelete} duplicate doc${totalToDelete !== 1 ? 's' : ''} across ${dupes.length} order${dupes.length !== 1 ? 's' : ''}.`, 5000, 'vendorOrder');
+            } catch (err) {
+                console.error('Dedup cleanup failed:', err);
+                showMessage('error', `Cleanup failed: ${err.message}`, 5000, 'vendorOrder');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '🧹 Remove Duplicates'; }
+            }
+        }
+
         async function deleteVendorOrder(vendorDocId) {
             resetTimer();
 
@@ -13200,7 +13308,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleDiscountSearchInput,
             handleDiscountStatusFilter,
             showEditVendorOrderModal,     // NEW
-            deleteVendorOrder,            // NEW
+            deleteVendorOrder,
+            removeDuplicateVendorOrders,            // NEW
             saveVendorOrder,              // (replaces existing)
             closeVendorOrderModal,        // (replaces existing)
             isVendorOrderOverdue,         // NEW (for use in templates)
