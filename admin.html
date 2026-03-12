@@ -9118,6 +9118,12 @@
 
             <!-- Footer -->
             <div class="flex justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                <button onclick="window.module.syncVendorCostToProfit('${order.id}')"
+                    id="syncProfitBtn"
+                    class="px-4 py-2 text-sm text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors font-semibold"
+                    title="Push prorated landed cost per unit into Profit Analysis for each linked product">
+                    📊 Sync to Profit Analysis
+                </button>
                 <button onclick="window.module.downloadVendorOrderPDF('${order.id}')"
                     class="px-4 py-2 text-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors font-semibold flex items-center gap-1.5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -10111,6 +10117,87 @@ ${order.paidAt ? `<p style="margin-top:10px;font-size:11px;color:#6b7280;">Payme
         }
 
         /** Download a PDF receipt for a vendor order */
+        async function syncVendorCostToProfit(orderId) {
+            const raw = state.vendorOrders?.find(o => o.id === orderId);
+            if (!raw) return;
+            const order = normalizeVendorOrder(raw);
+
+            // Identify items that are linked to catalog products
+            const linked = order.items.filter(i => i.productId && i.quantity > 0);
+            if (linked.length === 0) {
+                alert('⚠️ No items in this order are linked to catalog products. Make sure each row has a product selected.');
+                return;
+            }
+
+            // Overhead = everything beyond pure product cost (shipping + tariffs + processing + sales tax)
+            const overheadDollars = order.shippingCost + order.tariffs + order.processingFee + order.salesTax;
+            const orderSubtotalDollars = order.orderCost || linked.reduce((s, i) => s + i.subtotal, 0);
+
+            // Build preview rows
+            const updates = linked.map(item => {
+                const itemShare    = orderSubtotalDollars > 0 ? item.subtotal / orderSubtotalDollars : 1 / linked.length;
+                const proratedOverheadPerUnit = item.quantity > 0 ? (overheadDollars * itemShare) / item.quantity : 0;
+                const landedUnitCostDollars   = item.unitCost + proratedOverheadPerUnit;
+                const landedUnitCostCents      = Math.round(landedUnitCostDollars * 100);
+
+                const catalogItem = state.items.find(ci => ci.id === item.productId);
+                return {
+                    productId:         item.productId,
+                    name:              item.name || catalogItem?.name || item.productId,
+                    sku:               item.sku  || catalogItem?.sku  || '—',
+                    quantity:          item.quantity,
+                    baseUnitCost:      item.unitCost,
+                    proratedOverhead:  proratedOverheadPerUnit,
+                    landedUnitCostCents,
+                    currentCents:      catalogItem?.purchasePriceCents ?? null,
+                };
+            });
+
+            // Build confirmation preview
+            const previewLines = updates.map(u =>
+                `• ${u.name} (SKU: ${u.sku})\n` +
+                `  Base: $${u.baseUnitCost.toFixed(4)}  +  Overhead share: $${u.proratedOverhead.toFixed(4)}\n` +
+                `  → New purchasePriceCents: ${formatPriceDisplay(u.landedUnitCostCents)}` +
+                (u.currentCents !== null ? `  (was ${formatPriceDisplay(u.currentCents)})` : '  (not set yet)')
+            ).join('\n\n');
+
+            const confirmed = confirm(
+                `📊 Sync landed cost to Profit Analysis?\n\n` +
+                `This will update purchasePriceCents on ${updates.length} product${updates.length !== 1 ? 's' : ''}:\n\n` +
+                `${previewLines}\n\n` +
+                `Overhead ($${overheadDollars.toFixed(2)}) is prorated by each item's share of the order subtotal.`
+            );
+            if (!confirmed) return;
+
+            // Disable the button while saving
+            const btn = document.getElementById('syncProfitBtn');
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+
+            try {
+                await Promise.all(updates.map(u =>
+                    updateDoc(doc(db, ITEMS_COLLECTION, u.productId), {
+                        purchasePriceCents: u.landedUnitCostCents,
+                        updatedAt: serverTimestamp()
+                    })
+                ));
+
+                await logAdminAction('VENDOR_COST_SYNCED_TO_PROFIT', {
+                    vendorOrderId: orderId,
+                    orderNumber:   order.orderNumber,
+                    itemsUpdated:  updates.map(u => ({ productId: u.productId, sku: u.sku, landedUnitCostCents: u.landedUnitCostCents }))
+                }, orderId);
+
+                alert(`✅ Synced! ${updates.length} product${updates.length !== 1 ? 's' : ''} updated in Profit Analysis.`);
+                document.getElementById('vendorOrderDetailsModal')?.remove();
+
+            } catch (err) {
+                console.error('Sync failed:', err);
+                alert(`❌ Sync failed: ${err.message}`);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '📊 Sync to Profit Analysis'; }
+            }
+        }
+
         function downloadVendorOrderPDF(orderId) {
             const raw = state.vendorOrders.find(o => o.id === orderId);
             if (!raw) { showMessage('error', 'Vendor order not found.', 3000, 'vendorOrder'); return; }
@@ -10293,7 +10380,15 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                             <h2 class="text-3xl font-bold text-indigo-700">📬 Email Notifications Log</h2>
                             <p class="text-sm text-gray-500 mt-1">All emails sent to customers from AutoInx</p>
                         </div>
-                        <div class="text-sm text-gray-400">${all.length} total emails logged</div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm text-gray-400">${all.length} total emails logged</span>
+                            <button id="purgeEmailNotifBtn"
+                                    onclick="window.module.purgeOldEmailNotifications()"
+                                    class="px-3 py-2 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition whitespace-nowrap"
+                                    title="Delete notifications older than 60 days">
+                                🗑️ Purge Old Logs
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Summary Cards -->
@@ -10438,6 +10533,40 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             if (!state.emailNotifFilters) state.emailNotifFilters = {};
             state.emailNotifFilters.type = type;
             renderEmailNotificationsSection();
+        }
+
+        async function purgeOldEmailNotifications() {
+            const DAYS = 60;
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - DAYS);
+
+            const stale = state.emailNotifications.filter(n => {
+                const sent = n.sentAt?.toDate ? n.sentAt.toDate() : new Date(n.sentAt);
+                return sent < cutoff;
+            });
+
+            if (stale.length === 0) {
+                alert(`✅ Nothing to purge — no notifications older than ${DAYS} days.`);
+                return;
+            }
+
+            if (!confirm(`🗑️ Delete ${stale.length} notification${stale.length !== 1 ? 's' : ''} older than ${DAYS} days?\n\nThis cannot be undone.`)) return;
+
+            const btn = document.getElementById('purgeEmailNotifBtn');
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Purging…'; }
+
+            try {
+                await Promise.all(
+                    stale.map(n => deleteDoc(doc(db, EMAIL_NOTIFICATIONS_COLLECTION, n.id)))
+                );
+                logAdminAction('EMAIL_NOTIF_PURGED', { count: stale.length, olderThanDays: DAYS });
+                showMessage && showMessage('success', `Deleted ${stale.length} old notification log${stale.length !== 1 ? 's' : ''}.`, 4000, 'emailNotif');
+            } catch (err) {
+                console.error('Purge failed:', err);
+                alert(`❌ Purge failed: ${err.message}`);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '🗑️ Purge Old Logs'; }
+            }
         }
 
         // ─────────────────────────────────────────────────────────────────────────────
@@ -12975,6 +13104,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleVendorOrderStatusFilter,
             handleVendorOrderSort,
             showVendorOrderDetailsModal,
+            syncVendorCostToProfit,
             toggleVendorRefundFields,
             toggleVendorTableFullscreen,
 
@@ -13048,6 +13178,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleEmailNotifTypeFilter,
             handleEmailNotifSortFilter,
             setEmailNotifTypeFilter,
+            purgeOldEmailNotifications,
 
 
             updateActiveFilters: function () {
