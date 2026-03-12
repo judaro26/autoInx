@@ -5340,14 +5340,19 @@
 
                 if (response.ok) {
                     const data = await response.json();
-                    alert(`✅ Payment link sent!\n\n${data.paymentUrl.substring(0, 50)}...`);
+                    const paymentUrl = data.paymentUrl || data.payment_url || data.url || '';
 
-                    try { await navigator.clipboard.writeText(data.paymentUrl); } catch (err) {}
-
+                    // Log first — before anything that could throw
                     const order = state.orders.find(o => o.id === orderId);
                     logEmailNotification('payment_link', orderId,
                         order?.buyerEmail, order?.buyerName,
-                        { orderNumber: order?.orderNumber || orderId.substring(0,8) });
+                        { orderNumber: order?.orderNumber || orderId.substring(0, 8) });
+
+                    alert(`✅ Payment link sent!${paymentUrl ? `\n\n${paymentUrl.substring(0, 50)}...` : ''}`);
+
+                    if (paymentUrl) {
+                        try { await navigator.clipboard.writeText(paymentUrl); } catch (err) {}
+                    }
 
                     await fetchOrders();
 
