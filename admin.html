@@ -259,6 +259,7 @@
             discountSearch: '',                 // Search filter text for discounts list
             discountStatusFilter: 'all',        // 'all' | 'active' | 'expired' | 'disabled' | 'maxed'
             editingDiscount: null,              // Discount object currently being edited (or null)
+            isAdmin: false,                    // Set true once admin token claim is verified
             emailNotifications: [],            // Email notification log
             emailNotifFilters: { searchTerm: '', type: 'all', sortBy: 'newest' },
             appliedDiscount: null,              // Currently applied discount on the order create form
@@ -2732,6 +2733,7 @@
                             // 1. SET THE GLOBAL userId FIRST
                             userId = user.uid;
                             isAuthReady = true;
+                            state.isAdmin = true; // Store for permission checks throughout UI
 
                             // 2. Start session tracking
                             document.onmousemove = document.onkeydown = document.onclick = resetTimer;
@@ -4906,6 +4908,39 @@
             resetTimer();
         }
 
+        async function handleDeleteOrder(orderId) {
+            if (!state.isAdmin) {
+                showMessage('error', 'Permission denied: only admins can delete orders.', 4000, 'orders');
+                return;
+            }
+
+            const order = state.orders.find(o => o.id === orderId);
+            if (!order) return;
+
+            const label = order.orderNumber || orderId.substring(0, 8);
+            if (!confirm(`⚠️ Permanently delete order #${label}?\n\nCustomer: ${order.buyerName || '—'}\nTotal: ${formatPriceDisplay(order.totalCents)}\n\nThis cannot be undone.`)) return;
+
+            try {
+                const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
+                const path = getOrdersCollectionPath(targetId);
+                await deleteDoc(doc(db, path, orderId));
+
+                await logAdminAction('ORDER_DELETED', {
+                    orderId,
+                    orderNumber: label,
+                    buyerName:  order.buyerName,
+                    buyerEmail: order.buyerEmail,
+                    totalCents: order.totalCents,
+                    deletedBy:  auth.currentUser?.email
+                }, orderId);
+
+                showMessage('success', `Order #${label} deleted.`, 3000, 'orders');
+            } catch (err) {
+                console.error('Delete order error:', err);
+                showMessage('error', `Failed to delete order: ${err.message}`, 5000, 'orders');
+            }
+        }
+
         async function handleOrderStatusUpdate(orderId, newStatus) {
             resetTimer();
             const order = state.orders.find(o => o.id === orderId);
@@ -5107,6 +5142,12 @@
                         <option value="Delivered">Delivered</option>
                         <option value="Cancelled">Cancelled</option>
                     </select>
+                    ${state.isAdmin ? `
+                    <button onclick="window.module.handleDeleteOrder('${order.id}')"
+                            class="text-xs px-3 py-1 bg-red-100 text-red-700 border border-red-300 rounded hover:bg-red-600 hover:text-white transition font-semibold"
+                            title="Permanently delete this order (admin only)">
+                        🗑️ Delete
+                    </button>` : ''}
                 </div>
             </div>
         `;
@@ -13064,6 +13105,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleStatusFilterChange,
             handleDeliveryFilterChange,
             handleOrderStatusUpdate,
+            handleDeleteOrder,
             handleRequestDelivery,
             renderOrdersList,
             renderOrderCreateForm,
