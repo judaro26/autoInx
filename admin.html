@@ -1238,7 +1238,10 @@
                                             <option value="">-- Select a product from inventory --</option>
                                             ${state.items.map(item => {
                                                 const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                                                const sel = _eo.inventoryItemId === item.id ? 'selected' : '';
+                                                const sel = (_eo.inventoryItemId === item.id) ||
+                                                    (!_eo.inventoryItemId && _eo.product &&
+                                                     item.name.toLowerCase() === _eo.product.toLowerCase())
+                                                    ? 'selected' : '';
                                                 return `<option value="${item.id}" ${sel}
                                                     data-name="${escapeAttribute(item.name)}"
                                                     data-price="${(item.price / 100).toFixed(2)}"
@@ -1319,7 +1322,7 @@
                                 </div>
 
                                 <!-- Product Details Preview (shown when editing with linked inventory item) -->
-                                <div id="productDetailsPreview" class="${_eo.inventoryItemId ? '' : 'hidden'} mt-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
+                                <div id="productDetailsPreview" class="${(_eo.inventoryItemId || (_eo.product && state.items.some(i => i.name.toLowerCase() === (_eo.product||'').toLowerCase()))) ? '' : 'hidden'} mt-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
                                     <p class="text-sm font-bold text-blue-800 mb-2">📦 Product Details</p>
                                     <div class="text-sm text-gray-700 space-y-1">
                                         <p><strong>SKU:</strong> <span id="previewSku">${escapeHtml((() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it?.sku || 'N/A'; })())}</span></p>
@@ -14128,37 +14131,65 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 }
             },
 
-            // Returns vendor landed cost per unit for a given product, or null if not found
+            // Returns vendor landed cost per unit for a given product, or null if not found.
+            // Strategy (in priority order):
+            // 1. Find the item in a vendor order → use that item's own unitCost + proportional share of overhead
+            // 2. Fall back to purchasePriceCents stored directly on the inventory item
             getVendorCostForProduct: function (itemId, productName) {
                 const vendorOrders = state.vendorOrders || [];
                 let bestCost = null;
                 let bestDate = null;
 
                 for (const order of vendorOrders) {
-                    const items = order.items || [];
-                    for (const item of items) {
+                    const allItems = order.items || [];
+                    for (const item of allItems) {
                         const matchById = itemId && (item.productId === itemId || item.id === itemId);
                         const matchByName = productName && (item.productName || item.name || '').toLowerCase() === productName.toLowerCase();
-                        if (matchById || matchByName) {
-                            // Calculate landed cost per unit for this order
-                            const orderCost = order.orderCost || (order.subtotalCents ? order.subtotalCents / 100 : 0);
-                            const shipping = order.shippingCost || (order.shippingCostCents ? order.shippingCostCents / 100 : 0);
-                            const tariffs = order.tariffs || (order.tariffCostCents ? order.tariffCostCents / 100 : 0);
-                            const processing = order.processingFee || (order.processingFeeCents ? order.processingFeeCents / 100 : 0);
-                            const tax = order.salesTax || (order.salesTaxCents ? order.salesTaxCents / 100 : 0);
-                            const landedCost = order.landedCost || (orderCost + shipping + tariffs + processing + tax);
-                            const totalUnits = items.reduce((s, i) => s + parseInt(i.quantity || 0), 0);
-                            if (totalUnits > 0) {
-                                const costPerUnit = landedCost / totalUnits;
-                                const orderDate = order.orderDate || '';
-                                if (bestDate === null || orderDate > bestDate) {
-                                    bestCost = costPerUnit;
-                                    bestDate = orderDate;
-                                }
-                            }
+                        if (!matchById && !matchByName) continue;
+
+                        // This item's own purchase cost (unit price × qty gives subtotal for this line)
+                        const itemUnitCost = item.unitPriceCents != null
+                            ? item.unitPriceCents / 100
+                            : parseFloat(item.unitCost || 0);
+                        const itemQty = parseInt(item.quantity || 1);
+                        const itemSubtotal = itemUnitCost * itemQty;
+
+                        // Total order subtotal across all items
+                        const orderSubtotal = allItems.reduce((s, i) => {
+                            const u = i.unitPriceCents != null ? i.unitPriceCents / 100 : parseFloat(i.unitCost || 0);
+                            return s + u * parseInt(i.quantity || 1);
+                        }, 0);
+
+                        // Overhead = shipping + tariffs + processing + tax (NOT included in per-item subtotal)
+                        const shipping   = order.shippingCost   || (order.shippingCostCents   ? order.shippingCostCents   / 100 : 0);
+                        const tariffs    = order.tariffs        || (order.tariffCostCents      ? order.tariffCostCents      / 100 : 0);
+                        const processing = order.processingFee  || (order.processingFeeCents   ? order.processingFeeCents   / 100 : 0);
+                        const tax        = order.salesTax       || (order.salesTaxCents        ? order.salesTaxCents        / 100 : 0);
+                        const totalOverhead = shipping + tariffs + processing + tax;
+
+                        // Allocate overhead proportionally to this item's share of the subtotal
+                        const overheadShare = orderSubtotal > 0 ? (itemSubtotal / orderSubtotal) : 0;
+                        const itemOverhead = totalOverhead * overheadShare;
+
+                        // Landed cost per unit = (item subtotal + allocated overhead) / qty
+                        const landedPerUnit = itemQty > 0 ? (itemSubtotal + itemOverhead) / itemQty : itemUnitCost;
+
+                        const orderDate = order.orderDate || '';
+                        if (bestDate === null || orderDate > bestDate) {
+                            bestCost = landedPerUnit;
+                            bestDate = orderDate;
                         }
                     }
                 }
+
+                // Fallback: use purchasePriceCents stored directly on the inventory item
+                if (bestCost === null && itemId) {
+                    const invItem = state.items.find(i => i.id === itemId);
+                    if (invItem?.purchasePriceCents != null) {
+                        bestCost = invItem.purchasePriceCents / 100;
+                    }
+                }
+
                 return bestCost;
             },
 
@@ -14217,21 +14248,26 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 const order = allExternalOrders.find(o => o.id === orderId);
                 if (!order) return;
 
-                // Look up vendor cost from vendor orders for this product
-                const vendorCost = window.module.getVendorCostForProduct(
-                    order.inventoryItemId || null,
-                    order.product
-                );
+                // Resolve inventoryItemId — old orders may not have it saved; try matching by product name
+                let resolvedItemId = order.inventoryItemId || null;
+                if (!resolvedItemId && order.product) {
+                    const nameMatch = state.items.find(i =>
+                        i.name.toLowerCase() === order.product.toLowerCase()
+                    );
+                    if (nameMatch) resolvedItemId = nameMatch.id;
+                }
 
-                // Store full editing state — template will bake values in on next render
+                // Look up vendor cost with resolved item id
+                const vendorCost = window.module.getVendorCostForProduct(resolvedItemId, order.product);
+
                 state.editingExternalOrder = {
                     ...order,
-                    // Ensure vendorCostPerUnit is fresh from vendor orders (or kept from saved)
-                    vendorCostPerUnit: order.vendorCostPerUnit != null ? order.vendorCostPerUnit : vendorCost
+                    inventoryItemId: resolvedItemId,
+                    vendorCostPerUnit: vendorCost != null ? vendorCost : (order.vendorCostPerUnit ?? null)
                 };
                 state.externalOrderModalOpen = true;
                 window.module._currentVendorCostPerUnit = state.editingExternalOrder.vendorCostPerUnit;
-                window.module._currentInventoryItemId = order.inventoryItemId || null;
+                window.module._currentInventoryItemId = resolvedItemId;
 
                 renderAdminPage(auth.currentUser?.email || 'Admin');
                 window.module.fetchExternalOrders();
