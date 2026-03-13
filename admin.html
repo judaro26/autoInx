@@ -321,6 +321,10 @@
 
             // ✅ CRITICAL FIX: Initialize the sales time filter
             salesTimeFilter: 'last6months',
+
+            // External order modal state (state-driven to survive re-renders)
+            externalOrderModalOpen: false,
+            editingExternalOrder: null,   // null = add mode, object = edit mode
             // -------------------------
         };
 
@@ -1075,6 +1079,23 @@
             } else if (state.activeTab === 'vendorOrders') {
                 return renderVendorOrdersSection();
             } else if (state.activeTab === 'externalOrders') {
+                // Build modal values from state for both add and edit modes
+                const _eo = state.editingExternalOrder || {};
+                const _eoOpen = state.externalOrderModalOpen;
+                const _eoIsEdit = !!_eo.id;
+                const _eoSalePrice = _eo.salePrice != null ? _eo.salePrice : (_eo.amount || '');
+                const _eoVendorCost = _eo.vendorCostPerUnit != null ? _eo.vendorCostPerUnit : null;
+                // Compute net profit for panel display
+                const _eoQty = parseInt(_eo.quantity || 1);
+                const _eoShip = parseFloat(_eo.shippingCost || 0);
+                const _eoTxn  = parseFloat(_eo.transactionCost || 0);
+                const _eoSP   = parseFloat(_eoSalePrice || 0);
+                let _eoNetProfit = null;
+                if (_eoVendorCost != null && _eoSP > 0) {
+                    _eoNetProfit = (_eoSP * _eoQty) - (_eoVendorCost * _eoQty) - _eoShip - _eoTxn;
+                }
+                const _platformOpts = ['Amazon','eBay','Mercado Libre','Etsy','Walmart','Other'];
+                const _statusOpts   = ['Pending','Processing','Shipped','Delivered','Cancelled'];
                 return `
                     <section class="space-y-8">
                         <div class="flex justify-between items-center">
@@ -1084,7 +1105,7 @@
                                 + Add Order
                             </button>
                         </div>
-            
+
                         <!-- Filters -->
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <select id="platformFilter" onchange="window.module.filterExternalOrders()" 
@@ -1095,7 +1116,7 @@
                                 <option value="Mercado Libre">Mercado Libre</option>
                                 <option value="Other">Other</option>
                             </select>
-            
+
                             <select id="statusFilter" onchange="window.module.filterExternalOrders()" 
                                     class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                 <option value="all">All Statuses</option>
@@ -1105,14 +1126,13 @@
                                 <option value="Delivered">Delivered</option>
                                 <option value="Cancelled">Cancelled</option>
                             </select>
-            
+
                             <input type="text" id="searchExternalOrders" 
                                    placeholder="Search by order ID or customer..." 
                                    oninput="window.module.filterExternalOrders()"
                                    class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                         </div>
-            
-                        <!-- ✅ CRITICAL: Make sure this table structure exists -->
+
                         <div class="overflow-x-auto bg-white rounded-lg shadow">
                             <table class="w-full border border-gray-200">
                                 <thead class="bg-gray-50">
@@ -1138,7 +1158,7 @@
                                 </tbody>
                             </table>
                         </div>
-            
+
                         <!-- Stats Summary -->
                         <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
                             <div class="bg-blue-50 p-4 rounded-lg">
@@ -1163,97 +1183,94 @@
                             </div>
                         </div>
                     </section>
-            
-                    <!-- External Order Modal -->
-                    <div id="externalOrderModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+
+                    <!-- External Order Modal — STATE-DRIVEN: values baked in at render time -->
+                    <div id="externalOrderModal" class="${_eoOpen ? 'fixed' : 'hidden'} fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
                         <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-8">
                             <div class="flex justify-between items-center mb-6">
-                                <h3 class="text-2xl font-bold text-gray-800" id="modalTitle">Add External Order</h3>
+                                <h3 class="text-2xl font-bold text-gray-800">${_eoIsEdit ? 'Edit External Order' : 'Add External Order'}</h3>
                                 <button onclick="window.module.closeExternalOrderModal()" class="text-gray-400 hover:text-gray-600">
                                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                     </svg>
                                 </button>
                             </div>
-            
+
                             <form id="externalOrderForm" onsubmit="window.module.saveExternalOrder(event)">
-                                <input type="hidden" id="editOrderId">
-                                
+                                <input type="hidden" id="editOrderId" value="${escapeAttribute(_eo.id || '')}">
+
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Platform *</label>
                                         <select id="orderPlatform" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                             <option value="">Select Platform</option>
-                                            <option value="Amazon">Amazon</option>
-                                            <option value="eBay">eBay</option>
-                                            <option value="Mercado Libre">Mercado Libre</option>
-                                            <option value="Etsy">Etsy</option>
-                                            <option value="Walmart">Walmart</option>
-                                            <option value="Other">Other</option>
+                                            ${_platformOpts.map(p => `<option value="${p}" ${_eo.platform === p ? 'selected' : ''}>${p}</option>`).join('')}
                                         </select>
                                     </div>
-            
+
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Order ID *</label>
-                                        <input type="text" id="orderExternalId" required 
+                                        <input type="text" id="orderExternalId" required
                                                placeholder="e.g., 123-4567890-1234567"
+                                               value="${escapeAttribute(_eo.externalOrderId || '')}"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
-            
+
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Customer Name *</label>
-                                        <input type="text" id="orderCustomerName" required 
+                                        <input type="text" id="orderCustomerName" required
                                                placeholder="John Doe"
+                                               value="${escapeAttribute(_eo.customerName || '')}"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
-            
+
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Order Date *</label>
-                                        <input type="date" id="orderDate" required 
+                                        <input type="date" id="orderDate" required
+                                               value="${escapeAttribute(_eo.orderDate || new Date().toISOString().split('T')[0])}"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
-            
+
                                     <div class="md:col-span-2">
-                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Select Product *</label>
-                                        <select id="orderProductSelector" onchange="window.module.handleExternalProductSelect()" 
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Select Product</label>
+                                        <select id="orderProductSelector" onchange="window.module.handleExternalProductSelect()"
                                                 class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white">
                                             <option value="">-- Select a product from inventory --</option>
                                             ${state.items.map(item => {
-                    const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                    return `<option value="${item.id}" 
-                                                                data-name="${escapeAttribute(item.name)}" 
-                                                                data-price="${(item.price / 100).toFixed(2)}" 
-                                                                data-sku="${escapeAttribute(item.sku || '')}"
-                                                                data-description="${escapeAttribute(item.description || '')}"
-                                                                data-itemid="${item.id}">
+                                                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                                                const sel = _eo.inventoryItemId === item.id ? 'selected' : '';
+                                                return `<option value="${item.id}" ${sel}
+                                                    data-name="${escapeAttribute(item.name)}"
+                                                    data-price="${(item.price / 100).toFixed(2)}"
+                                                    data-sku="${escapeAttribute(item.sku || '')}"
+                                                    data-description="${escapeAttribute(item.description || '')}"
+                                                    data-itemid="${item.id}">
                                                     ${escapeHtml(item.name)} - ${cat} - ${formatPriceDisplay(item.price)}
                                                 </option>`;
-                }).join('')}
+                                            }).join('')}
                                             <option value="custom">✏️ Custom Product (Not in Inventory)</option>
                                         </select>
                                     </div>
-            
+
                                     <div class="md:col-span-2">
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Product Description *</label>
-                                        <input type="text" id="orderProduct" required 
+                                        <input type="text" id="orderProduct" required
                                                placeholder="Select a product above or enter custom"
+                                               value="${escapeAttribute(_eo.product || '')}"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
-            
+
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Status *</label>
                                         <select id="orderStatus" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                                            <option value="Pending">Pending</option>
-                                            <option value="Processing">Processing</option>
-                                            <option value="Shipped">Shipped</option>
-                                            <option value="Delivered">Delivered</option>
-                                            <option value="Cancelled">Cancelled</option>
+                                            ${_statusOpts.map(s => `<option value="${s}" ${(_eo.status || 'Pending') === s ? 'selected' : ''}>${s}</option>`).join('')}
                                         </select>
                                     </div>
 
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Quantity *</label>
-                                        <input type="number" id="orderQuantity" min="1" value="1" required
+                                        <input type="number" id="orderQuantity" min="1" required
+                                               value="${_eo.quantity || 1}"
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
@@ -1262,33 +1279,34 @@
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Sale Price (per unit) *</label>
                                         <input type="number" id="orderSalePrice" step="0.01" required
                                                placeholder="0.00"
+                                               value="${_eoSalePrice}"
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
 
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Shipping Cost</label>
-                                        <input type="number" id="orderShippingCost" step="0.01" value="0"
-                                               placeholder="0.00"
+                                        <input type="number" id="orderShippingCost" step="0.01"
+                                               value="${_eo.shippingCost != null ? _eo.shippingCost : 0}"
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
 
                                     <div>
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Transaction Cost</label>
-                                        <input type="number" id="orderTransactionCost" step="0.01" value="0"
-                                               placeholder="e.g. platform fees"
+                                        <input type="number" id="orderTransactionCost" step="0.01"
+                                               value="${_eo.transactionCost != null ? _eo.transactionCost : 0}"
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
 
-                                    <!-- Legacy amount field kept hidden for backward compat -->
-                                    <input type="hidden" id="orderAmount">
+                                    <input type="hidden" id="orderAmount" value="${_eoSalePrice !== '' ? parseFloat(_eoSalePrice || 0) * _eoQty : ''}">
 
                                     <div class="md:col-span-2">
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Tracking Number</label>
                                         <input type="text" id="orderTracking"
                                                placeholder="1Z999AA10123456784"
+                                               value="${escapeAttribute(_eo.trackingNumber || '')}"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                                     </div>
 
@@ -1296,46 +1314,47 @@
                                         <label class="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
                                         <textarea id="orderNotes" rows="2"
                                                   placeholder="Additional notes about this order..."
-                                                  class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"></textarea>
+                                                  class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">${escapeHtml(_eo.notes || '')}</textarea>
                                     </div>
                                 </div>
 
-                                <div id="productDetailsPreview" class="hidden mt-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
+                                <!-- Product Details Preview (shown when editing with linked inventory item) -->
+                                <div id="productDetailsPreview" class="${_eo.inventoryItemId ? '' : 'hidden'} mt-4 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
                                     <p class="text-sm font-bold text-blue-800 mb-2">📦 Product Details</p>
                                     <div class="text-sm text-gray-700 space-y-1">
-                                        <p><strong>SKU:</strong> <span id="previewSku">-</span></p>
-                                        <p><strong>Description:</strong> <span id="previewDescription">-</span></p>
-                                        <p><strong>Listed Price:</strong> <span id="previewPrice">-</span></p>
-                                        <p><strong>Current Stock:</strong> <span id="previewStock">-</span></p>
+                                        <p><strong>SKU:</strong> <span id="previewSku">${escapeHtml((() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it?.sku || 'N/A'; })())}</span></p>
+                                        <p><strong>Description:</strong> <span id="previewDescription">${escapeHtml((() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it?.description || 'No description'; })())}</span></p>
+                                        <p><strong>Listed Price:</strong> <span id="previewPrice">${(() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it ? formatPriceDisplay(it.price) : 'N/A'; })()}</span></p>
+                                        <p><strong>Current Stock:</strong> <span id="previewStock">${(() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it ? (it.stock || 0) + ' units' : 'N/A'; })()}</span></p>
                                     </div>
                                 </div>
 
                                 <!-- Profit Summary Panel -->
-                                <div id="profitSummaryPanel" class="hidden mt-4 p-4 bg-gray-50 border-2 border-gray-200 rounded-lg">
+                                <div id="profitSummaryPanel" class="${_eoOpen && (_eoVendorCost != null || _eoIsEdit) ? '' : 'hidden'} mt-4 p-4 bg-gray-50 border-2 border-gray-200 rounded-lg">
                                     <p class="text-sm font-bold text-gray-700 mb-3">💰 Profit Summary</p>
                                     <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                                         <div class="text-gray-600">Vendor Cost / Unit:</div>
-                                        <div id="summaryVendorCost" class="font-semibold text-gray-800">—</div>
+                                        <div id="summaryVendorCost" class="font-semibold text-gray-800">${_eoVendorCost != null ? '$' + parseFloat(_eoVendorCost).toFixed(2) : '—'}</div>
                                         <div class="text-gray-600">Sale Price / Unit:</div>
-                                        <div id="summarySalePrice" class="font-semibold text-gray-800">—</div>
+                                        <div id="summarySalePrice" class="font-semibold text-gray-800">${_eoSP > 0 ? '$' + _eoSP.toFixed(2) : '—'}</div>
                                         <div class="text-gray-600">Shipping Cost:</div>
-                                        <div id="summaryShipping" class="font-semibold text-gray-800">—</div>
+                                        <div id="summaryShipping" class="font-semibold text-gray-800">$${_eoShip.toFixed(2)}</div>
                                         <div class="text-gray-600">Transaction Cost:</div>
-                                        <div id="summaryTransaction" class="font-semibold text-gray-800">—</div>
+                                        <div id="summaryTransaction" class="font-semibold text-gray-800">$${_eoTxn.toFixed(2)}</div>
                                         <div class="border-t border-gray-300 pt-2 font-bold text-gray-700">Net Profit (total):</div>
-                                        <div id="summaryNetProfit" class="border-t border-gray-300 pt-2 font-bold text-lg">—</div>
+                                        <div id="summaryNetProfit" class="border-t border-gray-300 pt-2 font-bold text-lg ${_eoNetProfit != null ? (_eoNetProfit >= 0 ? 'text-green-700' : 'text-red-600') : ''}">${_eoNetProfit != null ? (_eoNetProfit >= 0 ? '+' : '') + '$' + _eoNetProfit.toFixed(2) : '—'}</div>
                                     </div>
-                                    <p id="vendorCostNote" class="hidden mt-2 text-xs text-amber-600">⚠️ No vendor order found for this product — vendor cost not included.</p>
+                                    <p id="vendorCostNote" class="${_eoVendorCost == null ? '' : 'hidden'} mt-2 text-xs text-amber-600">⚠️ No vendor order found for this product — vendor cost not included.</p>
                                 </div>
 
                                 <div class="flex justify-end space-x-3 mt-6">
-                                    <button type="button" onclick="window.module.closeExternalOrderModal()" 
+                                    <button type="button" onclick="window.module.closeExternalOrderModal()"
                                             class="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition">
                                         Cancel
                                     </button>
-                                    <button type="submit" 
+                                    <button type="submit"
                                             class="px-6 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition">
-                                        Save Order
+                                        ${_eoIsEdit ? 'Update Order' : 'Save Order'}
                                     </button>
                                 </div>
                             </form>
@@ -14130,6 +14149,14 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 const transaction = parseFloat(document.getElementById('orderTransactionCost')?.value) || 0;
                 const vendorCost = window.module._currentVendorCostPerUnit;
 
+                // Keep state in sync so a re-render preserves the current values
+                if (!state.editingExternalOrder) state.editingExternalOrder = {};
+                state.editingExternalOrder.quantity = qty;
+                state.editingExternalOrder.salePrice = salePrice || null;
+                state.editingExternalOrder.shippingCost = shipping;
+                state.editingExternalOrder.transactionCost = transaction;
+                state.editingExternalOrder.vendorCostPerUnit = vendorCost;
+
                 // Update hidden amount field for backward compat
                 const totalSale = salePrice * qty;
                 const amountEl = document.getElementById('orderAmount');
@@ -14149,6 +14176,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     const profitEl = document.getElementById('summaryNetProfit');
                     profitEl.textContent = (netProfit >= 0 ? '+' : '') + '$' + netProfit.toFixed(2);
                     profitEl.className = 'border-t border-gray-300 pt-2 font-bold text-lg ' + (netProfit >= 0 ? 'text-green-700' : 'text-red-600');
+                    state.editingExternalOrder.netProfit = netProfit;
                 } else {
                     document.getElementById('summaryVendorCost').textContent = '—';
                     document.getElementById('summaryNetProfit').textContent = '—';
@@ -14156,74 +14184,52 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             },
 
             showAddExternalOrderModal: function () {
-                document.getElementById('modalTitle').textContent = 'Add External Order';
-                document.getElementById('externalOrderForm').reset();
-                document.getElementById('editOrderId').value = '';
-                document.getElementById('orderDate').valueAsDate = new Date();
-                document.getElementById('orderQuantity').value = 1;
-                document.getElementById('orderShippingCost').value = 0;
-                document.getElementById('orderTransactionCost').value = 0;
-                document.getElementById('profitSummaryPanel')?.classList.add('hidden');
-                document.getElementById('productDetailsPreview')?.classList.add('hidden');
+                state.editingExternalOrder = null;
+                state.externalOrderModalOpen = true;
                 window.module._currentVendorCostPerUnit = null;
                 window.module._currentInventoryItemId = null;
-                document.getElementById('externalOrderModal').classList.remove('hidden');
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+                // Re-fetch orders so table stays fresh after re-render
+                window.module.fetchExternalOrders();
             },
 
             editExternalOrder: function (orderId) {
                 const order = allExternalOrders.find(o => o.id === orderId);
                 if (!order) return;
 
-                document.getElementById('modalTitle').textContent = 'Edit External Order';
-                document.getElementById('editOrderId').value = order.id;
-                document.getElementById('orderPlatform').value = order.platform;
-                document.getElementById('orderExternalId').value = order.externalOrderId;
-                document.getElementById('orderCustomerName').value = order.customerName;
-                document.getElementById('orderDate').value = order.orderDate;
-                document.getElementById('orderProduct').value = order.product;
-                document.getElementById('orderStatus').value = order.status;
-                document.getElementById('orderQuantity').value = order.quantity || 1;
-                document.getElementById('orderSalePrice').value = order.salePrice != null ? order.salePrice : (order.amount || '');
-                document.getElementById('orderShippingCost').value = order.shippingCost || 0;
-                document.getElementById('orderTransactionCost').value = order.transactionCost || 0;
-                document.getElementById('orderTracking').value = order.trackingNumber || '';
-                document.getElementById('orderNotes').value = order.notes || '';
+                // Look up vendor cost from vendor orders for this product
+                const vendorCost = window.module.getVendorCostForProduct(
+                    order.inventoryItemId || null,
+                    order.product
+                );
 
-                // Restore vendor cost state for profit recalc
-                window.module._currentVendorCostPerUnit = order.vendorCostPerUnit || null;
+                // Store full editing state — template will bake values in on next render
+                state.editingExternalOrder = {
+                    ...order,
+                    // Ensure vendorCostPerUnit is fresh from vendor orders (or kept from saved)
+                    vendorCostPerUnit: order.vendorCostPerUnit != null ? order.vendorCostPerUnit : vendorCost
+                };
+                state.externalOrderModalOpen = true;
+                window.module._currentVendorCostPerUnit = state.editingExternalOrder.vendorCostPerUnit;
                 window.module._currentInventoryItemId = order.inventoryItemId || null;
 
-                // Show profit panel with saved values
-                const panel = document.getElementById('profitSummaryPanel');
-                if (panel) {
-                    panel.classList.remove('hidden');
-                    const noteEl = document.getElementById('vendorCostNote');
-                    if (order.vendorCostPerUnit != null) {
-                        noteEl.classList.add('hidden');
-                        document.getElementById('summaryVendorCost').textContent = '$' + parseFloat(order.vendorCostPerUnit).toFixed(2);
-                    } else {
-                        noteEl.classList.remove('hidden');
-                        document.getElementById('summaryVendorCost').textContent = '—';
-                    }
-                    window.module.recalcExternalProfit();
-                }
-
-                document.getElementById('externalOrderModal').classList.remove('hidden');
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+                window.module.fetchExternalOrders();
             },
 
             closeExternalOrderModal: function () {
-                document.getElementById('externalOrderModal').classList.add('hidden');
-                document.getElementById('externalOrderForm').reset();
-                document.getElementById('profitSummaryPanel')?.classList.add('hidden');
-                document.getElementById('productDetailsPreview')?.classList.add('hidden');
+                state.editingExternalOrder = null;
+                state.externalOrderModalOpen = false;
                 window.module._currentVendorCostPerUnit = null;
                 window.module._currentInventoryItemId = null;
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+                window.module.fetchExternalOrders();
             },
 
             saveExternalOrder: async function (event) {
                 event.preventDefault();
 
-                const editId = document.getElementById('editOrderId').value || null;
+                const editId = document.getElementById('editOrderId').value || state.editingExternalOrder?.id || null;
                 const qty = parseInt(document.getElementById('orderQuantity').value) || 1;
                 const salePrice = parseFloat(document.getElementById('orderSalePrice').value) || null;
                 const shippingCost = parseFloat(document.getElementById('orderShippingCost').value) || 0;
@@ -14288,7 +14294,11 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     }
 
                     alert(editId ? 'Order updated successfully!' : 'Order added successfully!');
-                    window.module.closeExternalOrderModal();
+                    state.editingExternalOrder = null;
+                    state.externalOrderModalOpen = false;
+                    window.module._currentVendorCostPerUnit = null;
+                    window.module._currentInventoryItemId = null;
+                    renderAdminPage(auth.currentUser?.email || 'Admin');
                     await window.module.fetchExternalOrders();
 
                 } catch (error) {
