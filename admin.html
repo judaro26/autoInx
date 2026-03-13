@@ -1326,7 +1326,7 @@
                                     <p class="text-sm font-bold text-blue-800 mb-2">📦 Product Details</p>
                                     <div class="text-sm text-gray-700 space-y-1">
                                         <p><strong>SKU:</strong> <span id="previewSku">${escapeHtml((() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it?.sku || 'N/A'; })())}</span></p>
-                                        <p><strong>Description:</strong> <span id="previewDescription">${escapeHtml((() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it?.description || 'No description'; })())}</span></p>
+                                        <p><strong>Description:</strong> <span id="previewDescription">${escapeHtml((() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return stripHtml(it?.description) || 'No description'; })())}</span></p>
                                         <p><strong>Listed Price:</strong> <span id="previewPrice">${(() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it ? formatPriceDisplay(it.price) : 'N/A'; })()}</span></p>
                                         <p><strong>Current Stock:</strong> <span id="previewStock">${(() => { const it = state.items.find(i => i.id === _eo.inventoryItemId); return it ? (it.stock || 0) + ' units' : 'N/A'; })()}</span></p>
                                     </div>
@@ -1572,6 +1572,14 @@
                 .replace(/'/g, '&#39;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
+        }
+
+        // Strip HTML tags and return plain text — used for previewing HTML description fields
+        function stripHtml(html) {
+            if (!html) return '';
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            return (div.textContent || div.innerText || '').trim().slice(0, 120) + (div.textContent?.length > 120 ? '…' : '');
         }
 
         // Located around line 316
@@ -14106,7 +14114,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     // Show stock in preview
                     const inventoryItem = state.items.find(i => i.id === itemId);
                     document.getElementById('previewSku').textContent = sku || 'N/A';
-                    document.getElementById('previewDescription').textContent = description || 'No description';
+                    document.getElementById('previewDescription').textContent = stripHtml(description) || 'No description';
                     document.getElementById('previewPrice').textContent = `$${price}`;
                     document.getElementById('previewStock').textContent = inventoryItem ? (inventoryItem.stock || 0) + ' units' : 'N/A';
                     previewDiv.classList.remove('hidden');
@@ -14132,10 +14140,20 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             },
 
             // Returns vendor landed cost per unit for a given product, or null if not found.
-            // Strategy (in priority order):
-            // 1. Find the item in a vendor order → use that item's own unitCost + proportional share of overhead
-            // 2. Fall back to purchasePriceCents stored directly on the inventory item
+            // Priority: purchasePriceCents on the inventory item (same source as Profit Analysis),
+            // then falls back to calculating from vendor order line items.
             getVendorCostForProduct: function (itemId, productName) {
+                // 1. Highest priority: purchasePriceCents stored directly on the inventory item
+                //    This is the same value Profit Analysis uses, so it's the source of truth.
+                if (itemId) {
+                    const invItem = state.items.find(i => i.id === itemId);
+                    if (invItem?.purchasePriceCents != null) {
+                        return invItem.purchasePriceCents / 100;
+                    }
+                }
+
+                // 2. Fallback: scan vendor orders for a matching line item and compute
+                //    landed cost per unit with proportional overhead allocation
                 const vendorOrders = state.vendorOrders || [];
                 let bestCost = null;
                 let bestDate = null;
@@ -14147,31 +14165,24 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         const matchByName = productName && (item.productName || item.name || '').toLowerCase() === productName.toLowerCase();
                         if (!matchById && !matchByName) continue;
 
-                        // This item's own purchase cost (unit price × qty gives subtotal for this line)
                         const itemUnitCost = item.unitPriceCents != null
                             ? item.unitPriceCents / 100
                             : parseFloat(item.unitCost || 0);
                         const itemQty = parseInt(item.quantity || 1);
                         const itemSubtotal = itemUnitCost * itemQty;
 
-                        // Total order subtotal across all items
                         const orderSubtotal = allItems.reduce((s, i) => {
                             const u = i.unitPriceCents != null ? i.unitPriceCents / 100 : parseFloat(i.unitCost || 0);
                             return s + u * parseInt(i.quantity || 1);
                         }, 0);
 
-                        // Overhead = shipping + tariffs + processing + tax (NOT included in per-item subtotal)
                         const shipping   = order.shippingCost   || (order.shippingCostCents   ? order.shippingCostCents   / 100 : 0);
                         const tariffs    = order.tariffs        || (order.tariffCostCents      ? order.tariffCostCents      / 100 : 0);
                         const processing = order.processingFee  || (order.processingFeeCents   ? order.processingFeeCents   / 100 : 0);
                         const tax        = order.salesTax       || (order.salesTaxCents        ? order.salesTaxCents        / 100 : 0);
                         const totalOverhead = shipping + tariffs + processing + tax;
-
-                        // Allocate overhead proportionally to this item's share of the subtotal
                         const overheadShare = orderSubtotal > 0 ? (itemSubtotal / orderSubtotal) : 0;
                         const itemOverhead = totalOverhead * overheadShare;
-
-                        // Landed cost per unit = (item subtotal + allocated overhead) / qty
                         const landedPerUnit = itemQty > 0 ? (itemSubtotal + itemOverhead) / itemQty : itemUnitCost;
 
                         const orderDate = order.orderDate || '';
@@ -14181,15 +14192,6 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         }
                     }
                 }
-
-                // Fallback: use purchasePriceCents stored directly on the inventory item
-                if (bestCost === null && itemId) {
-                    const invItem = state.items.find(i => i.id === itemId);
-                    if (invItem?.purchasePriceCents != null) {
-                        bestCost = invItem.purchasePriceCents / 100;
-                    }
-                }
-
                 return bestCost;
             },
 
