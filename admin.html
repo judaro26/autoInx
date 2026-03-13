@@ -6766,6 +6766,19 @@
                 // Cost per unit = total landed cost / total units
                 const costPerUnitCents = totalUnits > 0 ? Math.round(totalCostCents / totalUnits) : null;
 
+                // Profit per order = sum of netProfit from external orders whose inventoryItemId
+                // matches any product in this vendor order
+                const vendorProductIds = new Set(
+                    (order.items || []).map(i => i.productId || i.id).filter(Boolean)
+                );
+                const matchingExternalOrders = allExternalOrders.filter(eo =>
+                    eo.inventoryItemId && vendorProductIds.has(eo.inventoryItemId) && eo.netProfit != null
+                );
+                const totalProfitFromOrder = matchingExternalOrders.length > 0
+                    ? matchingExternalOrders.reduce((sum, eo) => sum + eo.netProfit, 0)
+                    : null;
+                const profitSaleCount = matchingExternalOrders.length;
+
                 return `
             <tr class="hover:bg-gray-50 transition cursor-pointer border-b border-gray-100 ${isCancelledRefunded ? 'opacity-60' : ''}"
                 onclick="window.module.showVendorOrderDetailsModal('${order.id}')">
@@ -6825,6 +6838,12 @@
                     ${costPerUnitCents !== null
                         ? `<div class="text-indigo-700 font-bold">${formatPriceDisplay(costPerUnitCents)}</div><div class="text-xs text-gray-400">landed / unit</div>`
                         : '<span class="text-gray-400">—</span>'}
+                </td>
+                <td class="p-3 min-w-[120px]">
+                    ${totalProfitFromOrder != null
+                        ? `<div class="font-bold text-base ${totalProfitFromOrder >= 0 ? 'text-green-600' : 'text-red-600'}">${totalProfitFromOrder >= 0 ? '+' : ''}$${totalProfitFromOrder.toFixed(2)}</div>
+                           <div class="text-xs text-gray-400">${profitSaleCount} sale${profitSaleCount !== 1 ? 's' : ''}</div>`
+                        : `<span class="text-gray-400 text-xs">No sales yet</span>`}
                 </td>
                 <td class="p-3 min-w-[110px]">
                     <div class="flex flex-col gap-1">
@@ -6892,7 +6911,7 @@
             </div>
         </div>
         <div class="overflow-x-auto w-full vendor-table-scroll-area">
-            <table class="w-full min-w-[1300px] border-collapse">
+            <table class="w-full min-w-[1440px] border-collapse">
                 <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300 sticky top-0 z-10">
                     <tr>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Order ID & Date</th>
@@ -6906,6 +6925,7 @@
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Fees & Tax</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Total Cost</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Cost / Unit</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Profit / Order</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Actions</th>
                     </tr>
                 </thead>
