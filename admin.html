@@ -1224,13 +1224,15 @@
                                             <option value="">-- Select a product from inventory --</option>
                                             ${state.items.map(item => {
                     const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                    // Strip any HTML tags from description for safe use in data attributes and preview
+                    const plainDesc = (item.description || '').replace(/<[^>]*>/g, '').trim();
                     return `<option value="${item.id}" 
                                                                 data-name="${escapeAttribute(item.name)}" 
                                                                 data-price="${(item.price / 100).toFixed(2)}" 
                                                                 data-sku="${escapeAttribute(item.sku || '')}"
                                                                 data-purchase-price="${item.purchasePriceCents ? (item.purchasePriceCents / 100).toFixed(4) : ''}"
                                                                 data-stock="${item.stock || 0}"
-                                                                data-description="${escapeAttribute(item.description || '')}">
+                                                                data-description="${escapeAttribute(plainDesc.substring(0, 120))}">
                                                     ${escapeHtml(item.name)} (SKU: ${escapeHtml(item.sku || 'N/A')}) — Stock: ${item.stock || 0} — ${formatPriceDisplay(item.price)}
                                                 </option>`;
                 }).join('')}
@@ -14175,13 +14177,39 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 document.getElementById('orderTracking').value = order.trackingNumber || '';
                 document.getElementById('orderNotes').value = order.notes || '';
 
-                // Show vendor cost in preview if available
-                if (order.vendorCostPerUnit) {
-                    document.getElementById('previewVendorCost').textContent = `$${order.vendorCostPerUnit.toFixed(4)}`;
+                // Re-select the product in the dropdown if we have a productId
+                const selector = document.getElementById('orderProductSelector');
+                const productId = order.productId || null;
+                if (productId && selector) {
+                    selector.value = productId;
+                    const selectedOption = selector.options[selector.selectedIndex];
+                    if (selectedOption && selectedOption.value === productId) {
+                        // Populate the product details preview from the option's data attributes
+                        const sku         = selectedOption.dataset.sku || 'N/A';
+                        const description = selectedOption.dataset.description || '';
+                        const price       = selectedOption.dataset.price || '';
+                        const stock       = selectedOption.dataset.stock || '0';
+                        const purchasePrice = selectedOption.dataset.purchasePrice || null;
+
+                        document.getElementById('previewSku').textContent         = sku;
+                        document.getElementById('previewDescription').textContent = description;
+                        document.getElementById('previewPrice').textContent       = price ? `$${price}` : '—';
+                        document.getElementById('previewStock').textContent       = stock;
+                        document.getElementById('previewVendorCost').textContent  =
+                            order.vendorCostPerUnit
+                                ? `$${Number(order.vendorCostPerUnit).toFixed(4)}`
+                                : purchasePrice
+                                    ? `$${parseFloat(purchasePrice).toFixed(4)}`
+                                    : 'Not set in Profit Analysis';
+                        document.getElementById('productDetailsPreview').classList.remove('hidden');
+                    }
+                } else if (order.vendorCostPerUnit) {
+                    // No productId but we have a stored vendor cost — show it anyway
+                    document.getElementById('previewVendorCost').textContent = `$${Number(order.vendorCostPerUnit).toFixed(4)}`;
                     document.getElementById('productDetailsPreview').classList.remove('hidden');
-                    window.module.recalcExternalProfit();
                 }
 
+                window.module.recalcExternalProfit();
                 document.getElementById('externalOrderModal').classList.remove('hidden');
             },
 
