@@ -1273,7 +1273,7 @@
                                     </div>
 
                                     <div>
-                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Shipping Charged to Customer</label>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Shipping Cost (we pay)</label>
                                         <input type="number" id="orderShippingCharged" step="0.01" placeholder="0.00" value="0"
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
@@ -1319,7 +1319,7 @@
                                         <div class="font-semibold text-right" id="ppRevenue">—</div>
                                         <div class="text-gray-600">Vendor Cost (total):</div>
                                         <div class="font-semibold text-orange-700 text-right" id="ppVendorCost">—</div>
-                                        <div class="text-gray-600">Transaction Fee:</div>
+                                        <div class="text-gray-600">Fees & Shipping:</div>
                                         <div class="font-semibold text-red-600 text-right" id="ppFee">—</div>
                                         <div class="border-t col-span-2 my-1"></div>
                                         <div class="font-bold text-gray-800">Net Profit:</div>
@@ -13952,13 +13952,13 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
                     const qty              = Number(order.quantity)         || 1;
                     const salePriceUnit    = Number(order.amount)           || 0;
-                    const shippingCharged  = Number(order.shippingCharged)  || 0;
+                    const shippingCost     = Number(order.shippingCharged)  || 0; // we pay shipping
                     const transactionCost  = Number(order.transactionCost)  || 0;
                     const vendorCostUnit   = Number(order.vendorCostPerUnit) || 0;
 
-                    const totalRevenue     = (salePriceUnit * qty) + shippingCharged;
+                    const totalRevenue     = salePriceUnit * qty;
                     const totalVendorCost  = vendorCostUnit * qty;
-                    const netProfit        = totalRevenue - totalVendorCost - transactionCost;
+                    const netProfit        = totalRevenue - totalVendorCost - transactionCost - shippingCost;
                     const profitPerUnit    = qty > 0 ? netProfit / qty : 0;
 
                     // Pre-compute profit cell HTML outside nested template to avoid parsing issues
@@ -13971,8 +13971,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         profitCellHtml = '<span class="text-gray-300 text-sm">—</span>';
                     }
 
+                    // Trim trailing zeros: 2.3400 → $2.34, 2.5000 → $2.50
+                    const fmtVendor = v => '$' + parseFloat(v.toFixed(4)).toFixed(2);
                     const vendorCellHtml = vendorCostUnit > 0
-                        ? '<div class="text-orange-700 font-semibold">$' + vendorCostUnit.toFixed(4) + '</div><div class="text-xs text-gray-400">/unit</div>'
+                        ? '<div class="text-orange-700 font-semibold">' + fmtVendor(vendorCostUnit) + '</div><div class="text-xs text-gray-400">/unit</div>'
                         : '<span class="text-gray-300">—</span>';
 
                     const feeCellHtml = transactionCost > 0
@@ -14122,7 +14124,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
                 const qty            = parseFloat(document.getElementById('orderQty')?.value || 1);
                 const salePriceUnit  = parseFloat(document.getElementById('orderAmount')?.value || 0);
-                const shippingCharged= parseFloat(document.getElementById('orderShippingCharged')?.value || 0);
+                const shippingCost   = parseFloat(document.getElementById('orderShippingCharged')?.value || 0);
                 const transactionCost= parseFloat(document.getElementById('orderTransactionCost')?.value || 0);
 
                 const panel = document.getElementById('profitPreviewPanel');
@@ -14132,22 +14134,22 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 }
                 panel.classList.remove('hidden');
 
-                const totalRevenue    = (salePriceUnit * qty) + shippingCharged;
+                const totalRevenue    = salePriceUnit * qty;                                   // shipping is our cost
                 const totalVendorCost = purchasePrice * qty;
-                const netProfit       = totalRevenue - totalVendorCost - transactionCost;
+                const netProfit       = totalRevenue - totalVendorCost - transactionCost - shippingCost;
                 const profitPerUnit   = qty > 0 ? netProfit / qty : 0;
                 const margin          = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
                 const fmt = v => `$${v.toFixed(2)}`;
                 const profitColor = netProfit >= 0 ? 'text-green-700' : 'text-red-600';
 
-                document.getElementById('ppRevenue').textContent      = fmt(totalRevenue);
-                document.getElementById('ppVendorCost').textContent   = fmt(totalVendorCost);
-                document.getElementById('ppFee').textContent          = fmt(transactionCost);
-                document.getElementById('ppProfit').textContent       = fmt(netProfit);
-                document.getElementById('ppProfit').className         = `font-black text-right text-lg ${profitColor}`;
+                document.getElementById('ppRevenue').textContent       = fmt(totalRevenue);
+                document.getElementById('ppVendorCost').textContent    = fmt(totalVendorCost);
+                document.getElementById('ppFee').textContent           = fmt(transactionCost + shippingCost);
+                document.getElementById('ppProfit').textContent        = fmt(netProfit);
+                document.getElementById('ppProfit').className          = `font-black text-right text-lg ${profitColor}`;
                 document.getElementById('ppProfitPerUnit').textContent = fmt(profitPerUnit);
-                document.getElementById('ppMargin').textContent       = `${margin.toFixed(1)}%`;
+                document.getElementById('ppMargin').textContent        = `${margin.toFixed(1)}%`;
             },
 
             showAddExternalOrderModal: function () {
