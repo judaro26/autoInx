@@ -399,10 +399,29 @@
             const item = state.selectedItem;
             const catalog = state.catalogs.find(c => c.id === item.catalogId);
             const categoryName = catalog ? catalog.name : 'Uncategorized';
-        
-            const images = item.imageUrls && item.imageUrls.length > 0
-                ? item.imageUrls
-                : [item.imageUrl || 'https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing'];
+
+            // Separate any video URLs that were accidentally saved in imageUrls
+            const isVideoUrl = u => !!(
+                u.match(/youtube\.com\/watch\?/i) ||
+                u.match(/youtube\.com\/shorts\//i) ||
+                u.match(/youtu\.be\//i) ||
+                u.match(/youtube\.com\/embed\//i) ||
+                u.match(/vimeo\.com\//i) ||
+                u.match(/drive\.google\.com\/file\/d\//i) ||
+                u.match(/docs\.google\.com\/videos\//i) ||
+                /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(u)
+            );
+
+            const rawUrls = item.imageUrls || (item.imageUrl ? [item.imageUrl] : []);
+            const images = rawUrls.filter(u => !isVideoUrl(u));
+            const spilledVideoUrls = rawUrls.filter(u => isVideoUrl(u));
+
+            // Merge spilled video URLs with explicitly saved videoUrls (deduplicated)
+            const allVideoUrls = [...new Set([...(item.videoUrls || []), ...spilledVideoUrls])];
+
+            const displayImages = images.length > 0
+                ? images
+                : ['https://placehold.co/400x300/a3a3a3/ffffff?text=Image+Missing'];
         
             // ✅ NEW: Stock display logic
             const stock = item.stock || 0;
@@ -435,13 +454,13 @@
                             <!-- Main image with nav arrows -->
                             <div class="relative bg-gray-100 rounded-t-xl overflow-hidden" style="aspect-ratio:4/3;">
                                 <img id="main-modal-image"
-                                     src="${images[0]}"
+                                     src="${displayImages[0]}"
                                      alt="${item.name}"
                                      data-idx="0"
-                                     data-count="${images.length}"
+                                     data-count="${displayImages.length}"
                                      class="w-full h-full object-contain transition-opacity duration-300">
 
-                                ${images.length > 1 ? `
+                                ${displayImages.length > 1 ? `
                                 <!-- Prev arrow -->
                                 <button onclick="(function(){
                                     var img = document.getElementById('main-modal-image');
@@ -466,15 +485,15 @@
                                 </button>
                                 <!-- Dot indicators -->
                                 <div class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                                    ${images.map((_, i) => `<span class="w-2 h-2 rounded-full ${i === 0 ? 'bg-indigo-500' : 'bg-white/70'} shadow transition-all"></span>`).join('')}
+                                    ${displayImages.map((_, i) => `<span class="w-2 h-2 rounded-full ${i === 0 ? 'bg-indigo-500' : 'bg-white/70'} shadow transition-all"></span>`).join('')}
                                 </div>
                                 ` : ''}
                             </div>
 
                             <!-- Thumbnail strip -->
-                            ${images.length > 1 ? `
+                            ${displayImages.length > 1 ? `
                             <div class="flex gap-2 overflow-x-auto px-4 py-3 bg-gray-50 border-b border-gray-100">
-                                ${images.map((img, idx) => `
+                                ${displayImages.map((img, idx) => `
                                     <img src="${img}"
                                          data-src="${img}"
                                          onclick="(function(el){
@@ -492,7 +511,7 @@
 
                             <!-- Videos -->
                             ${(() => {
-                                const videos = (item.videoUrls || []).map(u => getVideoEmbed(u)).filter(Boolean);
+                                const videos = allVideoUrls.map(u => getVideoEmbed(u)).filter(Boolean);
                                 if (videos.length === 0) return '';
 
                                 const renderEmbed = (v, id) => v.type === 'iframe'
