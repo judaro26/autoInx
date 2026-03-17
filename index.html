@@ -529,30 +529,7 @@
                             <div class="flex gap-2 overflow-x-auto px-4 py-3 bg-gray-50 border-b border-gray-100">
                                 ${imageThumbs}${videoThumbs}
                             </div>` : ''}
-                        </div>
-
-                        <script>
-                        window._modalIdx = 0;
-                        window._modalGoTo = function(idx) {
-                            var slides  = document.querySelectorAll('#modal-viewer .modal-slide');
-                            var thumbs  = document.querySelectorAll('.modal-thumb-wrap');
-                            var dots    = document.querySelectorAll('.modal-dot');
-                            var prev    = window._modalIdx;
-                            window._modalIdx = idx;
-                            slides.forEach(function(s, i) {
-                                s.style.opacity = i === idx ? '1' : '0';
-                                s.style.pointerEvents = i === idx ? 'auto' : 'none';
-                            });
-                            thumbs.forEach(function(t, i) {
-                                t.classList.toggle('border-indigo-500', i === idx);
-                                t.classList.toggle('border-transparent', i !== idx);
-                            });
-                            dots.forEach(function(d, i) {
-                                d.classList.toggle('bg-indigo-500', i === idx);
-                                d.classList.toggle('bg-white/70', i !== idx);
-                            });
-                        };
-                        </script>`;
+                        </div>`;
                         })()}
 
                         <!-- PRODUCT INFO -->
@@ -1567,12 +1544,35 @@
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
         function openItemDetailModal(item) {
             state.selectedItem = item;
+            window._modalIdx = 0; // reset carousel position on each open
             render();
         }
         function closeItemDetailModal() {
             state.selectedItem = null;
             render();
         }
+
+        // Carousel navigator — defined at top level so template literals can reference it
+        // without injecting a <script> tag (which breaks template literal parsing)
+        window._modalIdx = 0;
+        window._modalGoTo = function(idx) {
+            var slides = document.querySelectorAll('#modal-viewer .modal-slide');
+            var thumbs = document.querySelectorAll('.modal-thumb-wrap');
+            var dots   = document.querySelectorAll('.modal-dot');
+            window._modalIdx = idx;
+            slides.forEach(function(s, i) {
+                s.style.opacity      = i === idx ? '1' : '0';
+                s.style.pointerEvents = i === idx ? 'auto' : 'none';
+            });
+            thumbs.forEach(function(t, i) {
+                t.classList.toggle('border-indigo-500', i === idx);
+                t.classList.toggle('border-transparent', i !== idx);
+            });
+            dots.forEach(function(d, i) {
+                d.classList.toggle('bg-indigo-500', i === idx);
+                d.classList.toggle('bg-white\\/70',  i !== idx);
+            });
+        };
 
         function showLoginModal(type, mode) {
             state.isModalOpen = true;
