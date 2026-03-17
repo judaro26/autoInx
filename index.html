@@ -379,9 +379,13 @@
             const vimeo = u.match(/vimeo\.com\/(\d+)/);
             if (vimeo) return { type: 'iframe', src: `https://player.vimeo.com/video/${vimeo[1]}` };
 
-            // Google Drive: https://drive.google.com/file/d/FILE_ID/view
+            // Google Drive: cannot be iframed (CSP blocks it) — show external link instead
             const gdrive = u.match(/drive\.google\.com\/file\/d\/([\w-]+)/);
-            if (gdrive) return { type: 'iframe', src: `https://drive.google.com/file/d/${gdrive[1]}/preview` };
+            if (gdrive) return { type: 'link', src: `https://drive.google.com/file/d/${gdrive[1]}/view`, label: '▶ Watch on Google Drive' };
+
+            // Google Vids: https://docs.google.com/videos/d/FILE_ID/edit
+            const gvids = u.match(/docs\.google\.com\/videos\/d\/([\w-]+)/);
+            if (gvids) return { type: 'iframe', src: `https://docs.google.com/videos/d/${gvids[1]}/preview` };
 
             // Direct video file
             if (/\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(u)) return { type: 'video', src: u };
@@ -420,100 +424,144 @@
         
             return `
                 <div class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onclick="window.module.closeItemDetailModal()">
-                    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-4xl relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
-                        
+                    <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl relative max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+
                         <button onclick="window.module.closeItemDetailModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
-        
-                        <div class="flex flex-col lg:flex-row gap-8">
-                            <div class="w-full lg:w-1/2 space-y-4">
-                                <div class="relative aspect-square overflow-hidden rounded-lg shadow-inner bg-gray-100">
-                                    <img id="main-modal-image" src="${images[0]}" alt="${item.name}"
-                                         class="w-full h-full object-contain transition-opacity duration-300">
-                                </div>
-                                
-                            ${images.length > 1 ? `
-                                <div class="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                                    ${images.map((img, idx) => `
-                                        <img src="${img}" 
-                                             onclick="document.getElementById('main-modal-image').src='${img}'"
-                                             class="h-16 w-16 object-cover rounded border-2 border-transparent hover:border-indigo-500 cursor-pointer transition-all flex-shrink-0"
-                                             onerror="this.style.display='none'">
-                                    `).join('')}
+
+                        <!-- IMAGE GALLERY — full width at top -->
+                        <div class="w-full">
+                            <!-- Main image with nav arrows -->
+                            <div class="relative bg-gray-100 rounded-t-xl overflow-hidden" style="aspect-ratio:4/3;">
+                                <img id="main-modal-image"
+                                     src="${images[0]}"
+                                     alt="${item.name}"
+                                     data-idx="0"
+                                     data-count="${images.length}"
+                                     class="w-full h-full object-contain transition-opacity duration-300">
+
+                                ${images.length > 1 ? `
+                                <!-- Prev arrow -->
+                                <button onclick="(function(){
+                                    var img = document.getElementById('main-modal-image');
+                                    var thumbs = document.querySelectorAll('.modal-thumb');
+                                    var idx = (parseInt(img.dataset.idx) - 1 + parseInt(img.dataset.count)) % parseInt(img.dataset.count);
+                                    img.style.opacity='0';
+                                    setTimeout(function(){ img.src=thumbs[idx].dataset.src; img.dataset.idx=idx; img.style.opacity='1'; thumbs.forEach(function(t,i){ t.classList.toggle('border-indigo-500',i===idx); t.classList.toggle('border-transparent',i!==idx); }); },150);
+                                })()"
+                                class="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white shadow-md rounded-full w-9 h-9 flex items-center justify-center transition z-10">
+                                    <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg>
+                                </button>
+                                <!-- Next arrow -->
+                                <button onclick="(function(){
+                                    var img = document.getElementById('main-modal-image');
+                                    var thumbs = document.querySelectorAll('.modal-thumb');
+                                    var idx = (parseInt(img.dataset.idx) + 1) % parseInt(img.dataset.count);
+                                    img.style.opacity='0';
+                                    setTimeout(function(){ img.src=thumbs[idx].dataset.src; img.dataset.idx=idx; img.style.opacity='1'; thumbs.forEach(function(t,i){ t.classList.toggle('border-indigo-500',i===idx); t.classList.toggle('border-transparent',i!==idx); }); },150);
+                                })()"
+                                class="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white shadow-md rounded-full w-9 h-9 flex items-center justify-center transition z-10">
+                                    <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
+                                </button>
+                                <!-- Dot indicators -->
+                                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                                    ${images.map((_, i) => `<span class="w-2 h-2 rounded-full ${i === 0 ? 'bg-indigo-500' : 'bg-white/70'} shadow transition-all"></span>`).join('')}
                                 </div>
                                 ` : ''}
+                            </div>
 
-                                ${(() => {
-                                    const videos = (item.videoUrls || []).map(u => getVideoEmbed(u)).filter(Boolean);
-                                    if (videos.length === 0) return '';
+                            <!-- Thumbnail strip -->
+                            ${images.length > 1 ? `
+                            <div class="flex gap-2 overflow-x-auto px-4 py-3 bg-gray-50 border-b border-gray-100">
+                                ${images.map((img, idx) => `
+                                    <img src="${img}"
+                                         data-src="${img}"
+                                         onclick="(function(el){
+                                             var main = document.getElementById('main-modal-image');
+                                             main.style.opacity='0';
+                                             setTimeout(function(){ main.src=el.dataset.src; main.dataset.idx=${idx}; main.style.opacity='1'; },150);
+                                             document.querySelectorAll('.modal-thumb').forEach(function(t){ t.classList.remove('border-indigo-500'); t.classList.add('border-transparent'); });
+                                             el.classList.add('border-indigo-500'); el.classList.remove('border-transparent');
+                                         })(this)"
+                                         class="modal-thumb h-16 w-16 object-cover rounded border-2 flex-shrink-0 cursor-pointer transition-all ${idx === 0 ? 'border-indigo-500' : 'border-transparent'} hover:border-indigo-400"
+                                         onerror="this.style.display='none'">
+                                `).join('')}
+                            </div>
+                            ` : ''}
 
-                                    const renderEmbed = (v, id) => v.type === 'iframe'
-                                        ? `<iframe id="${id}" src="${v.src}" class="w-full rounded-lg" style="aspect-ratio:16/9;border:none;" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>`
-                                        : `<video id="${id}" src="${v.src}" class="w-full rounded-lg" style="aspect-ratio:16/9;" controls preload="metadata"></video>`;
+                            <!-- Videos -->
+                            ${(() => {
+                                const videos = (item.videoUrls || []).map(u => getVideoEmbed(u)).filter(Boolean);
+                                if (videos.length === 0) return '';
 
-                                    if (videos.length === 1) {
-                                        return `
-                                        <div class="mt-3">
-                                            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">🎬 Product Video</p>
-                                            ${renderEmbed(videos[0], 'modal-video-0')}
-                                        </div>`;
-                                    }
+                                const renderEmbed = (v, id) => v.type === 'iframe'
+                                    ? `<iframe id="${id}" src="${v.src}" class="w-full" style="aspect-ratio:16/9;border:none;" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>`
+                                    : v.type === 'video'
+                                    ? `<video id="${id}" src="${v.src}" class="w-full" style="aspect-ratio:16/9;" controls preload="metadata"></video>`
+                                    : `<a href="${v.src}" target="_blank" rel="noopener noreferrer"
+                                          class="flex items-center justify-center gap-3 w-full bg-gray-900 text-white font-semibold py-6 hover:bg-gray-700 transition-colors" style="aspect-ratio:16/9;">
+                                          <svg class="w-10 h-10 opacity-80" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                          <span>${v.label || 'Watch Video'}</span>
+                                       </a>`;
 
-                                    const tabs = videos.map((v, i) => `
-                                        <button onclick="
-                                            document.querySelectorAll('.modal-video-panel').forEach(p => p.style.display='none');
-                                            document.querySelectorAll('.modal-video-tab').forEach(t => { t.classList.remove('bg-indigo-600','text-white'); t.classList.add('bg-gray-100','text-gray-600'); });
-                                            document.getElementById('modal-video-panel-${i === 0 ? "IDX" : i}').style.display='block';
-                                            this.classList.add('bg-indigo-600','text-white'); this.classList.remove('bg-gray-100','text-gray-600');
-                                        ".replace('IDX','${i}')
-                                        class="modal-video-tab px-3 py-1 text-xs font-semibold rounded-full transition-colors ${i === 0 ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'} hover:bg-indigo-500 hover:text-white">
-                                            Video ${i + 1}
-                                        </button>`).join('');
-
-                                    const panels = videos.map((v, i) => `
-                                        <div id="modal-video-panel-${i}" class="modal-video-panel" style="${i === 0 ? '' : 'display:none'}">
-                                            ${renderEmbed(v, `modal-video-${i}`)}
-                                        </div>`).join('');
-
-                                    return `
-                                    <div class="mt-3">
-                                        <div class="flex items-center justify-between mb-2">
-                                            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">🎬 Product Videos</p>
-                                            <div class="flex gap-1">${tabs}</div>
-                                        </div>
-                                        ${panels}
+                                if (videos.length === 1) {
+                                    return `<div class="border-t border-gray-100">
+                                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 pt-3 mb-1">🎬 Product Video</p>
+                                        ${renderEmbed(videos[0], 'modal-video-0')}
                                     </div>`;
-                                })()}
-                            </div>
-                            
-                            <div class="flex-grow">
-                                <h2 class="text-3xl font-extrabold text-indigo-700 mb-2">${item.name}</h2>
-                                <p class="text-2xl font-bold text-pink-600 mb-4">${formatPrice(item.price)}</p>
-                                
-                                <div class="mb-4">
-                                    ${stockDisplay}
-                                </div>
-                                
-                                <div class="mb-4 text-sm text-gray-500">
-                                    <span class="font-semibold">${t('categoriesHeader')}:</span> ${categoryName}
-                                </div>
-                                
-                                <div class="border-t pt-4">
-                                    <h3 class="text-lg font-bold text-gray-800 mb-2">Description & Specifications</h3>
-                                    <div class="text-gray-600 leading-relaxed text-sm product-description-content">
-                                        ${item.description || 'No description available'}
+                                }
+
+                                const tabs = videos.map((v, i) => `
+                                    <button onclick="
+                                        document.querySelectorAll('.modal-video-panel').forEach(p => p.style.display='none');
+                                        document.querySelectorAll('.modal-video-tab').forEach(t => { t.classList.remove('bg-indigo-600','text-white'); t.classList.add('bg-gray-100','text-gray-600'); });
+                                        document.getElementById('modal-video-panel-${i}').style.display='block';
+                                        this.classList.add('bg-indigo-600','text-white'); this.classList.remove('bg-gray-100','text-gray-600');"
+                                    class="modal-video-tab px-3 py-1 text-xs font-semibold rounded-full transition-colors ${i === 0 ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'} hover:bg-indigo-500 hover:text-white">
+                                        Video ${i + 1}
+                                    </button>`).join('');
+
+                                const panels = videos.map((v, i) => `
+                                    <div id="modal-video-panel-${i}" class="modal-video-panel" style="${i === 0 ? '' : 'display:none'}">
+                                        ${renderEmbed(v, `modal-video-${i}`)}
+                                    </div>`).join('');
+
+                                return `<div class="border-t border-gray-100">
+                                    <div class="flex items-center justify-between px-4 pt-3 mb-1">
+                                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">🎬 Product Videos</p>
+                                        <div class="flex gap-1">${tabs}</div>
                                     </div>
-                                </div>
-        
-                                <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
-                                        style="background: var(--color-add-to-cart);"
-                                        class="mt-8 w-full text-white py-4 rounded-lg font-bold hover:opacity-90 transition shadow-lg flex items-center justify-center uppercase tracking-wider"
-                                        ${stock === 0 ? 'disabled style="background: #9ca3af !important; cursor: not-allowed;"' : ''}>
-                                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                                    ${stock === 0 ? 'Out of Stock' : t('addToCart')}
-                                </button>
+                                    ${panels}
+                                </div>`;
+                            })()}
+                        </div>
+
+                        <!-- PRODUCT INFO — below gallery -->
+                        <div class="p-6">
+                            <h2 class="text-2xl font-extrabold text-indigo-700 mb-1">${item.name}</h2>
+                            <p class="text-2xl font-bold text-pink-600 mb-4">${formatPrice(item.price)}</p>
+
+                            <div class="mb-4">${stockDisplay}</div>
+
+                            <div class="mb-4 text-sm text-gray-500">
+                                <span class="font-semibold">${t('categoriesHeader')}:</span> ${categoryName}
                             </div>
+
+                            <div class="border-t pt-4">
+                                <h3 class="text-lg font-bold text-gray-800 mb-2">Description & Specifications</h3>
+                                <div class="text-gray-600 leading-relaxed text-sm product-description-content">
+                                    ${item.description || 'No description available'}
+                                </div>
+                            </div>
+
+                            <button onclick="window.module.addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})"
+                                    style="background: var(--color-add-to-cart);"
+                                    class="mt-8 w-full text-white py-4 rounded-lg font-bold hover:opacity-90 transition shadow-lg flex items-center justify-center uppercase tracking-wider"
+                                    ${stock === 0 ? 'disabled style="background: #9ca3af !important; cursor: not-allowed;"' : ''}>
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                                ${stock === 0 ? 'Out of Stock' : t('addToCart')}
+                            </button>
                         </div>
                     </div>
                 </div>
