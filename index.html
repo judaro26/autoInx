@@ -125,6 +125,34 @@
             -webkit-box-orient: vertical;
             overflow: hidden;
         }
+
+        /* Seasonal banner floating icons */
+        @keyframes float-icon {
+            0%,100% { transform: translateY(0) rotate(-6deg) scale(1); }
+            33%      { transform: translateY(-6px) rotate(5deg) scale(1.12); }
+            66%      { transform: translateY(3px) rotate(-3deg) scale(0.93); }
+        }
+        .seasonal-icon {
+            display: inline-block;
+            animation: float-icon 2.6s ease-in-out infinite;
+        }
+        .seasonal-banner {
+            position: relative;
+            overflow: hidden;
+        }
+        .seasonal-banner::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                90deg,
+                rgba(255,255,255,0.05) 0px,
+                rgba(255,255,255,0.05) 2px,
+                transparent 2px,
+                transparent 44px
+            );
+            pointer-events: none;
+        }
     </style>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -220,7 +248,8 @@
             selectedItem: null,
             captchaToken: null,
             branding: null,        // ✅ ADD THIS
-            footerConfig: null     // ✅ ADD THIS
+            footerConfig: null,    // ✅ ADD THIS
+            seasonalBanner: null   // seasonal banner config from admin
         };
 
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
@@ -228,6 +257,44 @@
         const GET_SECURE_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig'; // <-- Keep for secure admin use
         const CONFIG_CLIENT_FUNCTION = '/.netlify/functions/getClientFirebaseConfig';
         const GET_CLIENT_IP_FUNCTION = '/.netlify/functions/getClientIp';
+
+        // --- SEASONAL BANNER ---
+        const SEASONAL_THEMES = {
+            stpatricks:   { bg: 'linear-gradient(90deg,#14532d,#16a34a,#14532d)', color: '#fff', message: "🍀 Happy St. Patrick's Day! Lucky deals await!", icons: ['☘️','🍀','🌈','🏺','☘️','🍀','🌈'] },
+            christmas:    { bg: 'linear-gradient(90deg,#991b1b,#166534,#991b1b)', color: '#fff', message: "🎄 Merry Christmas! Season's greetings & great savings!", icons: ['🎄','⭐','🎁','❄️','🎅','🔔','❄️'] },
+            halloween:    { bg: 'linear-gradient(90deg,#7c2d12,#ea580c,#7c2d12)', color: '#fff', message: '🎃 Happy Halloween! Spooky savings inside!', icons: ['🎃','👻','🕷️','🦇','🕸️','🌙','💀'] },
+            valentines:   { bg: 'linear-gradient(90deg,#9d174d,#db2777,#9d174d)', color: '#fff', message: "💝 Happy Valentine's Day! Share the love!", icons: ['💝','💖','🌹','💌','💘','🌷','💕'] },
+            fourthofjuly: { bg: 'linear-gradient(90deg,#1e3a5f,#dc2626,#1e3a5f)', color: '#fff', message: '🎆 Happy 4th of July! Celebrate with great deals!', icons: ['🎆','🇺🇸','🎇','⭐','🎉','🎆','🇺🇸'] },
+            thanksgiving: { bg: 'linear-gradient(90deg,#78350f,#d97706,#78350f)', color: '#fff', message: '🦃 Happy Thanksgiving! Grateful for our customers!', icons: ['🦃','🍂','🌽','🥧','🍁','🎃','🍂'] },
+            newyear:      { bg: 'linear-gradient(90deg,#1e1b4b,#4f46e5,#1e1b4b)', color: '#fff', message: '🎊 Happy New Year! Cheers to a great year ahead!', icons: ['🎊','🎉','✨','🥂','🎆','⭐','🎇'] },
+            spring:       { bg: 'linear-gradient(90deg,#14532d,#16a34a,#14532d)', color: '#fff', message: '🌸 Spring is here! Fresh deals blooming daily!', icons: ['🌸','🌺','🌼','🦋','🌿','🌻','🌷'] },
+            summer:       { bg: 'linear-gradient(90deg,#0c4a6e,#0284c7,#0c4a6e)', color: '#fff', message: '☀️ Summer Sale! Hot deals all season long!', icons: ['☀️','🌊','🏖️','🌴','🍦','🏄','🌅'] },
+            custom:       { bg: 'linear-gradient(90deg,#312e81,#4f46e5,#312e81)', color: '#fff', message: '🛒 Special offer — shop now!', icons: ['🛒','✨','🎉','⭐','💫','🌟','✨'] },
+        };
+
+        function renderSeasonalBanner() {
+            const cfg = state.seasonalBanner;
+            if (!cfg || !cfg.enabled) return '';
+            const theme = SEASONAL_THEMES[cfg.theme] || SEASONAL_THEMES.custom;
+            const msg   = (cfg.message && cfg.message.trim()) ? cfg.message.trim() : theme.message;
+            const icons = theme.icons;
+
+            // Build two flanking icon groups with staggered animation delays
+            const makeIcons = (list, baseDelay) => list.map((ic, i) =>
+                `<span class="seasonal-icon text-xl select-none px-0.5" style="animation-delay:${(baseDelay + i * 0.3).toFixed(1)}s">${ic}</span>`
+            ).join('');
+
+            const leftIcons  = makeIcons(icons.slice(0, 4), 0);
+            const rightIcons = makeIcons([...icons].reverse().slice(0, 4), 0.15);
+
+            return `
+            <div class="seasonal-banner w-full flex items-center justify-between gap-2 px-4 py-2 text-sm font-semibold"
+                 style="background:${theme.bg};color:${theme.color};min-height:40px;">
+                <div class="flex items-center gap-0.5 flex-shrink-0 hidden sm:flex">${leftIcons}</div>
+                <p class="flex-1 text-center tracking-wide text-sm sm:text-base leading-snug">${msg}</p>
+                <div class="flex items-center gap-0.5 flex-shrink-0 hidden sm:flex">${rightIcons}</div>
+            </div>`;
+        }
 
         // --- RENDER FUNCTIONS (MODIFIED FOR I18N) ---
         function render() {
@@ -245,6 +312,7 @@
         
             appElement.innerHTML = `
                 <div class="min-h-screen">
+                    ${renderSeasonalBanner()}
                     <header class="bg-white shadow-lg sticky top-0 z-40">
                         <div class="container mx-auto px-4 py-3">
                             
@@ -1375,6 +1443,9 @@
                 if (config.branding) {
                     applyBranding(config.branding);
                 }
+
+                // Seasonal banner
+                state.seasonalBanner = config.seasonalBanner || null;
         
                 // Store footer config for later use
                 if (config.footer) {
