@@ -616,7 +616,7 @@
                             <textarea name="itemVideoUrls" rows="2"
                                       placeholder="YouTube, Vimeo, or direct .mp4 URLs — one per line"
                                       class="w-full p-2 border rounded-lg text-sm font-mono">${item.videoUrls ? item.videoUrls.join('\n') : ''}</textarea>
-                            <p class="text-xs text-gray-500 mt-1">Supports: youtube.com/watch?v=… • youtu.be/… • vimeo.com/… • direct .mp4 links</p>
+                            <p class="text-xs text-gray-500 mt-1">Supports: YouTube (youtube.com/watch, youtu.be, Shorts) • Vimeo • direct .mp4 links. Note: Google Vids & Drive do not support embedding — use YouTube instead.</p>
                         </div>
                         
                         <!-- ✅ NEW: Dimension Fields -->
@@ -785,7 +785,7 @@
                                     <textarea name="itemImageUrls" placeholder="Image URLs (One per line) - Optional" rows="3" class="w-full p-2 border rounded-lg text-sm"></textarea>
                                     <div>
                                         <textarea name="itemVideoUrls" placeholder="🎬 Video URLs (One per line) — YouTube, Vimeo, or .mp4 — Optional" rows="2" class="w-full p-2 border rounded-lg text-sm"></textarea>
-                                        <p class="text-xs text-gray-500 mt-1">Supports: youtube.com/watch?v=… • youtu.be/… • vimeo.com/… • direct .mp4 links</p>
+                                        <p class="text-xs text-gray-500 mt-1">Supports: YouTube (youtube.com/watch, youtu.be, Shorts) • Vimeo • direct .mp4 links. Note: Google Vids & Drive do not support embedding — use YouTube instead.</p>
                                     </div>
                                     <div class="mt-6 border-t pt-6">
                                         <h4 class="text-lg font-semibold text-gray-900 mb-4">📦 Shipping Dimensions</h4>
@@ -994,6 +994,63 @@
                             <p id="configLastUpdated" class="text-xs text-gray-500 mt-2"></p>
                         </div>
         
+                        <!-- Seasonal Banner -->
+                        <div class="p-6 border rounded-xl bg-gradient-to-br from-yellow-50 to-orange-50 border-orange-200 space-y-4">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-xl font-bold text-orange-700">🎉 Seasonal Banner</h3>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <span class="text-sm font-semibold text-gray-600">Enable</span>
+                                    <div class="relative">
+                                        <input type="checkbox" id="seasonalBannerEnabled" class="sr-only peer"
+                                               ${globalConfig.seasonalBanner?.enabled ? 'checked' : ''}
+                                               onchange="window.module.previewSeasonalBanner()">
+                                        <div class="w-11 h-6 bg-gray-300 peer-checked:bg-orange-500 rounded-full transition-colors"></div>
+                                        <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2">Theme</label>
+                                    <select id="seasonalBannerTheme" onchange="window.module.previewSeasonalBanner()"
+                                            class="w-full p-2 border rounded-lg bg-white">
+                                        ${[
+                                            ['stpatricks',   "☘️ St. Patrick's Day"],
+                                            ['christmas',    '🎄 Christmas'],
+                                            ['halloween',    '🎃 Halloween'],
+                                            ['valentines',   '💝 Valentine\'s Day'],
+                                            ['fourthofjuly', '🎆 4th of July'],
+                                            ['thanksgiving', '🦃 Thanksgiving'],
+                                            ['newyear',      '🎊 New Year'],
+                                            ['spring',       '🌸 Spring'],
+                                            ['summer',       '☀️ Summer'],
+                                            ['custom',       '✏️ Custom'],
+                                        ].map(([val, label]) =>
+                                            `<option value="${val}" ${globalConfig.seasonalBanner?.theme === val ? 'selected' : ''}>${label}</option>`
+                                        ).join('')}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2">Custom Message <span class="text-gray-400 font-normal">(optional override)</span></label>
+                                    <input type="text" id="seasonalBannerMessage" maxlength="80"
+                                           placeholder="Leave blank to use theme default"
+                                           value="${escapeHtml(globalConfig.seasonalBanner?.message || '')}"
+                                           oninput="window.module.previewSeasonalBanner()"
+                                           class="w-full p-2 border rounded-lg">
+                                </div>
+                            </div>
+
+                            <!-- Live preview -->
+                            <div>
+                                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Preview</p>
+                                <div id="seasonalBannerPreview" class="rounded-lg overflow-hidden">
+                                    <!-- populated by previewSeasonalBanner() -->
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Static IP List Display -->
                         <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
                             <h3 class="text-xl font-bold mb-2 text-gray-700">Static Client IP Whitelist (Codebase)</h3>
@@ -3087,6 +3144,7 @@
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
                     window.module.displayStaticIps();
+                    previewSeasonalBanner();
                 }, 100);
             } else if (tab === 'vendorOrders') {
                 // Vendor orders are already loaded via realtime listener
@@ -4799,6 +4857,19 @@
                 // ✅ Setup color input sync after population
                 syncColorInputs();
 
+                // Populate seasonal banner fields
+                if (globalConfig.seasonalBanner) {
+                    const sb = globalConfig.seasonalBanner;
+                    const enabledEl = document.getElementById('seasonalBannerEnabled');
+                    const themeEl   = document.getElementById('seasonalBannerTheme');
+                    const msgEl     = document.getElementById('seasonalBannerMessage');
+                    if (enabledEl) enabledEl.checked = sb.enabled || false;
+                    if (themeEl)   themeEl.value     = sb.theme   || 'stpatricks';
+                    if (msgEl)     msgEl.value        = sb.message || '';
+                }
+                // Render banner preview
+                setTimeout(() => previewSeasonalBanner(), 50);
+
                 console.log('✅ Config populated successfully');
 
             } catch (error) {
@@ -4851,6 +4922,45 @@
             }
         }
 
+        // ─── SEASONAL BANNER ─────────────────────────────────────────────────────────
+        const SEASONAL_THEMES = {
+            stpatricks:   { bg: 'linear-gradient(90deg,#166534,#15803d,#166534)', color: '#fff', message: "🍀 Happy St. Patrick's Day! Lucky deals await!", icons: ['☘️','🍀','🌈','🏺','☘️','🍀','🌈'] },
+            christmas:    { bg: 'linear-gradient(90deg,#991b1b,#166534,#991b1b)', color: '#fff', message: '🎄 Merry Christmas! Season\'s greetings & great savings!', icons: ['🎄','⭐','🎁','❄️','🎅','🔔','❄️'] },
+            halloween:    { bg: 'linear-gradient(90deg,#7c2d12,#ea580c,#7c2d12)', color: '#fff', message: '🎃 Happy Halloween! Spooky savings inside!', icons: ['🎃','👻','🕷️','🦇','🕸️','🌙','💀'] },
+            valentines:   { bg: 'linear-gradient(90deg,#9d174d,#db2777,#9d174d)', color: '#fff', message: '💝 Happy Valentine\'s Day! Share the love!', icons: ['💝','💖','🌹','💌','💘','🌷','💕'] },
+            fourthofjuly: { bg: 'linear-gradient(90deg,#1e3a5f,#dc2626,#1e3a5f)', color: '#fff', message: '🎆 Happy 4th of July! Celebrate with great deals!', icons: ['🎆','🇺🇸','🎇','⭐','🎉','🎆','🇺🇸'] },
+            thanksgiving: { bg: 'linear-gradient(90deg,#78350f,#d97706,#78350f)', color: '#fff', message: '🦃 Happy Thanksgiving! Grateful for our customers!', icons: ['🦃','🍂','🌽','🥧','🍁','🎃','🍂'] },
+            newyear:      { bg: 'linear-gradient(90deg,#1e1b4b,#4f46e5,#1e1b4b)', color: '#fff', message: '🎊 Happy New Year! Cheers to a great year ahead!', icons: ['🎊','🎉','✨','🥂','🎆','⭐','🎇'] },
+            spring:       { bg: 'linear-gradient(90deg,#14532d,#16a34a,#14532d)', color: '#fff', message: '🌸 Spring is here! Fresh deals blooming daily!', icons: ['🌸','🌺','🌼','🦋','🌿','🌻','🌷'] },
+            summer:       { bg: 'linear-gradient(90deg,#0c4a6e,#0284c7,#0c4a6e)', color: '#fff', message: '☀️ Summer Sale! Hot deals all season long!', icons: ['☀️','🌊','🏖️','🌴','🍦','🏄','🌅'] },
+            custom:       { bg: 'linear-gradient(90deg,#312e81,#4f46e5,#312e81)', color: '#fff', message: '🛒 Special offer — shop now!', icons: ['🛒','✨','🎉','⭐','💫','🌟','✨'] },
+        };
+
+        function getSeasonalBannerHtml(theme, message, enabled) {
+            if (!enabled) return '<div class="text-center text-gray-400 text-sm py-3 italic">Banner is disabled — toggle on to show it on the storefront.</div>';
+            const t = SEASONAL_THEMES[theme] || SEASONAL_THEMES.custom;
+            const msg = (message && message.trim()) ? message.trim() : t.message;
+            const icons = t.icons;
+            const iconStrip = icons.map(ic =>
+                `<span class="seasonal-icon inline-block animate-bounce px-1 text-lg select-none" style="animation-delay:${Math.random().toFixed(2)}s">${ic}</span>`
+            ).join('');
+            return `
+            <div class="seasonal-banner w-full py-2 px-4 flex items-center justify-between gap-3 flex-wrap text-sm font-semibold overflow-hidden"
+                 style="background:${t.bg};color:${t.color};">
+                <div class="flex items-center gap-1 flex-shrink-0">${iconStrip.split('').slice(0, icons.slice(0,3).join('').length + 6).join('')}${icons.slice(0,3).map(ic => `<span class="px-1 text-lg">${ic}</span>`).join('')}</div>
+                <span class="flex-1 text-center tracking-wide">${escapeHtml(msg)}</span>
+                <div class="flex items-center gap-1 flex-shrink-0">${icons.slice(-3).map(ic => `<span class="px-1 text-lg">${ic}</span>`).join('')}</div>
+            </div>`;
+        }
+
+        function previewSeasonalBanner() {
+            const enabled = document.getElementById('seasonalBannerEnabled')?.checked ?? false;
+            const theme   = document.getElementById('seasonalBannerTheme')?.value || 'stpatricks';
+            const message = document.getElementById('seasonalBannerMessage')?.value || '';
+            const preview = document.getElementById('seasonalBannerPreview');
+            if (preview) preview.innerHTML = getSeasonalBannerHtml(theme, message, enabled);
+        }
+
         async function handleUpdateConfig(event) {
             event.preventDefault();
             const messageDiv = document.getElementById('configMessage');
@@ -4880,6 +4990,11 @@
                             addToCart: document.getElementById('brandingCartColorText').value || '#ec4899',
                             checkout: document.getElementById('brandingCheckoutColorText').value || '#ec4899'
                         }
+                    },
+                    seasonalBanner: {
+                        enabled: document.getElementById('seasonalBannerEnabled')?.checked ?? false,
+                        theme:   document.getElementById('seasonalBannerTheme')?.value || 'stpatricks',
+                        message: document.getElementById('seasonalBannerMessage')?.value?.trim() || '',
                     }
                 };
 
@@ -4912,6 +5027,8 @@
 
                 // ✅ ADD: Refresh the config to show the updated last modified time
                 await fetchAdminConfig();
+                // Refresh banner preview after save
+                setTimeout(() => previewSeasonalBanner(), 200);
 
             } catch (error) {
                 console.error('❌ Error updating config:', error);
@@ -13382,6 +13499,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleEmailNotifSortFilter,
             setEmailNotifTypeFilter,
             purgeOldEmailNotifications,
+            previewSeasonalBanner,
 
 
             updateActiveFilters: function () {
