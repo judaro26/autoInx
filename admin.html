@@ -3145,7 +3145,7 @@
                     window.module.fetchAdminConfig();
                     window.module.displayStaticIps();
                     previewSeasonalBanner();
-                }, 100);
+                }, 150);
             } else if (tab === 'vendorOrders') {
                 // Vendor orders are already loaded via realtime listener
                 // Just render the section
@@ -5020,15 +5020,25 @@
                 }
 
                 const result = await response.json();
-                console.log('💾 Save successful:', result); // ✅ NEW
+                console.log('💾 Save successful:', result);
+
+                // Immediately update globalConfig in memory so re-render has correct values
+                Object.assign(globalConfig, updates);
 
                 messageDiv.innerHTML = '<div class="p-4 bg-green-100 text-green-700 rounded-lg">Configuration updated successfully!</div>';
-                setTimeout(() => messageDiv.innerHTML = '', 5000);
 
-                // ✅ ADD: Refresh the config to show the updated last modified time
+                // Re-render the config tab so toggle checked states are baked into HTML correctly
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+
+                // Restore the success message after re-render wipes it
+                setTimeout(() => {
+                    const md = document.getElementById('configMessage');
+                    if (md) md.innerHTML = '<div class="p-4 bg-green-100 text-green-700 rounded-lg">Configuration updated successfully!</div>';
+                    setTimeout(() => { if (md) md.innerHTML = ''; }, 4000);
+                }, 100);
+
+                // Refresh config from server to get updated lastUpdated timestamp
                 await fetchAdminConfig();
-                // Refresh banner preview after save
-                setTimeout(() => previewSeasonalBanner(), 200);
 
             } catch (error) {
                 console.error('❌ Error updating config:', error);
@@ -6584,7 +6594,13 @@
 
             // Post-render data population
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-            if (state.activeTab === 'config' && !state.previewMode) { window.module.fetchAdminConfig(); window.module.displayStaticIps(); }
+            if (state.activeTab === 'config' && !state.previewMode) {
+                setTimeout(() => {
+                    window.module.fetchAdminConfig();
+                    window.module.displayStaticIps();
+                    previewSeasonalBanner();
+                }, 150);
+            }
             if (state.activeTab === 'users' && !state.previewMode) {
                 if (state.allUsers.length === 0) window.module.fetchUsers();
                 else renderUserList();
