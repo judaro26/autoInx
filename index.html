@@ -383,9 +383,9 @@
             const gdrive = u.match(/drive\.google\.com\/file\/d\/([\w-]+)/);
             if (gdrive) return { type: 'link', src: `https://drive.google.com/file/d/${gdrive[1]}/view`, label: '▶ Watch on Google Drive' };
 
-            // Google Vids: https://docs.google.com/videos/d/FILE_ID/edit
+            // Google Vids: no public embed endpoint exists — show external link instead
             const gvids = u.match(/docs\.google\.com\/videos\/d\/([\w-]+)/);
-            if (gvids) return { type: 'iframe', src: `https://docs.google.com/videos/d/${gvids[1]}/preview` };
+            if (gvids) return { type: 'link', src: `https://docs.google.com/videos/d/${gvids[1]}/view`, label: '▶ Watch on Google Vids' };
 
             // Direct video file
             if (/\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(u)) return { type: 'video', src: u };
@@ -449,114 +449,113 @@
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
 
-                        <!-- IMAGE GALLERY — full width at top -->
-                        <div class="w-full">
-                            <!-- Main image with nav arrows -->
-                            <div class="relative bg-gray-100 rounded-t-xl overflow-hidden" style="aspect-ratio:4/3;">
-                                <img id="main-modal-image"
-                                     src="${displayImages[0]}"
-                                     alt="${item.name}"
-                                     data-idx="0"
-                                     data-count="${displayImages.length}"
-                                     class="w-full h-full object-contain transition-opacity duration-300">
+                        <!-- UNIFIED GALLERY (images + videos as slides) -->
+                        ${(() => {
+                            // Build a flat list of slides: images first, then videos
+                            const videoEmbeds = allVideoUrls.map(u => getVideoEmbed(u)).filter(Boolean);
+                            const totalSlides = displayImages.length + videoEmbeds.length;
+                            const hasMultiple  = totalSlides > 1;
 
-                                ${displayImages.length > 1 ? `
-                                <!-- Prev arrow -->
-                                <button onclick="(function(){
-                                    var img = document.getElementById('main-modal-image');
-                                    var thumbs = document.querySelectorAll('.modal-thumb');
-                                    var idx = (parseInt(img.dataset.idx) - 1 + parseInt(img.dataset.count)) % parseInt(img.dataset.count);
-                                    img.style.opacity='0';
-                                    setTimeout(function(){ img.src=thumbs[idx].dataset.src; img.dataset.idx=idx; img.style.opacity='1'; thumbs.forEach(function(t,i){ t.classList.toggle('border-indigo-500',i===idx); t.classList.toggle('border-transparent',i!==idx); }); },150);
-                                })()"
-                                class="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white shadow-md rounded-full w-9 h-9 flex items-center justify-center transition z-10">
+                            // Inline helper — renders the active-slide viewer for a given index
+                            // Images: indices 0..displayImages.length-1
+                            // Videos: indices displayImages.length..totalSlides-1
+                            const imageSlides = displayImages.map((src, i) =>
+                                `<div class="modal-slide absolute inset-0 transition-opacity duration-300" style="${i === 0 ? '' : 'opacity:0;pointer-events:none;'}">
+                                    <img src="${src}" class="w-full h-full object-contain" onerror="this.src='https://placehold.co/800x600/e5e7eb/9ca3af?text=Image+Error'">
+                                </div>`
+                            ).join('');
+
+                            const videoSlides = videoEmbeds.map((v, vi) => {
+                                const si = displayImages.length + vi;
+                                const embedHtml = v.type === 'iframe'
+                                    ? `<iframe src="${v.src}" class="w-full h-full" style="border:none;" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>`
+                                    : v.type === 'video'
+                                    ? `<video src="${v.src}" class="w-full h-full" controls preload="metadata"></video>`
+                                    : `<a href="${v.src}" target="_blank" rel="noopener noreferrer" class="flex flex-col items-center justify-center w-full h-full bg-gray-900 text-white hover:bg-gray-700 transition-colors gap-3">
+                                           <svg class="w-16 h-16 opacity-80" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                           <span class="font-semibold">${v.label || 'Watch Video'}</span>
+                                       </a>`;
+                                return `<div class="modal-slide absolute inset-0 transition-opacity duration-300 bg-black" style="opacity:0;pointer-events:none;">
+                                    ${embedHtml}
+                                </div>`;
+                            }).join('');
+
+                            // Thumbnail strip items
+                            const imageThumbs = displayImages.map((src, i) =>
+                                `<div data-slide-idx="${i}"
+                                      onclick="window._modalGoTo(${i})"
+                                      class="modal-thumb-wrap h-16 w-16 flex-shrink-0 rounded border-2 cursor-pointer overflow-hidden transition-all ${i === 0 ? 'border-indigo-500' : 'border-transparent'} hover:border-indigo-400">
+                                    <img src="${src}" class="w-full h-full object-cover" onerror="this.style.display='none'">
+                                </div>`
+                            ).join('');
+
+                            const videoThumbs = videoEmbeds.map((v, vi) => {
+                                const si = displayImages.length + vi;
+                                return `<div data-slide-idx="${si}"
+                                              onclick="window._modalGoTo(${si})"
+                                              class="modal-thumb-wrap h-16 w-16 flex-shrink-0 rounded border-2 cursor-pointer overflow-hidden transition-all border-transparent hover:border-indigo-400 bg-gray-900 flex items-center justify-center relative">
+                                    <svg class="w-7 h-7 text-white opacity-90" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                    <span class="absolute bottom-0 left-0 right-0 text-center text-white text-[9px] font-bold pb-1 bg-black/40">VIDEO</span>
+                                </div>`;
+                            }).join('');
+
+                            // Dot indicators
+                            const dots = Array.from({length: totalSlides}, (_, i) =>
+                                `<span class="modal-dot w-2 h-2 rounded-full ${i === 0 ? 'bg-indigo-500' : 'bg-white/70'} shadow transition-all cursor-pointer" onclick="window._modalGoTo(${i})"></span>`
+                            ).join('');
+
+                            return `
+                        <div class="w-full">
+                            <!-- Main viewer -->
+                            <div class="relative bg-gray-100 rounded-t-xl overflow-hidden" style="aspect-ratio:4/3;" id="modal-viewer">
+                                ${imageSlides}
+                                ${videoSlides}
+
+                                ${hasMultiple ? `
+                                <button onclick="window._modalGoTo((window._modalIdx-1+${totalSlides})%${totalSlides})"
+                                    class="absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white shadow-md rounded-full w-9 h-9 flex items-center justify-center transition z-10">
                                     <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg>
                                 </button>
-                                <!-- Next arrow -->
-                                <button onclick="(function(){
-                                    var img = document.getElementById('main-modal-image');
-                                    var thumbs = document.querySelectorAll('.modal-thumb');
-                                    var idx = (parseInt(img.dataset.idx) + 1) % parseInt(img.dataset.count);
-                                    img.style.opacity='0';
-                                    setTimeout(function(){ img.src=thumbs[idx].dataset.src; img.dataset.idx=idx; img.style.opacity='1'; thumbs.forEach(function(t,i){ t.classList.toggle('border-indigo-500',i===idx); t.classList.toggle('border-transparent',i!==idx); }); },150);
-                                })()"
-                                class="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white shadow-md rounded-full w-9 h-9 flex items-center justify-center transition z-10">
+                                <button onclick="window._modalGoTo((window._modalIdx+1)%${totalSlides})"
+                                    class="absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white shadow-md rounded-full w-9 h-9 flex items-center justify-center transition z-10">
                                     <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
                                 </button>
-                                <!-- Dot indicators -->
-                                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                                    ${displayImages.map((_, i) => `<span class="w-2 h-2 rounded-full ${i === 0 ? 'bg-indigo-500' : 'bg-white/70'} shadow transition-all"></span>`).join('')}
-                                </div>
+                                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">${dots}</div>
                                 ` : ''}
                             </div>
 
                             <!-- Thumbnail strip -->
-                            ${displayImages.length > 1 ? `
+                            ${hasMultiple ? `
                             <div class="flex gap-2 overflow-x-auto px-4 py-3 bg-gray-50 border-b border-gray-100">
-                                ${displayImages.map((img, idx) => `
-                                    <img src="${img}"
-                                         data-src="${img}"
-                                         onclick="(function(el){
-                                             var main = document.getElementById('main-modal-image');
-                                             main.style.opacity='0';
-                                             setTimeout(function(){ main.src=el.dataset.src; main.dataset.idx=${idx}; main.style.opacity='1'; },150);
-                                             document.querySelectorAll('.modal-thumb').forEach(function(t){ t.classList.remove('border-indigo-500'); t.classList.add('border-transparent'); });
-                                             el.classList.add('border-indigo-500'); el.classList.remove('border-transparent');
-                                         })(this)"
-                                         class="modal-thumb h-16 w-16 object-cover rounded border-2 flex-shrink-0 cursor-pointer transition-all ${idx === 0 ? 'border-indigo-500' : 'border-transparent'} hover:border-indigo-400"
-                                         onerror="this.style.display='none'">
-                                `).join('')}
-                            </div>
-                            ` : ''}
-
-                            <!-- Videos -->
-                            ${(() => {
-                                const videos = allVideoUrls.map(u => getVideoEmbed(u)).filter(Boolean);
-                                if (videos.length === 0) return '';
-
-                                const renderEmbed = (v, id) => v.type === 'iframe'
-                                    ? `<iframe id="${id}" src="${v.src}" class="w-full" style="aspect-ratio:16/9;border:none;" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>`
-                                    : v.type === 'video'
-                                    ? `<video id="${id}" src="${v.src}" class="w-full" style="aspect-ratio:16/9;" controls preload="metadata"></video>`
-                                    : `<a href="${v.src}" target="_blank" rel="noopener noreferrer"
-                                          class="flex items-center justify-center gap-3 w-full bg-gray-900 text-white font-semibold py-6 hover:bg-gray-700 transition-colors" style="aspect-ratio:16/9;">
-                                          <svg class="w-10 h-10 opacity-80" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                                          <span>${v.label || 'Watch Video'}</span>
-                                       </a>`;
-
-                                if (videos.length === 1) {
-                                    return `<div class="border-t border-gray-100">
-                                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 pt-3 mb-1">🎬 Product Video</p>
-                                        ${renderEmbed(videos[0], 'modal-video-0')}
-                                    </div>`;
-                                }
-
-                                const tabs = videos.map((v, i) => `
-                                    <button onclick="
-                                        document.querySelectorAll('.modal-video-panel').forEach(p => p.style.display='none');
-                                        document.querySelectorAll('.modal-video-tab').forEach(t => { t.classList.remove('bg-indigo-600','text-white'); t.classList.add('bg-gray-100','text-gray-600'); });
-                                        document.getElementById('modal-video-panel-${i}').style.display='block';
-                                        this.classList.add('bg-indigo-600','text-white'); this.classList.remove('bg-gray-100','text-gray-600');"
-                                    class="modal-video-tab px-3 py-1 text-xs font-semibold rounded-full transition-colors ${i === 0 ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'} hover:bg-indigo-500 hover:text-white">
-                                        Video ${i + 1}
-                                    </button>`).join('');
-
-                                const panels = videos.map((v, i) => `
-                                    <div id="modal-video-panel-${i}" class="modal-video-panel" style="${i === 0 ? '' : 'display:none'}">
-                                        ${renderEmbed(v, `modal-video-${i}`)}
-                                    </div>`).join('');
-
-                                return `<div class="border-t border-gray-100">
-                                    <div class="flex items-center justify-between px-4 pt-3 mb-1">
-                                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">🎬 Product Videos</p>
-                                        <div class="flex gap-1">${tabs}</div>
-                                    </div>
-                                    ${panels}
-                                </div>`;
-                            })()}
+                                ${imageThumbs}${videoThumbs}
+                            </div>` : ''}
                         </div>
 
-                        <!-- PRODUCT INFO — below gallery -->
+                        <script>
+                        window._modalIdx = 0;
+                        window._modalGoTo = function(idx) {
+                            var slides  = document.querySelectorAll('#modal-viewer .modal-slide');
+                            var thumbs  = document.querySelectorAll('.modal-thumb-wrap');
+                            var dots    = document.querySelectorAll('.modal-dot');
+                            var prev    = window._modalIdx;
+                            window._modalIdx = idx;
+                            slides.forEach(function(s, i) {
+                                s.style.opacity = i === idx ? '1' : '0';
+                                s.style.pointerEvents = i === idx ? 'auto' : 'none';
+                            });
+                            thumbs.forEach(function(t, i) {
+                                t.classList.toggle('border-indigo-500', i === idx);
+                                t.classList.toggle('border-transparent', i !== idx);
+                            });
+                            dots.forEach(function(d, i) {
+                                d.classList.toggle('bg-indigo-500', i === idx);
+                                d.classList.toggle('bg-white/70', i !== idx);
+                            });
+                        };
+                        </script>`;
+                        })()}
+
+                        <!-- PRODUCT INFO -->
                         <div class="p-6">
                             <h2 class="text-2xl font-extrabold text-indigo-700 mb-1">${item.name}</h2>
                             <p class="text-2xl font-bold text-pink-600 mb-4">${formatPrice(item.price)}</p>
