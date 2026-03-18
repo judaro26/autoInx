@@ -34,7 +34,6 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Verify admin token
     const authHeader = event.headers.authorization || event.headers.Authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return {
@@ -72,7 +71,7 @@ exports.handler = async (event) => {
       lastUpdated: admin.firestore.FieldValue.serverTimestamp()
     };
 
-    // Branding
+    // Branding — includes all six color fields
     if (updates.branding) {
       updateData.branding = {
         logoUrl: updates.branding.logoUrl || '/images/AutoInx logo.png',
@@ -84,7 +83,9 @@ exports.handler = async (event) => {
           backgroundStart: updates.branding.colors?.backgroundStart || '#f0f9ff',
           backgroundEnd:   updates.branding.colors?.backgroundEnd   || '#e0e7ff',
           addToCart:       updates.branding.colors?.addToCart       || '#ec4899',
-          checkout:        updates.branding.colors?.checkout        || '#ec4899'
+          checkout:        updates.branding.colors?.checkout        || '#ec4899',
+          categoryActive:  updates.branding.colors?.categoryActive  || '#4f46e5',
+          productBtn:      updates.branding.colors?.productBtn      || '#4f46e5',
         }
       };
       console.log('✅ Branding prepared:', JSON.stringify(updateData.branding, null, 2));
@@ -100,7 +101,6 @@ exports.handler = async (event) => {
       console.log('✅ Seasonal banner prepared:', JSON.stringify(updateData.seasonalBanner));
     }
 
-    console.log('📝 Writing to Firestore: admin/config');
     await db.collection('admin').doc('config').set(updateData, { merge: true });
     console.log('✅✅✅ CONFIG UPDATED IN FIRESTORE ✅✅✅');
 
