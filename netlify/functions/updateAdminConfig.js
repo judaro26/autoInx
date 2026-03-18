@@ -26,10 +26,10 @@ exports.handler = async (event) => {
   }
 
   if (event.httpMethod !== 'POST') {
-    return { 
-      statusCode: 405, 
+    return {
+      statusCode: 405,
       headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: 'Method not allowed' }) 
+      body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
 
@@ -46,7 +46,7 @@ exports.handler = async (event) => {
 
     const idToken = authHeader.split('Bearer ')[1];
     const decodedToken = await admin.auth().verifyIdToken(idToken);
-    
+
     if (!decodedToken.admin) {
       return {
         statusCode: 403,
@@ -55,30 +55,24 @@ exports.handler = async (event) => {
       };
     }
 
-    // Parse request body
     const updates = JSON.parse(event.body);
-    
+
     console.log('📝 UPDATE REQUEST RECEIVED');
     console.log('📝 Full payload:', JSON.stringify(updates, null, 2));
-    console.log('📝 Branding in payload:', updates.branding ? 'YES' : 'NO');
-    if (updates.branding) {
-      console.log('📝 Branding colors:', JSON.stringify(updates.branding.colors, null, 2));
-    }
 
-    // ✅ CRITICAL: Prepare the update object
     const updateData = {
-      maintenanceMode: updates.maintenanceMode || false,
+      maintenanceMode:   updates.maintenanceMode   || false,
       chatWidgetEnabled: updates.chatWidgetEnabled || false,
-      ipWhitelist: updates.ipWhitelist || [],
+      ipWhitelist:       updates.ipWhitelist       || [],
       chatSchedule: {
-        enableTime: updates.chatSchedule?.enableTime || '08:00',
+        enableTime:  updates.chatSchedule?.enableTime  || '08:00',
         disableTime: updates.chatSchedule?.disableTime || '20:00',
-        activeDays: updates.chatSchedule?.activeDays || [1, 2, 3, 4, 5]
+        activeDays:  updates.chatSchedule?.activeDays  || [1, 2, 3, 4, 5]
       },
       lastUpdated: admin.firestore.FieldValue.serverTimestamp()
     };
 
-    // ✅ CRITICAL: Add branding if it exists
+    // Branding
     if (updates.branding) {
       updateData.branding = {
         logoUrl: updates.branding.logoUrl || '/images/AutoInx logo.png',
@@ -88,20 +82,26 @@ exports.handler = async (event) => {
         },
         colors: {
           backgroundStart: updates.branding.colors?.backgroundStart || '#f0f9ff',
-          backgroundEnd: updates.branding.colors?.backgroundEnd || '#e0e7ff',
-          addToCart: updates.branding.colors?.addToCart || '#ec4899',
-          checkout: updates.branding.colors?.checkout || '#ec4899'
+          backgroundEnd:   updates.branding.colors?.backgroundEnd   || '#e0e7ff',
+          addToCart:       updates.branding.colors?.addToCart       || '#ec4899',
+          checkout:        updates.branding.colors?.checkout        || '#ec4899'
         }
       };
-      console.log('✅ Branding data prepared for Firestore:', JSON.stringify(updateData.branding, null, 2));
+      console.log('✅ Branding prepared:', JSON.stringify(updateData.branding, null, 2));
+    }
+
+    // Seasonal banner
+    if (updates.seasonalBanner !== undefined) {
+      updateData.seasonalBanner = {
+        enabled: updates.seasonalBanner.enabled === true,
+        theme:   updates.seasonalBanner.theme   || 'stpatricks',
+        message: updates.seasonalBanner.message || ''
+      };
+      console.log('✅ Seasonal banner prepared:', JSON.stringify(updateData.seasonalBanner));
     }
 
     console.log('📝 Writing to Firestore: admin/config');
-    console.log('📝 Data being written:', JSON.stringify(updateData, null, 2));
-
-    // ✅ Write to Firestore
     await db.collection('admin').doc('config').set(updateData, { merge: true });
-
     console.log('✅✅✅ CONFIG UPDATED IN FIRESTORE ✅✅✅');
 
     return {
@@ -113,13 +113,13 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         success: true,
         message: 'Configuration updated successfully',
-        brandingSaved: !!updates.branding
+        brandingSaved: !!updates.branding,
+        seasonalBannerSaved: updates.seasonalBanner !== undefined
       })
     };
 
   } catch (error) {
     console.error('❌ ERROR in updateAdminConfig:', error);
-    console.error('❌ Stack trace:', error.stack);
     return {
       statusCode: 500,
       headers: {
