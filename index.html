@@ -2025,6 +2025,29 @@
                     // Start live data sync and render
                     setupRealtimeListeners();
                     render();
+
+                    // Poll config every 60s to pick up maintenance mode and banner changes
+                    setInterval(async () => {
+                        try {
+                            const res = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
+                            if (!res.ok) return;
+                            const cfg = await res.json();
+
+                            const prevMaintenance = state.isMaintenanceMode;
+                            const prevBanner      = JSON.stringify(state.seasonalBanner);
+
+                            state.isMaintenanceMode = cfg.maintenanceMode === true;
+                            state.isAdminIP         = cfg.isRequesterAdmin === true;
+                            state.seasonalBanner    = cfg.seasonalBanner || null;
+                            if (cfg.branding) applyBranding(cfg.branding);
+
+                            // Re-render only if something changed
+                            if (state.isMaintenanceMode !== prevMaintenance ||
+                                JSON.stringify(state.seasonalBanner) !== prevBanner) {
+                                render();
+                            }
+                        } catch (e) { /* silent — don't disrupt the user */ }
+                    }, 60000);
                     
                     // 🔥 HANDLE ADMIN REDIRECT AFTER RENDER
                     if (isAdminRedirect) {
