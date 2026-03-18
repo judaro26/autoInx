@@ -264,6 +264,7 @@
             isAdmin: false,                    // Set true once admin token claim is verified
             emailNotifications: [],            // Email notification log
             emailNotifFilters: { searchTerm: '', type: 'all', sortBy: 'newest' },
+            navGroups: { catalog: true, orders: true, finance: false, marketing: false, users: false },
             appliedDiscount: null,              // Currently applied discount on the order create form
             editingOrderDiscount: null,         // Discount applied inside the edit-order modal
 
@@ -3171,6 +3172,13 @@
 
             document.getElementById('selectedUserCount').textContent = state.selectedUsers.length;
             document.getElementById('bulkActionButton').disabled = state.selectedUsers.length === 0;
+        }
+
+        function toggleNavGroup(group) {
+            if (!state.navGroups) state.navGroups = {};
+            state.navGroups[group] = !state.navGroups[group];
+            renderAdminPage(auth.currentUser?.email || 'Admin');
+            resetTimer();
         }
 
         function switchAdminTab(tab) {
@@ -6639,61 +6647,100 @@
 
         <div class="md:flex md:space-x-8">
             <nav class="w-full md:w-1/4 mb-6 md:mb-0">
-                <div class="bg-white p-4 rounded-xl shadow-lg space-y-2 sticky top-4 ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
-                    <button onclick="window.module.switchAdminTab('catalog')" 
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'catalog' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        ${t('tabCatalog')}
-                    </button>
-                    <button onclick="window.module.switchAdminTab('inventory')" 
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'inventory' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        ${t('tabInventory')}
-                    </button>
-                    <button onclick="window.module.switchAdminTab('orders')" 
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        ${t('tabOrders')}
-                    </button>
+                <div class="bg-white rounded-xl shadow-lg sticky top-4 overflow-hidden ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
+                ${(() => {
+                    // Auto-open the group containing the active tab
+                    const TAB_GROUPS = {
+                        catalog:            'catalog',
+                        inventory:          'catalog',
+                        orders:             'orders',
+                        shippingLabels:     'orders',
+                        externalOrders:     'orders',
+                        emailNotifications: 'orders',
+                        financials:         'finance',
+                        vendorOrders:       'finance',
+                        profitAnalysis:     'finance',
+                        marketing:          'marketing',
+                        users:              'users',
+                        config:             'users',
+                    };
+                    const activeGroup = TAB_GROUPS[state.activeTab] || null;
+                    const groups = state.navGroups || {};
+                    const isOpen = g => groups[g] || activeGroup === g;
 
-                    <button onclick="window.module.switchAdminTab('marketing')"
-                        class="... ${state.activeTab === 'marketing' ? 'active-tab-class' : ''}">
-                       📣 Marketing
-                    </button>
-                    <button onclick="window.module.switchAdminTab('shippingLabels')" 
-                        class="w-full flex items-center px-4 py-3 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                  d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
-                        </svg>
-                        <span class="font-medium">Shipping Labels</span>
-                    </button>
-                    <button onclick="window.module.switchAdminTab('externalOrders')" 
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'externalOrders' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        External Orders
-                    </button>
-                                        
-                    <button onclick="window.module.switchAdminTab('financials')" 
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'financials' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        ${t('tabFinancials')}
-                    </button>
-                    <button onclick="window.module.switchAdminTab('vendorOrders')"
-                            class="tab-button ${state.activeTab === 'vendorOrders' ? 'active' : ''} px-6 py-3 rounded-lg font-semibold transition whitespace-nowrap">
-                        🏭 Vendor Orders
-                    </button>
-                    <button onclick="window.module.switchAdminTab('profitAnalysis')" 
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'profitAnalysis' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        📊 Profit Analysis
-                    </button>
-                    <button onclick="window.module.switchAdminTab('users')" 
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'users' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        ${t('tabUsers')}
-                    </button>
-                    <button onclick="window.module.switchAdminTab('emailNotifications')"
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'emailNotifications' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        📬 Email Log
-                    </button>
-                    <button onclick="window.module.switchAdminTab('config')" 
-                            class="tab-button w-full text-left p-3 rounded-lg font-semibold transition ${state.activeTab === 'config' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-gray-100'}">
-                        ${t('tabConfig')}
-                    </button>
+                    const tabBtn = (tabId, icon, label) => {
+                        const isActive = state.activeTab === tabId;
+                        return `<button onclick="window.module.switchAdminTab('${tabId}')"
+                                    class="w-full text-left pl-8 pr-3 py-2 text-sm font-medium transition rounded-none flex items-center gap-2
+                                           ${isActive ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-50 hover:text-indigo-700'}">
+                                    <span class="opacity-70">${icon}</span>${label}
+                                </button>`;
+                    };
+
+                    const groupHeader = (groupId, icon, label, count) => {
+                        const open = isOpen(groupId);
+                        return `<button onclick="window.module.toggleNavGroup('${groupId}')"
+                                    class="w-full flex items-center justify-between px-4 py-3 font-bold text-sm transition
+                                           ${open ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-500' : 'text-gray-700 hover:bg-gray-50 border-l-4 border-transparent'}">
+                                    <span class="flex items-center gap-2">${icon} ${label}</span>
+                                    <span class="flex items-center gap-1.5">
+                                        ${count > 0 ? `<span class="text-xs font-semibold px-1.5 py-0.5 rounded-full ${open ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}">${count}</span>` : ''}
+                                        <svg class="w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
+                                        </svg>
+                                    </span>
+                                </button>`;
+                    };
+
+                    const divider = () => `<div class="border-t border-gray-100"></div>`;
+
+                    return `
+                    ${groupHeader('catalog', '📦', 'Catalog & Inventory', 2)}
+                    ${isOpen('catalog') ? `
+                    <div class="bg-gray-50/60 pb-1">
+                        ${tabBtn('catalog',   '🗂️', t('tabCatalog'))}
+                        ${tabBtn('inventory', '📋', t('tabInventory'))}
+                    </div>` : ''}
+
+                    ${divider()}
+
+                    ${groupHeader('orders', '🛒', 'Orders & Fulfillment', 4)}
+                    ${isOpen('orders') ? `
+                    <div class="bg-gray-50/60 pb-1">
+                        ${tabBtn('orders',             '📝', t('tabOrders'))}
+                        ${tabBtn('externalOrders',     '🌐', 'External Orders')}
+                        ${tabBtn('shippingLabels',     '🏷️', 'Shipping Labels')}
+                        ${tabBtn('emailNotifications', '📬', 'Email Log')}
+                    </div>` : ''}
+
+                    ${divider()}
+
+                    ${groupHeader('finance', '💰', 'Finance & Suppliers', 3)}
+                    ${isOpen('finance') ? `
+                    <div class="bg-gray-50/60 pb-1">
+                        ${tabBtn('financials',    '💳', t('tabFinancials'))}
+                        ${tabBtn('vendorOrders',  '🏭', 'Vendor Orders')}
+                        ${tabBtn('profitAnalysis','📊', 'Profit Analysis')}
+                    </div>` : ''}
+
+                    ${divider()}
+
+                    ${groupHeader('marketing', '📣', 'Marketing', 1)}
+                    ${isOpen('marketing') ? `
+                    <div class="bg-gray-50/60 pb-1">
+                        ${tabBtn('marketing', '🎯', 'Campaigns & Discounts')}
+                    </div>` : ''}
+
+                    ${divider()}
+
+                    ${groupHeader('users', '⚙️', 'Users & Settings', 2)}
+                    ${isOpen('users') ? `
+                    <div class="bg-gray-50/60 pb-1">
+                        ${tabBtn('users',  '👥', t('tabUsers'))}
+                        ${tabBtn('config', '⚙️', t('tabConfig'))}
+                    </div>` : ''}
+                    `;
+                })()}
                 </div>
             </nav>
 
@@ -13489,6 +13536,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             // CATALOG & INVENTORY
             // ========================================================================
             switchAdminTab,
+            toggleNavGroup,
             handleAddCatalog,
             handleDeleteCatalog,
             handleAddProduct,
