@@ -682,38 +682,6 @@
                         ${renderEditProductForm()}
         
                         <div id="catalogTableWrapper" class="bg-white p-6 rounded-xl shadow-lg">
-                            <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-                                <div class="flex flex-wrap items-center gap-2 flex-1 min-w-0">
-                                    <input type="text"
-                                           id="catalogSearchInput"
-                                           oninput="window.module.handleSearchInput(event)"
-                                           value="${escapeHtml(state.searchTerm || '')}"
-                                           placeholder="Search products, SKUs, or category..."
-                                           class="p-2 border rounded-lg w-full max-w-xs">
-                                    <select onchange="window.module.handleCatalogCategoryFilter(event)"
-                                            class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                                        <option value="all" ${(!state.catalogFilters?.categoryId || state.catalogFilters.categoryId === 'all') ? 'selected' : ''}>All Categories</option>
-                                        ${state.catalogs.map(c =>
-                                            `<option value="${c.id}" ${state.catalogFilters?.categoryId === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
-                                        ).join('')}
-                                    </select>
-                                    <select onchange="window.module.handleCatalogSort(event)"
-                                            class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                                        <option value="name-asc"   ${(state.catalogFilters?.sortBy||'name-asc')==='name-asc'   ? 'selected':''}>Name A–Z</option>
-                                        <option value="name-desc"  ${state.catalogFilters?.sortBy==='name-desc'  ? 'selected':''}>Name Z–A</option>
-                                        <option value="price-asc"  ${state.catalogFilters?.sortBy==='price-asc'  ? 'selected':''}>Price ↑</option>
-                                        <option value="price-desc" ${state.catalogFilters?.sortBy==='price-desc' ? 'selected':''}>Price ↓</option>
-                                        <option value="newest"     ${state.catalogFilters?.sortBy==='newest'     ? 'selected':''}>Newest First</option>
-                                        <option value="oldest"     ${state.catalogFilters?.sortBy==='oldest'     ? 'selected':''}>Oldest First</option>
-                                        <option value="sku"        ${state.catalogFilters?.sortBy==='sku'        ? 'selected':''}>SKU A–Z</option>
-                                    </select>
-                                </div>
-                                <button onclick="window.module.toggleCatalogFullscreen()"
-                                        id="catalogFullscreenBtn"
-                                        class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition whitespace-nowrap">
-                                    ⛶ Full Screen
-                                </button>
-                            </div>
                             <div id="productListContainer"></div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -2070,16 +2038,48 @@
             if (!el) return;
             const items = getFilteredItems();
             const isFS  = state.catalogFilters?.fullscreen;
+            const f     = state.catalogFilters || {};
+
+            const catOptions = state.catalogs.map(c =>
+                `<option value="${c.id}" ${f.categoryId === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+            ).join('');
 
             el.innerHTML = `
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-base font-bold text-indigo-700">
-                        ${items.length} / ${state.items.length} products
-                        ${state.catalogFilters?.categoryId && state.catalogFilters.categoryId !== 'all'
-                            ? ` · <span class="text-gray-500 font-normal">${escapeHtml(state.catalogs.find(c=>c.id===state.catalogFilters.categoryId)?.name||'')}</span>`
-                            : ''}
-                    </h3>
+                <!-- Toolbar -->
+                <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+                    <div class="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                        <input type="text"
+                               id="catalogSearchInput"
+                               oninput="window.module.handleSearchInput(event)"
+                               value="${escapeHtml(state.searchTerm || '')}"
+                               placeholder="Search products, SKUs, or category..."
+                               class="p-2 border rounded-lg w-full max-w-xs focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+                        <select onchange="window.module.handleCatalogCategoryFilter(event)"
+                                class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            <option value="all" ${!f.categoryId || f.categoryId === 'all' ? 'selected' : ''}>All Categories</option>
+                            ${catOptions}
+                        </select>
+                        <select onchange="window.module.handleCatalogSort(event)"
+                                class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            <option value="name-asc"   ${(f.sortBy||'name-asc')==='name-asc'   ? 'selected':''}>Name A–Z</option>
+                            <option value="name-desc"  ${f.sortBy==='name-desc'  ? 'selected':''}>Name Z–A</option>
+                            <option value="price-asc"  ${f.sortBy==='price-asc'  ? 'selected':''}>Price ↑</option>
+                            <option value="price-desc" ${f.sortBy==='price-desc' ? 'selected':''}>Price ↓</option>
+                            <option value="newest"     ${f.sortBy==='newest'     ? 'selected':''}>Newest First</option>
+                            <option value="oldest"     ${f.sortBy==='oldest'     ? 'selected':''}>Oldest First</option>
+                            <option value="sku"        ${f.sortBy==='sku'        ? 'selected':''}>SKU A–Z</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-gray-500 whitespace-nowrap">${items.length} / ${state.items.length}</span>
+                        <button onclick="window.module.toggleCatalogFullscreen()"
+                                id="catalogFullscreenBtn"
+                                class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition whitespace-nowrap">
+                            ${isFS ? '✕ Exit Full Screen' : '⛶ Full Screen'}
+                        </button>
+                    </div>
                 </div>
+                <!-- Product list -->
                 ${isFS ? renderProductsGrouped(items) : renderProductGrid(items)}`;
         }
 
@@ -2189,13 +2189,10 @@
             if (!state.catalogFilters) state.catalogFilters = {};
             state.catalogFilters.fullscreen = !state.catalogFilters.fullscreen;
             const wrapper = document.getElementById('catalogTableWrapper');
-            const btn     = document.getElementById('catalogFullscreenBtn');
 
             if (state.catalogFilters.fullscreen) {
-                // Enter fullscreen
-                wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;overflow-y:auto;border-radius:0;margin:0;';
-                if (btn) btn.textContent = '✕ Exit Full Screen';
-                // Inject modal-z style for modals above fullscreen wrapper
+                if (wrapper) wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;overflow-y:auto;border-radius:0;margin:0;padding:24px;';
+                document.body.style.overflow = 'hidden';
                 let st = document.getElementById('catalog-fs-style');
                 if (!st) {
                     st = document.createElement('style');
@@ -2204,11 +2201,9 @@
                     document.head.appendChild(st);
                 }
             } else {
-                // Exit fullscreen
-                wrapper.style.cssText = '';
-                if (btn) btn.textContent = '⛶ Full Screen';
-                document.getElementById('catalog-fs-style')?.remove();
+                if (wrapper) wrapper.style.cssText = '';
                 document.body.style.overflow = '';
+                document.getElementById('catalog-fs-style')?.remove();
             }
 
             renderProductListSection();
