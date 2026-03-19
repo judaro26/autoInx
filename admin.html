@@ -246,6 +246,7 @@
             catalogs: [],
             items: [],
             searchTerm: '',
+            catalogFilters: { sortBy: 'name-asc', categoryId: 'all', fullscreen: false },
             orderSearchTerm: '',
             userSearchTerm: '',
             allUsers: [],
@@ -680,12 +681,40 @@
                         
                         ${renderEditProductForm()}
         
-                        <div class="bg-white p-6 rounded-xl shadow-lg">
-                            <div class="flex justify-between items-center mb-4">
-                                <input type="text" oninput="window.module.handleSearchInput(event)" placeholder="Search products, SKUs, or category..." class="p-2 border rounded-lg w-full max-w-md">
+                        <div id="catalogTableWrapper" class="bg-white p-6 rounded-xl shadow-lg">
+                            <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+                                <div class="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                                    <input type="text"
+                                           id="catalogSearchInput"
+                                           oninput="window.module.handleSearchInput(event)"
+                                           value="${escapeHtml(state.searchTerm || '')}"
+                                           placeholder="Search products, SKUs, or category..."
+                                           class="p-2 border rounded-lg w-full max-w-xs">
+                                    <select onchange="window.module.handleCatalogCategoryFilter(event)"
+                                            class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                        <option value="all" ${(!state.catalogFilters?.categoryId || state.catalogFilters.categoryId === 'all') ? 'selected' : ''}>All Categories</option>
+                                        ${state.catalogs.map(c =>
+                                            `<option value="${c.id}" ${state.catalogFilters?.categoryId === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+                                        ).join('')}
+                                    </select>
+                                    <select onchange="window.module.handleCatalogSort(event)"
+                                            class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                        <option value="name-asc"   ${(state.catalogFilters?.sortBy||'name-asc')==='name-asc'   ? 'selected':''}>Name A–Z</option>
+                                        <option value="name-desc"  ${state.catalogFilters?.sortBy==='name-desc'  ? 'selected':''}>Name Z–A</option>
+                                        <option value="price-asc"  ${state.catalogFilters?.sortBy==='price-asc'  ? 'selected':''}>Price ↑</option>
+                                        <option value="price-desc" ${state.catalogFilters?.sortBy==='price-desc' ? 'selected':''}>Price ↓</option>
+                                        <option value="newest"     ${state.catalogFilters?.sortBy==='newest'     ? 'selected':''}>Newest First</option>
+                                        <option value="oldest"     ${state.catalogFilters?.sortBy==='oldest'     ? 'selected':''}>Oldest First</option>
+                                        <option value="sku"        ${state.catalogFilters?.sortBy==='sku'        ? 'selected':''}>SKU A–Z</option>
+                                    </select>
+                                </div>
+                                <button onclick="window.module.toggleCatalogFullscreen()"
+                                        id="catalogFullscreenBtn"
+                                        class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition whitespace-nowrap">
+                                    ⛶ Full Screen
+                                </button>
                             </div>
-                            <div id="productListContainer">
-                            </div>
+                            <div id="productListContainer"></div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <!-- ✅ UPDATED: Category Management with Edit -->
@@ -1181,11 +1210,24 @@
                 return `
                     <section class="space-y-8">
                         <div class="flex justify-between items-center">
-                            <h2 class="text-2xl font-bold text-indigo-700">Marketplace Order Tracking</h2>
-                            <button onclick="window.module.showAddExternalOrderModal()" 
-                                    class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-md">
-                                + Add Order
-                            </button>
+                            <div>
+                                <h2 class="text-2xl font-bold text-indigo-700">Marketplace Order Tracking</h2>
+                                <div id="ebaySyncStatus" class="text-xs text-gray-400 mt-1">
+                                    <span id="ebaySyncStatusText">Loading eBay sync status…</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button onclick="window.module.triggerEbaySync()"
+                                        id="ebaySyncBtn"
+                                        class="px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition"
+                                        title="Sync eBay orders now">
+                                    🔄 Sync eBay
+                                </button>
+                                <button onclick="window.module.showAddExternalOrderModal()" 
+                                        class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-md">
+                                    + Add Order
+                                </button>
+                            </div>
                         </div>
             
                         <!-- Filters -->
@@ -2027,28 +2069,52 @@
             const el = document.getElementById('productListContainer');
             if (!el) return;
             const items = getFilteredItems();
+            const isFS  = state.catalogFilters?.fullscreen;
 
-            // ✅ FIXED: Only update the product grid, not the search input
-            const gridContainer = el.querySelector('#productGrid');
+            el.innerHTML = `
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-base font-bold text-indigo-700">
+                        ${items.length} / ${state.items.length} products
+                        ${state.catalogFilters?.categoryId && state.catalogFilters.categoryId !== 'all'
+                            ? ` · <span class="text-gray-500 font-normal">${escapeHtml(state.catalogs.find(c=>c.id===state.catalogFilters.categoryId)?.name||'')}</span>`
+                            : ''}
+                    </h3>
+                </div>
+                ${isFS ? renderProductsGrouped(items) : renderProductGrid(items)}`;
+        }
 
-            if (!gridContainer) {
-                // First render - create complete structure
-                el.innerHTML = `
-                    <h3 class="text-xl font-bold mb-4 text-indigo-700">Products (${items.length} / ${state.items.length} total)</h3>
-                    <div id="productGrid" class="overflow-x-auto">
-                        ${renderProductGrid(items)}
-                    </div>
-                `;
-            } else {
-                // Subsequent renders - only update the grid
-                gridContainer.innerHTML = renderProductGrid(items);
-
-                // Update count in header
-                const header = el.querySelector('h3');
-                if (header) {
-                    header.textContent = `Products (${items.length} / ${state.items.length} total)`;
-                }
+        function renderProductsGrouped(items) {
+            if (items.length === 0) {
+                return '<p class="text-center p-8 text-gray-400">No products match your filters.</p>';
             }
+
+            // Group by category
+            const groups = new Map();
+            groups.set('__uncategorized__', { name: 'Uncategorized', items: [] });
+            state.catalogs.forEach(c => groups.set(c.id, { name: c.name, items: [] }));
+            items.forEach(item => {
+                const key = item.catalogId && groups.has(item.catalogId) ? item.catalogId : '__uncategorized__';
+                groups.get(key).items.push(item);
+            });
+
+            return [...groups.entries()]
+                .filter(([, g]) => g.items.length > 0)
+                .map(([catId, g]) => {
+                    const rows = g.items.map(item => buildProductRow(item)).join('');
+                    return `
+                    <div class="mb-6">
+                        <div class="flex items-center gap-2 mb-2 pb-1 border-b-2 border-indigo-200">
+                            <span class="text-sm font-black text-indigo-700 uppercase tracking-wide">${escapeHtml(g.name)}</span>
+                            <span class="text-xs text-gray-400 font-semibold">(${g.items.length})</span>
+                        </div>
+                        <div class="overflow-x-auto rounded-lg border border-gray-100">
+                            <table class="w-full border-collapse text-sm">
+                                ${productTableHead()}
+                                <tbody class="divide-y divide-gray-50 bg-white">${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>`;
+                }).join('');
         }
 
         // ✅ NEW: Separate function to render just the grid
@@ -2056,63 +2122,110 @@
             if (items.length === 0) {
                 return '<p class="text-center p-4 text-gray-500">No products found.</p>';
             }
-
-            const rows = items.map(item => {
-                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                const created = item.createdAt ? formatTime(item.createdAt) : 'N/A';
-                const imgCount = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
-                const hasVideos = item.videoUrls?.length > 0;
-                const imgDisplay = imgCount > 0
-                    ? `<span class="text-indigo-600 font-semibold">🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}</span>`
-                    : `<span class="text-gray-400">❌ No Image</span>`;
-                const videoDisplay = hasVideos
-                    ? `<span class="text-purple-600 font-semibold text-xs">🎬 ${item.videoUrls.length} Video${item.videoUrls.length !== 1 ? 's' : ''}</span>`
-                    : '';
-                const desc = item.description || '';
-                const descPreview = desc.length > 60 ? desc.substring(0, 60) + '…' : desc;
-
-                return `
-                <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                    <td class="px-3 py-3 text-xs font-mono text-gray-600 whitespace-nowrap">${escapeHtml(item.sku || 'N/A')}</td>
-                    <td class="px-3 py-3 min-w-[200px]">
-                        <p class="font-semibold text-gray-800 text-sm">${escapeHtml(item.name)}</p>
-                        ${descPreview ? `<p class="text-xs text-gray-400 mt-0.5">${escapeHtml(descPreview)}</p>` : ''}
-                    </td>
-                    <td class="px-3 py-3 font-bold text-green-700 whitespace-nowrap">${formatPriceDisplay(item.price)}</td>
-                    <td class="px-3 py-3 text-sm text-gray-600 whitespace-nowrap">${escapeHtml(cat)}</td>
-                    <td class="px-3 py-3 text-xs space-y-1">
-                        ${imgDisplay}
-                        ${videoDisplay ? `<br>${videoDisplay}` : ''}
-                    </td>
-                    <td class="px-3 py-3 text-xs text-gray-400 whitespace-nowrap">${escapeHtml(created)}</td>
-                    <td class="px-3 py-3 whitespace-nowrap">
-                        <button onclick='window.module.showEditForm(${JSON.stringify(item).replace(/'/g, "&#39;").replace(/"/g, '&quot;')})'
-                                class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
-                        <button onclick="window.module.handleDeleteProduct('${item.id}', '${escapeHtml(item.name)}')"
-                                class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
-                    </td>
-                </tr>`;
-            }).join('');
-
             return `
                 <div class="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
                     <table class="w-full border-collapse text-sm">
-                        <thead>
-                            <tr class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
-                                <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">SKU</th>
-                                <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Name & Description</th>
-                                <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Price</th>
-                                <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Category</th>
-                                <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Media</th>
-                                <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Added</th>
-                                <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Actions</th>
-                            </tr>
-                        </thead>
+                        ${productTableHead()}
                         <tbody class="divide-y divide-gray-100 bg-white">
-                            ${rows}
+                            ${items.map(item => buildProductRow(item)).join('')}
                         </tbody>
                     </table>
                 </div>`;
+        }
+
+        function productTableHead() {
+            return `
+            <thead>
+                <tr class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
+                    <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">SKU</th>
+                    <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Name & Description</th>
+                    <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Price</th>
+                    <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Category</th>
+                    <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Media</th>
+                    <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Added</th>
+                    <th class="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide whitespace-nowrap">Actions</th>
+                </tr>
+            </thead>`;
+        }
+
+        function buildProductRow(item) {
+            const cat         = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+            const created     = item.createdAt ? formatTime(item.createdAt) : 'N/A';
+            const imgCount    = item.imageUrls ? item.imageUrls.length : (item.imageUrl ? 1 : 0);
+            const hasVideos   = item.videoUrls?.length > 0;
+            const imgDisplay  = imgCount > 0
+                ? `<span class="text-indigo-600 font-semibold">🖼️ ${imgCount} Image${imgCount !== 1 ? 's' : ''}</span>`
+                : `<span class="text-gray-400">❌ No Image</span>`;
+            const videoDisplay = hasVideos
+                ? `<span class="text-purple-600 font-semibold text-xs">🎬 ${item.videoUrls.length} Video${item.videoUrls.length !== 1 ? 's' : ''}</span>`
+                : '';
+            const desc        = item.description || '';
+            const descPreview = desc.length > 60 ? desc.substring(0, 60) + '…' : desc;
+
+            return `
+            <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                <td class="px-3 py-3 text-xs font-mono text-gray-600 whitespace-nowrap">${escapeHtml(item.sku || 'N/A')}</td>
+                <td class="px-3 py-3 min-w-[200px]">
+                    <p class="font-semibold text-gray-800 text-sm">${escapeHtml(item.name)}</p>
+                    ${descPreview ? `<p class="text-xs text-gray-400 mt-0.5">${escapeHtml(descPreview)}</p>` : ''}
+                </td>
+                <td class="px-3 py-3 font-bold text-green-700 whitespace-nowrap">${formatPriceDisplay(item.price)}</td>
+                <td class="px-3 py-3 text-sm text-gray-600 whitespace-nowrap">${escapeHtml(cat)}</td>
+                <td class="px-3 py-3 text-xs space-y-1">
+                    ${imgDisplay}
+                    ${videoDisplay ? `<br>${videoDisplay}` : ''}
+                </td>
+                <td class="px-3 py-3 text-xs text-gray-400 whitespace-nowrap">${escapeHtml(created)}</td>
+                <td class="px-3 py-3 whitespace-nowrap">
+                    <button onclick='window.module.showEditForm(${JSON.stringify(item).replace(/'/g, "&#39;").replace(/"/g, '&quot;')})'
+                            class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-3">Edit</button>
+                    <button onclick="window.module.handleDeleteProduct('${item.id}', '${escapeHtml(item.name)}')"
+                            class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                </td>
+            </tr>`;
+        }
+
+        function toggleCatalogFullscreen() {
+            if (!state.catalogFilters) state.catalogFilters = {};
+            state.catalogFilters.fullscreen = !state.catalogFilters.fullscreen;
+            const wrapper = document.getElementById('catalogTableWrapper');
+            const btn     = document.getElementById('catalogFullscreenBtn');
+
+            if (state.catalogFilters.fullscreen) {
+                // Enter fullscreen
+                wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;overflow-y:auto;border-radius:0;margin:0;';
+                if (btn) btn.textContent = '✕ Exit Full Screen';
+                // Inject modal-z style for modals above fullscreen wrapper
+                let st = document.getElementById('catalog-fs-style');
+                if (!st) {
+                    st = document.createElement('style');
+                    st.id = 'catalog-fs-style';
+                    st.textContent = '#editModalContainer,.fixed.inset-0.z-50{z-index:10100!important}';
+                    document.head.appendChild(st);
+                }
+            } else {
+                // Exit fullscreen
+                wrapper.style.cssText = '';
+                if (btn) btn.textContent = '⛶ Full Screen';
+                document.getElementById('catalog-fs-style')?.remove();
+                document.body.style.overflow = '';
+            }
+
+            renderProductListSection();
+        }
+
+        function handleCatalogSort(e) {
+            if (!state.catalogFilters) state.catalogFilters = {};
+            state.catalogFilters.sortBy = e.target.value;
+            renderProductListSection();
+            resetTimer();
+        }
+
+        function handleCatalogCategoryFilter(e) {
+            if (!state.catalogFilters) state.catalogFilters = {};
+            state.catalogFilters.categoryId = e.target.value;
+            renderProductListSection();
+            resetTimer();
         }
 
 
@@ -3111,15 +3224,38 @@
         }
 
         function getFilteredItems() {
-            if (!state.searchTerm) return state.items;
-            const term = state.searchTerm.toLowerCase();
-            return state.items.filter(item => {
-                const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
-                return item.name.toLowerCase().includes(term) ||
-                    item.description.toLowerCase().includes(term) ||
-                    catName.toLowerCase().includes(term) ||
-                    (item.sku && item.sku.toLowerCase().includes(term));
-            });
+            const f = state.catalogFilters || {};
+            let items = state.items;
+
+            // Text search
+            if (state.searchTerm) {
+                const term = state.searchTerm.toLowerCase();
+                items = items.filter(item => {
+                    const catName = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                    return item.name.toLowerCase().includes(term) ||
+                        (item.description || '').toLowerCase().includes(term) ||
+                        catName.toLowerCase().includes(term) ||
+                        (item.sku && item.sku.toLowerCase().includes(term));
+                });
+            }
+
+            // Category filter
+            if (f.categoryId && f.categoryId !== 'all') {
+                items = items.filter(i => i.catalogId === f.categoryId);
+            }
+
+            // Sort
+            const sorted = [...items];
+            switch (f.sortBy || 'name-asc') {
+                case 'name-asc':   sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '')); break;
+                case 'name-desc':  sorted.sort((a, b) => (b.name || '').localeCompare(a.name || '')); break;
+                case 'price-asc':  sorted.sort((a, b) => (a.price || 0) - (b.price || 0)); break;
+                case 'price-desc': sorted.sort((a, b) => (b.price || 0) - (a.price || 0)); break;
+                case 'newest':     sorted.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)); break;
+                case 'oldest':     sorted.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0)); break;
+                case 'sku':        sorted.sort((a, b) => (a.sku || '').localeCompare(b.sku || '')); break;
+            }
+            return sorted;
         }
 
         // --- USER LIST UTILITIES ---
@@ -3191,6 +3327,7 @@
 
             if (tab === 'externalOrders') {
                 window.module.fetchExternalOrders();
+                setTimeout(() => window.module.loadEbaySyncStatus(), 300);
             } else if (tab === 'config') {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
@@ -13537,6 +13674,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             // ========================================================================
             switchAdminTab,
             toggleNavGroup,
+            loadEbaySyncStatus,
+            triggerEbaySync,
             handleAddCatalog,
             handleDeleteCatalog,
             handleAddProduct,
@@ -13546,6 +13685,9 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             showEditForm,
             cancelEdit,
             renderProductListSection,
+            toggleCatalogFullscreen,
+            handleCatalogSort,
+            handleCatalogCategoryFilter,
             renderInventorySection,
             handleUpdateStock,
             showPurchaseOrderForm,
@@ -14641,11 +14783,64 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     if (!response.ok) throw new Error('Failed to delete order');
 
                     alert('Order deleted successfully!');
-                    await window.module.fetchExternalOrders();  // ✅ Add window.module.
+                    await window.module.fetchExternalOrders();
 
                 } catch (error) {
                     console.error('Error deleting order:', error);
                     alert('Failed to delete order. Please try again.');
+                }
+            },
+
+            loadEbaySyncStatus: async function () {
+                const el = document.getElementById('ebaySyncStatusText');
+                if (!el) return;
+                try {
+                    const snap = await getDoc(doc(db, 'admin', 'ebay_sync_state'));
+                    if (!snap.exists()) {
+                        el.textContent = 'eBay sync: never run — will poll every 15 min';
+                        return;
+                    }
+                    const d = snap.data();
+                    const lastRun = d.lastRunAt?.toDate?.();
+                    const result  = d.lastResult || {};
+                    const errMsg  = d.lastError  || null;
+
+                    if (errMsg) {
+                        el.innerHTML = `<span class="text-red-500">⚠️ Last sync failed: ${escapeHtml(errMsg)}</span>`;
+                    } else if (lastRun) {
+                        const ago = Math.round((Date.now() - lastRun.getTime()) / 60000);
+                        el.innerHTML =
+                            `✅ Last synced ${ago < 2 ? 'just now' : ago + ' min ago'} — ` +
+                            `${result.created || 0} new, ${result.updated || 0} updated` +
+                            (result.errors?.length ? ` <span class="text-red-500">(${result.errors.length} errors)</span>` : '');
+                    } else {
+                        el.textContent = 'eBay sync ready — polling every 15 min';
+                    }
+                } catch (e) {
+                    el.textContent = 'Could not load eBay sync status';
+                }
+            },
+
+            triggerEbaySync: async function () {
+                const btn = document.getElementById('ebaySyncBtn');
+                if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+                try {
+                    const idToken = await auth.currentUser.getIdToken();
+                    const res = await fetch('/.netlify/functions/ebaySyncOrders', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${idToken}` }
+                    });
+                    if (res.ok) {
+                        showMessage('success', 'eBay sync triggered — orders will appear shortly.', 4000, 'externalOrders');
+                        setTimeout(() => window.module.fetchExternalOrders(), 3000);
+                        setTimeout(() => window.module.loadEbaySyncStatus(), 3500);
+                    } else {
+                        showMessage('error', 'eBay sync trigger failed.', 4000, 'externalOrders');
+                    }
+                } catch (e) {
+                    showMessage('error', `eBay sync error: ${e.message}`, 4000, 'externalOrders');
+                } finally {
+                    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync eBay'; }
                 }
             },
 
@@ -14803,6 +14998,9 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 const wrapper = document.getElementById('vendorTableFullscreenWrapper');
                 if (wrapper && wrapper.dataset.fullscreen === 'true') {
                     window.module.toggleVendorTableFullscreen();
+                }
+                if (state.catalogFilters?.fullscreen) {
+                    window.module.toggleCatalogFullscreen();
                 }
             }
         });
