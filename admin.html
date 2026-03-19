@@ -1181,11 +1181,24 @@
                 return `
                     <section class="space-y-8">
                         <div class="flex justify-between items-center">
-                            <h2 class="text-2xl font-bold text-indigo-700">Marketplace Order Tracking</h2>
-                            <button onclick="window.module.showAddExternalOrderModal()" 
-                                    class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-md">
-                                + Add Order
-                            </button>
+                            <div>
+                                <h2 class="text-2xl font-bold text-indigo-700">Marketplace Order Tracking</h2>
+                                <div id="ebaySyncStatus" class="text-xs text-gray-400 mt-1">
+                                    <span id="ebaySyncStatusText">Loading eBay sync status…</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button onclick="window.module.triggerEbaySync()"
+                                        id="ebaySyncBtn"
+                                        class="px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition"
+                                        title="Sync eBay orders now">
+                                    🔄 Sync eBay
+                                </button>
+                                <button onclick="window.module.showAddExternalOrderModal()" 
+                                        class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-md">
+                                    + Add Order
+                                </button>
+                            </div>
                         </div>
             
                         <!-- Filters -->
@@ -3191,6 +3204,7 @@
 
             if (tab === 'externalOrders') {
                 window.module.fetchExternalOrders();
+                setTimeout(() => window.module.loadEbaySyncStatus(), 300);
             } else if (tab === 'config') {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
@@ -13537,6 +13551,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             // ========================================================================
             switchAdminTab,
             toggleNavGroup,
+            loadEbaySyncStatus,
+            triggerEbaySync,
             handleAddCatalog,
             handleDeleteCatalog,
             handleAddProduct,
@@ -14641,11 +14657,64 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     if (!response.ok) throw new Error('Failed to delete order');
 
                     alert('Order deleted successfully!');
-                    await window.module.fetchExternalOrders();  // ✅ Add window.module.
+                    await window.module.fetchExternalOrders();
 
                 } catch (error) {
                     console.error('Error deleting order:', error);
                     alert('Failed to delete order. Please try again.');
+                }
+            },
+
+            loadEbaySyncStatus: async function () {
+                const el = document.getElementById('ebaySyncStatusText');
+                if (!el) return;
+                try {
+                    const snap = await getDoc(doc(db, 'admin', 'ebay_sync_state'));
+                    if (!snap.exists()) {
+                        el.textContent = 'eBay sync: never run — will poll every 15 min';
+                        return;
+                    }
+                    const d = snap.data();
+                    const lastRun = d.lastRunAt?.toDate?.();
+                    const result  = d.lastResult || {};
+                    const errMsg  = d.lastError  || null;
+
+                    if (errMsg) {
+                        el.innerHTML = `<span class="text-red-500">⚠️ Last sync failed: ${escapeHtml(errMsg)}</span>`;
+                    } else if (lastRun) {
+                        const ago = Math.round((Date.now() - lastRun.getTime()) / 60000);
+                        el.innerHTML =
+                            `✅ Last synced ${ago < 2 ? 'just now' : ago + ' min ago'} — ` +
+                            `${result.created || 0} new, ${result.updated || 0} updated` +
+                            (result.errors?.length ? ` <span class="text-red-500">(${result.errors.length} errors)</span>` : '');
+                    } else {
+                        el.textContent = 'eBay sync ready — polling every 15 min';
+                    }
+                } catch (e) {
+                    el.textContent = 'Could not load eBay sync status';
+                }
+            },
+
+            triggerEbaySync: async function () {
+                const btn = document.getElementById('ebaySyncBtn');
+                if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+                try {
+                    const idToken = await auth.currentUser.getIdToken();
+                    const res = await fetch('/.netlify/functions/ebaySyncOrders', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${idToken}` }
+                    });
+                    if (res.ok) {
+                        showMessage('success', 'eBay sync triggered — orders will appear shortly.', 4000, 'externalOrders');
+                        setTimeout(() => window.module.fetchExternalOrders(), 3000);
+                        setTimeout(() => window.module.loadEbaySyncStatus(), 3500);
+                    } else {
+                        showMessage('error', 'eBay sync trigger failed.', 4000, 'externalOrders');
+                    }
+                } catch (e) {
+                    showMessage('error', `eBay sync error: ${e.message}`, 4000, 'externalOrders');
+                } finally {
+                    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync eBay'; }
                 }
             },
 
