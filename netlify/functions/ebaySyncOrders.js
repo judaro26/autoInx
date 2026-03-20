@@ -1,14 +1,20 @@
 const admin  = require('firebase-admin');
 const axios  = require('axios');
 
+// 1. SAFE INITIALIZATION
+// Using optional chaining to prevent top-level container crashes if env vars are missing
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId:   process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-    })
-  });
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId:   process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+      })
+    });
+  } catch (err) {
+    console.error('🔥 Firebase Init Error:', err.message);
+  }
 }
 
 const db = admin.firestore();
@@ -26,7 +32,7 @@ async function httpRequest(url, options = {}, body = null) {
     });
     const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
     return {
-      ok:   res.status >= 200 && res.status < 300,
+      ok:     res.status >= 200 && res.status < 300,
       status: res.status,
       text: () => text,
       json: () => (typeof res.data === 'object' ? res.data : JSON.parse(text))
@@ -151,9 +157,9 @@ function mapEbayOrder(ebayOrder) {
     ].filter(Boolean).join(' | ') || null,
 
     pricing: {
-      quantity:         qty,
-      shippingCharged:  shippingCostCents / 100,
-      transactionCost:  (feeCents + taxCents) / 100,
+      quantity:          qty,
+      shippingCharged:   shippingCostCents / 100,
+      transactionCost:   (feeCents + taxCents) / 100,
       vendorCostPerUnit: null,
     },
 
@@ -176,56 +182,9 @@ function mapEbayOrder(ebayOrder) {
   };
 }
 
-// ─── Write to Firestore directly ──────────────────────────────────────────────
-
-async function upsertOrder(mapped) {
-  const { pricing, meta, ...coreFields } = mapped;
-
-  // Check if already synced
-  const indexDoc = await db.collection('external_orders_index').doc(mapped.externalOrderId).get();
-  let savedId    = indexDoc.exists ? indexDoc.data().internalId : null;
-
-  if (!savedId) {
-    // Write core order fields to external_orders collection directly
-    savedId = `ebay_${mapped.externalOrderId}`;
-    await db.collection('external_orders').doc(savedId).set({
-      ...coreFields,
-      id:        savedId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  } else {
-    // Update status and tracking on existing order
-    await db.collection('external_orders').doc(savedId).set({
-      status:        coreFields.status,
-      trackingNumber: coreFields.trackingNumber,
-      updatedAt:     admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-  }
-
-  // Write financial metadata
-  await db.collection('external_order_pricing').doc(savedId).set({
-    ...pricing,
-    ...meta,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-  }, { merge: true });
-
-  // Update index
-  await db.collection('external_orders_index').doc(mapped.externalOrderId).set({
-    internalId:   savedId,
-    platform:     'eBay',
-    ebayOrderId:  mapped.externalOrderId,
-    lastSyncedAt: admin.firestore.FieldValue.serverTimestamp()
-  });
-
-  return savedId;
-}
-
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 const handler = async (event) => {
-  // Verify Firebase admin token when triggered via HTTP POST (manual sync button)
-  // Scheduled invocations from Netlify have no httpMethod — skip auth for those
   if (event?.httpMethod === 'POST') {
     const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
     if (!authHeader.startsWith('Bearer ')) {
@@ -257,20 +216,87 @@ const handler = async (event) => {
     const ebayOrders  = await fetchEbayOrders(accessToken, createdAfter);
     console.log(`📦 Found ${ebayOrders.length} eBay orders`);
 
+    if (ebayOrders.length === 0) {
+      await syncRef.set({
+        lastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastRunAt:    admin.firestore.FieldValue.serverTimestamp(),
+        lastResult:   { ordersFound: 0, created: 0, updated: 0, errors: [] }
+      }, { merge: true });
+      return { statusCode: 200, body: JSON.stringify({ created: 0, updated: 0, errors: [] }) };
+    }
+
+    // 2. CONCURRENT READS
+    // Fetch all existing indices in one go instead of looping
+    const indexRefs = ebayOrders.map(order => db.collection('external_orders_index').doc(order.orderId));
+    const indexDocs = await db.getAll(...indexRefs);
+    
+    const existingOrdersMap = {};
+    indexDocs.forEach(doc => {
+      if (doc.exists) {
+        existingOrdersMap[doc.id] = doc.data().internalId;
+      }
+    });
+
+    // 3. BATCHED WRITES
+    // Max 500 writes per batch. 50 orders * 3 writes = 150 (well within limits).
+    const batch = db.batch();
     let created = 0, updated = 0;
     const errors = [];
 
     for (const ebayOrder of ebayOrders) {
       try {
-        const mapped     = mapEbayOrder(ebayOrder);
-        const isExisting = (await db.collection('external_orders_index').doc(ebayOrder.orderId).get()).exists;
-        await upsertOrder(mapped);
-        isExisting ? updated++ : created++;
+        const mapped = mapEbayOrder(ebayOrder);
+        const { pricing, meta, ...coreFields } = mapped;
+        
+        let savedId = existingOrdersMap[mapped.externalOrderId];
+
+        if (!savedId) {
+          // CREATE NEW
+          savedId = `ebay_${mapped.externalOrderId}`;
+          const orderRef = db.collection('external_orders').doc(savedId);
+          batch.set(orderRef, {
+            ...coreFields,
+            id:        savedId,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          created++;
+        } else {
+          // UPDATE EXISTING
+          const orderRef = db.collection('external_orders').doc(savedId);
+          batch.set(orderRef, {
+            status:         coreFields.status,
+            trackingNumber: coreFields.trackingNumber,
+            updatedAt:      admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+          updated++;
+        }
+
+        // Write financial metadata to batch
+        const pricingRef = db.collection('external_order_pricing').doc(savedId);
+        batch.set(pricingRef, {
+          ...pricing,
+          ...meta,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        // Update index to batch
+        const indexRef = db.collection('external_orders_index').doc(mapped.externalOrderId);
+        batch.set(indexRef, {
+          internalId:   savedId,
+          platform:     'eBay',
+          ebayOrderId:  mapped.externalOrderId,
+          lastSyncedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
       } catch (err) {
-        console.error(`❌ Failed to sync order ${ebayOrder.orderId}:`, err.message);
+        console.error(`❌ Failed to prep order ${ebayOrder.orderId}:`, err.message);
         errors.push({ orderId: ebayOrder.orderId, error: err.message });
       }
     }
+
+    // Commit all queued writes to Firestore simultaneously
+    await batch.commit();
 
     await syncRef.set({
       lastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
