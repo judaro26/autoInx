@@ -232,7 +232,25 @@ async function upsertOrder(mapped, syncRef) {
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
-const handler = async () => {
+const handler = async (event) => {
+  // When triggered via HTTP (manual sync button), verify admin Firebase token.
+  // Scheduled invocations from Netlify have no httpMethod — skip auth for those.
+  if (event?.httpMethod === 'POST') {
+    const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+    }
+    try {
+      const idToken     = authHeader.split('Bearer ')[1];
+      const decoded     = await admin.auth().verifyIdToken(idToken);
+      if (!decoded.admin) {
+        return { statusCode: 403, body: JSON.stringify({ error: 'Admin access required' }) };
+      }
+    } catch (e) {
+      return { statusCode: 401, body: JSON.stringify({ error: 'Invalid token' }) };
+    }
+  }
+
   try {
     console.log('🛒 ebaySyncOrders starting...');
 
