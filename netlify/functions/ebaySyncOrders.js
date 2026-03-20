@@ -1,4 +1,3 @@
-const { schedule } = require('@netlify/functions');
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
@@ -317,5 +316,4 @@ const handler = async (event) => {
   }
 };
 
-// Run every 15 minutes
-exports.handler = schedule('*/15 * * * *', handler);
+exports.handler = handler;
