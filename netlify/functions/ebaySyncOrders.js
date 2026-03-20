@@ -1,5 +1,5 @@
 const admin  = require('firebase-admin');
-const https  = require('https');
+const axios  = require('axios');
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -13,28 +13,27 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// ─── Node-native HTTP helper (no fetch dependency) ────────────────────────────
+// ─── HTTP helper using axios ─────────────────────────────────────────────────
 
-function httpRequest(url, options = {}, body = null) {
-  return new Promise((resolve, reject) => {
-    const urlObj = new URL(url);
-    const reqOptions = {
-      hostname: urlObj.hostname,
-      path:     urlObj.pathname + urlObj.search,
-      method:   options.method || 'GET',
-      headers:  options.headers || {}
-    };
-    const req = https.request(reqOptions, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, text: () => data, json: () => JSON.parse(data) });
-      });
+async function httpRequest(url, options = {}, body = null) {
+  try {
+    const res = await axios({
+      url,
+      method:  options.method || 'GET',
+      headers: options.headers || {},
+      data:    body || undefined,
+      validateStatus: () => true   // don't throw on non-2xx
     });
-    req.on('error', reject);
-    if (body) req.write(body);
-    req.end();
-  });
+    const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    return {
+      ok:   res.status >= 200 && res.status < 300,
+      status: res.status,
+      text: () => text,
+      json: () => (typeof res.data === 'object' ? res.data : JSON.parse(text))
+    };
+  } catch (err) {
+    throw new Error(`HTTP request failed: ${err.message}`);
+  }
 }
 
 // ─── eBay OAuth ───────────────────────────────────────────────────────────────
