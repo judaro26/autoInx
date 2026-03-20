@@ -159,7 +159,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, addDoc, collection, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, getDocs, addDoc, collection, onSnapshot, query, orderBy, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
@@ -627,6 +627,42 @@
                                 <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
                                 ${stock === 0 ? 'Out of Stock' : t('addToCart')}
                             </button>
+
+                            <!-- REVIEWS SECTION -->
+                            <div class="mt-8 border-t pt-6" id="reviews-section-${item.id}">
+                                <h3 class="text-lg font-bold text-gray-800 mb-1">⭐ Customer Reviews</h3>
+                                <div id="reviews-list-${item.id}" class="space-y-3 mb-6">
+                                    <p class="text-sm text-gray-400 italic">Loading reviews…</p>
+                                </div>
+
+                                ${state.userName ? `
+                                <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                                    <p class="text-sm font-bold text-gray-700 mb-3">Write a Review</p>
+                                    <div class="flex items-center gap-1 mb-3" id="star-input-${item.id}">
+                                        ${[1,2,3,4,5].map(n => `
+                                        <button type="button"
+                                                onclick="window.module.setReviewRating('${item.id}', ${n})"
+                                                data-star="${n}"
+                                                class="review-star text-2xl leading-none transition-transform hover:scale-110 text-gray-300"
+                                                aria-label="${n} star">★</button>`).join('')}
+                                        <span id="star-label-${item.id}" class="text-xs text-gray-400 ml-2"></span>
+                                    </div>
+                                    <textarea id="review-comment-${item.id}" rows="3"
+                                              placeholder="Share your experience with this product…"
+                                              class="w-full p-3 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none resize-none mb-3"></textarea>
+                                    <button onclick="window.module.submitReview('${item.id}')"
+                                            id="review-submit-${item.id}"
+                                            class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition">
+                                        Submit Review
+                                    </button>
+                                    <p id="review-msg-${item.id}" class="text-xs mt-2 hidden"></p>
+                                </div>` : `
+                                <p class="text-sm text-gray-500 bg-gray-50 rounded-lg p-4 text-center">
+                                    <a href="#" onclick="window.module.showLoginModal('standard','login'); return false;"
+                                       class="text-indigo-600 font-semibold hover:underline">Sign in</a>
+                                    to leave a review.
+                                </p>`}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1494,6 +1530,7 @@
         // --- FIRESTORE COLLECTION PATHS ---
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
+        const REVIEWS_COLLECTION = 'product_reviews';
         // --- PERSISTENCE & LISTENING ---
 
         function loadCartFromSession() {
@@ -1615,10 +1652,145 @@
             window.location.href = '/checkout.html';
         }
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
+        // ─── PRODUCT REVIEWS ────────────────────────────────────────────────────────
+
+        // Track pending star rating per product
+        const _reviewRatings = {};
+
+        const STAR_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+
+        function setReviewRating(itemId, rating) {
+            _reviewRatings[itemId] = rating;
+            const container = document.getElementById('star-input-' + itemId);
+            const label     = document.getElementById('star-label-' + itemId);
+            if (!container) return;
+            container.querySelectorAll('.review-star').forEach(btn => {
+                const n = parseInt(btn.dataset.star);
+                btn.style.color = n <= rating ? '#f59e0b' : '';
+                btn.className = btn.className.replace('text-yellow-400', '').replace('text-gray-300', '').trim();
+                btn.classList.add(n <= rating ? 'text-yellow-400' : 'text-gray-300');
+            });
+            if (label) label.textContent = STAR_LABELS[rating] || '';
+        }
+
+        async function loadReviews(itemId) {
+            const listEl = document.getElementById('reviews-list-' + itemId);
+            if (!listEl) return;
+            try {
+                const q    = query(
+                    collection(db, REVIEWS_COLLECTION),
+                    where('productId', '==', itemId),
+                    where('approved',  '==', true),
+                    orderBy('createdAt', 'desc')
+                );
+                const snap = await getDocs(q);
+                if (snap.empty) {
+                    listEl.innerHTML = '<p class="text-sm text-gray-400 italic">No reviews yet — be the first!</p>';
+                    return;
+                }
+
+                // Aggregate rating
+                const reviews   = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const avg       = reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length;
+                const fullStars = Math.round(avg);
+
+                const summaryHtml = `
+                <div class="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                    <span class="text-3xl font-black text-gray-800">${avg.toFixed(1)}</span>
+                    <div>
+                        <div class="flex">${[1,2,3,4,5].map(n =>
+                            `<span class="text-lg ${n <= fullStars ? 'text-yellow-400' : 'text-gray-200'}">★</span>`
+                        ).join('')}</div>
+                        <span class="text-xs text-gray-400">${reviews.length} review${reviews.length !== 1 ? 's' : ''}</span>
+                    </div>
+                </div>`;
+
+                const cardsHtml = reviews.map(r => {
+                    const stars  = [1,2,3,4,5].map(n =>
+                        `<span class="${n <= r.rating ? 'text-yellow-400' : 'text-gray-200'}">★</span>`
+                    ).join('');
+                    const date   = r.createdAt?.toDate
+                        ? r.createdAt.toDate().toLocaleDateString()
+                        : '';
+                    const name   = r.userName || r.userEmail?.split('@')[0] || 'Customer';
+                    return `
+                    <div class="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+                        <div class="flex items-start justify-between mb-1">
+                            <div>
+                                <span class="text-sm font-semibold text-gray-800">${escapeHtml(name)}</span>
+                                <div class="flex text-sm mt-0.5">${stars}</div>
+                            </div>
+                            <span class="text-xs text-gray-400 whitespace-nowrap">${date}</span>
+                        </div>
+                        ${r.comment ? `<p class="text-sm text-gray-600 mt-2 leading-relaxed">${escapeHtml(r.comment)}</p>` : ''}
+                    </div>`;
+                }).join('');
+
+                listEl.innerHTML = summaryHtml + cardsHtml;
+            } catch (e) {
+                console.error('loadReviews error:', e);
+                listEl.innerHTML = '<p class="text-xs text-red-400">Could not load reviews.</p>';
+            }
+        }
+
+        async function submitReview(itemId) {
+            const rating  = _reviewRatings[itemId] || 0;
+            const comment = document.getElementById('review-comment-' + itemId)?.value?.trim() || '';
+            const msgEl   = document.getElementById('review-msg-' + itemId);
+            const btn     = document.getElementById('review-submit-' + itemId);
+
+            if (!state.userName) {
+                showMessage('warning', 'Please sign in to leave a review.', 3000);
+                return;
+            }
+            if (rating === 0) {
+                if (msgEl) { msgEl.textContent = 'Please select a star rating.'; msgEl.className = 'text-xs mt-2 text-orange-600'; }
+                return;
+            }
+
+            if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+            try {
+                const user = auth.currentUser;
+                await addDoc(collection(db, REVIEWS_COLLECTION), {
+                    productId:  itemId,
+                    userId:     user?.uid     || null,
+                    userEmail:  user?.email   || state.userName,
+                    userName:   user?.displayName || state.userName?.split('@')[0] || 'Customer',
+                    rating,
+                    comment,
+                    approved:   false,      // requires admin approval before showing
+                    createdAt:  serverTimestamp()
+                });
+
+                if (msgEl) {
+                    msgEl.textContent = '✅ Thank you! Your review will appear after moderation.';
+                    msgEl.className   = 'text-xs mt-2 text-green-600';
+                    msgEl.classList.remove('hidden');
+                }
+                // Reset form
+                _reviewRatings[itemId] = 0;
+                setReviewRating(itemId, 0);
+                const commentEl = document.getElementById('review-comment-' + itemId);
+                if (commentEl) commentEl.value = '';
+
+            } catch (e) {
+                console.error('submitReview error:', e);
+                if (msgEl) {
+                    msgEl.textContent = '❌ Could not submit review. Please try again.';
+                    msgEl.className   = 'text-xs mt-2 text-red-600';
+                    msgEl.classList.remove('hidden');
+                }
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Submit Review'; }
+            }
+        }
+
         function openItemDetailModal(item) {
             state.selectedItem = item;
-            window._modalIdx = 0; // reset carousel position on each open
+            window._modalIdx = 0;
             render();
+            // Load reviews after DOM paints
+            setTimeout(() => loadReviews(item.id), 50);
         }
         function closeItemDetailModal() {
             state.selectedItem = null;
@@ -2109,6 +2281,9 @@
             handleSignOut,
             setLanguage,
             openItemDetailModal,
+            loadReviews,
+            setReviewRating,
+            submitReview,
             closeItemDetailModal,
             openChatWidget,
             // Added T&C Modal controls here
