@@ -35,11 +35,16 @@ function createTransport() {
 }
 
 // ── Email HTML builder ─────────────────────────────────────────────────────────
-function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, storeName, logoUrl, siteUrl, categories }) {
-    const greeting = toName && toName !== 'there' ? `Hi ${toName},` : 'Hi there,';
+function buildEmailHtml({ toName, message, introText, ctaText, couponCode, couponLabel,
+                          localNote, storeName, logoUrl, siteUrl, categories,
+                          headerColor1 = '#4f46e5', headerColor2 = '#7c3aed' }) {
+    const greeting    = toName && toName !== 'there' ? `Hi ${toName},` : 'Hi there,';
     const personalMsg = message
-        ? `<p style="font-size:16px;color:#374151;margin:0 0 12px;">${message}</p>`
-        : '';
+        ? `<p style="font-size:16px;color:#374151;margin:0 0 12px;">${message}</p>` : '';
+
+    const defaultIntro = `We're excited to share our latest product catalog with you. Browse our selection of quality auto parts and accessories below — and don't hesitate to reach out if you have any questions or need help finding the right part for your vehicle.`;
+    const intro = introText || defaultIntro;
+    const cta   = ctaText  || 'Shop the Full Catalog →';
 
     const localSection = localNote ? `
     <tr>
@@ -72,7 +77,6 @@ function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, s
         </td>
     </tr>` : '';
 
-    // Product items per category
     const categoryBlocks = categories.map(cat => {
         const itemRows = cat.items.map(item => `
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:hidden;">
@@ -87,7 +91,7 @@ function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, s
                         <p style="margin:0 0 2px;font-size:14px;font-weight:700;color:#1e1b4b;">${item.name}</p>
                         ${item.sku ? `<p style="margin:0 0 4px;font-size:11px;color:#9ca3af;font-family:monospace;">SKU: ${item.sku}</p>` : ''}
                         ${item.description ? `<p style="margin:0 0 6px;font-size:12px;color:#6b7280;line-height:1.5;">${item.description}</p>` : ''}
-                        <p style="margin:0;font-size:16px;font-weight:900;color:#6366f1;">$${item.price}</p>
+                        <p style="margin:0;font-size:16px;font-weight:900;color:${headerColor1};">$${item.price}</p>
                     </td>
                 </tr>
             </table>`).join('');
@@ -95,7 +99,7 @@ function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, s
         return `
             <tr>
                 <td style="padding:0 32px 8px;">
-                    <p style="margin:0 0 12px;font-size:11px;font-weight:800;color:#6366f1;text-transform:uppercase;letter-spacing:3px;border-bottom:2px solid #e0e7ff;padding-bottom:6px;">${cat.name}</p>
+                    <p style="margin:0 0 12px;font-size:11px;font-weight:800;color:${headerColor1};text-transform:uppercase;letter-spacing:3px;border-bottom:2px solid #e0e7ff;padding-bottom:6px;">${cat.name}</p>
                     ${itemRows}
                 </td>
             </tr>`;
@@ -113,62 +117,48 @@ function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, s
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;">
 <tr><td align="center">
 
-<!-- Card -->
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-    <!-- Header -->
     <tr>
-        <td style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:32px;text-align:center;">
+        <td style="background:linear-gradient(135deg,${headerColor1},${headerColor2});padding:32px;text-align:center;">
             ${logoUrl ? `<img src="${logoUrl}" height="48" style="display:block;margin:0 auto 12px;object-fit:contain;" onerror="this.style.display='none'">` : ''}
             <h1 style="margin:0 0 4px;font-size:28px;font-weight:900;color:#ffffff;letter-spacing:-0.5px;">${storeName}</h1>
             <p style="margin:0;font-size:14px;color:rgba(255,255,255,0.8);letter-spacing:1px;text-transform:uppercase;">Product Catalog</p>
         </td>
     </tr>
 
-    <!-- Greeting -->
     <tr>
         <td style="padding:32px 32px 20px;">
             <h2 style="margin:0 0 12px;font-size:22px;font-weight:800;color:#1e1b4b;">${greeting}</h2>
             ${personalMsg}
-            <p style="margin:0;font-size:15px;color:#4b5563;line-height:1.7;">
-                We're excited to share our latest product catalog with you. Browse our selection of quality auto parts
-                and accessories below — and don't hesitate to reach out if you have any questions or need help finding
-                the right part for your vehicle.
-            </p>
+            <p style="margin:0;font-size:15px;color:#4b5563;line-height:1.7;">${intro}</p>
         </td>
     </tr>
 
-    <!-- Local delivery note -->
     ${localSection}
-
-    <!-- Coupon -->
     ${couponSection}
 
-    <!-- Divider -->
     <tr><td style="padding:0 32px 20px;">
         <hr style="border:none;border-top:2px solid #f3f4f6;margin:0;">
         <p style="margin:16px 0 0;font-size:20px;font-weight:800;color:#1e1b4b;">🛒 Our Products</p>
     </td></tr>
 
-    <!-- Products by category -->
     ${categoryBlocks}
 
-    <!-- CTA -->
     <tr>
         <td style="padding:16px 32px 32px;text-align:center;">
-            <a href="${siteUrl}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:50px;box-shadow:0 4px 12px rgba(79,70,229,0.35);">
-                Shop the Full Catalog →
+            <a href="${siteUrl}" style="display:inline-block;background:linear-gradient(135deg,${headerColor1},${headerColor2});color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:50px;box-shadow:0 4px 12px rgba(79,70,229,0.35);">
+                ${cta}
             </a>
         </td>
     </tr>
 
-    <!-- Footer -->
     <tr>
         <td style="background:#f8fafc;padding:24px 32px;border-top:1px solid #e5e7eb;text-align:center;">
             <p style="margin:0 0 6px;font-size:13px;color:#6b7280;">
                 Questions? Email us at
-                <a href="mailto:support@autoinx.com" style="color:#6366f1;text-decoration:none;font-weight:600;">support@autoinx.com</a>
-                or call <a href="tel:+13412227912" style="color:#6366f1;text-decoration:none;font-weight:600;">341-222-7912</a>
+                <a href="mailto:support@autoinx.com" style="color:${headerColor1};text-decoration:none;font-weight:600;">support@autoinx.com</a>
+                or call <a href="tel:+13412227912" style="color:${headerColor1};text-decoration:none;font-weight:600;">341-222-7912</a>
             </p>
             <p style="margin:0;font-size:12px;color:#9ca3af;">
                 <a href="${siteUrl}" style="color:#9ca3af;">${siteUrl}</a> · AutoInx Automotive Parts
@@ -177,11 +167,8 @@ function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, s
     </tr>
 
 </table>
-<!-- /Card -->
-
 </td></tr>
 </table>
-
 </body>
 </html>`;
 }
@@ -196,11 +183,13 @@ exports.handler = async function(event) {
         await verifyIdToken(event.headers['authorization']);
 
         const {
-            toEmail, toName = 'there', message = '', couponCode, couponLabel,
+            toEmail, toName = 'there', message = '', introText = '', ctaText = '',
+            subject, couponCode, couponLabel,
             localNote = true, storeName = 'AutoInx',
             logoUrl, siteUrl = 'https://autoinx.com',
             categories = [], adminEmail,
-            pdfBase64 = null,   // PDF generated client-side, sent as base64
+            headerColor1 = '#4f46e5', headerColor2 = '#7c3aed',
+            pdfBase64 = null,
         } = JSON.parse(event.body);
 
         if (!toEmail)                throw new Error('toEmail is required');
@@ -208,9 +197,15 @@ exports.handler = async function(event) {
 
         console.log(`📧 Sending catalog to ${toEmail} (${categories.length} categories, pdf=${!!pdfBase64})`);
 
-        const emailHtml = buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, storeName, logoUrl, siteUrl, categories });
+        const emailHtml = buildEmailHtml({
+            toName, message, introText, ctaText,
+            couponCode, couponLabel, localNote,
+            storeName, logoUrl, siteUrl, categories,
+            headerColor1, headerColor2,
+        });
 
         const transporter = createTransport();
+        const autoSubject = `Your ${storeName} Catalog${couponCode ? ' — Special Coupon Inside 🎁' : ''}`;
 
         const attachments = pdfBase64 ? [{
             filename:    `${storeName.replace(/\s+/g, '-')}-Catalog.pdf`,
@@ -221,7 +216,7 @@ exports.handler = async function(event) {
         const mailOptions = {
             from:    `"${storeName}" <noreply@autoinx.com>`,
             to:      toEmail,
-            subject: `Your ${storeName} Catalog${couponCode ? ` — Special Coupon Inside 🎁` : ''}`,
+            subject: subject || autoSubject,
             html:    emailHtml,
             attachments,
         };
