@@ -3820,6 +3820,151 @@
             URL.revokeObjectURL(url);
         }
 
+        // ── PDF-specific HTML builder ─────────────────────────────────────────────
+        // html2canvas cannot handle CSS Grid, vh units, web fonts, or complex gradients.
+        // This function uses ONLY: table layout, fixed px, Arial, inline styles, solid colors.
+        function buildPdfHtml() {
+            const items = getFilteredItems();
+            if (items.length === 0) return null;
+
+            const brand      = globalConfig?.branding || {};
+            const colors     = brand.colors || {};
+            const accent     = colors.addToCart || '#4f46e5';
+            const logoUrl    = brand.logoUrl || '';
+            const storeName  = brand.headerText?.en || 'AutoInx';
+            const date       = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+
+            // Group by category
+            const groups = new Map();
+            state.catalogs.forEach(c => groups.set(c.id, { name: c.name, items: [] }));
+            groups.set('__other__', { name: 'Other', items: [] });
+            items.forEach(item => {
+                const key = item.catalogId && groups.has(item.catalogId) ? item.catalogId : '__other__';
+                groups.get(key).items.push(item);
+            });
+
+            const activeGroups = [...groups.values()].filter(g => g.items.length > 0);
+
+            // Cover page — 816×1056px, solid accent background, no vh, no grid
+            const coverHtml = `
+            <div style="width:816px;height:1056px;background:${accent};padding:0;margin:0 0 40px 0;box-sizing:border-box;text-align:center;font-family:Arial,Helvetica,sans-serif;">
+                <div style="padding-top:180px;">
+                    ${logoUrl && logoUrl.startsWith('http') ? `
+                    <div style="margin:0 auto 32px auto;width:100px;height:100px;border-radius:16px;background:rgba(255,255,255,0.2);overflow:hidden;display:inline-block;">
+                        <img src="${logoUrl}" style="width:100px;height:100px;object-fit:contain;" onerror="this.style.display='none'">
+                    </div><br>` : ''}
+                    <div style="font-size:52px;font-weight:900;color:#ffffff;letter-spacing:-1px;margin-bottom:12px;">${escapeHtml(storeName)}</div>
+                    <div style="font-size:16px;color:rgba(255,255,255,0.85);letter-spacing:4px;text-transform:uppercase;margin-bottom:48px;">Product Catalog</div>
+                    <table style="margin:0 auto;border-collapse:separate;border-spacing:32px 0;">
+                        <tr>
+                            <td style="text-align:center;color:#fff;">
+                                <div style="font-size:36px;font-weight:900;">${items.length}</div>
+                                <div style="font-size:12px;text-transform:uppercase;letter-spacing:2px;opacity:0.8;">Products</div>
+                            </td>
+                            <td style="text-align:center;color:#fff;">
+                                <div style="font-size:36px;font-weight:900;">${activeGroups.length}</div>
+                                <div style="font-size:12px;text-transform:uppercase;letter-spacing:2px;opacity:0.8;">Categories</div>
+                            </td>
+                            <td style="text-align:center;color:#fff;">
+                                <div style="font-size:36px;font-weight:900;">${date.split(' ')[1]}</div>
+                                <div style="font-size:12px;text-transform:uppercase;letter-spacing:2px;opacity:0.8;">${date.split(' ')[0]}</div>
+                            </td>
+                        </tr>
+                    </table>
+                    <div style="margin-top:48px;font-size:13px;color:rgba(255,255,255,0.8);">
+                        autoinx.com &nbsp;·&nbsp; support@autoinx.com &nbsp;·&nbsp; 341-222-7912
+                    </div>
+                </div>
+            </div>`;
+
+            // Product pages — 3-column table layout, inline styles only
+            const CARD_W  = 236; // px
+            const CARD_H  = 260;
+            const IMG_H   = 130;
+            const COL_GAP = 16;
+
+            const categoryHtml = activeGroups.map(g => {
+                // Split items into rows of 3
+                const rows = [];
+                for (let i = 0; i < g.items.length; i += 3) rows.push(g.items.slice(i, i + 3));
+
+                const rowsHtml = rows.map(row => {
+                    const cells = row.map(item => {
+                        const img  = item.imageUrls?.[0] || item.imageUrl || null;
+                        const price = item.price != null ? `$${(item.price / 100).toFixed(2)}` : '';
+                        const desc  = (item.description || '').slice(0, 80);
+
+                        const imgCell = img
+                            ? `<img src="${img}" style="width:${CARD_W}px;height:${IMG_H}px;object-fit:contain;display:block;" onerror="this.style.display='none'">`
+                            : `<div style="width:${CARD_W}px;height:${IMG_H}px;background:#f1f5f9;display:table-cell;vertical-align:middle;text-align:center;font-size:11px;color:#94a3b8;">No Image</div>`;
+
+                        return `
+                        <td style="width:${CARD_W}px;vertical-align:top;padding-right:${COL_GAP}px;">
+                            <div style="width:${CARD_W}px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#fff;font-family:Arial,Helvetica,sans-serif;">
+                                <div style="width:${CARD_W}px;height:${IMG_H}px;background:#f8fafc;overflow:hidden;">${imgCell}</div>
+                                <div style="padding:10px 12px 12px;">
+                                    <div style="font-size:13px;font-weight:700;color:#1e1b4b;margin-bottom:3px;line-height:1.3;">${escapeHtml(item.name)}</div>
+                                    ${item.sku ? `<div style="font-size:11px;color:#94a3b8;font-family:monospace;margin-bottom:4px;">SKU: ${escapeHtml(item.sku)}</div>` : ''}
+                                    ${desc ? `<div style="font-size:11px;color:#475569;line-height:1.4;margin-bottom:6px;">${escapeHtml(desc)}${item.description?.length > 80 ? '…' : ''}</div>` : ''}
+                                    <div style="border-top:1px solid #f1f5f9;padding-top:8px;margin-top:auto;">
+                                        <span style="font-size:16px;font-weight:900;color:${accent};">${price}</span>
+                                        ${item.stock != null ? `<span style="font-size:10px;color:#94a3b8;float:right;line-height:24px;">${item.stock} in stock</span>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </td>`;
+                    }).join('');
+
+                    // Pad to 3 cols
+                    const empties = 3 - row.length;
+                    const padding = Array(empties).fill(`<td style="width:${CARD_W}px;padding-right:${COL_GAP}px;"></td>`).join('');
+
+                    return `<tr style="vertical-align:top;">${cells}${padding}</tr>`;
+                }).join('<tr><td colspan="3" style="height:14px;"></td></tr>');
+
+                return `
+                <div style="margin-bottom:28px;font-family:Arial,Helvetica,sans-serif;">
+                    <div style="border-bottom:2px solid ${accent};margin-bottom:14px;padding-bottom:6px;">
+                        <span style="font-size:13px;font-weight:800;color:${accent};text-transform:uppercase;letter-spacing:2px;">${escapeHtml(g.name)}</span>
+                    </div>
+                    <table style="border-collapse:separate;border-spacing:0;">${rowsHtml}</table>
+                </div>`;
+            }).join('');
+
+            const contentHtml = `
+            <div style="width:756px;padding:20px 30px;font-family:Arial,Helvetica,sans-serif;background:#fff;">
+                <div style="border-bottom:3px solid ${accent};padding-bottom:12px;margin-bottom:24px;">
+                    <table style="width:100%;border-collapse:collapse;">
+                        <tr>
+                            <td style="font-size:18px;font-weight:800;color:${accent};">${escapeHtml(storeName)}</td>
+                            <td style="text-align:right;font-size:12px;color:#94a3b8;">Product Catalog · ${date}</td>
+                        </tr>
+                    </table>
+                </div>
+                ${categoryHtml}
+                <div style="border-top:1px solid #e2e8f0;padding-top:10px;margin-top:20px;">
+                    <table style="width:100%;border-collapse:collapse;">
+                        <tr>
+                            <td style="font-size:11px;color:#94a3b8;">autoinx.com · support@autoinx.com · finance@autoinx.com · 341-222-7912</td>
+                            <td style="text-align:right;font-size:11px;color:#94a3b8;">${escapeHtml(storeName)} · ${date}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>`;
+
+            return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #fff; font-family: Arial, Helvetica, sans-serif; }
+  img { max-width: 100%; }
+</style>
+</head><body>
+${coverHtml}
+${contentHtml}
+</body></html>`;
+        }
+
         function buildCatalogBrochureHtml({ forPrint = false } = {}) {
             const items  = getFilteredItems();
             if (items.length === 0) return null;
@@ -14308,39 +14453,41 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         });
                     }
 
-                    // Build the brochure HTML (without print script)
-                    const brochureResult = buildCatalogBrochureHtml({ forPrint: false });
-                    if (!brochureResult) throw new Error('No products available for PDF');
+                    // Build the PDF-optimised HTML (table layout, no CSS Grid, fixed px)
+                    const pdfHtml = buildPdfHtml();
+                    if (!pdfHtml) throw new Error('No products available for PDF');
 
-                    // Render in a hidden iframe so the full <head> CSS is preserved
+                    // Render in a hidden iframe so styles are scoped correctly
                     const iframe = document.createElement('iframe');
-                    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;height:1056px;border:none;visibility:hidden;';
+                    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;height:1px;border:none;visibility:hidden;';
                     document.body.appendChild(iframe);
 
                     try {
-                        // Write full HTML into iframe and wait for load
                         await new Promise(resolve => {
                             iframe.onload = resolve;
                             iframe.contentDocument.open();
-                            iframe.contentDocument.write(brochureResult.html);
+                            iframe.contentDocument.write(pdfHtml);
                             iframe.contentDocument.close();
                         });
 
-                        // Give images a moment to load
-                        await new Promise(r => setTimeout(r, 800));
+                        // Let images settle
+                        await new Promise(r => setTimeout(r, 1200));
 
                         const iframeBody = iframe.contentDocument.body;
 
                         const pdfBlob = await html2pdf().set({
                             margin:      [0.3, 0.3, 0.3, 0.3],
                             filename:    `${storeName}-Catalog.pdf`,
-                            image:       { type: 'jpeg', quality: 0.85 },
+                            image:       { type: 'jpeg', quality: 0.88 },
                             html2canvas: {
-                                scale:       1.5,
-                                useCORS:     true,
-                                allowTaint:  false,
-                                logging:     false,
-                                windowWidth: 816,
+                                scale:          2,
+                                useCORS:        true,
+                                allowTaint:     true,
+                                logging:        false,
+                                backgroundColor: '#ffffff',
+                                windowWidth:    816,
+                                scrollX:        0,
+                                scrollY:        0,
                             },
                             jsPDF:       { unit: 'in', format: 'letter', orientation: 'portrait' },
                             pagebreak:   { mode: ['css', 'legacy'] },
