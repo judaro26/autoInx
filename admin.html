@@ -2419,6 +2419,11 @@
                                 title="Download current view as CSV">
                             ⬇ Download CSV
                         </button>
+                        <button onclick="window.module.printCatalogBrochure()"
+                                class="px-3 py-2 text-sm font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition whitespace-nowrap"
+                                title="Open print-ready brochure">
+                            🖨 Print Brochure
+                        </button>
                         <button onclick="window.module.toggleCatalogFullscreen()"
                                 id="catalogFullscreenBtn"
                                 class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition whitespace-nowrap">
@@ -2753,6 +2758,299 @@
             a.download     = `autoinx_catalog${catLabel}_${date}.csv`;
             a.click();
             URL.revokeObjectURL(url);
+        }
+
+        function printCatalogBrochure() {
+            const items  = getFilteredItems();
+            if (items.length === 0) {
+                alert('No products to print with the current filters.');
+                return;
+            }
+
+            const brand   = globalConfig?.branding || {};
+            const colors  = brand.colors || {};
+            const accent  = colors.addToCart  || '#6366f1';
+            const accent2 = colors.checkout   || '#ec4899';
+            const bgStart = colors.backgroundStart || '#eef2ff';
+            const logoUrl = brand.logoUrl || '/images/AutoInx logo.png';
+            const headerText = brand.headerText?.en || 'AutoInx';
+            const date    = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+
+            // Group items by category
+            const groups = new Map();
+            state.catalogs.forEach(c => groups.set(c.id, { name: c.name, items: [] }));
+            groups.set('__other__', { name: 'Other', items: [] });
+            items.forEach(item => {
+                const key = item.catalogId && groups.has(item.catalogId) ? item.catalogId : '__other__';
+                groups.get(key).items.push(item);
+            });
+
+            const categorySections = [...groups.entries()]
+                .filter(([, g]) => g.items.length > 0)
+                .map(([, g]) => {
+                    const cards = g.items.map(item => {
+                        const img  = item.imageUrls?.[0] || item.imageUrl || null;
+                        const price = item.price != null ? `$${(item.price / 100).toFixed(2)}` : '';
+                        const sku  = item.sku ? `<div class="sku">SKU: ${item.sku}</div>` : '';
+                        const desc = item.description
+                            ? `<p class="desc">${item.description.substring(0, 100)}${item.description.length > 100 ? '…' : ''}</p>`
+                            : '';
+                        const imgHtml = img
+                            ? `<div class="card-img"><img src="${img}" alt="${item.name}" onerror="this.parentElement.innerHTML='<div class=no-img>No Image</div>'"/></div>`
+                            : `<div class="card-img"><div class="no-img">No Image</div></div>`;
+
+                        return `
+                        <div class="card">
+                            ${imgHtml}
+                            <div class="card-body">
+                                <div class="card-name">${item.name}</div>
+                                ${sku}
+                                ${desc}
+                                <div class="card-footer">
+                                    <span class="price">${price}</span>
+                                    ${item.stock != null ? `<span class="stock">${item.stock} in stock</span>` : ''}
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('');
+
+                    return `
+                    <div class="category-section">
+                        <div class="category-header">
+                            <div class="category-line"></div>
+                            <h2 class="category-title">${g.name}</h2>
+                            <div class="category-line"></div>
+                        </div>
+                        <div class="cards-grid">${cards}</div>
+                    </div>`;
+                }).join('');
+
+            const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${headerText} — Product Catalog</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        background: #fff;
+        color: #1e1b4b;
+    }
+
+    /* ── Cover page ─────────────────────────────────────────────── */
+    .cover {
+        height: 100vh;
+        background: linear-gradient(135deg, ${accent} 0%, ${accent2} 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        page-break-after: always;
+        position: relative;
+        overflow: hidden;
+    }
+    .cover::before {
+        content: '';
+        position: absolute;
+        width: 500px; height: 500px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.08);
+        top: -120px; right: -120px;
+    }
+    .cover::after {
+        content: '';
+        position: absolute;
+        width: 300px; height: 300px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.06);
+        bottom: -80px; left: -80px;
+    }
+    .cover-logo {
+        width: 120px; height: 120px;
+        border-radius: 24px;
+        background: rgba(255,255,255,0.15);
+        display: flex; align-items: center; justify-content: center;
+        margin-bottom: 32px;
+        overflow: hidden;
+        backdrop-filter: blur(10px);
+        border: 2px solid rgba(255,255,255,0.3);
+    }
+    .cover-logo img { width: 90px; height: 90px; object-fit: contain; }
+    .cover h1 {
+        font-size: 56px;
+        font-weight: 900;
+        color: #fff;
+        letter-spacing: -1px;
+        text-align: center;
+        margin-bottom: 12px;
+    }
+    .cover-subtitle {
+        font-size: 18px;
+        color: rgba(255,255,255,0.8);
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        margin-bottom: 40px;
+    }
+    .cover-meta {
+        display: flex; gap: 32px;
+        background: rgba(255,255,255,0.15);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.25);
+        border-radius: 16px;
+        padding: 16px 32px;
+    }
+    .cover-meta-item { text-align: center; color: #fff; }
+    .cover-meta-item .num { font-size: 28px; font-weight: 800; }
+    .cover-meta-item .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.8; }
+
+    /* ── Content pages ──────────────────────────────────────────── */
+    .content { padding: 48px 56px; }
+
+    .page-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 3px solid ${accent};
+        padding-bottom: 16px;
+        margin-bottom: 40px;
+    }
+    .page-header-brand {
+        display: flex; align-items: center; gap: 12px;
+    }
+    .page-header-logo {
+        width: 36px; height: 36px;
+        object-fit: contain;
+    }
+    .page-header-name {
+        font-size: 18px; font-weight: 800; color: ${accent};
+    }
+    .page-header-date {
+        font-size: 12px; color: #9ca3af; letter-spacing: 1px;
+    }
+
+    /* ── Category section ───────────────────────────────────────── */
+    .category-section { margin-bottom: 48px; }
+    .category-header {
+        display: flex; align-items: center; gap: 16px;
+        margin-bottom: 24px;
+    }
+    .category-line { flex: 1; height: 1px; background: linear-gradient(90deg, ${accent}44, transparent); }
+    .category-title {
+        font-size: 13px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        color: ${accent};
+        white-space: nowrap;
+        padding: 4px 16px;
+        border: 1.5px solid ${accent}44;
+        border-radius: 20px;
+        background: ${bgStart};
+    }
+
+    /* ── Product cards grid ─────────────────────────────────────── */
+    .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+    }
+    .card {
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #fff;
+        break-inside: avoid;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        transition: box-shadow 0.2s;
+    }
+    .card-img {
+        height: 160px;
+        background: ${bgStart};
+        overflow: hidden;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .card-img img {
+        width: 100%; height: 100%;
+        object-fit: contain;
+        padding: 8px;
+    }
+    .no-img {
+        font-size: 11px; color: #9ca3af;
+        text-transform: uppercase; letter-spacing: 1px;
+    }
+    .card-body { padding: 14px 16px 16px; }
+    .card-name {
+        font-size: 13px; font-weight: 700;
+        color: #1e1b4b; margin-bottom: 4px;
+        line-height: 1.3;
+    }
+    .sku { font-size: 10px; color: #9ca3af; margin-bottom: 6px; font-family: monospace; }
+    .desc { font-size: 11px; color: #6b7280; line-height: 1.5; margin-bottom: 10px; }
+    .card-footer {
+        display: flex; align-items: center; justify-content: space-between;
+        border-top: 1px solid #f3f4f6; padding-top: 10px; margin-top: auto;
+    }
+    .price {
+        font-size: 16px; font-weight: 900;
+        color: ${accent};
+    }
+    .stock { font-size: 10px; color: #9ca3af; }
+
+    /* ── Print settings ─────────────────────────────────────────── */
+    @media print {
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .cover { height: 100vh; }
+        .card { break-inside: avoid; }
+        .category-section { break-inside: avoid-page; }
+        @page { margin: 0; size: A4; }
+    }
+</style>
+</head>
+<body>
+
+<!-- Cover Page -->
+<div class="cover">
+    <div class="cover-logo">
+        <img src="${logoUrl}" alt="${headerText}" onerror="this.style.display='none'">
+    </div>
+    <h1>${headerText}</h1>
+    <div class="cover-subtitle">Product Catalog</div>
+    <div class="cover-meta">
+        <div class="cover-meta-item">
+            <div class="num">${items.length}</div>
+            <div class="lbl">Products</div>
+        </div>
+        <div class="cover-meta-item">
+            <div class="num">${[...groups.values()].filter(g => g.items.length > 0).length}</div>
+            <div class="lbl">Categories</div>
+        </div>
+        <div class="cover-meta-item">
+            <div class="num">${date.split(' ')[1]}</div>
+            <div class="lbl">${date.split(' ')[0]}</div>
+        </div>
+    </div>
+</div>
+
+<!-- Product Pages -->
+<div class="content">
+    <div class="page-header">
+        <div class="page-header-brand">
+            <img src="${logoUrl}" class="page-header-logo" alt="${headerText}" onerror="this.style.display='none'">
+            <span class="page-header-name">${headerText}</span>
+        </div>
+        <span class="page-header-date">Product Catalog · ${date}</span>
+    </div>
+    ${categorySections}
+</div>
+
+<script>window.onload = () => { setTimeout(() => window.print(), 400); }<\/script>
+</body>
+</html>`;
+
+            const win = window.open('', '_blank', 'width=900,height=700');
+            win.document.write(html);
+            win.document.close();
         }
 
 
@@ -14319,6 +14617,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleCatalogSort,
             handleCatalogCategoryFilter,
             downloadCatalog,
+            printCatalogBrochure,
             openReviewsModal,
             approveReview,
             deleteReview,
