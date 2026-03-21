@@ -574,7 +574,7 @@
         }
 
         const state = {
-            activeTab: 'catalog',
+            activeTab: 'overview',
             catalogs: [],
             items: [],
             searchTerm: '',
@@ -1004,6 +1004,9 @@
 
         function renderAdminTabs() {
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            if (state.activeTab === 'overview') {
+                return `<section id="overviewPage"><div class="text-center py-12 text-gray-400">Loading…</div></section>`;
+            }
             if (state.activeTab === 'profitAnalysis') {
                 return renderProfitAnalysisSection();
             }
@@ -2979,6 +2982,20 @@
             await refreshReviewsModal(itemId, 'all');
         }
 
+        async function bulkApproveProduct(itemId) {
+            if (!confirm('Approve all pending reviews for this product?')) return;
+            const snap = await getDocs(
+                query(collection(db, REVIEWS_COLLECTION),
+                      where('productId', '==', itemId),
+                      where('approved', '==', false))
+            );
+            await Promise.all(snap.docs.map(d =>
+                updateDoc(doc(db, REVIEWS_COLLECTION, d.id), { approved: true })
+            ));
+            showMessage('success', `${snap.size} review${snap.size !== 1 ? 's' : ''} approved.`, 2000, 'catalog');
+            await refreshReviewsModal(itemId, 'all');
+        }
+
         // ─── AUDIT LOG ────────────────────────────────────────────────────────────────
 
         // Action type → human label + icon + colour
@@ -3268,13 +3285,263 @@
             if (secs < 86400) return `${Math.round(secs/3600)}h ago`;
             if (secs < 604800) return `${Math.round(secs/86400)}d ago`;
             return date.toLocaleDateString();
+        }
 
         const handleAuditSearch = createDebouncedHandler('auditSearch', function(e) {
             window.module.renderAuditLog(null, e.target.value, 0);
         }, 400);
-            if (!state.catalogFilters) state.catalogFilters = {};
-            state.catalogFilters.fullscreen = !state.catalogFilters.fullscreen;
-            const wrapper = document.getElementById('catalogTableWrapper');
+
+        // ─── OVERVIEW DASHBOARD ───────────────────────────────────────────────────────
+
+        function renderOverview() {
+            const el = document.getElementById('overviewPage');
+            if (!el) return;
+
+            const now     = new Date();
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const weekStart  = new Date(todayStart); weekStart.setDate(weekStart.getDate() - 6);
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+            const orders   = state.orders || [];
+            const items    = state.items  || [];
+            const active   = orders.filter(o => o.status !== 'Cancelled');
+
+            // ── Revenue calculations ───────────────────────────────────────────────────
+            const getOrderDate = o => {
+                if (o.createdAt?.toDate) return o.createdAt.toDate();
+                if (o.createdAt instanceof Date) return o.createdAt;
+                if (o.timestamp) return new Date(o.timestamp);
+                return null;
+            };
+
+            const revenueInRange = (start) => active
+                .filter(o => { const d = getOrderDate(o); return d && d >= start; })
+                .reduce((s, o) => s + (o.totalCents || 0), 0);
+
+            const revenueToday  = revenueInRange(todayStart);
+            const revenueWeek   = revenueInRange(weekStart);
+            const revenueMonth  = revenueInRange(monthStart);
+            const revenueTotal  = active.reduce((s, o) => s + (o.totalCents || 0), 0);
+
+            const ordersToday   = active.filter(o => { const d = getOrderDate(o); return d && d >= todayStart; }).length;
+            const pendingOrders = orders.filter(o => o.status === 'Pending').length;
+            const processingOrders = orders.filter(o => o.status === 'Processing').length;
+
+            // ── Inventory alerts ──────────────────────────────────────────────────────
+            const outOfStock  = items.filter(i => !i.temporarilyUnavailable && (i.stock || 0) === 0);
+            const lowStock    = items.filter(i => !i.temporarilyUnavailable && (i.stock || 0) > 0 && (i.stock || 0) <= 5);
+            const locked      = items.filter(i => i.temporarilyUnavailable);
+
+            // ── 30-day sparkline data ──────────────────────────────────────────────────
+            const days = 30;
+            const dailyRevenue = [];
+            for (let i = days - 1; i >= 0; i--) {
+                const dayStart = new Date(todayStart); dayStart.setDate(dayStart.getDate() - i);
+                const dayEnd   = new Date(dayStart);   dayEnd.setDate(dayEnd.getDate() + 1);
+                const rev = active
+                    .filter(o => { const d = getOrderDate(o); return d && d >= dayStart && d < dayEnd; })
+                    .reduce((s, o) => s + (o.totalCents || 0), 0);
+                dailyRevenue.push({ date: dayStart, rev });
+            }
+            const maxRev = Math.max(...dailyRevenue.map(d => d.rev), 1);
+
+            // ── Recent orders ─────────────────────────────────────────────────────────
+            const recentOrders = [...orders]
+                .sort((a, b) => (getOrderDate(b) || 0) - (getOrderDate(a) || 0))
+                .slice(0, 8);
+
+            // ── Top products (by order frequency) ────────────────────────────────────
+            const productCounts = {};
+            active.forEach(o => {
+                (o.items || o.cartItems || []).forEach(item => {
+                    const id = item.id || item.itemId;
+                    if (id) productCounts[id] = (productCounts[id] || 0) + (item.quantity || 1);
+                });
+            });
+            const topProducts = Object.entries(productCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([id, qty]) => {
+                    const item = items.find(i => i.id === id);
+                    return { name: item?.name || id, qty, price: item?.price || 0 };
+                });
+
+            // ── Helpers ───────────────────────────────────────────────────────────────
+            const statCard = (icon, label, value, sub, color, onclick = '') => `
+                <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100 ${onclick ? 'cursor-pointer hover:shadow-md transition' : ''}"
+                     ${onclick ? `onclick="${onclick}"` : ''}>
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">${label}</p>
+                            <p class="text-2xl font-black text-${color}-600">${value}</p>
+                            ${sub ? `<p class="text-xs text-gray-400 mt-1">${sub}</p>` : ''}
+                        </div>
+                        <span class="text-2xl">${icon}</span>
+                    </div>
+                </div>`;
+
+            const statusBadge = (status) => {
+                const map = { Pending: 'yellow', Processing: 'blue', Shipped: 'indigo', Delivered: 'green', Cancelled: 'red' };
+                const c   = map[status] || 'gray';
+                return `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-${c}-100 text-${c}-700">${status}</span>`;
+            };
+
+            // ── Sparkline SVG ──────────────────────────────────────────────────────────
+            const W = 400, H = 80, pad = 4;
+            const pts = dailyRevenue.map((d, i) => {
+                const x = pad + (i / (days - 1)) * (W - pad * 2);
+                const y = H - pad - (d.rev / maxRev) * (H - pad * 2);
+                return `${x},${y}`;
+            }).join(' ');
+            const fillPts = `${pad},${H} ` + pts + ` ${W - pad},${H}`;
+
+            const sparkline = `
+            <svg viewBox="0 0 ${W} ${H}" class="w-full h-20" preserveAspectRatio="none">
+                <defs>
+                    <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#6366f1" stop-opacity="0.3"/>
+                        <stop offset="100%" stop-color="#6366f1" stop-opacity="0.02"/>
+                    </linearGradient>
+                </defs>
+                <polygon points="${fillPts}" fill="url(#sparkGrad)"/>
+                <polyline points="${pts}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            </svg>`;
+
+            // ── Render ────────────────────────────────────────────────────────────────
+            el.innerHTML = `
+            <div class="space-y-6">
+
+                <!-- Header -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold text-indigo-700">🏠 Overview</h2>
+                        <p class="text-sm text-gray-400 mt-0.5">${now.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</p>
+                    </div>
+                    <button onclick="window.module.renderOverview()"
+                            class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">
+                        ↺ Refresh
+                    </button>
+                </div>
+
+                <!-- Revenue stat cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    ${statCard('💰', 'Revenue Today',   formatPriceDisplay(revenueToday),  `${ordersToday} order${ordersToday !== 1 ? 's' : ''}`, 'green')}
+                    ${statCard('📅', 'Last 7 Days',     formatPriceDisplay(revenueWeek),   'rolling 7-day window', 'blue')}
+                    ${statCard('🗓️', 'This Month',      formatPriceDisplay(revenueMonth),  now.toLocaleDateString('en-US',{month:'long'}), 'indigo')}
+                    ${statCard('📈', 'All-Time Revenue', formatPriceDisplay(revenueTotal), `${active.length} total orders`, 'purple')}
+                </div>
+
+                <!-- Orders + Inventory alerts -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    ${statCard('⏳', 'Pending Orders',    pendingOrders,    'Need attention',   'yellow', "window.module.switchAdminTab('orders')")}
+                    ${statCard('⚙️', 'Processing Orders', processingOrders, 'In progress',      'blue',   "window.module.switchAdminTab('orders')")}
+                    ${statCard('📦', 'Out of Stock',      outOfStock.length, 'Items need restock', 'red', "window.module.switchAdminTab('inventory')")}
+                </div>
+
+                <!-- 30-day chart + low stock alerts -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+
+                    <!-- Sparkline -->
+                    <div class="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-bold text-gray-700">Revenue — Last 30 Days</h3>
+                            <span class="text-sm font-black text-indigo-600">${formatPriceDisplay(revenueMonth)}</span>
+                        </div>
+                        ${sparkline}
+                        <div class="flex justify-between text-xs text-gray-300 mt-1">
+                            <span>${weekStart.toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+                            <span>Today</span>
+                        </div>
+                    </div>
+
+                    <!-- Inventory alerts -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                        <h3 class="text-sm font-bold text-gray-700 mb-3">🔔 Inventory Alerts</h3>
+                        <div class="space-y-2">
+                            ${outOfStock.length === 0 && lowStock.length === 0 && locked.length === 0
+                                ? `<p class="text-xs text-green-600 font-semibold">✅ All items in stock</p>`
+                                : `
+                                ${outOfStock.slice(0,4).map(i => `
+                                <div class="flex items-center justify-between py-1 border-b border-gray-50">
+                                    <span class="text-xs text-gray-700 truncate max-w-[140px]" title="${escapeHtml(i.name)}">${escapeHtml(i.name)}</span>
+                                    <span class="text-xs font-bold text-red-600 flex-shrink-0 ml-2">Out</span>
+                                </div>`).join('')}
+                                ${outOfStock.length > 4 ? `<p class="text-xs text-red-400">+${outOfStock.length - 4} more out of stock</p>` : ''}
+                                ${lowStock.slice(0,3).map(i => `
+                                <div class="flex items-center justify-between py-1 border-b border-gray-50">
+                                    <span class="text-xs text-gray-700 truncate max-w-[140px]">${escapeHtml(i.name)}</span>
+                                    <span class="text-xs font-bold text-orange-500 flex-shrink-0 ml-2">${i.stock} left</span>
+                                </div>`).join('')}
+                                ${locked.length > 0 ? `<p class="text-xs text-gray-400 mt-1">🔒 ${locked.length} item${locked.length !== 1 ? 's' : ''} temporarily locked</p>` : ''}
+                                <button onclick="window.module.switchAdminTab('inventory')"
+                                        class="mt-2 w-full text-xs text-indigo-600 font-semibold hover:underline text-left">
+                                    Manage inventory →
+                                </button>`}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent orders + Top products -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                    <!-- Recent orders -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-50">
+                            <h3 class="text-sm font-bold text-gray-700">🕐 Recent Orders</h3>
+                            <button onclick="window.module.switchAdminTab('orders')"
+                                    class="text-xs text-indigo-600 font-semibold hover:underline">View all →</button>
+                        </div>
+                        ${recentOrders.length === 0
+                            ? `<p class="text-xs text-gray-400 p-5">No orders yet.</p>`
+                            : `<div class="divide-y divide-gray-50">
+                                ${recentOrders.map(o => {
+                                    const d    = getOrderDate(o);
+                                    const ago  = d ? formatTimeAgo(d) : '—';
+                                    return `
+                                    <div class="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 cursor-pointer transition"
+                                         onclick="window.module.switchAdminTab('orders')">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-semibold text-gray-800 truncate">${escapeHtml(o.buyerName || 'Guest')}</p>
+                                            <p class="text-xs text-gray-400">#${o.orderNumber || o.id?.slice(0,8)} · ${ago}</p>
+                                        </div>
+                                        <div class="flex items-center gap-2 flex-shrink-0 ml-3">
+                                            ${statusBadge(o.status)}
+                                            <span class="text-sm font-bold text-gray-700">${formatPriceDisplay(o.totalCents)}</span>
+                                        </div>
+                                    </div>`;
+                                }).join('')}
+                            </div>`}
+                    </div>
+
+                    <!-- Top products -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-50">
+                            <h3 class="text-sm font-bold text-gray-700">🏆 Top Products</h3>
+                            <button onclick="window.module.switchAdminTab('catalog')"
+                                    class="text-xs text-indigo-600 font-semibold hover:underline">View catalog →</button>
+                        </div>
+                        ${topProducts.length === 0
+                            ? `<p class="text-xs text-gray-400 p-5">No sales data yet.</p>`
+                            : `<div class="divide-y divide-gray-50">
+                                ${topProducts.map((p, i) => `
+                                <div class="flex items-center gap-3 px-5 py-2.5">
+                                    <span class="text-lg font-black text-gray-200 w-5 flex-shrink-0">${i + 1}</span>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-sm font-semibold text-gray-800 truncate">${escapeHtml(p.name)}</p>
+                                        <p class="text-xs text-gray-400">${formatPriceDisplay(p.price)} each</p>
+                                    </div>
+                                    <span class="text-sm font-bold text-indigo-600 flex-shrink-0">${p.qty} sold</span>
+                                </div>`).join('')}
+                            </div>`}
+                    </div>
+                </div>
+
+            </div>`;
+
+            translatePage();
+        }
+
+        function toggleCatalogFullscreen() {
 
             if (state.catalogFilters.fullscreen) {
                 if (wrapper) wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;overflow-y:auto;border-radius:0;margin:0;padding:24px;';
@@ -4805,7 +5072,9 @@
             renderAdminPage(auth.currentUser?.email || 'Admin');
             resetTimer();
 
-            if (tab === 'externalOrders') {
+            if (tab === 'overview') {
+                setTimeout(() => window.module.renderOverview(), 100);
+            } else if (tab === 'externalOrders') {
                 window.module.fetchExternalOrders();
                 setTimeout(() => window.module.loadEbaySyncStatus(), 300);
             } else if (tab === 'abandonedCarts') {
@@ -8297,6 +8566,7 @@
                 ${(() => {
                     // Auto-open the group containing the active tab
                     const TAB_GROUPS = {
+                        overview:           'overview',
                         catalog:            'catalog',
                         inventory:          'catalog',
                         reviews:            'catalog',
@@ -8345,6 +8615,15 @@
                     const divider = () => `<div class="border-t border-gray-100"></div>`;
 
                     return `
+                    <button onclick="window.module.switchAdminTab('overview')"
+                            class="w-full flex items-center gap-2 px-4 py-3 font-bold text-sm transition border-l-4
+                                   ${state.activeTab === 'overview'
+                                       ? 'bg-indigo-50 text-indigo-700 border-indigo-500'
+                                       : 'text-gray-700 hover:bg-gray-50 border-transparent'}">
+                        🏠 Overview
+                    </button>
+                    ${divider()}
+
                     ${groupHeader('catalog', '📦', 'Catalog & Inventory', 3)}
                     ${isOpen('catalog') ? `
                     <div class="bg-gray-50/60 pb-1">
@@ -8412,6 +8691,7 @@
 
             // Post-render data population
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
+            if (state.activeTab === 'overview' && !state.previewMode) setTimeout(() => window.module.renderOverview(), 100);
             if (state.activeTab === 'abandonedCarts' && !state.previewMode) setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
             if (state.activeTab === 'returns' && !state.previewMode) setTimeout(() => window.module.renderReturnsSection(), 100);
             if (state.activeTab === 'reviews' && !state.previewMode) setTimeout(() => window.module.renderReviewsTab(), 100);
@@ -16263,6 +16543,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             bulkApproveAllPending,
             bulkApproveProduct,
             renderReviewsTab,
+            renderOverview,
             renderAuditLog,
             handleAuditSearch,
             renderInventorySection,
