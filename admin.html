@@ -324,7 +324,9 @@
             'Processing': 'En Proceso',
             'Shipped': 'Enviado',
             'Delivered': 'Entregado',
-            'Cancelled': 'Cancelado',
+            '🔒 Lock': '🔒 Bloquear',
+            '🔓 Unlock': '🔓 Desbloquear',
+            'Temporarily Unavailable': 'Temporalmente No Disponible',
             'Abandoned Carts': 'Carritos Abandonados',
             '🛒 Abandoned Carts': '🛒 Carritos Abandonados',
             'Total Carts': 'Total de Carritos',
@@ -2529,8 +2531,10 @@
             const descPreview = desc.length > 60 ? desc.substring(0, 60) + '…' : desc;
 
             return `
-            <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                <td class="px-3 py-3 text-xs font-mono text-gray-600 whitespace-nowrap">${escapeHtml(item.sku || 'N/A')}</td>
+            <tr class="hover:bg-gray-50 transition-colors border-b border-gray-100 ${item.temporarilyUnavailable ? 'bg-gray-50 opacity-70' : ''}">
+                <td class="px-3 py-3 text-xs font-mono text-gray-600 whitespace-nowrap">
+                    ${item.temporarilyUnavailable ? '<span class="text-gray-400 mr-1" title="Temporarily locked">🔒</span>' : ''}${escapeHtml(item.sku || 'N/A')}
+                </td>
                 <td class="px-3 py-3 min-w-[200px]">
                     <p class="font-semibold text-gray-800 text-sm">${escapeHtml(item.name)}</p>
                     ${descPreview ? `<p class="text-xs text-gray-400 mt-0.5">${escapeHtml(descPreview)}</p>` : ''}
@@ -2547,6 +2551,11 @@
                             class="text-blue-600 hover:text-blue-800 text-sm font-semibold mr-2">Edit</button>
                     <button onclick="window.module.openReviewsModal('${item.id}')"
                             class="text-yellow-600 hover:text-yellow-800 text-sm font-semibold mr-2">⭐ Reviews</button>
+                    <button onclick="window.module.toggleItemAvailability('${item.id}', ${!!item.temporarilyUnavailable})"
+                            class="text-sm font-semibold mr-2 ${item.temporarilyUnavailable ? 'text-green-600 hover:text-green-800' : 'text-gray-500 hover:text-gray-700'}"
+                            title="${item.temporarilyUnavailable ? 'Click to make available' : 'Click to temporarily lock'}">
+                        ${item.temporarilyUnavailable ? '🔓 Unlock' : '🔒 Lock'}
+                    </button>
                     <button onclick="window.module.handleDeleteProduct('${item.id}')"
                             class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
                 </td>
@@ -4589,6 +4598,25 @@
         }
 
         // Delete Product function
+        async function toggleItemAvailability(itemId, currentlyLocked) {
+            const item    = state.items.find(i => i.id === itemId);
+            const newState = !currentlyLocked;
+            const label   = newState ? 'lock (temporarily unavailable)' : 'unlock';
+
+            if (!confirm(`${newState ? '🔒' : '🔓'} ${newState ? 'Lock' : 'Unlock'} "${item?.name || itemId}"?\n\n${newState ? 'It will appear greyed out and non-purchasable on the storefront.' : 'It will become available for purchase again.'}`)) return;
+
+            try {
+                await updateDoc(doc(db, ITEMS_COLLECTION, itemId), {
+                    temporarilyUnavailable: newState,
+                    updatedAt: serverTimestamp()
+                });
+                logAdminAction(newState ? 'ITEM_LOCKED' : 'ITEM_UNLOCKED', { itemId, name: item?.name });
+                showMessage('success', `"${item?.name}" ${newState ? 'locked — hidden from checkout.' : 'unlocked — available again.'}`, 3000, 'catalog');
+            } catch (err) {
+                showMessage('error', `Failed to ${label}: ${err.message}`, 3000, 'catalog');
+            }
+        }
+
         async function handleDeleteProduct(id) {
             const item = state.items.find(i => i.id === id);
             const name = item?.name || id;
@@ -15174,6 +15202,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleDeleteCatalog,
             handleAddProduct,
             handleDeleteProduct,
+            toggleItemAvailability,
             handleEditProduct,
             handleSearchInput,
             showEditForm,
