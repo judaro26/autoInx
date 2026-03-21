@@ -1242,6 +1242,33 @@
                                 </button>
                             </div>
 
+                            <!-- Fullscreen-only filter bar (hidden in normal mode) -->
+                            <div id="externalOrdersFsFilterBar" style="display:none"
+                                 class="px-4 py-3 bg-indigo-50 border-b border-indigo-200">
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <select onchange="window.module.syncExternalOrdersFilters(this, 'platform')"
+                                            class="p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 bg-white">
+                                        <option value="all">All Platforms</option>
+                                        <option value="Amazon">Amazon</option>
+                                        <option value="eBay">eBay</option>
+                                        <option value="Mercado Libre">Mercado Libre</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                    <select onchange="window.module.syncExternalOrdersFilters(this, 'status')"
+                                            class="p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 bg-white">
+                                        <option value="all">All Statuses</option>
+                                        <option value="Pending">Pending</option>
+                                        <option value="Processing">Processing</option>
+                                        <option value="Shipped">Shipped</option>
+                                        <option value="Delivered">Delivered</option>
+                                        <option value="Cancelled">Cancelled</option>
+                                    </select>
+                                    <input type="text" placeholder="Search by order ID or customer..."
+                                           oninput="window.module.syncExternalOrdersFilters(this, 'search')"
+                                           class="p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 bg-white flex-1 min-w-[200px]">
+                                </div>
+                            </div>
+
                             <!-- Scrollable table area -->
                             <div class="external-orders-scroll-area overflow-x-auto overflow-y-auto">
                                 <table class="w-full border border-gray-200">
@@ -7650,6 +7677,21 @@
             }
         }
 
+        // Keeps the fullscreen filter bar in sync with the real filters above the table
+        function syncExternalOrdersFilters(el, type) {
+            if (type === 'platform') {
+                const real = document.getElementById('platformFilter');
+                if (real) real.value = el.value;
+            } else if (type === 'status') {
+                const real = document.getElementById('statusFilter');
+                if (real) real.value = el.value;
+            } else if (type === 'search') {
+                const real = document.getElementById('searchExternalOrders');
+                if (real) real.value = el.value;
+            }
+            window.module.filterExternalOrders();
+        }
+
         function toggleExternalOrdersFullscreen() {
             const wrapper = document.getElementById('externalOrdersFullscreenWrapper');
             if (!wrapper) return;
@@ -7667,6 +7709,9 @@
 
                 const scrollArea = wrapper.querySelector('.external-orders-scroll-area');
                 if (scrollArea) scrollArea.style.maxHeight = '';
+
+                const fsFilterBar = wrapper.querySelector('#externalOrdersFsFilterBar');
+                if (fsFilterBar) fsFilterBar.style.display = 'none';
 
                 const btn = wrapper.querySelector('#externalOrdersFullscreenBtn');
                 if (btn) btn.innerHTML = `
@@ -7706,7 +7751,20 @@
 
                 // Make scroll area fill remaining height
                 const scrollArea = wrapper.querySelector('.external-orders-scroll-area');
-                if (scrollArea) scrollArea.style.maxHeight = 'calc(100vh - 96px)';
+                if (scrollArea) scrollArea.style.maxHeight = 'calc(100vh - 140px)';
+
+                // Show the fullscreen filter bar and sync current filter values into it
+                const fsFilterBar = wrapper.querySelector('#externalOrdersFsFilterBar');
+                if (fsFilterBar) {
+                    fsFilterBar.style.display = 'block';
+                    const [fsPlatform, fsStatus, fsSearch] = fsFilterBar.querySelectorAll('select, input');
+                    const platform = document.getElementById('platformFilter');
+                    const status   = document.getElementById('statusFilter');
+                    const search   = document.getElementById('searchExternalOrders');
+                    if (fsPlatform && platform) fsPlatform.value = platform.value;
+                    if (fsStatus   && status)   fsStatus.value   = status.value;
+                    if (fsSearch   && search)   fsSearch.value   = search.value;
+                }
 
                 const btn = wrapper.querySelector('#externalOrdersFullscreenBtn');
                 if (btn) btn.innerHTML = `
@@ -13968,6 +14026,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             syncVendorCostToProfit,
             toggleVendorRefundFields,
             toggleExternalOrdersFullscreen,
+            syncExternalOrdersFilters,
             toggleVendorTableFullscreen,
 
             // ========================================================================
