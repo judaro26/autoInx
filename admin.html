@@ -12729,44 +12729,44 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
             const brand    = globalConfig?.branding || {};
             const logoUrl  = brand.logoUrl || '/images/AutoInx logo.png';
-            const accent   = brand.colors?.addToCart || '#6366f1';
             const siteUrl  = 'https://autoinx.com';
-            const qrUrl    = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(siteUrl)}`;
+            const qrUrl    = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(siteUrl)}`;
 
             // Build discount display line
             let discountLine = '';
-            if (d.type === 'percentage')      discountLine = `GET ${d.value}% OFF`;
-            else if (d.type === 'fixed')      discountLine = `GET $${((d.valueCents || Math.round(d.value * 100)) / 100).toFixed(2)} OFF`;
-            else                              discountLine = 'FREE SHIPPING';
+            if (d.type === 'percentage')  discountLine = `GET ${d.value}% OFF`;
+            else if (d.type === 'fixed')  discountLine = `GET $${((d.valueCents || Math.round(d.value * 100)) / 100).toFixed(2)} OFF`;
+            else                          discountLine = 'FREE SHIPPING';
 
             // Build terms line
             const terms = [];
-            if (d.minOrderCents > 0)     terms.push(`Valid on orders over $${(d.minOrderCents / 100).toFixed(2)}.`);
-            if (d.maxDiscountCents > 0)  terms.push(`Maximum discount $${(d.maxDiscountCents / 100).toFixed(2)}.`);
-            if (d.expiresAt)             terms.push(`Expires ${new Date(d.expiresAt).toLocaleDateString()}.`);
+            if (d.minOrderCents > 0)    terms.push(`Valid on orders over $${(d.minOrderCents / 100).toFixed(2)}.`);
+            if (d.maxDiscountCents > 0) terms.push(`Maximum discount $${(d.maxDiscountCents / 100).toFixed(2)}.`);
+            if (d.expiresAt)            terms.push(`Expires ${new Date(d.expiresAt).toLocaleDateString()}.`);
             const termsText = terms.length > 0 ? `*${terms.join(' ')}` : '';
 
-            // Single card HTML — dark themed matching the flyer
             const card = `
             <div class="card">
-                <div class="card-top">
-                    <div class="brand-row">
-                        <img src="${logoUrl}" class="logo" alt="AutoInx" onerror="this.style.display='none'">
-                        <span class="brand-name">AutoInx</span>
+                <div class="card-inner">
+                    <!-- Left: branding + promo details -->
+                    <div class="card-left">
+                        <div class="brand-row">
+                            <img src="${logoUrl}" class="logo" alt="AutoInx" onerror="this.style.display='none'">
+                            <span class="brand-name">AutoInx</span>
+                        </div>
+                        <div class="promo-label">AUTOINX PROMO COUPON</div>
+                        <div class="discount-banner">${discountLine}</div>
+                        <div class="code-line">USE CODE: <strong class="code">${d.code}</strong></div>
+                        ${termsText ? `<div class="terms">${termsText}</div>` : ''}
                     </div>
-                    <div class="qr-block">
-                        <img src="${qrUrl}" class="qr" alt="QR Code">
+                    <!-- Right: QR -->
+                    <div class="card-right">
+                        <img src="${qrUrl}" class="qr" alt="QR">
                         <div class="scan-text">SCAN TO<br>REDEEM &amp; SAVE</div>
                     </div>
                 </div>
-                <div class="card-mid">
-                    <div class="promo-label">AUTOINX PROMO COUPON</div>
-                    <div class="discount-banner">${discountLine}</div>
-                    <div class="code-line">USE CODE: <span class="code">${d.code}</span></div>
-                    ${termsText ? `<div class="terms">${termsText}</div>` : ''}
-                </div>
-                <div class="card-bottom">
-                    <div class="payment-icons">
+                <div class="card-footer-bar">
+                    <div class="pay-icons">
                         <span class="pay-badge">VISA</span>
                         <span class="pay-badge mc">MC</span>
                         <span class="pay-badge">AMEX</span>
@@ -12776,7 +12776,6 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 </div>
             </div>`;
 
-            // 10 cards per sheet
             const cards = Array(10).fill(card).join('');
 
             const html = `<!DOCTYPE html>
@@ -12787,168 +12786,188 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body {
-        background: #eee;
-        font-family: 'Arial', sans-serif;
-        padding: 10px;
+    /* ── Page: letter, no browser chrome margin ── */
+    @page {
+        size: 8.5in 11in portrait;
+        margin: 0.22in;
     }
 
+    html, body {
+        width: 8.5in;
+        height: 11in;
+        background: #fff;
+        font-family: Arial, sans-serif;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    /* ── Grid: 2 cols × 5 rows, fills the whole page ── */
     .grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        max-width: 760px;
-        margin: 0 auto;
+        grid-template-rows: repeat(5, 1fr);
+        gap: 0.1in;
+        width: 100%;
+        height: 100%;
     }
 
+    /* ── Card ── */
     .card {
-        background: linear-gradient(160deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        border-radius: 10px;
+        background: linear-gradient(155deg, #111827 0%, #1e3a5f 55%, #0f2942 100%);
+        border-radius: 8px;
         overflow: hidden;
         color: #fff;
         display: flex;
         flex-direction: column;
-        min-height: 140px;
         position: relative;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.5);
     }
-
-    /* Subtle metallic sheen overlay */
     .card::before {
         content: '';
         position: absolute;
         inset: 0;
-        background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, transparent 50%);
+        background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 60%);
         pointer-events: none;
+        border-radius: 8px;
     }
 
-    /* Top section: logo + qr */
-    .card-top {
+    /* ── Card inner: left + right ── */
+    .card-inner {
         display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        padding: 10px 12px 4px;
+        flex: 1;
+        padding: 0.1in 0.12in 0.06in;
+        gap: 0.08in;
+        align-items: center;
+    }
+
+    /* ── Left: text block ── */
+    .card-left {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
     }
 
     .brand-row {
         display: flex;
         align-items: center;
         gap: 6px;
+        margin-bottom: 2px;
     }
     .logo {
-        width: 32px; height: 32px;
+        width: 30px; height: 30px;
         border-radius: 6px;
         object-fit: contain;
+        flex-shrink: 0;
     }
     .brand-name {
-        font-size: 17px;
-        font-weight: 700;
-        color: #c8c8e0;
+        font-size: 20px;
+        font-weight: 900;
+        color: #c8d8f0;
         letter-spacing: 0.5px;
+        line-height: 1;
     }
 
-    .qr-block {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 2px;
-    }
-    .qr {
-        width: 68px; height: 68px;
-        border: 3px solid #fff;
-        border-radius: 4px;
-        display: block;
-    }
-    .scan-text {
-        font-size: 7px;
-        text-align: center;
-        color: #a0a0c0;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        line-height: 1.3;
-    }
-
-    /* Mid section: promo details */
-    .card-mid {
-        padding: 0 12px 6px;
-        flex: 1;
-    }
     .promo-label {
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 800;
-        color: #8888cc;
-        letter-spacing: 1.5px;
+        color: #8899cc;
+        letter-spacing: 2px;
         text-transform: uppercase;
-        margin-bottom: 3px;
     }
+
     .discount-banner {
         display: inline-block;
-        background: linear-gradient(90deg, #888 0%, #ccc 40%, #888 100%);
+        background: linear-gradient(90deg, #777 0%, #ddd 45%, #999 100%);
         color: #111;
-        font-size: 16px;
+        font-size: 22px;
         font-weight: 900;
-        padding: 3px 12px;
-        border-radius: 3px;
+        padding: 3px 14px;
+        border-radius: 4px;
         letter-spacing: 1px;
-        margin-bottom: 5px;
-        text-shadow: none;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.3);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.4);
+        white-space: nowrap;
     }
+
     .code-line {
-        font-size: 10px;
-        font-weight: 800;
-        color: #e0e0f0;
-        letter-spacing: 0.5px;
-        margin-bottom: 3px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #dde8ff;
+        letter-spacing: 0.3px;
     }
     .code {
+        font-family: 'Courier New', monospace;
+        font-size: 15px;
+        font-weight: 900;
         color: #fff;
-        font-family: monospace;
-        font-size: 11px;
+        background: rgba(255,255,255,0.12);
+        padding: 1px 6px;
+        border-radius: 3px;
+        letter-spacing: 1px;
     }
     .terms {
-        font-size: 7.5px;
-        color: #8888aa;
+        font-size: 8px;
+        color: #7788aa;
         line-height: 1.4;
     }
 
-    /* Bottom bar */
-    .card-bottom {
-        background: rgba(0,0,0,0.35);
-        padding: 5px 12px;
+    /* ── Right: QR block ── */
+    .card-right {
         display: flex;
+        flex-direction: column;
         align-items: center;
-        gap: 10px;
-        border-top: 1px solid rgba(255,255,255,0.08);
-    }
-    .payment-icons {
-        display: flex;
+        justify-content: center;
         gap: 4px;
         flex-shrink: 0;
     }
+    .qr {
+        width: 82px; height: 82px;
+        border: 3px solid #fff;
+        border-radius: 4px;
+        display: block;
+        background: #fff;
+    }
+    .scan-text {
+        font-size: 8px;
+        font-weight: 700;
+        text-align: center;
+        color: #99aacc;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        line-height: 1.3;
+    }
+
+    /* ── Footer bar ── */
+    .card-footer-bar {
+        background: rgba(0,0,0,0.4);
+        padding: 4px 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    .pay-icons { display: flex; gap: 4px; flex-shrink: 0; }
     .pay-badge {
-        font-size: 6px;
+        font-size: 7px;
         font-weight: 900;
         color: #fff;
         background: rgba(255,255,255,0.15);
-        border: 1px solid rgba(255,255,255,0.25);
+        border: 1px solid rgba(255,255,255,0.3);
         border-radius: 3px;
-        padding: 1px 4px;
+        padding: 1px 5px;
         letter-spacing: 0.3px;
     }
-    .pay-badge.mc { background: linear-gradient(135deg, #eb001b, #f79e1b); border: none; }
-    .tagline {
-        font-size: 7px;
-        font-weight: 800;
-        color: #a0a0c0;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
+    .pay-badge.mc {
+        background: linear-gradient(135deg, #eb001b, #f79e1b);
+        border: none;
     }
-
-    @media print {
-        body { background: #fff; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .grid { max-width: 100%; gap: 8px; padding: 8px; }
-        @page { margin: 0.3in; size: letter; }
+    .tagline {
+        font-size: 8px;
+        font-weight: 800;
+        color: #99aacc;
+        text-transform: uppercase;
+        letter-spacing: 1px;
     }
 </style>
 </head>
