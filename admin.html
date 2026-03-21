@@ -3348,20 +3348,23 @@
                 case 'UNBAN_USER':        return details.uid?.slice?.(0,12) || '—';
                 case 'ADMIN_AUTO_LOGOUT': return details.reason || 'Idle timeout';
                 case 'ADMIN_CONFIG_UPDATED': {
-                    // Show what actually changed as a readable summary
+                    // Compute changed fields for summary line
                     const before = details.before || {};
                     const after  = details.after  || {};
                     const changed = [];
-                    if (before.maintenanceMode   !== after.maintenanceMode)   changed.push(`Maintenance ${after.maintenanceMode ? 'ON' : 'OFF'}`);
-                    if (before.chatWidgetEnabled !== after.chatWidgetEnabled)  changed.push(`Chat ${after.chatWidgetEnabled ? 'enabled' : 'disabled'}`);
-                    if (before.seasonalEnabled   !== after.seasonalEnabled)    changed.push(`Banner ${after.seasonalEnabled ? 'enabled' : 'disabled'}`);
-                    if (before.seasonalTheme     !== after.seasonalTheme)      changed.push(`Theme → ${after.seasonalTheme}`);
-                    if (before.chatActiveDays    !== after.chatActiveDays)     changed.push('Chat schedule days');
-                    if (before.chatEnableTime    !== after.chatEnableTime ||
-                        before.chatDisableTime   !== after.chatDisableTime)    changed.push('Chat hours');
-                    if (before.headerEN          !== after.headerEN)           changed.push(`Name → ${after.headerEN}`);
-                    if (before.logoUrl           !== after.logoUrl)            changed.push('Logo URL');
-                    return changed.length > 0 ? changed.join(', ') : 'Site configuration updated';
+                    // Normalise values to string for safe comparison
+                    const norm = (v) => (v == null ? '' : String(v));
+                    if (norm(before.maintenanceMode)   !== norm(after.maintenanceMode))   changed.push(`Maintenance ${after.maintenanceMode ? 'ON' : 'OFF'}`);
+                    if (norm(before.chatWidgetEnabled) !== norm(after.chatWidgetEnabled))  changed.push(`Chat ${after.chatWidgetEnabled ? 'enabled' : 'disabled'}`);
+                    if (norm(before.seasonalEnabled)   !== norm(after.seasonalEnabled))    changed.push(`Banner ${after.seasonalEnabled ? 'enabled' : 'disabled'}`);
+                    if (norm(before.seasonalTheme)     !== norm(after.seasonalTheme))      changed.push(`Theme → ${after.seasonalTheme}`);
+                    if (norm(before.chatActiveDays)    !== norm(after.chatActiveDays))     changed.push('Chat days');
+                    if (norm(before.chatEnableTime)    !== norm(after.chatEnableTime) ||
+                        norm(before.chatDisableTime)   !== norm(after.chatDisableTime))    changed.push('Chat hours');
+                    if (norm(before.headerEN)          !== norm(after.headerEN))           changed.push(`Name → ${after.headerEN}`);
+                    if (norm(before.logoUrl)           !== norm(after.logoUrl))            changed.push('Logo URL');
+                    // Always return something meaningful — diff button will show the full table
+                    return changed.length > 0 ? changed.join(', ') : 'Settings saved (no tracked fields changed)';
                 }
                 case 'CATALOG_EMAIL_SENT': return `→ ${details.toEmail || '—'}${details.couponCode ? ' · ' + details.couponCode : ''}`;
                 case 'CONTACT_CREATED':
@@ -3381,9 +3384,9 @@
                 chatEnableTime:    'Chat Opens',
                 chatDisableTime:   'Chat Closes',
                 chatActiveDays:    'Chat Days',
-                headerEN:          'Store Name (EN)',
+                headerEN:          'Store Name',
                 logoUrl:           'Logo URL',
-                seasonalEnabled:   'Banner Enabled',
+                seasonalEnabled:   'Seasonal Banner',
                 seasonalTheme:     'Banner Theme',
                 name:              'Name',
                 price:             'Price',
@@ -3400,48 +3403,82 @@
 
             const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
-            // Format a value for display
+            // Normalise a raw stored value to a comparable string
+            const norm = (v) => (v == null ? '' : String(v));
+
+            // Format a value for human display
             const fmt = (key, v) => {
-                if (v == null || v === '') return '—';
+                if (v == null || v === '' || v === undefined) return '—';
                 if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+                // "true"/"false" strings from Firestore
+                if (v === 'true')  return 'Yes';
+                if (v === 'false') return 'No';
                 if (key === 'chatActiveDays' && typeof v === 'string') {
                     return v.split(',').filter(Boolean).map(n => DAY_NAMES[parseInt(n)] || n).join(', ') || '—';
                 }
-                if (key.toLowerCase().includes('cents') || key.toLowerCase().includes('price')) {
+                if (key.toLowerCase().includes('cents') || key.toLowerCase() === 'price') {
                     return formatPriceDisplay(Number(v));
                 }
                 return String(v);
             };
 
-            // Only show diff if we have explicit before/after
+            // For ORDER_STATUS_UPDATED / INVENTORY_UPDATED — flat before/after fields
             if (!before && !after) {
                 if (actionType === 'ORDER_STATUS_UPDATED' && details.oldStatus && details.newStatus) {
-                    return buildDiffTable([
-                        { field: 'Status', before: details.oldStatus, after: details.newStatus }
-                    ]);
+                    return buildDiffTable([{ field: 'Status', before: details.oldStatus, after: details.newStatus }]);
                 }
                 if ((actionType === 'INVENTORY_UPDATED' || actionType === 'STOCK_ADJUSTED') &&
                     details.oldStock != null && details.newStock != null) {
-                    return buildDiffTable([
-                        { field: 'Stock', before: String(details.oldStock), after: String(details.newStock) }
-                    ]);
+                    return buildDiffTable([{ field: 'Stock', before: String(details.oldStock), after: String(details.newStock) }]);
                 }
                 return null;
             }
 
             if (!before || !after) return null;
 
+            // For ADMIN_CONFIG_UPDATED always show a full snapshot table, even if values appear unchanged
+            // (booleans can compare equal as strings when they're actually different types)
+            if (actionType === 'ADMIN_CONFIG_UPDATED') {
+                const configFields = [
+                    'maintenanceMode','chatWidgetEnabled','chatEnableTime','chatDisableTime',
+                    'chatActiveDays','headerEN','logoUrl','seasonalEnabled','seasonalTheme'
+                ];
+                const changes = configFields
+                    .filter(k => norm(before[k]) !== norm(after[k]))
+                    .map(k => ({
+                        field:  FIELD_LABELS[k] || k,
+                        before: fmt(k, before[k]),
+                        after:  fmt(k, after[k]),
+                    }));
+
+                if (changes.length === 0) {
+                    // Nothing tracked changed — show full snapshot so the admin can see current state
+                    const allRows = configFields.map(k => ({
+                        field:  FIELD_LABELS[k] || k,
+                        before: fmt(k, before[k]),
+                        after:  fmt(k, after[k]),
+                    }));
+                    return `
+                    <div class="bg-gray-50 rounded-lg border border-gray-200 px-3 py-2 mt-1">
+                        <p class="text-xs text-gray-400 mb-1 italic">No tracked fields changed. Snapshot at time of save:</p>
+                        <table class="text-xs w-full"><tbody>
+                        ${allRows.map(r => `<tr class="border-b border-gray-100 last:border-0">
+                            <td class="py-1 pr-3 text-xs font-semibold text-gray-500 whitespace-nowrap">${escapeHtml(r.field)}</td>
+                            <td class="py-1 text-xs text-gray-600 px-1.5">${escapeHtml(r.after)}</td>
+                        </tr>`).join('')}
+                        </tbody></table>
+                    </div>`;
+                }
+                return buildDiffTable(changes);
+            }
+
+            // Generic before/after diff for all other actions
             const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
             const changes = [];
-
             for (const key of allKeys) {
-                const bVal = before[key];
-                const aVal = after[key];
-                const bStr = bVal == null ? '' : String(bVal);
-                const aStr = aVal == null ? '' : String(aVal);
-                if (bStr !== aStr) {
+                if (norm(before[key]) !== norm(after[key])) {
                     const label = FIELD_LABELS[key] || key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-                    changes.push({ field: label, before: fmt(key, bVal), after: fmt(key, aVal) });
+                    changes.push({ field: label, before: fmt(key, before[key]), after: fmt(key, after[key]) });
                 }
             }
 
