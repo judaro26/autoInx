@@ -34,92 +34,6 @@ function createTransport() {
     });
 }
 
-// ── Handler ────────────────────────────────────────────────────────────────────
-exports.handler = async function(event) {
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
-    }
-
-    try {
-        await verifyIdToken(event.headers['authorization']);
-
-        const {
-            toEmail, toName = 'there', message = '', couponCode, couponLabel,
-            localNote = true, storeName = 'AutoInx',
-            logoUrl, siteUrl = 'https://autoinx.com',
-            categories = [], adminEmail,
-            pdfBase64 = null,   // PDF generated client-side, sent as base64
-        } = JSON.parse(event.body);
-
-        if (!toEmail)            throw new Error('toEmail is required');
-        if (categories.length === 0) throw new Error('No products to include');
-
-        console.log(`📧 Sending catalog to ${toEmail} (${categories.length} categories, pdf=${!!pdfBase64})`);
-
-        const emailHtml = buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, storeName, logoUrl, siteUrl, categories });
-
-        const transporter = createTransport();
-        const fromName    = storeName;
-
-        const attachments = pdfBase64 ? [{
-            filename:    `${storeName.replace(/\s+/g, '-')}-Catalog.pdf`,
-            content:     Buffer.from(pdfBase64, 'base64'),
-            contentType: 'application/pdf',
-        }] : [];
-
-        const mailOptions = {
-            from:    `"${fromName}" <noreply@autoinx.com>`,
-            to:      toEmail,
-            subject: `Your ${storeName} Catalog${couponCode ? ` — Special Coupon Inside 🎁` : ''}`,
-            html:    emailHtml,
-            attachments,
-        };
-
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`✅ Catalog sent: ${info.messageId}`);
-
-        // Internal copy to orders inbox
-        await transporter.sendMail({
-            ...mailOptions,
-            to:          'orders@autoinx.com',
-            subject:     `[CATALOG SENT] → ${toEmail}${couponCode ? ` · Coupon: ${couponCode}` : ''}`,
-            attachments: [], // skip PDF on internal copy to save inbox space
-        });
-
-        // Log to Firestore
-        try {
-            await db.collection('email_notifications').add({
-                type:           'catalog_sent',
-                recipientEmail: toEmail,
-                recipientName:  toName,
-                couponCode:     couponCode || null,
-                attachedPdf:    !!pdfBase64,
-                localNote,
-                sentBy:         adminEmail || 'admin',
-                messageId:      info.messageId,
-                sentAt:         admin.firestore.FieldValue.serverTimestamp(),
-                status:         'sent',
-            });
-        } catch (logErr) {
-            console.warn('⚠️ Firestore log failed:', logErr.message);
-        }
-
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ success: true, messageId: info.messageId, pdfAttached: !!pdfBase64 }),
-        };
-
-    } catch (err) {
-        console.error('❌ sendCatalogEmail error:', err);
-        return {
-            statusCode: 500,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ success: false, error: err.message }),
-        };
-    }
-};
-
 // ── Email HTML builder ─────────────────────────────────────────────────────────
 function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, storeName, logoUrl, siteUrl, categories }) {
     const greeting = toName && toName !== 'there' ? `Hi ${toName},` : 'Hi there,';
@@ -272,116 +186,6 @@ function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, s
 </html>`;
 }
 
-// ── PDF catalog HTML (print-optimized) ────────────────────────────────────────
-function buildPdfHtml({ storeName, logoUrl, siteUrl, categories }) {
-    const date = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
-
-    const categoryBlocks = categories.map(cat => {
-        const cards = cat.items.map(item => `
-            <div class="card">
-                ${item.imageUrl ? `<div class="card-img"><img src="${item.imageUrl}" alt="${item.name}" onerror="this.style.display='none'"></div>` : '<div class="card-img no-img">No Image</div>'}
-                <div class="card-body">
-                    <p class="card-name">${item.name}</p>
-                    ${item.sku ? `<p class="sku">SKU: ${item.sku}</p>` : ''}
-                    ${item.description ? `<p class="desc">${item.description}</p>` : ''}
-                    <div class="card-footer">
-                        <span class="price">$${item.price}</span>
-                        <span class="stock">${item.stock} in stock</span>
-                    </div>
-                </div>
-            </div>`).join('');
-
-        return `
-            <div class="category-section">
-                <div class="category-header"><span>${cat.name.toUpperCase()}</span></div>
-                <div class="grid">${cards}</div>
-            </div>`;
-    }).join('');
-
-    return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>${storeName} — Product Catalog</title>
-<style>
-  @page { size: Letter; margin: 0.3in; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; background: #fff; color: #1f2937; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-
-  /* Cover */
-  .cover { height: 100vh; background: linear-gradient(135deg,#4f46e5,#7c3aed); display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; page-break-after: always; }
-  .cover img { width: 80px; height: 80px; object-fit: contain; border-radius: 16px; margin-bottom: 20px; }
-  .cover h1 { font-size: 56px; font-weight: 900; letter-spacing: -1px; }
-  .cover .sub { font-size: 18px; opacity: 0.8; letter-spacing: 4px; text-transform: uppercase; margin-top: 8px; }
-  .cover .date { font-size: 14px; opacity: 0.6; margin-top: 16px; }
-  .cover-contact { display: flex; gap: 24px; margin-top: 28px; flex-wrap: wrap; justify-content: center; }
-  .cover-contact a { color: rgba(255,255,255,0.85); font-size: 13px; text-decoration: none; }
-
-  /* Page header */
-  .page-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 2px solid #e5e7eb; margin-bottom: 20px; }
-  .page-header .brand { display: flex; align-items: center; gap: 8px; }
-  .page-header img { width: 28px; height: 28px; object-fit: contain; border-radius: 6px; }
-  .page-header .name { font-size: 18px; font-weight: 900; color: #6366f1; }
-  .page-header .meta { font-size: 13px; color: #9ca3af; }
-
-  /* Categories */
-  .category-section { margin-bottom: 28px; }
-  .category-header { text-align: center; margin-bottom: 14px; }
-  .category-header span { font-size: 13px; font-weight: 800; color: #6366f1; letter-spacing: 3px; background: #f0f0ff; padding: 4px 18px; border-radius: 20px; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .card { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; break-inside: avoid; }
-  .card-img { height: 110px; background: #f9fafb; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-  .card-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
-  .no-img { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; }
-  .card-body { padding: 10px 12px; }
-  .card-name { font-size: 13px; font-weight: 700; color: #1e1b4b; margin-bottom: 3px; line-height: 1.3; }
-  .sku { font-size: 10px; color: #9ca3af; font-family: monospace; margin-bottom: 4px; }
-  .desc { font-size: 11px; color: #4b5563; line-height: 1.5; margin-bottom: 8px; }
-  .card-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #f3f4f6; padding-top: 8px; margin-top: auto; }
-  .price { font-size: 16px; font-weight: 900; color: #6366f1; }
-  .stock { font-size: 10px; color: #9ca3af; }
-
-  /* Footer */
-  .page-footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 10px; color: #9ca3af; }
-</style>
-</head>
-<body>
-
-<!-- Cover -->
-<div class="cover">
-    ${logoUrl ? `<img src="${logoUrl}" alt="${storeName}" onerror="this.style.display='none'">` : ''}
-    <h1>${storeName}</h1>
-    <p class="sub">Product Catalog</p>
-    <p class="date">${date}</p>
-    <div class="cover-contact">
-        <a href="${siteUrl}">${siteUrl}</a>
-        <a href="mailto:support@autoinx.com">support@autoinx.com</a>
-        <a href="tel:+13412227912">341-222-7912</a>
-    </div>
-</div>
-
-<!-- Content -->
-<div class="content">
-    <div class="page-header">
-        <div class="brand">
-            ${logoUrl ? `<img src="${logoUrl}" alt="${storeName}" onerror="this.style.display='none'">` : ''}
-            <span class="name">${storeName}</span>
-        </div>
-        <span class="meta">Product Catalog · ${date}</span>
-    </div>
-
-    ${categoryBlocks}
-
-    <div class="page-footer">
-        <span>${siteUrl} · support@autoinx.com · 341-222-7912</span>
-        <span>${storeName} · ${date}</span>
-    </div>
-</div>
-
-</body>
-</html>`;
-}
-
 // ── Handler ────────────────────────────────────────────────────────────────────
 exports.handler = async function(event) {
     if (event.httpMethod !== 'POST') {
@@ -389,54 +193,48 @@ exports.handler = async function(event) {
     }
 
     try {
-        // Verify admin token
         await verifyIdToken(event.headers['authorization']);
 
         const {
             toEmail, toName = 'there', message = '', couponCode, couponLabel,
-            attachPdf = true, localNote = true, storeName = 'AutoInx',
-            logoUrl, siteUrl = 'https://autoinx.com', categories = [], adminEmail
+            localNote = true, storeName = 'AutoInx',
+            logoUrl, siteUrl = 'https://autoinx.com',
+            categories = [], adminEmail,
+            pdfBase64 = null,   // PDF generated client-side, sent as base64
         } = JSON.parse(event.body);
 
-        if (!toEmail) throw new Error('toEmail is required');
-        if (categories.length === 0) throw new Error('No products to include in catalog');
+        if (!toEmail)                throw new Error('toEmail is required');
+        if (categories.length === 0) throw new Error('No products to include');
 
-        console.log(`📧 Sending catalog to ${toEmail} (${categories.length} categories, attachPdf=${attachPdf})`);
+        console.log(`📧 Sending catalog to ${toEmail} (${categories.length} categories, pdf=${!!pdfBase64})`);
 
-        // Build email HTML
         const emailHtml = buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, storeName, logoUrl, siteUrl, categories });
 
-        // Build PDF if requested
-        let pdfBuffer = null;
-        if (attachPdf) {
-            const pdfHtml = buildPdfHtml({ storeName, logoUrl, siteUrl, categories });
-            pdfBuffer     = await generateCatalogPdf(pdfHtml);
-        }
-
-        // Send email
         const transporter = createTransport();
-        const fromName    = storeName;
+
+        const attachments = pdfBase64 ? [{
+            filename:    `${storeName.replace(/\s+/g, '-')}-Catalog.pdf`,
+            content:     Buffer.from(pdfBase64, 'base64'),
+            contentType: 'application/pdf',
+        }] : [];
 
         const mailOptions = {
-            from:    `"${fromName}" <noreply@autoinx.com>`,
+            from:    `"${storeName}" <noreply@autoinx.com>`,
             to:      toEmail,
             subject: `Your ${storeName} Catalog${couponCode ? ` — Special Coupon Inside 🎁` : ''}`,
             html:    emailHtml,
-            attachments: pdfBuffer ? [{
-                filename:    `${storeName.replace(/\s+/g,'-')}-Catalog.pdf`,
-                content:     pdfBuffer,
-                contentType: 'application/pdf',
-            }] : [],
+            attachments,
         };
 
         const info = await transporter.sendMail(mailOptions);
         console.log(`✅ Catalog sent: ${info.messageId}`);
 
-        // Internal copy to orders inbox
+        // Internal copy — no PDF attachment to keep inbox lean
         await transporter.sendMail({
             ...mailOptions,
-            to:      'orders@autoinx.com',
-            subject: `[CATALOG SENT] → ${toEmail}${couponCode ? ` · Coupon: ${couponCode}` : ''}`,
+            to:          'orders@autoinx.com',
+            subject:     `[CATALOG SENT] → ${toEmail}${couponCode ? ` · Coupon: ${couponCode}` : ''}`,
+            attachments: [],
         });
 
         // Log to Firestore
@@ -446,7 +244,7 @@ exports.handler = async function(event) {
                 recipientEmail: toEmail,
                 recipientName:  toName,
                 couponCode:     couponCode || null,
-                attachedPdf:    !!pdfBuffer,
+                attachedPdf:    !!pdfBase64,
                 localNote,
                 sentBy:         adminEmail || 'admin',
                 messageId:      info.messageId,
@@ -454,13 +252,13 @@ exports.handler = async function(event) {
                 status:         'sent',
             });
         } catch (logErr) {
-            console.warn('⚠️  Failed to log to Firestore:', logErr.message);
+            console.warn('⚠️ Firestore log failed:', logErr.message);
         }
 
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ success: true, messageId: info.messageId, pdfAttached: !!pdfBuffer }),
+            body: JSON.stringify({ success: true, messageId: info.messageId, pdfAttached: !!pdfBase64 }),
         };
 
     } catch (err) {
