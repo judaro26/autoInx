@@ -621,6 +621,9 @@
             orderListSearchTerm: '',
             orderStatusFilter: 'All',
             deliveryStatusFilter: 'All',
+            orderPaymentFilter: 'All',
+            expandedOrders: new Set(),
+            ordersFullscreen: false,
             orderPage: 'list',
             editingOrderId: null,  // ✅ NEW: Track which order is being edited
             profitAnalysis: {
@@ -852,51 +855,64 @@
 
         function renderOrderTracker() {
             return `
-                <section class="space-y-8">
+                <section class="space-y-4" id="ordersListSection">
+                    <!-- Header -->
                     <div class="flex justify-between items-center">
                         <h2 class="text-2xl font-bold text-indigo-700">${t('orderTracking')}</h2>
-                        <button onclick="window.module.switchOrderPage('create')" 
-                                class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 shadow-md transition">
-                            + ${t('createOrder')}
-                        </button>
+                        <div class="flex gap-2">
+                            <button onclick="window.module.toggleOrdersFullscreen()"
+                                    id="ordersFullscreenBtn"
+                                    class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition"
+                                    title="Full screen">
+                                ⛶ Full Screen
+                            </button>
+                            <button onclick="window.module.switchOrderPage('create')" 
+                                    class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 shadow-md transition">
+                                + ${t('createOrder')}
+                            </button>
+                        </div>
                     </div>
-                    
+
                     <div id="ordersMessage"></div>
-                    
-                    <!-- Stats Summary -->
-                    <div id="ordersStatsContainer">
-                        ${getOrdersStatsHtml()}
-                    </div>
-                    
-                    <!-- Filters and Search -->
-                    <div class="bg-white p-4 rounded-xl shadow-lg">
-                        <div class="flex flex-wrap gap-4 items-center">
-                            <input type="text" 
-                                   oninput="window.module.handleOrderListSearchInput(event)" 
-                                   placeholder="Search orders by ID, customer, email..." 
-                                   class="flex-1 min-w-[200px] p-2 border rounded-lg">
-                            
-                            <select onchange="window.module.handleStatusFilterChange(event)" 
-                                    class="p-2 border rounded-lg">
-                                <option value="All">All Statuses</option>
-                                <option value="Pending">Pending</option>
-                                <option value="Processing">Processing</option>
-                                <option value="Delivered">Delivered</option>
-                                <option value="Cancelled">Cancelled</option>
+
+                    <!-- Stats -->
+                    <div id="ordersStatsContainer">${getOrdersStatsHtml()}</div>
+
+                    <!-- Filters -->
+                    <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                        <div class="flex flex-wrap gap-3 items-center">
+                            <input type="text"
+                                   oninput="window.module.handleOrderListSearchInput(event)"
+                                   placeholder="Search by order #, customer, email…"
+                                   value="${escapeHtml(state.orderListSearchTerm || '')}"
+                                   class="flex-1 min-w-[200px] p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            <select onchange="window.module.handleStatusFilterChange(event)"
+                                    class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                <option value="All" ${state.orderStatusFilter==='All'?'selected':''}>All Statuses</option>
+                                <option value="Pending" ${state.orderStatusFilter==='Pending'?'selected':''}>Pending</option>
+                                <option value="Processing" ${state.orderStatusFilter==='Processing'?'selected':''}>Processing</option>
+                                <option value="Delivered" ${state.orderStatusFilter==='Delivered'?'selected':''}>Delivered</option>
+                                <option value="Cancelled" ${state.orderStatusFilter==='Cancelled'?'selected':''}>Cancelled</option>
                             </select>
-                            
-                            <select onchange="window.module.handleDeliveryFilterChange(event)" 
-                                    class="p-2 border rounded-lg">
+                            <select onchange="window.module.handleDeliveryFilterChange(event)"
+                                    class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
                                 <option value="All">All Deliveries</option>
                                 <option value="Pending">Pending Delivery</option>
                                 <option value="Delivered">Delivered</option>
                             </select>
+                            <select onchange="window.module.handlePaymentFilterChange(event)"
+                                    class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                <option value="All">All Payments</option>
+                                <option value="Paid">Paid</option>
+                                <option value="Unpaid">Unpaid</option>
+                                <option value="Refunded">Refunded</option>
+                            </select>
                         </div>
                     </div>
-                    
-                    <!-- Orders List -->
-                    <div id="ordersListContent" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <!-- Orders will be rendered here by renderOrdersList() -->
+
+                    <!-- Orders Table -->
+                    <div id="ordersListContent" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <!-- Rendered by renderOrdersList() -->
                     </div>
                 </section>
             `;
@@ -2407,6 +2423,37 @@
             state.deliveryStatusFilter = e.target.value;
             renderOrdersList();
             resetTimer();
+        }
+
+        function handlePaymentFilterChange(e) {
+            state.orderPaymentFilter = e.target.value;
+            renderOrdersList();
+            resetTimer();
+        }
+
+        function toggleOrderRow(orderId) {
+            if (state.expandedOrders.has(orderId)) {
+                state.expandedOrders.delete(orderId);
+            } else {
+                state.expandedOrders.add(orderId);
+            }
+            renderOrdersList();
+        }
+
+        function toggleOrdersFullscreen() {
+            state.ordersFullscreen = !state.ordersFullscreen;
+            const section = document.getElementById('ordersListSection');
+            const btn     = document.getElementById('ordersFullscreenBtn');
+            if (!section) return;
+            if (state.ordersFullscreen) {
+                section.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f1f5f9;overflow-y:auto;padding:24px;';
+                document.body.style.overflow = 'hidden';
+                if (btn) btn.innerHTML = '✕ Exit Full Screen';
+            } else {
+                section.style.cssText = '';
+                document.body.style.overflow = '';
+                if (btn) btn.innerHTML = '⛶ Full Screen';
+            }
         }
 
         // Function to add a NEW item to the draft cart
@@ -7265,158 +7312,230 @@ ${printScript}
             const container = document.getElementById('ordersListContent');
             if (!container) return;
 
-            const filteredOrders = state.orders.filter(order => {
-                const matchesStatus = state.orderStatusFilter === 'All' || order.status === state.orderStatusFilter;
+            const STATUS_COLORS = {
+                'Pending':    'bg-yellow-100 text-yellow-800',
+                'Processing': 'bg-blue-100 text-blue-800',
+                'Shipped':    'bg-indigo-100 text-indigo-800',
+                'Delivered':  'bg-green-100 text-green-800',
+                'Cancelled':  'bg-red-100 text-red-800',
+            };
+
+            const filtered = state.orders.filter(order => {
+                const matchesStatus   = state.orderStatusFilter   === 'All' || order.status === state.orderStatusFilter;
                 const matchesDelivery = state.deliveryStatusFilter === 'All' ||
                     (state.deliveryStatusFilter === 'Delivered' && order.status === 'Delivered') ||
                     (state.deliveryStatusFilter === 'Pending' && order.status !== 'Delivered' && order.status !== 'Cancelled');
 
-                const matchesSearch = !state.orderListSearchTerm ||
-                    order.id.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
-                    order.buyerName?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase()) ||
-                    order.buyerEmail?.toLowerCase().includes(state.orderListSearchTerm.toLowerCase());
+                const isPaid = order.paymentStatus === 'Paid' || order.isPaid;
+                const isRefunded = order.paymentStatus === 'Refunded' || order.paymentStatus === 'Partially Refunded';
+                const matchesPayment = state.orderPaymentFilter === 'All' ||
+                    (state.orderPaymentFilter === 'Paid'     && isPaid && !isRefunded) ||
+                    (state.orderPaymentFilter === 'Unpaid'   && !isPaid && !isRefunded) ||
+                    (state.orderPaymentFilter === 'Refunded' && isRefunded);
 
-                return matchesStatus && matchesDelivery && matchesSearch;
+                const term = (state.orderListSearchTerm || '').toLowerCase();
+                const matchesSearch = !term ||
+                    (order.orderNumber || '').toLowerCase().includes(term) ||
+                    order.id.toLowerCase().includes(term) ||
+                    (order.buyerName  || '').toLowerCase().includes(term) ||
+                    (order.buyerEmail || '').toLowerCase().includes(term);
+
+                return matchesStatus && matchesDelivery && matchesPayment && matchesSearch;
             });
 
-            if (filteredOrders.length === 0) {
-                container.innerHTML = '<p class="text-center text-gray-500 p-8">No orders found matching your filters.</p>';
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                <div class="text-center py-16 text-gray-400">
+                    <div class="text-4xl mb-3">📭</div>
+                    <p class="font-semibold">No orders match your filters.</p>
+                </div>`;
                 return;
             }
 
-            const ordersHtml = filteredOrders.map(order => {
-                const itemsList = order.items.map(item => {
-                    const itemData = getSafeItemData(item);
-                    return `${itemData.quantity}x ${escapeHtml(itemData.name)}`;
-                }).join(', ');
+            const rows = filtered.map(order => {
+                const isPaid     = order.paymentStatus === 'Paid' || order.isPaid;
+                const isRefunded = order.paymentStatus === 'Refunded';
+                const isPartial  = order.paymentStatus === 'Partially Refunded';
+                const isExpanded = state.expandedOrders.has(order.id);
 
-                const statusColor = {
-                    'Pending': 'bg-yellow-100 text-yellow-800',
-                    'Processing': 'bg-blue-100 text-blue-800',
-                    'Delivered': 'bg-green-100 text-green-800',
-                    'Cancelled': 'bg-red-100 text-red-800'
-                }[order.status] || 'bg-gray-100 text-gray-800';
+                const statusBadge   = `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${STATUS_COLORS[order.status] || 'bg-gray-100 text-gray-700'}">${order.status}</span>`;
+                const payBadge      = isPaid && !isRefunded
+                    ? `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">✅ Paid</span>`
+                    : isRefunded
+                        ? `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">💰 Refunded</span>`
+                        : isPartial
+                            ? `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">💰 Partial</span>`
+                            : `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">⏳ Unpaid</span>`;
 
-                // Payment status badge
-                const paymentStatusColor = order.paymentStatus === 'Paid' || order.isPaid
-                    ? 'bg-green-100 text-green-800 border-green-300'
-                    : order.paymentStatus === 'Refunded'
-                        ? 'bg-red-100 text-red-800 border-red-300'
-                        : order.paymentStatus === 'Partially Refunded'
-                            ? 'bg-orange-100 text-orange-800 border-orange-300'
-                            : 'bg-orange-100 text-orange-800 border-orange-300';
+                const itemCount  = (order.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
+                const itemPreview = (order.items || []).slice(0, 2).map(i => {
+                    const d = getSafeItemData(i);
+                    return `${d.quantity}× ${escapeHtml(d.name)}`;
+                }).join(', ') + ((order.items || []).length > 2 ? ` +${order.items.length - 2} more` : '');
 
-                const paymentStatusText = order.paymentStatus === 'Paid' || order.isPaid
-                    ? '✅ Paid'
-                    : order.paymentStatus === 'Refunded'
-                        ? '💰 Refunded'
-                        : order.paymentStatus === 'Partially Refunded'
-                            ? '💰 Partial Refund'
-                            : '⏳ Unpaid';
+                // ── Expanded detail panel ──────────────────────────────────────────
+                const expandedPanel = isExpanded ? `
+                <tr id="exp-${order.id}" class="bg-gray-50 border-b border-gray-200">
+                    <td colspan="7" class="px-4 py-4">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                            <!-- Items -->
+                            <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">🛒 Items</p>
+                                <div class="space-y-2">
+                                    ${(order.items || []).map(i => {
+                                        const d = getSafeItemData(i);
+                                        return `
+                                        <div class="flex justify-between items-center text-sm">
+                                            <span class="text-gray-700 font-medium truncate max-w-[160px]" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</span>
+                                            <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+                                                <span class="text-gray-400 text-xs">${d.quantity}×</span>
+                                                <span class="font-bold text-indigo-700">${formatPriceDisplay(d.price * d.quantity)}</span>
+                                            </div>
+                                        </div>`;
+                                    }).join('')}
+                                    ${order.discount ? `
+                                    <div class="flex justify-between text-xs text-purple-700 border-t pt-2 mt-1">
+                                        <span>🏷️ ${escapeHtml(order.discount.code)}</span>
+                                        <span>-${formatPriceDisplay(order.discountCents || order.discount.savedCents || 0)}</span>
+                                    </div>` : ''}
+                                    <div class="flex justify-between text-xs text-gray-500 pt-1">
+                                        <span>Shipping</span>
+                                        <span>${formatPriceDisplay(order.shippingCents || order.shippingCostCents || 0)}</span>
+                                    </div>
+                                    <div class="flex justify-between text-xs text-gray-500">
+                                        <span>Tax</span>
+                                        <span>${formatPriceDisplay(order.taxCents || 0)}</span>
+                                    </div>
+                                    <div class="flex justify-between font-bold border-t pt-2 mt-1">
+                                        <span>Total</span>
+                                        <span class="text-indigo-700">${formatPriceDisplay(order.totalCents)}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Customer & Shipping -->
+                            <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">👤 Customer</p>
+                                <p class="text-sm font-semibold text-gray-800">${escapeHtml(order.buyerName || '—')}</p>
+                                <p class="text-xs text-gray-500 mb-3">${escapeHtml(order.buyerEmail || '—')}</p>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">📍 Address</p>
+                                <p class="text-xs text-gray-600 leading-relaxed">${escapeHtml(order.deliveryAddress || 'No address on file')}</p>
+                                ${order.paidAt ? `<p class="text-xs text-green-600 mt-2">✅ Paid ${new Date(order.paidAt).toLocaleString()}</p>` : ''}
+                                ${order.totalRefundedCents > 0 ? `<p class="text-xs text-red-600 mt-1">💰 Refunded ${formatPriceDisplay(order.totalRefundedCents)}</p>` : ''}
+                            </div>
+
+                            <!-- Actions -->
+                            <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">⚡ Actions</p>
+                                <div class="flex flex-col gap-2">
+                                    <button onclick="window.module.showOrderEditForm('${order.id}')"
+                                            class="w-full text-xs px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold transition">
+                                        ✏️ Edit Order
+                                    </button>
+                                    <button onclick="window.module.showShippingModal('${order.id}')"
+                                            class="w-full text-xs px-3 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 font-semibold transition">
+                                        📦 Shipping Label
+                                    </button>
+                                    <button onclick="window.module.downloadOrderReceiptPDF('${order.id}')"
+                                            class="w-full text-xs px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-semibold transition">
+                                        📄 Receipt PDF
+                                    </button>
+                                    ${!isPaid && !isRefunded ? `
+                                    <button onclick="window.module.sendPaymentLink('${order.id}')"
+                                            class="w-full text-xs px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-semibold transition">
+                                        📧 Send Payment Link
+                                    </button>` : ''}
+                                    <div class="flex gap-2 items-center mt-1">
+                                        <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value); this.value=''"
+                                                class="flex-1 text-xs p-1.5 border rounded-lg">
+                                            <option value="">→ Change Status</option>
+                                            <option value="Pending">Pending</option>
+                                            <option value="Processing">Processing</option>
+                                            <option value="Shipped">Shipped</option>
+                                            <option value="Delivered">Delivered</option>
+                                            <option value="Cancelled">Cancelled</option>
+                                        </select>
+                                        ${state.isAdmin ? `
+                                        <button onclick="window.module.handleDeleteOrder('${order.id}')"
+                                                class="text-xs px-2 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-600 hover:text-white transition font-semibold"
+                                                title="Delete order">🗑️</button>` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>` : '';
 
                 return `
-            <div class="bg-white p-4 rounded-lg shadow border border-gray-200">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <p class="font-bold text-sm">${order.orderNumber || order.id.substring(0, 8)}</p>
-                        <p class="text-xs text-gray-500">${formatTime(order.createdAt)}</p>
-                    </div>
-                    <div class="flex flex-col gap-1 items-end">
-                        <span class="px-2 py-1 rounded-full text-xs font-semibold ${statusColor}">${order.status}</span>
-                        <span class="px-2 py-1 rounded-full text-xs font-semibold border-2 ${paymentStatusColor}">${paymentStatusText}</span>
-                    </div>
-                </div>
-                <p class="text-sm mb-1"><strong>Customer:</strong> ${escapeHtml(order.buyerName)}</p>
-                <p class="text-xs text-gray-600 mb-2">${escapeHtml(order.buyerEmail)}</p>
-                <p class="text-xs mb-2"><strong>Items:</strong> ${itemsList}</p>
-                <p class="text-sm font-bold text-green-700">Total: ${formatPriceDisplay(order.totalCents)}</p>
-                ${order.discount ? `
-                    <p class="text-xs text-purple-700 mt-1">
-                        🏷️ Discount: <span class="font-mono font-bold">${escapeHtml(order.discount.code)}</span>
-                            — Saved ${formatPriceDisplay(order.discountCents || order.discount.savedCents || 0)}
-                    </p>
-                ` : ''}
-                ${renderRefundBadge(order)}
-                <p class="text-xs text-gray-500 mt-1 flex items-start gap-1">
-                    <span>📍</span>
-                    <span class="truncate">${escapeHtml(order.deliveryAddress || 'No address on file')}</span>
-                </p>
-                
-                ${/* Payment Link / Payment Completed Section */ ''}
-                ${(order.paymentStatus !== 'Paid' && !order.isPaid && order.paymentStatus !== 'Refunded') ? `
-                    <div class="mt-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200">
-                        <div class="flex gap-2 items-center">
-                            <button onclick="window.module.sendPaymentLink('${order.id}')" 
-                                    class="flex-1 text-xs px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold shadow-md">
-                                📧 Send Payment Link
-                            </button>
-                            ${order.stripePaymentUrl ? `
-                                <button onclick="navigator.clipboard.writeText('${order.stripePaymentUrl}'); alert('Link copied!');" 
-                                        class="text-xs px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-semibold"
-                                        title="Copy payment link">
-                                    📋
-                                </button>
-                            ` : ''}
+                <tr class="border-b border-gray-100 hover:bg-indigo-50/30 transition cursor-pointer"
+                    onclick="window.module.toggleOrderRow('${order.id}')">
+                    <td class="px-4 py-3 whitespace-nowrap">
+                        <div class="flex items-center gap-2">
+                            <span class="text-indigo-400 text-xs">${isExpanded ? '▾' : '▸'}</span>
+                            <div>
+                                <p class="text-sm font-bold text-gray-800">#${escapeHtml(order.orderNumber || order.id.substring(0,8))}</p>
+                                <p class="text-xs text-gray-400">${formatTime(order.createdAt)}</p>
+                            </div>
                         </div>
-                        ${order.stripePaymentUrl ? `
-                            <a href="${order.stripePaymentUrl}" target="_blank"
-                               class="text-xs text-blue-600 hover:text-blue-800 underline mt-2 inline-block">
-                                🔗 View payment link
-                            </a>
-                        ` : ''}
-                    </div>
-                ` : `
-                    <div class="mt-3 p-3 ${order.paymentStatus === 'Refunded' ? 'bg-red-50 border-2 border-red-200' : order.paymentStatus === 'Partially Refunded' ? 'bg-orange-50 border-2 border-orange-200' : 'bg-green-50 border-2 border-green-200'} rounded-lg">
-                        <p class="text-xs font-semibold ${order.paymentStatus === 'Refunded' ? 'text-red-800' : order.paymentStatus === 'Partially Refunded' ? 'text-orange-800' : 'text-green-800'} flex items-center gap-2">
-                            <span>${order.paymentStatus === 'Refunded' ? '💰' : order.paymentStatus === 'Partially Refunded' ? '💰' : '✅'}</span>
-                            ${order.paymentStatus === 'Refunded' ? 'Fully Refunded'
-                        : order.paymentStatus === 'Partially Refunded' ? `Partially Refunded (${formatPriceDisplay(order.totalRefundedCents || 0)})`
-                            : 'Payment Completed'}
-                        </p>
-                        ${order.paidAt ? `
-                            <p class="text-xs ${order.paymentStatus === 'Refunded' || order.paymentStatus === 'Partially Refunded' ? 'text-red-700' : 'text-green-700'} mt-1">
-                                ${new Date(order.paidAt).toLocaleString()}
-                            </p>
-                        ` : ''}
-                    </div>
-                `}
-                
-                <div class="mt-3 flex gap-2 flex-wrap">
-                    <button onclick="window.module.showOrderEditForm('${order.id}')" 
-                            class="text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">
-                        Edit Order
-                    </button>
-                    <button onclick="window.module.showShippingModal('${order.id}')" 
-                            class="text-xs px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600">
-                        Create Shipping Label
-                    </button>
-                    <button onclick="window.module.downloadOrderReceiptPDF('${order.id}')"
-                            class="text-xs px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 font-semibold">
-                        📄 Receipt PDF
-                    </button>
-                    <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value); this.value=''" 
-                            class="text-xs px-2 py-1 border rounded">
-                        <option value="">Change Status</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Processing">Processing</option>
-                        <option value="Delivered">Delivered</option>
-                        <option value="Cancelled">Cancelled</option>
-                    </select>
-                    ${state.isAdmin ? `
-                    <button onclick="window.module.handleDeleteOrder('${order.id}')"
-                            class="text-xs px-3 py-1 bg-red-100 text-red-700 border border-red-300 rounded hover:bg-red-600 hover:text-white transition font-semibold"
-                            title="Permanently delete this order (admin only)">
-                        🗑️ Delete
-                    </button>` : ''}
-                </div>
-            </div>
-        `;
+                    </td>
+                    <td class="px-4 py-3">
+                        <p class="text-sm font-semibold text-gray-800">${escapeHtml(order.buyerName || '—')}</p>
+                        <p class="text-xs text-gray-400 truncate max-w-[160px]">${escapeHtml(order.buyerEmail || '—')}</p>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-500 max-w-[180px]">
+                        <span class="truncate block" title="${escapeHtml(itemPreview)}">${escapeHtml(itemPreview)}</span>
+                        <span class="text-xs text-gray-400">${itemCount} item${itemCount !== 1 ? 's' : ''}</span>
+                    </td>
+                    <td class="px-4 py-3 text-sm font-bold text-indigo-700 whitespace-nowrap">${formatPriceDisplay(order.totalCents)}</td>
+                    <td class="px-4 py-3 whitespace-nowrap">${statusBadge}</td>
+                    <td class="px-4 py-3 whitespace-nowrap">${payBadge}</td>
+                    <td class="px-4 py-3 whitespace-nowrap" onclick="event.stopPropagation()">
+                        <div class="flex gap-1">
+                            <button onclick="window.module.showOrderEditForm('${order.id}')"
+                                    class="px-2 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded transition" title="Edit">✏️</button>
+                            <select onchange="window.module.handleOrderStatusUpdate('${order.id}', this.value); this.value=''"
+                                    class="text-xs p-1 border rounded" title="Change status">
+                                <option value="">→</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Processing">Processing</option>
+                                <option value="Shipped">Shipped</option>
+                                <option value="Delivered">Delivered</option>
+                                <option value="Cancelled">Cancelled</option>
+                            </select>
+                        </div>
+                    </td>
+                </tr>
+                ${expandedPanel}`;
             }).join('');
 
-            container.innerHTML = ordersHtml;
+            container.innerHTML = `
+            <div class="px-4 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between text-xs text-gray-500">
+                <span>${filtered.length} order${filtered.length !== 1 ? 's' : ''}${filtered.length < state.orders.length ? ` (${state.orders.length} total)` : ''}</span>
+                <button onclick="window.module.collapseAllOrders()" class="text-indigo-500 hover:underline">Collapse all</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-100 sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Order</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Customer</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Items</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Total</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Status</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Payment</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
         }
 
-        function renderOrderCreateForm() {
+        function collapseAllOrders() {
+            state.expandedOrders = new Set();
+            renderOrdersList();
+        }
             return `
                 <section class="space-y-6">
                     <div class="flex justify-between items-center">
@@ -17191,6 +17310,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleOrderListSearchInput,
             handleStatusFilterChange,
             handleDeliveryFilterChange,
+            handlePaymentFilterChange,
+            toggleOrderRow,
+            toggleOrdersFullscreen,
+            collapseAllOrders,
             handleOrderStatusUpdate,
             handleDeleteOrder,
             handleRequestDelivery,
