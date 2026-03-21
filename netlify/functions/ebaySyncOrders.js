@@ -1,23 +1,109 @@
-const admin = require('firebase-admin');
 const axios = require('axios');
 
-// ─── Lazy Firebase init ───────────────────────────────────────────────────────
-// Initialized on first use inside the handler so any errors appear in logs
+// ─── Google Auth (Service Account → Access Token) ─────────────────────────────
+// Replaces firebase-admin entirely — uses Firestore REST API instead
 
-let _db = null;
-function getDb() {
-  if (_db) return _db;
-  if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId:   process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey:  (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n')
-      })
-    });
+function base64url(buf) {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function getGoogleAccessToken() {
+  const privateKey = (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+
+  const now = Math.floor(Date.now() / 1000);
+  const header  = base64url(Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+  const payload = base64url(Buffer.from(JSON.stringify({
+    iss: clientEmail,
+    sub: clientEmail,
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+    scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase'
+  })));
+
+  const crypto = require('crypto');
+  const sign   = crypto.createSign('RSA-SHA256');
+  sign.update(`${header}.${payload}`);
+  const signature = base64url(sign.sign(privateKey));
+  const jwt = `${header}.${payload}.${signature}`;
+
+  const res = await axios.post('https://oauth2.googleapis.com/token', {
+    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    assertion:  jwt
+  }, { validateStatus: () => true });
+
+  if (res.status !== 200) throw new Error(`Google auth failed: ${JSON.stringify(res.data)}`);
+  return res.data.access_token;
+}
+
+// ─── Firestore REST helpers ────────────────────────────────────────────────────
+
+const PROJECT = process.env.FIREBASE_PROJECT_ID;
+const FS_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+
+function toFirestoreValue(val) {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'boolean') return { booleanValue: val };
+  if (typeof val === 'number')  return Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+  if (typeof val === 'string')  return { stringValue: val };
+  if (val instanceof Date)      return { timestampValue: val.toISOString() };
+  if (Array.isArray(val))       return { arrayValue: { values: val.map(toFirestoreValue) } };
+  if (typeof val === 'object')  return { mapValue: { fields: toFirestoreFields(val) } };
+  return { stringValue: String(val) };
+}
+
+function toFirestoreFields(obj) {
+  const fields = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) fields[k] = toFirestoreValue(v);
   }
-  _db = admin.firestore();
-  return _db;
+  return fields;
+}
+
+function fromFirestoreValue(v) {
+  if (!v) return null;
+  if ('nullValue'      in v) return null;
+  if ('booleanValue'   in v) return v.booleanValue;
+  if ('integerValue'   in v) return Number(v.integerValue);
+  if ('doubleValue'    in v) return v.doubleValue;
+  if ('stringValue'    in v) return v.stringValue;
+  if ('timestampValue' in v) return new Date(v.timestampValue);
+  if ('arrayValue'     in v) return (v.arrayValue.values || []).map(fromFirestoreValue);
+  if ('mapValue'       in v) return fromFirestoreDoc(v.mapValue.fields || {});
+  return null;
+}
+
+function fromFirestoreDoc(fields) {
+  const obj = {};
+  for (const [k, v] of Object.entries(fields || {})) obj[k] = fromFirestoreValue(v);
+  return obj;
+}
+
+async function fsGet(token, path) {
+  const res = await axios.get(`${FS_BASE}/${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    validateStatus: () => true
+  });
+  if (res.status === 404) return null;
+  if (res.status !== 200) throw new Error(`Firestore GET failed (${res.status}): ${JSON.stringify(res.data)}`);
+  return fromFirestoreDoc(res.data.fields || {});
+}
+
+async function fsSet(token, path, data, merge = false) {
+  // Always use PATCH with updateMask for merge, or full set without
+  const fields = toFirestoreFields(data);
+  const url    = `${FS_BASE}/${path}`;
+  const params = merge
+    ? { 'updateMask.fieldPaths': Object.keys(fields) }
+    : {};
+  const res = await axios.patch(url, { fields }, {
+    params,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    validateStatus: () => true
+  });
+  if (res.status !== 200) throw new Error(`Firestore SET failed (${res.status}) at ${path}: ${JSON.stringify(res.data)}`);
+  return res.data;
 }
 
 // ─── eBay OAuth ───────────────────────────────────────────────────────────────
@@ -43,45 +129,36 @@ async function getEbayAccessToken() {
     }
   );
 
-  if (res.status !== 200) {
-    throw new Error(`eBay token refresh failed (${res.status}): ${JSON.stringify(res.data)}`);
-  }
+  if (res.status !== 200) throw new Error(`eBay token refresh failed (${res.status}): ${JSON.stringify(res.data)}`);
   return res.data.access_token;
 }
 
 // ─── eBay Orders API ──────────────────────────────────────────────────────────
 
 async function fetchEbayOrders(accessToken, createdAfter) {
-  const res = await axios.get(
-    'https://api.ebay.com/sell/fulfillment/v1/order',
-    {
-      params: {
-        filter:      `creationdate:[${createdAfter}]`,
-        orderStatus: 'PAID,IN_PROCESS,PICKUP_AVAILABLE,FULFILLED,CANCELLED',
-        limit:       '50'
-      },
-      headers: {
-        'Authorization':           `Bearer ${accessToken}`,
-        'Content-Type':            'application/json',
-        'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID || 'EBAY_US'
-      },
-      validateStatus: () => true
-    }
-  );
+  const res = await axios.get('https://api.ebay.com/sell/fulfillment/v1/order', {
+    params: {
+      filter:      `creationdate:[${createdAfter}]`,
+      orderStatus: 'PAID,IN_PROCESS,PICKUP_AVAILABLE,FULFILLED,CANCELLED',
+      limit:       '50'
+    },
+    headers: {
+      'Authorization':           `Bearer ${accessToken}`,
+      'Content-Type':            'application/json',
+      'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID || 'EBAY_US'
+    },
+    validateStatus: () => true
+  });
 
-  if (res.status !== 200) {
-    throw new Error(`eBay orders fetch failed (${res.status}): ${JSON.stringify(res.data)}`);
-  }
+  if (res.status !== 200) throw new Error(`eBay orders fetch failed (${res.status}): ${JSON.stringify(res.data)}`);
   return res.data.orders || [];
 }
 
-// ─── Status mapping ───────────────────────────────────────────────────────────
+// ─── Status + order mapping ───────────────────────────────────────────────────
 
 function mapEbayStatus(s) {
   return { PAID: 'Processing', IN_PROCESS: 'Processing', PICKUP_AVAILABLE: 'Processing', FULFILLED: 'Delivered', CANCELLED: 'Cancelled' }[s] || 'Pending';
 }
-
-// ─── eBay → AutoInx mapping ───────────────────────────────────────────────────
 
 function mapEbayOrder(o) {
   const line  = o.lineItems?.[0] || {};
@@ -90,7 +167,6 @@ function mapEbayOrder(o) {
   const ship  = step.shipTo || {};
   const addr  = ship.contactAddress || {};
   const price = o.pricingSummary || {};
-
   const shippingAddress = [addr.addressLine1, addr.addressLine2, addr.city, addr.stateOrProvince, addr.postalCode, addr.countryCode].filter(Boolean).join(', ');
 
   return {
@@ -110,14 +186,10 @@ function mapEbayOrder(o) {
       vendorCostPerUnit: null
     },
     meta: {
-      sku:               line.sku || null,
-      shippingAddress,
-      buyerUsername:     buyer.username || null,
-      buyerEmail:        ship.email || null,
-      ebayOrderStatus:   o.orderFulfillmentStatus,
-      ebayPaymentStatus: o.orderPaymentStatus,
-      ebayCreatedAt:     o.creationDate,
-      source:            'ebay_sync'
+      sku: line.sku || null, shippingAddress,
+      buyerUsername: buyer.username || null, buyerEmail: ship.email || null,
+      ebayOrderStatus: o.orderFulfillmentStatus, ebayPaymentStatus: o.orderPaymentStatus,
+      ebayCreatedAt: o.creationDate, source: 'ebay_sync'
     }
   };
 }
@@ -125,34 +197,49 @@ function mapEbayOrder(o) {
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
-  // Auth check for manual HTTP POST trigger
+  // Verify Firebase admin token for manual HTTP POST triggers
   if (event?.httpMethod === 'POST') {
-    const auth = (event.headers?.authorization || event.headers?.Authorization || '');
-    if (!auth.startsWith('Bearer ')) {
+    const authHeader = (event.headers?.authorization || event.headers?.Authorization || '');
+    if (!authHeader.startsWith('Bearer ')) {
       return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
+    // Verify via Firebase Auth REST API (no firebase-admin needed)
     try {
-      const decoded = await admin.auth().verifyIdToken(auth.replace('Bearer ', ''));
-      if (!decoded.admin) return { statusCode: 403, body: JSON.stringify({ error: 'Admin only' }) };
+      const token = authHeader.replace('Bearer ', '');
+      const res   = await axios.post(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${process.env.FIREBASE_API_KEY}`,
+        { idToken: token },
+        { validateStatus: () => true }
+      );
+      if (res.status !== 200 || !res.data.users?.[0]) {
+        return { statusCode: 401, body: JSON.stringify({ error: 'Invalid token' }) };
+      }
+      // Check admin custom claim via token payload
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      if (!payload.admin) {
+        return { statusCode: 403, body: JSON.stringify({ error: 'Admin only' }) };
+      }
     } catch (e) {
-      return { statusCode: 401, body: JSON.stringify({ error: 'Invalid token' }) };
+      return { statusCode: 401, body: JSON.stringify({ error: 'Token verification failed' }) };
     }
   }
 
   try {
-    const db = getDb();
     console.log('🛒 ebaySyncOrders starting...');
 
-    const syncRef  = db.collection('admin').doc('ebay_sync_state');
-    const syncDoc  = await syncRef.get();
-    const lastSync = syncDoc.exists
-      ? (syncDoc.data().lastSyncedAt?.toDate?.() || new Date(Date.now() - 3600000))
-      : new Date(Date.now() - 3600000);
+    const googleToken = await getGoogleAccessToken();
+    console.log('✅ Google auth OK');
 
+    // Get last sync time
+    const syncState  = await fsGet(googleToken, 'admin/ebay_sync_state');
+    const lastSyncTs = syncState?.lastSyncedAt;
+    const lastSync   = lastSyncTs instanceof Date ? lastSyncTs : new Date(Date.now() - 3600000);
     console.log(`📅 Fetching eBay orders since: ${lastSync.toISOString()}`);
 
-    const accessToken = await getEbayAccessToken();
-    const ebayOrders  = await fetchEbayOrders(accessToken, lastSync.toISOString());
+    const ebayToken  = await getEbayAccessToken();
+    console.log('✅ eBay auth OK');
+
+    const ebayOrders = await fetchEbayOrders(ebayToken, lastSync.toISOString());
     console.log(`📦 Found ${ebayOrders.length} eBay orders`);
 
     let created = 0, updated = 0;
@@ -163,33 +250,34 @@ exports.handler = async (event) => {
         const mapped = mapEbayOrder(o);
         const { pricing, meta, ...core } = mapped;
 
-        const indexDoc = await db.collection('external_orders_index').doc(mapped.externalOrderId).get();
-        let savedId    = indexDoc.exists ? indexDoc.data().internalId : null;
+        const indexData = await fsGet(googleToken, `external_orders_index/${mapped.externalOrderId}`);
+        let savedId     = indexData?.internalId || null;
 
         if (!savedId) {
           savedId = `ebay_${mapped.externalOrderId}`;
-          await db.collection('external_orders').doc(savedId).set({
+          await fsSet(googleToken, `external_orders/${savedId}`, {
             ...core, id: savedId,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
           });
           created++;
         } else {
-          await db.collection('external_orders').doc(savedId).set(
-            { status: core.status, trackingNumber: core.trackingNumber, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-            { merge: true }
-          );
+          await fsSet(googleToken, `external_orders/${savedId}`, {
+            status: core.status,
+            trackingNumber: core.trackingNumber,
+            updatedAt: new Date().toISOString()
+          }, true);
           updated++;
         }
 
-        await db.collection('external_order_pricing').doc(savedId).set(
-          { ...pricing, ...meta, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-          { merge: true }
-        );
+        await fsSet(googleToken, `external_order_pricing/${savedId}`, {
+          ...pricing, ...meta, updatedAt: new Date().toISOString()
+        }, true);
 
-        await db.collection('external_orders_index').doc(mapped.externalOrderId).set({
-          internalId: savedId, platform: 'eBay', ebayOrderId: mapped.externalOrderId,
-          lastSyncedAt: admin.firestore.FieldValue.serverTimestamp()
+        await fsSet(googleToken, `external_orders_index/${mapped.externalOrderId}`, {
+          internalId: savedId, platform: 'eBay',
+          ebayOrderId: mapped.externalOrderId,
+          lastSyncedAt: new Date().toISOString()
         });
 
       } catch (err) {
@@ -198,24 +286,17 @@ exports.handler = async (event) => {
       }
     }
 
-    await syncRef.set({
-      lastSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastRunAt:    admin.firestore.FieldValue.serverTimestamp(),
-      lastResult:   { ordersFound: ebayOrders.length, created, updated, errors }
-    }, { merge: true });
+    await fsSet(googleToken, 'admin/ebay_sync_state', {
+      lastSyncedAt: new Date().toISOString(),
+      lastRunAt:    new Date().toISOString(),
+      lastResult:   { ordersFound: ebayOrders.length, created, updated, errors: errors.map(e => e.error) }
+    }, true);
 
     console.log(`✅ Done — ${created} new, ${updated} updated, ${errors.length} errors`);
     return { statusCode: 200, body: JSON.stringify({ created, updated, errors }) };
 
   } catch (err) {
     console.error('❌ Fatal:', err.message);
-    try {
-      const db = getDb();
-      await db.collection('admin').doc('ebay_sync_state').set(
-        { lastRunAt: admin.firestore.FieldValue.serverTimestamp(), lastError: err.message },
-        { merge: true }
-      );
-    } catch (_) {}
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
