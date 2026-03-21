@@ -13594,6 +13594,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 const stats = {
                     total:    contacts.length,
                     emailed:  contacts.filter(c => emailsByContact[(c.email||'').toLowerCase()]?.length > 0).length,
+                    declined: contacts.filter(c => c.declined).length,
                     thisWeek: contacts.filter(c => {
                         const d = c.createdAt?.toDate?.() || new Date(c.createdAt || 0);
                         return (Date.now() - d.getTime()) < 7 * 86400000;
@@ -13625,30 +13626,45 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                             `<span class="px-1.5 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700">${escapeHtml(t)}</span>`
                         ).join(' ');
 
+                        const isDeclined = !!c.declined;
+                        const rowClass   = isDeclined ? 'opacity-50 bg-red-50' : '';
+                        const textClass  = isDeclined ? 'line-through text-gray-400' : '';
+                        const declinedBadge = isDeclined
+                            ? `<span class="px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-600 font-bold">✕ Declined</span>`
+                            : '';
+
                         return `
-                        <tr class="hover:bg-gray-50 border-b border-gray-100 transition">
+                        <tr class="hover:bg-gray-50 border-b border-gray-100 transition ${rowClass}">
                             <td class="px-4 py-3">
-                                <p class="text-sm font-bold text-gray-800">${escapeHtml(c.name || '—')}</p>
-                                ${tagBadges ? `<div class="flex flex-wrap gap-1 mt-1">${tagBadges}</div>` : ''}
+                                <p class="text-sm font-bold ${isDeclined ? 'text-gray-400 line-through' : 'text-gray-800'}">${escapeHtml(c.name || '—')}</p>
+                                <div class="flex flex-wrap gap-1 mt-1">
+                                    ${tagBadges}
+                                    ${declinedBadge}
+                                </div>
                             </td>
-                            <td class="px-4 py-3 text-sm text-gray-600">${escapeHtml(c.email || '—')}</td>
-                            <td class="px-4 py-3 text-sm text-gray-600">${escapeHtml(c.phone || '—')}</td>
+                            <td class="px-4 py-3 text-sm ${isDeclined ? 'text-gray-400 line-through' : 'text-gray-600'}">${escapeHtml(c.email || '—')}</td>
+                            <td class="px-4 py-3 text-sm ${isDeclined ? 'text-gray-400 line-through' : 'text-gray-600'}">${escapeHtml(c.phone || '—')}</td>
                             <td class="px-4 py-3 text-sm text-gray-500">${lastContact}</td>
                             <td class="px-4 py-3">${emailBadge}</td>
                             <td class="px-4 py-3 text-xs text-gray-400 max-w-[160px] truncate" title="${escapeHtml(c.notes || '')}">${escapeHtml(c.notes || '—')}</td>
                             <td class="px-4 py-3">
-                                <div class="flex gap-1.5">
-                                    ${c.email ? `
+                                <div class="flex gap-1.5 flex-wrap">
+                                    ${!isDeclined && c.email ? `
                                     <button onclick="window.module.sendCatalogToContact('${c.id}')"
                                             class="px-2 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded transition" title="Send catalog">
                                         ✉ Catalog
                                     </button>` : ''}
+                                    <button onclick="window.module.toggleContactDeclined('${c.id}', ${isDeclined})"
+                                            class="px-2 py-1 text-xs font-bold ${isDeclined ? 'text-green-600 hover:bg-green-50' : 'text-red-500 hover:bg-red-50'} rounded transition"
+                                            title="${isDeclined ? 'Mark as active again' : 'Mark as declined'}">
+                                        ${isDeclined ? '↩ Restore' : '✕ Declined'}
+                                    </button>
                                     <button onclick="window.module.openContactModal('${c.id}')"
                                             class="px-2 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded transition" title="Edit">
-                                        ✏️ Edit
+                                        ✏️
                                     </button>
                                     <button onclick="window.module.deleteContact('${c.id}')"
-                                            class="px-2 py-1 text-xs font-bold text-red-500 hover:bg-red-50 rounded transition" title="Delete">
+                                            class="px-2 py-1 text-xs font-bold text-red-400 hover:bg-red-50 rounded transition" title="Delete">
                                         🗑
                                     </button>
                                 </div>
@@ -13670,10 +13686,11 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     </div>
 
                     <!-- Stats -->
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-                        ${statCard('👤', 'Total Contacts', stats.total,    'indigo')}
-                        ${statCard('✉',  'Catalog Sent',  stats.emailed,  'green')}
-                        ${statCard('🆕', 'Added This Week', stats.thisWeek, 'blue')}
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        ${statCard('👤', 'Total Contacts',   stats.total,    'indigo')}
+                        ${statCard('✉',  'Catalog Sent',     stats.emailed,  'green')}
+                        ${statCard('✕',  'Declined',         stats.declined, 'red')}
+                        ${statCard('🆕', 'Added This Week',  stats.thisWeek, 'blue')}
                     </div>
 
                     <!-- Table -->
@@ -13819,6 +13836,24 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 window.module.renderContactsSection();
             } catch (err) {
                 alert(`Failed: ${err.message}`);
+            }
+        }
+
+        async function toggleContactDeclined(contactId, currentlyDeclined) {
+            const newState = !currentlyDeclined;
+            try {
+                await updateDoc(doc(db, CONTACTS_COLLECTION, contactId), {
+                    declined:   newState,
+                    updatedAt:  serverTimestamp(),
+                });
+                showMessage(
+                    newState ? 'info' : 'success',
+                    newState ? 'Contact marked as declined.' : 'Contact restored to active.',
+                    2000, 'contacts'
+                );
+                window.module.renderContactsSection();
+            } catch (err) {
+                showMessage('error', err.message, 3000, 'contacts');
             }
         }
 
@@ -17005,6 +17040,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             saveContact,
             deleteContact,
             sendCatalogToContact,
+            toggleContactDeclined,
             handleDeleteDiscount,
             toggleDiscountEnabled,
             printPromoCards,
