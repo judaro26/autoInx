@@ -3017,6 +3017,7 @@
             DISCOUNT_TOGGLED:            { label: 'Discount Toggled',       icon: '🏷️', color: 'gray'   },
             DISCOUNT_USED:               { label: 'Discount Used',          icon: '🏷️', color: 'indigo' },
             SHIPPING_LABEL_GENERATED:    { label: 'Label Generated',        icon: '📬', color: 'indigo' },
+            CATALOG_EMAIL_SENT:          { label: 'Catalog Email Sent',      icon: '✉️', color: 'indigo' },
             PROFIT_DATA_UPDATED:         { label: 'Profit Data Updated',    icon: '📈', color: 'blue'   },
             EMAIL_NOTIF_PURGED:          { label: 'Email Logs Purged',      icon: '🗑️', color: 'gray'   },
             CLEANUP_ANON_USERS:          { label: 'Anon Users Cleared',     icon: '👥', color: 'gray'   },
@@ -13711,6 +13712,76 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             }
         }
 
+        async function sendCatalogEmail() {
+            const toEmail   = document.getElementById('catalogEmailTo')?.value?.trim();
+            const toName    = document.getElementById('catalogEmailName')?.value?.trim() || 'there';
+            const couponRaw = document.getElementById('catalogEmailCoupon')?.value || '';
+            const message   = document.getElementById('catalogEmailMessage')?.value?.trim() || '';
+            const attachPdf = document.getElementById('catalogEmailPdf')?.checked ?? true;
+            const localNote = document.getElementById('catalogEmailLocal')?.checked ?? true;
+            const btn       = document.getElementById('sendCatalogBtn');
+            const msgEl     = document.getElementById('sendCatalogMsg');
+
+            if (!toEmail) {
+                if (msgEl) msgEl.innerHTML = '<p class="text-red-600 text-sm">Please enter a recipient email.</p>';
+                return;
+            }
+
+            const [couponCode, couponLabel] = couponRaw ? couponRaw.split('|') : [null, null];
+
+            // Build catalog payload — items grouped by category
+            const brand = globalConfig?.branding || {};
+            const logoUrl = brand.logoUrl || '/images/AutoInx logo.png';
+            const storeName = brand.headerText?.en || 'AutoInx';
+
+            const categorized = state.catalogs.map(cat => ({
+                name: cat.name,
+                items: state.items
+                    .filter(i => i.catalogId === cat.id && !i.temporarilyUnavailable && (i.stock || 0) > 0)
+                    .slice(0, 12) // cap per category for email size
+                    .map(i => ({
+                        name: i.name,
+                        sku:  i.sku || '',
+                        price: ((i.price || 0) / 100).toFixed(2),
+                        stock: i.stock || 0,
+                        imageUrl: i.imageUrls?.[0] || i.imageUrl || null,
+                        description: (i.description || '').slice(0, 100)
+                    }))
+            })).filter(c => c.items.length > 0);
+
+            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Sending…'; }
+            if (msgEl) msgEl.innerHTML = '<p class="text-blue-600 text-sm">Generating catalog email…</p>';
+
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const res = await fetch('/.netlify/functions/sendCatalogEmail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({
+                        toEmail, toName, message, couponCode, couponLabel,
+                        attachPdf, localNote, storeName, logoUrl,
+                        siteUrl: 'https://autoinx.com',
+                        categories: categorized,
+                        adminEmail: auth.currentUser?.email || 'admin'
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Send failed');
+
+                if (msgEl) msgEl.innerHTML = `<p class="text-green-600 text-sm font-semibold">✅ Catalog sent to ${escapeHtml(toEmail)}${attachPdf ? ' with PDF attachment' : ''}.</p>`;
+                logAdminAction('CATALOG_EMAIL_SENT', { toEmail, toName, couponCode, attachPdf });
+                document.getElementById('catalogEmailTo').value = '';
+                document.getElementById('catalogEmailName').value = '';
+                document.getElementById('catalogEmailMessage').value = '';
+                document.getElementById('catalogEmailCoupon').value = '';
+            } catch (err) {
+                if (msgEl) msgEl.innerHTML = `<p class="text-red-600 text-sm">❌ ${escapeHtml(err.message)}</p>`;
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg> Send Catalog Email'; }
+            }
+        }
+
         async function handleCreateDiscount(e) {
             e.preventDefault();
             resetTimer();
@@ -14073,12 +14144,76 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 `<option value="${item.id}" ${editing?.appliesToProduct === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`
             ).join('');
 
+            // Build coupon options for the send-catalog form
+            const activeCoupons = state.discounts.filter(d => d.enabled && !d.expiresAt || (d.expiresAt && new Date(d.expiresAt) > new Date()));
+            const couponOpts = activeCoupons.map(d => {
+                const val = d.type === 'percentage' ? `${d.value}% off`
+                          : d.type === 'fixed'       ? `$${((d.valueCents||0)/100).toFixed(2)} off`
+                          : 'Free Shipping';
+                return `<option value="${escapeAttribute(d.code)}|${escapeAttribute(val)}">${escapeHtml(d.code)} — ${val}</option>`;
+            }).join('');
+
             const html = `
         <section class="space-y-8">
             <div class="flex justify-between items-center">
                 <h2 class="text-2xl font-bold text-indigo-700">📣 Marketing & Discounts</h2>
             </div>
             <div id="marketingMessage"></div>
+
+            <!-- ✉ SEND CATALOG -->
+            <div class="bg-gradient-to-br from-indigo-50 to-purple-50 p-6 rounded-xl shadow-lg border border-indigo-100">
+                <div class="flex items-center gap-3 mb-5">
+                    <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-xl">✉</div>
+                    <div>
+                        <h3 class="text-xl font-bold text-indigo-700">Send Catalog to a Client</h3>
+                        <p class="text-sm text-gray-500">Deliver a personalized catalog email with an optional coupon and PDF attachment.</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Recipient Email *</label>
+                        <input type="email" id="catalogEmailTo" placeholder="client@example.com"
+                               class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Recipient Name</label>
+                        <input type="text" id="catalogEmailName" placeholder="e.g. John"
+                               class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Include Coupon</label>
+                        <select id="catalogEmailCoupon" class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            <option value="">— No coupon —</option>
+                            ${couponOpts}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">Personal Message</label>
+                        <input type="text" id="catalogEmailMessage"
+                               placeholder="e.g. Great seeing you today!"
+                               class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div class="md:col-span-2 flex items-center gap-3">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="catalogEmailPdf" checked class="w-4 h-4 rounded text-indigo-600">
+                            <span class="text-sm font-semibold text-gray-700">Attach PDF catalog</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="catalogEmailLocal" checked class="w-4 h-4 rounded text-indigo-600">
+                            <span class="text-sm font-semibold text-gray-700">Include East Bay local delivery note</span>
+                        </label>
+                    </div>
+                </div>
+                <div id="sendCatalogMsg" class="mt-3"></div>
+                <button onclick="window.module.sendCatalogEmail()"
+                        id="sendCatalogBtn"
+                        class="mt-4 px-6 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition shadow-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                    Send Catalog Email
+                </button>
+            </div>
 
             <!-- Analytics Dashboard -->
             <div id="marketingAnalyticsContainer"></div>
@@ -16636,6 +16771,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             getRefundStatsHtml,
             downloadRefundsCsv,
             handleCreateDiscount,
+            sendCatalogEmail,
             handleDeleteDiscount,
             toggleDiscountEnabled,
             printPromoCards,
