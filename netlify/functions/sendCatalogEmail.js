@@ -1,26 +1,24 @@
 const nodemailer = require('nodemailer');
 const admin      = require('firebase-admin');
 
-// ── Firebase init ──────────────────────────────────────────────────────────────
-function getDb() {
-    if (!admin.apps.length) {
-        admin.initializeApp({
-            credential: admin.credential.cert({
-                projectId:   process.env.FIREBASE_PROJECT_ID,
-                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-                privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-            }),
-        });
-    }
-    return admin.firestore();
+// ── Firebase init — runs once at module load ───────────────────────────────────
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId:   process.env.FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        }),
+    });
 }
+
+const db = admin.firestore();
 
 // ── Auth helper ────────────────────────────────────────────────────────────────
 async function verifyIdToken(authHeader) {
     if (!authHeader?.startsWith('Bearer ')) throw new Error('Missing auth token');
     const token = authHeader.slice(7);
-    const auth  = admin.auth();
-    return auth.verifyIdToken(token); // throws if invalid
+    return admin.auth().verifyIdToken(token); // throws if invalid
 }
 
 // ── Email transporter ──────────────────────────────────────────────────────────
@@ -393,7 +391,6 @@ exports.handler = async function(event) {
 
         // Log to Firestore
         try {
-            const db = getDb();
             await db.collection('email_notifications').add({
                 type:           'catalog_sent',
                 recipientEmail: toEmail,
