@@ -203,7 +203,8 @@ function mapEbayOrder(o) {
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
-  // Verify Firebase admin token for manual HTTP POST triggers
+  // Auth check for manual HTTP POST trigger (admin panel button)
+  // GET requests come from the internal cron trigger — allowed without auth
   if (event?.httpMethod === 'POST') {
     const authHeader = (event.headers?.authorization || event.headers?.Authorization || '');
     if (!authHeader.startsWith('Bearer ')) {
