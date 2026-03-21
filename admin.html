@@ -13985,21 +13985,39 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     const brochureResult = buildCatalogBrochureHtml({ forPrint: false });
                     if (!brochureResult) throw new Error('No products available for PDF');
 
-                    // Render in a hidden off-screen container
-                    const container = document.createElement('div');
-                    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;background:#fff;';
-                    container.innerHTML = brochureResult.html.replace(/^<!DOCTYPE html>[\s\S]*?<body[^>]*>/i, '').replace(/<\/body>[\s\S]*$/i, '');
-                    document.body.appendChild(container);
+                    // Render in a hidden iframe so the full <head> CSS is preserved
+                    const iframe = document.createElement('iframe');
+                    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;height:1056px;border:none;visibility:hidden;';
+                    document.body.appendChild(iframe);
 
                     try {
+                        // Write full HTML into iframe and wait for load
+                        await new Promise(resolve => {
+                            iframe.onload = resolve;
+                            iframe.contentDocument.open();
+                            iframe.contentDocument.write(brochureResult.html);
+                            iframe.contentDocument.close();
+                        });
+
+                        // Give images a moment to load
+                        await new Promise(r => setTimeout(r, 800));
+
+                        const iframeBody = iframe.contentDocument.body;
+
                         const pdfBlob = await html2pdf().set({
                             margin:      [0.3, 0.3, 0.3, 0.3],
                             filename:    `${storeName}-Catalog.pdf`,
                             image:       { type: 'jpeg', quality: 0.85 },
-                            html2canvas: { scale: 1.5, useCORS: true, allowTaint: false, logging: false },
+                            html2canvas: {
+                                scale:       1.5,
+                                useCORS:     true,
+                                allowTaint:  false,
+                                logging:     false,
+                                windowWidth: 816,
+                            },
                             jsPDF:       { unit: 'in', format: 'letter', orientation: 'portrait' },
-                            pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }
-                        }).from(container).outputPdf('blob');
+                            pagebreak:   { mode: ['css', 'legacy'] },
+                        }).from(iframeBody).outputPdf('blob');
 
                         // Convert blob to base64
                         pdfBase64 = await new Promise((resolve, reject) => {
@@ -14009,7 +14027,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                             reader.readAsDataURL(pdfBlob);
                         });
                     } finally {
-                        document.body.removeChild(container);
+                        document.body.removeChild(iframe);
                     }
                 }
 
