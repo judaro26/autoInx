@@ -324,7 +324,21 @@
             'Processing': 'En Proceso',
             'Shipped': 'Enviado',
             'Delivered': 'Entregado',
-            '🔒 Lock': '🔒 Bloquear',
+            'Returns & Refunds': 'Devoluciones y Reembolsos',
+            '↩️ Returns & Refunds': '↩️ Devoluciones y Reembolsos',
+            'New Return': '+ Nueva Devolución',
+            'Requested': 'Solicitado',
+            'Approved': 'Aprobado',
+            'Received': 'Recibido',
+            'Refunded': 'Reembolsado',
+            'Return Reason': 'Motivo de Devolución',
+            'Refund Amount': 'Monto de Reembolso',
+            'Create Return Request': 'Crear Solicitud de Devolución',
+            '→ Approved': '→ Aprobar',
+            '→ Received': '→ Recibido',
+            '💳 Refund': '💳 Reembolsar',
+            '💳 Process Stripe Refund': '💳 Procesar Reembolso Stripe',
+            '📝 Record Manual Refund': '📝 Registrar Reembolso Manual',
             '🔓 Unlock': '🔓 Desbloquear',
             'Temporarily Unavailable': 'Temporalmente No Disponible',
             'Abandoned Carts': 'Carritos Abandonados',
@@ -973,6 +987,9 @@
             const catOpts = state.catalogs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
             if (state.activeTab === 'profitAnalysis') {
                 return renderProfitAnalysisSection();
+            }
+            if (state.activeTab === 'returns') {
+                return `<section id="returnsPage"><div class="text-center py-12 text-gray-400">Loading returns…</div></section>`;
             }
             if (state.activeTab === 'catalog') {
                 return `
@@ -4227,6 +4244,8 @@
                 setTimeout(() => window.module.loadEbaySyncStatus(), 300);
             } else if (tab === 'abandonedCarts') {
                 setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
+            } else if (tab === 'returns') {
+                setTimeout(() => window.module.renderReturnsSection(), 100);
             } else if (tab === 'config') {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
@@ -7718,6 +7737,7 @@
                         financials:         'finance',
                         vendorOrders:       'finance',
                         profitAnalysis:     'finance',
+                        returns:            'finance',
                         marketing:          'marketing',
                         users:              'users',
                         config:             'users',
@@ -7774,12 +7794,13 @@
 
                     ${divider()}
 
-                    ${groupHeader('finance', '💰', 'Finance & Suppliers', 3)}
+                    ${groupHeader('finance', '💰', 'Finance & Suppliers', 4)}
                     ${isOpen('finance') ? `
                     <div class="bg-gray-50/60 pb-1">
                         ${tabBtn('financials',    '💳', t('tabFinancials'))}
                         ${tabBtn('vendorOrders',  '🏭', 'Vendor Orders')}
                         ${tabBtn('profitAnalysis','📊', 'Profit Analysis')}
+                        ${tabBtn('returns',       '↩️', 'Returns & Refunds')}
                     </div>` : ''}
 
                     ${divider()}
@@ -7818,6 +7839,7 @@
             // Post-render data population
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
             if (state.activeTab === 'abandonedCarts' && !state.previewMode) setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
+            if (state.activeTab === 'returns' && !state.previewMode) setTimeout(() => window.module.renderReturnsSection(), 100);
             if (state.activeTab === 'config' && !state.previewMode) {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
@@ -12388,6 +12410,450 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 if (btn) { btn.disabled = false; btn.textContent = '✉ Remind'; }
             }
         }
+
+        // ─── RETURNS & REFUNDS ────────────────────────────────────────────────────────
+
+        const RETURNS_COLLECTION    = 'return_requests';
+        const RETURN_STATUSES       = ['Requested', 'Approved', 'Received', 'Refunded'];
+        const RETURN_STATUS_COLORS  = {
+            Requested: 'bg-yellow-100 text-yellow-800',
+            Approved:  'bg-blue-100 text-blue-800',
+            Received:  'bg-purple-100 text-purple-800',
+            Refunded:  'bg-green-100 text-green-800',
+        };
+
+        async function renderReturnsSection() {
+            const el = document.getElementById('returnsPage');
+            if (!el) return;
+            el.innerHTML = `<div class="text-center py-12 text-gray-400">Loading…</div>`;
+
+            try {
+                const snap = await getDocs(
+                    query(collection(db, RETURNS_COLLECTION), orderBy('createdAt', 'desc'))
+                );
+                const returns = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                const byStatus = (s) => returns.filter(r => r.status === s).length;
+                const totalRefundedCents = returns
+                    .filter(r => r.status === 'Refunded')
+                    .reduce((s, r) => s + (r.refundAmountCents || 0), 0);
+
+                const statCard = (icon, label, val, color) => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <div class="text-2xl mb-1">${icon}</div>
+                        <div class="text-2xl font-black text-${color}-600">${val}</div>
+                        <div class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-0.5">${label}</div>
+                    </div>`;
+
+                const rows = returns.length === 0
+                    ? `<tr><td colspan="8" class="px-6 py-12 text-center text-gray-400">No return requests yet.</td></tr>`
+                    : returns.map(r => {
+                        const created   = r.createdAt?.toDate?.()?.toLocaleDateString() || '—';
+                        const badge     = `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${RETURN_STATUS_COLORS[r.status] || 'bg-gray-100 text-gray-600'}">${r.status}</span>`;
+                        const nextStatus = RETURN_STATUSES[RETURN_STATUSES.indexOf(r.status) + 1];
+                        return `
+                        <tr class="hover:bg-gray-50 border-b border-gray-100 transition">
+                            <td class="px-4 py-3 font-mono text-xs text-gray-500">${r.id.slice(0,8)}</td>
+                            <td class="px-4 py-3 text-sm font-semibold text-gray-800">#${escapeHtml(r.orderNumber || r.orderId?.slice(0,8) || '—')}</td>
+                            <td class="px-4 py-3 text-sm">${escapeHtml(r.customerName || '—')}</td>
+                            <td class="px-4 py-3 text-sm text-gray-600 max-w-[160px] truncate" title="${escapeHtml(r.reason || '')}">${escapeHtml(r.reason || '—')}</td>
+                            <td class="px-4 py-3 text-sm font-bold text-indigo-700">${formatPriceDisplay(r.refundAmountCents || 0)}</td>
+                            <td class="px-4 py-3">${badge}</td>
+                            <td class="px-4 py-3 text-xs text-gray-400">${created}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex gap-1 flex-wrap">
+                                    <button onclick="window.module.openReturnModal('${r.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded transition">👁 View</button>
+                                    ${nextStatus && nextStatus !== 'Refunded' ? `
+                                    <button onclick="window.module.advanceReturnStatus('${r.id}', '${nextStatus}')"
+                                            class="px-2 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded transition">→ ${nextStatus}</button>` : ''}
+                                    ${nextStatus === 'Refunded' ? `
+                                    <button onclick="window.module.openReturnRefundModal('${r.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-green-600 hover:bg-green-50 rounded transition">💳 Refund</button>` : ''}
+                                    ${r.status !== 'Refunded' ? `
+                                    <button onclick="window.module.deleteReturn('${r.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-red-500 hover:bg-red-50 rounded transition">🗑</button>` : ''}
+                                </div>
+                            </td>
+                        </tr>`;
+                    }).join('');
+
+                el.innerHTML = `
+                <div class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-indigo-700">↩️ Returns &amp; Refunds</h2>
+                            <p class="text-sm text-gray-500 mt-0.5">Track return requests through the full workflow</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="window.module.openCreateReturnModal()"
+                                    class="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition shadow-sm">
+                                + New Return
+                            </button>
+                            <button onclick="window.module.renderReturnsSection()"
+                                    class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">
+                                ↺ Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        ${statCard('📥', 'Requested', byStatus('Requested'), 'yellow')}
+                        ${statCard('✅', 'Approved',  byStatus('Approved'),  'blue')}
+                        ${statCard('📦', 'Received',  byStatus('Received'),  'purple')}
+                        ${statCard('💰', 'Total Refunded', formatPriceDisplay(totalRefundedCents), 'green')}
+                    </div>
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <div class="flex items-center">
+                            ${RETURN_STATUSES.map((s, i) => `
+                            <div class="flex-1 text-center">
+                                <div class="flex items-center">
+                                    ${i > 0 ? '<div class="flex-1 h-0.5 bg-gray-200"></div>' : '<div class="flex-1"></div>'}
+                                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold mx-1 ${byStatus(s) > 0 ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400'}">
+                                        ${byStatus(s)}
+                                    </div>
+                                    ${i < 3 ? '<div class="flex-1 h-0.5 bg-gray-200"></div>' : '<div class="flex-1"></div>'}
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1 font-semibold">${s}</div>
+                            </div>`).join('')}
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-100">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">ID</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Order</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Customer</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Reason</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Amount</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Date</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+
+                translatePage();
+            } catch (err) {
+                el.innerHTML = `<div class="text-center py-12 text-red-500">Error: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        function openCreateReturnModal(prefillOrderId = null) {
+            const existing = document.getElementById('returnModal');
+            if (existing) existing.remove();
+            const orderOpts = state.orders
+                .filter(o => o.status !== 'Cancelled')
+                .map(o => `<option value="${o.id}" ${o.id === prefillOrderId ? 'selected' : ''}>#${o.orderNumber || o.id.slice(0,8)} — ${escapeHtml(o.buyerName || '')} — ${formatPriceDisplay(o.totalCents)}</option>`)
+                .join('');
+            const modal = document.createElement('div');
+            modal.id = 'returnModal';
+            modal.innerHTML = `
+            <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                 onclick="if(event.target===this)document.getElementById('returnModal').remove()">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+                    <div class="flex items-center justify-between px-6 py-4 border-b">
+                        <h3 class="text-lg font-bold text-gray-800">↩️ New Return Request</h3>
+                        <button onclick="document.getElementById('returnModal').remove()" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Order *</label>
+                            <select id="returnOrderId" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                <option value="">— Select Order —</option>${orderOpts}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Return Reason *</label>
+                            <select id="returnReason" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                <option value="">— Select Reason —</option>
+                                <option>Wrong item received</option>
+                                <option>Item damaged or defective</option>
+                                <option>Does not match description</option>
+                                <option>Changed mind</option>
+                                <option>Duplicate order</option>
+                                <option>Item never arrived</option>
+                                <option>Other</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Refund Amount (USD) *</label>
+                            <input type="number" id="returnRefundAmount" step="0.01" min="0.01" placeholder="0.00"
+                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Customer Notes</label>
+                            <textarea id="returnNotes" rows="2" placeholder="Customer-provided reason…"
+                                      class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Internal Notes</label>
+                            <textarea id="returnInternalNotes" rows="2" placeholder="Admin-only notes…"
+                                      class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-3 px-6 pb-6">
+                        <button onclick="document.getElementById('returnModal').remove()"
+                                class="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
+                        <button onclick="window.module.submitCreateReturn()"
+                                class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition">
+                            Create Return Request
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+        }
+
+        async function submitCreateReturn() {
+            const orderId        = document.getElementById('returnOrderId')?.value;
+            const reason         = document.getElementById('returnReason')?.value;
+            const amountStr      = document.getElementById('returnRefundAmount')?.value;
+            const notes          = document.getElementById('returnNotes')?.value?.trim() || '';
+            const internalNotes  = document.getElementById('returnInternalNotes')?.value?.trim() || '';
+            if (!orderId)   { alert('Please select an order.'); return; }
+            if (!reason)    { alert('Please select a reason.'); return; }
+            if (!amountStr || parseFloat(amountStr) <= 0) { alert('Please enter a valid refund amount.'); return; }
+            const order       = state.orders.find(o => o.id === orderId);
+            const amountCents = Math.round(parseFloat(amountStr) * 100);
+            try {
+                await addDoc(collection(db, RETURNS_COLLECTION), {
+                    orderId,
+                    orderNumber:   order?.orderNumber || orderId.slice(0,8),
+                    customerName:  order?.buyerName   || '—',
+                    customerEmail: order?.buyerEmail  || null,
+                    stripePaymentIntentId: order?.stripePaymentIntentId || null,
+                    stripeChargeId:        order?.stripeChargeId        || null,
+                    reason, notes, internalNotes,
+                    refundAmountCents: amountCents,
+                    status: 'Requested',
+                    statusHistory: [{ status: 'Requested', adminEmail: auth.currentUser?.email || 'admin', note: 'Created', timestamp: new Date().toISOString() }],
+                    stripeRefundId: null,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                });
+                document.getElementById('returnModal')?.remove();
+                showMessage('success', 'Return request created.', 3000, 'returns');
+                window.module.renderReturnsSection();
+            } catch (err) { alert('Failed: ' + err.message); }
+        }
+
+        async function openReturnModal(returnId) {
+            const snap = await getDoc(doc(db, RETURNS_COLLECTION, returnId));
+            if (!snap.exists()) { alert('Return not found.'); return; }
+            const r = { id: snap.id, ...snap.data() };
+            const existing = document.getElementById('returnViewModal');
+            if (existing) existing.remove();
+            const historyRows = (r.statusHistory || []).map(h => `
+                <div class="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-bold ${RETURN_STATUS_COLORS[h.status] || 'bg-gray-100 text-gray-600'} flex-shrink-0">${h.status}</span>
+                    <div>
+                        <p class="text-xs text-gray-400">${escapeHtml(h.adminEmail || '')} · ${h.timestamp ? new Date(h.timestamp).toLocaleString() : '—'}</p>
+                        ${h.note ? `<p class="text-sm text-gray-700">${escapeHtml(h.note)}</p>` : ''}
+                    </div>
+                </div>`).join('');
+            const nextStatus = RETURN_STATUSES[RETURN_STATUSES.indexOf(r.status) + 1];
+            const modal = document.createElement('div');
+            modal.id = 'returnViewModal';
+            modal.innerHTML = `
+            <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                 onclick="if(event.target===this)document.getElementById('returnViewModal').remove()">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[88vh] flex flex-col">
+                    <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800">Return #${r.id.slice(0,8)}</h3>
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold ${RETURN_STATUS_COLORS[r.status] || ''}">${r.status}</span>
+                        </div>
+                        <button onclick="document.getElementById('returnViewModal').remove()" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+                    </div>
+                    <div class="overflow-y-auto flex-1 p-6 space-y-4">
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div><span class="text-gray-400 text-xs uppercase font-bold">Order</span><p class="font-semibold">#${escapeHtml(r.orderNumber || '—')}</p></div>
+                            <div><span class="text-gray-400 text-xs uppercase font-bold">Customer</span><p class="font-semibold">${escapeHtml(r.customerName || '—')}</p></div>
+                            <div><span class="text-gray-400 text-xs uppercase font-bold">Reason</span><p>${escapeHtml(r.reason || '—')}</p></div>
+                            <div><span class="text-gray-400 text-xs uppercase font-bold">Refund Amount</span><p class="font-bold text-indigo-700">${formatPriceDisplay(r.refundAmountCents || 0)}</p></div>
+                            ${r.notes ? `<div class="col-span-2"><span class="text-gray-400 text-xs uppercase font-bold">Customer Notes</span><p>${escapeHtml(r.notes)}</p></div>` : ''}
+                            ${r.internalNotes ? `<div class="col-span-2"><span class="text-gray-400 text-xs uppercase font-bold">Internal Notes</span><p>${escapeHtml(r.internalNotes)}</p></div>` : ''}
+                            ${r.stripeRefundId ? `<div class="col-span-2"><span class="text-gray-400 text-xs uppercase font-bold">Stripe Refund ID</span><p class="font-mono text-xs">${escapeHtml(r.stripeRefundId)}</p></div>` : ''}
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-gray-500 uppercase mb-2">Status History</p>
+                            <div class="bg-gray-50 rounded-lg p-3">${historyRows || '<p class="text-xs text-gray-400">No history.</p>'}</div>
+                        </div>
+                        ${r.status !== 'Refunded' ? `
+                        <div class="border-t pt-3">
+                            <p class="text-xs font-bold text-gray-500 uppercase mb-2">Note for next status</p>
+                            <textarea id="returnNoteInput" rows="2" placeholder="Optional note…"
+                                      class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                        </div>` : ''}
+                    </div>
+                    <div class="flex gap-2 px-6 pb-5 pt-3 border-t flex-shrink-0 flex-wrap">
+                        <button onclick="document.getElementById('returnViewModal').remove()"
+                                class="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition">Close</button>
+                        ${nextStatus && nextStatus !== 'Refunded' ? `
+                        <button onclick="window.module.advanceReturnStatus('${r.id}','${nextStatus}',document.getElementById('returnNoteInput')?.value||''); document.getElementById('returnViewModal').remove();"
+                                class="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition">
+                            → Mark as ${nextStatus}
+                        </button>` : ''}
+                        ${nextStatus === 'Refunded' ? `
+                        <button onclick="document.getElementById('returnViewModal').remove(); window.module.openReturnRefundModal('${r.id}');"
+                                class="px-4 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition">
+                            💳 Process Refund
+                        </button>` : ''}
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+        }
+
+        async function advanceReturnStatus(returnId, newStatus, note = '') {
+            try {
+                const returnRef = doc(db, RETURNS_COLLECTION, returnId);
+                const snap      = await getDoc(returnRef);
+                if (!snap.exists()) throw new Error('Return not found');
+                const existing  = snap.data().statusHistory || [];
+                await updateDoc(returnRef, {
+                    status: newStatus, updatedAt: serverTimestamp(),
+                    statusHistory: [...existing, { status: newStatus, adminEmail: auth.currentUser?.email || 'admin', note: note || '', timestamp: new Date().toISOString() }]
+                });
+                showMessage('success', `Marked as ${newStatus}.`, 2000, 'returns');
+                window.module.renderReturnsSection();
+            } catch (err) { showMessage('error', err.message, 3000, 'returns'); }
+        }
+
+        async function openReturnRefundModal(returnId) {
+            const snap = await getDoc(doc(db, RETURNS_COLLECTION, returnId));
+            if (!snap.exists()) { alert('Return not found.'); return; }
+            const r = { id: snap.id, ...snap.data() };
+            const hasStripe = !!(r.stripePaymentIntentId || r.stripeChargeId);
+            const existing = document.getElementById('returnRefundModal');
+            if (existing) existing.remove();
+            const modal = document.createElement('div');
+            modal.id = 'returnRefundModal';
+            modal.innerHTML = `
+            <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                 onclick="if(event.target===this)document.getElementById('returnRefundModal').remove()">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                    <div class="flex items-center justify-between px-6 py-4 border-b">
+                        <h3 class="text-lg font-bold text-gray-800">💳 Process Refund</h3>
+                        <button onclick="document.getElementById('returnRefundModal').remove()" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div class="bg-indigo-50 rounded-lg p-4 text-sm space-y-1">
+                            <p><span class="font-semibold">Order:</span> #${escapeHtml(r.orderNumber || '—')}</p>
+                            <p><span class="font-semibold">Customer:</span> ${escapeHtml(r.customerName || '—')}</p>
+                            <p><span class="font-semibold">Reason:</span> ${escapeHtml(r.reason || '—')}</p>
+                            <p><span class="font-semibold">Requested:</span> <span class="text-indigo-700 font-bold">${formatPriceDisplay(r.refundAmountCents || 0)}</span></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Final Refund Amount (USD)</label>
+                            <input type="number" id="returnRefundAmountFinal" step="0.01" min="0.01"
+                                   value="${((r.refundAmountCents || 0) / 100).toFixed(2)}"
+                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Stripe Reason</label>
+                            <select id="returnRefundReason" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                <option value="requested_by_customer">Requested by customer</option>
+                                <option value="duplicate">Duplicate</option>
+                                <option value="fraudulent">Fraudulent</option>
+                            </select>
+                        </div>
+                        <div class="${hasStripe ? 'bg-green-50 border-green-200 text-green-800' : 'bg-yellow-50 border-yellow-200 text-yellow-800'} border rounded-lg p-3 text-sm">
+                            ${hasStripe ? '✅ Stripe payment found — will process automatically.' : '⚠️ No Stripe payment found — will record as manual refund.'}
+                        </div>
+                        <div id="returnRefundMessage"></div>
+                    </div>
+                    <div class="flex justify-end gap-3 px-6 pb-6">
+                        <button onclick="document.getElementById('returnRefundModal').remove()"
+                                class="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
+                        <button onclick="window.module.executeReturnRefund('${r.id}')"
+                                id="returnRefundSubmitBtn"
+                                class="px-5 py-2 ${hasStripe ? 'bg-green-600 hover:bg-green-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white text-sm font-bold rounded-lg transition">
+                            ${hasStripe ? '💳 Process Stripe Refund' : '📝 Record Manual Refund'}
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+        }
+
+        async function executeReturnRefund(returnId) {
+            const btn       = document.getElementById('returnRefundSubmitBtn');
+            const msgEl     = document.getElementById('returnRefundMessage');
+            const amountStr = document.getElementById('returnRefundAmountFinal')?.value;
+            const reason    = document.getElementById('returnRefundReason')?.value || 'requested_by_customer';
+            if (!amountStr || parseFloat(amountStr) <= 0) {
+                if (msgEl) msgEl.innerHTML = '<p class="text-red-600 text-sm">Please enter a valid amount.</p>';
+                return;
+            }
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing…'; }
+            try {
+                const snap        = await getDoc(doc(db, RETURNS_COLLECTION, returnId));
+                if (!snap.exists()) throw new Error('Return not found');
+                const r           = snap.data();
+                const amountCents = Math.round(parseFloat(amountStr) * 100);
+                const hasStripe   = !!(r.stripePaymentIntentId || r.stripeChargeId);
+                let stripeRefundId = null;
+
+                if (hasStripe) {
+                    const idToken  = await auth.currentUser.getIdToken();
+                    const response = await fetch('/.netlify/functions/processRefund', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                        body: JSON.stringify({ paymentIntentId: r.stripePaymentIntentId || null, chargeId: r.stripeChargeId || null, amountCents, reason, orderId: r.orderId, adminEmail: auth.currentUser?.email || 'admin' })
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.success) throw new Error(data.error || 'Stripe refund failed');
+                    stripeRefundId = data.refundId;
+                }
+
+                const existing = snap.data().statusHistory || [];
+                await updateDoc(doc(db, RETURNS_COLLECTION, returnId), {
+                    status: 'Refunded',
+                    stripeRefundId: stripeRefundId || `manual_${Date.now()}`,
+                    refundAmountCents: amountCents,
+                    refundedAt: serverTimestamp(),
+                    updatedAt:  serverTimestamp(),
+                    statusHistory: [...existing, { status: 'Refunded', adminEmail: auth.currentUser?.email || 'admin', note: stripeRefundId ? `Stripe refund ${stripeRefundId}` : 'Manual refund recorded', timestamp: new Date().toISOString() }]
+                });
+
+                if (r.orderId) {
+                    const order = state.orders.find(o => o.id === r.orderId);
+                    if (order) {
+                        const newTotal = (order.totalRefundedCents || 0) + amountCents;
+                        await updateDoc(doc(db, `artifacts/${appId}/public/data/orders`, r.orderId), {
+                            totalRefundedCents: newTotal,
+                            refundStatus: newTotal >= (order.totalCents || 0) ? 'full' : 'partial',
+                            updatedAt: serverTimestamp()
+                        });
+                    }
+                }
+
+                document.getElementById('returnRefundModal')?.remove();
+                logAdminAction('RETURN_REFUNDED', { returnId, amountCents, stripeRefundId });
+                showMessage('success', `Refund of ${formatPriceDisplay(amountCents)} processed.`, 4000, 'returns');
+                window.module.renderReturnsSection();
+            } catch (err) {
+                if (msgEl) msgEl.innerHTML = `<p class="text-red-600 text-sm font-semibold">❌ ${escapeHtml(err.message)}</p>`;
+                if (btn) { btn.disabled = false; btn.textContent = '💳 Try Again'; }
+            }
+        }
+
+        async function deleteReturn(returnId) {
+            if (!confirm('Delete this return request? This cannot be undone.')) return;
+            try {
+                await deleteDoc(doc(db, RETURNS_COLLECTION, returnId));
+                showMessage('success', 'Return deleted.', 2000, 'returns');
+                window.module.renderReturnsSection();
+            } catch (err) { showMessage('error', err.message, 3000, 'returns'); }
+        }
+
         // ─────────────────────────────────────────────────────────────────────────────
 
         async function fetchDiscounts() {
@@ -15357,6 +15823,14 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             viewAbandonedCart,
             deleteAbandonedCart,
             sendCartReminder,
+            renderReturnsSection,
+            openCreateReturnModal,
+            submitCreateReturn,
+            openReturnModal,
+            advanceReturnStatus,
+            openReturnRefundModal,
+            executeReturnRefund,
+            deleteReturn,
             previewSeasonalBanner,
             resetBrandingColors,
             applySeasonalThemeColors,
