@@ -2126,6 +2126,11 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="text-sm text-gray-500 whitespace-nowrap">${items.length} / ${state.items.length}</span>
+                        <button onclick="window.module.downloadCatalog()"
+                                class="px-3 py-2 text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition whitespace-nowrap"
+                                title="Download current view as CSV">
+                            ⬇ Download CSV
+                        </button>
                         <button onclick="window.module.toggleCatalogFullscreen()"
                                 id="catalogFullscreenBtn"
                                 class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition whitespace-nowrap">
@@ -2401,6 +2406,62 @@
             state.catalogFilters.categoryId = e.target.value;
             renderProductListSection();
             resetTimer();
+        }
+
+        function downloadCatalog() {
+            const items = getFilteredItems();
+            if (items.length === 0) {
+                alert('No products to download with the current filters.');
+                return;
+            }
+
+            // CSV helpers
+            const esc = (val) => {
+                const s = (val == null ? '' : String(val)).replace(/"/g, '""');
+                return /[",\n\r]/.test(s) ? `"${s}"` : s;
+            };
+
+            const headers = [
+                'SKU', 'Name', 'Description', 'Price (USD)',
+                'Category', 'Stock', 'Images', 'Videos',
+                'Date Added', 'Product ID'
+            ];
+
+            const rows = items.map(item => {
+                const cat     = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                const price   = item.price != null ? (item.price / 100).toFixed(2) : '';
+                const imgs    = item.imageUrls?.length ?? (item.imageUrl ? 1 : 0);
+                const vids    = item.videoUrls?.length ?? 0;
+                const stock   = item.stock ?? '';
+                const added   = item.createdAt ? formatTime(item.createdAt) : '';
+
+                return [
+                    item.sku || '',
+                    item.name || '',
+                    item.description || '',
+                    price,
+                    cat,
+                    stock,
+                    imgs,
+                    vids,
+                    added,
+                    item.id || ''
+                ].map(esc).join(',');
+            });
+
+            const csv      = [headers.map(esc).join(','), ...rows].join('\r\n');
+            const blob     = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url      = URL.createObjectURL(blob);
+            const a        = document.createElement('a');
+            const f        = state.catalogFilters;
+            const catLabel = f?.categoryId && f.categoryId !== 'all'
+                ? `_${state.catalogs.find(c => c.id === f.categoryId)?.name || 'filtered'}`
+                : '';
+            const date     = new Date().toISOString().split('T')[0];
+            a.href         = url;
+            a.download     = `autoinx_catalog${catLabel}_${date}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
         }
 
 
@@ -13962,6 +14023,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             toggleCatalogFullscreen,
             handleCatalogSort,
             handleCatalogCategoryFilter,
+            downloadCatalog,
             openReviewsModal,
             approveReview,
             deleteReview,
