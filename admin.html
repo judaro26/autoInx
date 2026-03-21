@@ -326,6 +326,13 @@
             'Delivered': 'Entregado',
             'Returns & Refunds': 'Devoluciones y Reembolsos',
             '↩️ Returns & Refunds': '↩️ Devoluciones y Reembolsos',
+            'Reviews': 'Reseñas',
+            '⭐ Reviews': '⭐ Reseñas',
+            '✓ Approve All Pending': '✓ Aprobar Todas las Pendientes',
+            '↩ Unapprove': '↩ Desaprobar',
+            '✓ Approve All Pending': '✓ Aprobar Todas',
+            'Avg Rating': 'Calificación Promedio',
+            'No reviews yet for this product.': 'Aún no hay reseñas para este producto.',
             'New Return': '+ Nueva Devolución',
             'Requested': 'Solicitado',
             'Approved': 'Aprobado',
@@ -990,6 +997,9 @@
             }
             if (state.activeTab === 'returns') {
                 return `<section id="returnsPage"><div class="text-center py-12 text-gray-400">Loading returns…</div></section>`;
+            }
+            if (state.activeTab === 'reviews') {
+                return `<section id="reviewsTabPage"><div class="text-center py-12 text-gray-400">Loading reviews…</div></section>`;
             }
             if (state.activeTab === 'catalog') {
                 return `
@@ -2581,10 +2591,168 @@
 
         // ─── PRODUCT REVIEWS MODERATION ──────────────────────────────────────────────
 
+        // ─── REVIEWS MODERATION ──────────────────────────────────────────────────────
+
+        const STAR_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+
+        // ── All-reviews tab ───────────────────────────────────────────────────────────
+
+        async function renderReviewsTab(filter = 'pending') {
+            const el = document.getElementById('reviewsTabPage');
+            if (!el) return;
+            el.innerHTML = `<div class="text-center py-12 text-gray-400">Loading…</div>`;
+
+            try {
+                // Fetch all reviews
+                const snap = await getDocs(
+                    query(collection(db, REVIEWS_COLLECTION), orderBy('createdAt', 'desc'))
+                );
+                const all      = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                const pending  = all.filter(r => !r.approved);
+                const approved = all.filter(r =>  r.approved);
+                const shown    = filter === 'pending' ? pending : filter === 'approved' ? approved : all;
+
+                // Avg rating of approved reviews
+                const avgRating = approved.length > 0
+                    ? (approved.reduce((s, r) => s + (r.rating || 0), 0) / approved.length).toFixed(1)
+                    : '—';
+
+                const statCard = (icon, label, val, color) => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <div class="text-2xl mb-1">${icon}</div>
+                        <div class="text-xl font-black text-${color}-600">${val}</div>
+                        <div class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-0.5">${label}</div>
+                    </div>`;
+
+                const rows = shown.length === 0
+                    ? `<p class="text-center py-12 text-gray-400">No ${filter === 'pending' ? 'pending' : filter === 'approved' ? 'approved' : ''} reviews.</p>`
+                    : shown.map(r => {
+                        const product = state.items.find(i => i.id === r.productId);
+                        const date    = r.createdAt?.toDate?.()?.toLocaleDateString() || '—';
+                        const stars   = [1,2,3,4,5].map(n =>
+                            `<span class="${n <= r.rating ? 'text-yellow-400' : 'text-gray-200'} text-lg">★</span>`
+                        ).join('');
+                        const badge   = r.approved
+                            ? `<span class="px-2 py-0.5 text-xs font-bold bg-green-100 text-green-700 rounded-full">✓ Approved</span>`
+                            : `<span class="px-2 py-0.5 text-xs font-bold bg-yellow-100 text-yellow-700 rounded-full">⏳ Pending</span>`;
+
+                        return `
+                        <div class="border border-gray-100 rounded-xl p-4 shadow-sm ${r.approved ? 'bg-white' : 'bg-yellow-50'} transition">
+                            <div class="flex items-start justify-between gap-4">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap mb-1">
+                                        <span class="font-bold text-sm text-gray-800">${escapeHtml(r.userName || r.userEmail?.split('@')[0] || '—')}</span>
+                                        <div class="flex">${stars}</div>
+                                        <span class="text-xs text-gray-400">${STAR_LABELS[r.rating] || ''}</span>
+                                        ${badge}
+                                    </div>
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="text-xs text-gray-400">${escapeHtml(r.userEmail || '')} · ${date}</span>
+                                        ${product ? `
+                                        <span class="text-gray-300">·</span>
+                                        <button onclick="window.module.openReviewsModal('${r.productId}')"
+                                                class="text-xs text-indigo-600 hover:underline font-semibold">
+                                            ${escapeHtml(product.name)}
+                                        </button>` : `<span class="text-xs text-gray-400 italic">Product removed</span>`}
+                                    </div>
+                                    ${r.comment
+                                        ? `<p class="text-sm text-gray-700 leading-relaxed bg-white/80 rounded-lg p-3 border border-gray-100">${escapeHtml(r.comment)}</p>`
+                                        : `<p class="text-xs text-gray-400 italic">No comment left.</p>`}
+                                </div>
+                                <div class="flex flex-col gap-1.5 flex-shrink-0">
+                                    ${!r.approved ? `
+                                    <button onclick="window.module.approveReview('${r.id}', null, true)"
+                                            class="px-3 py-1.5 text-xs font-bold text-green-700 bg-green-100 hover:bg-green-200 rounded-lg transition whitespace-nowrap">
+                                        ✓ Approve
+                                    </button>` : `
+                                    <button onclick="window.module.unapproveReview('${r.id}')"
+                                            class="px-3 py-1.5 text-xs font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg transition whitespace-nowrap">
+                                        ↩ Unapprove
+                                    </button>`}
+                                    <button onclick="window.module.deleteReview('${r.id}', null, true)"
+                                            class="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-100 hover:bg-red-200 rounded-lg transition whitespace-nowrap">
+                                        🗑 Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('');
+
+                el.innerHTML = `
+                <div class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-indigo-700">⭐ Reviews</h2>
+                            <p class="text-sm text-gray-500 mt-0.5">Moderate customer reviews across all products</p>
+                        </div>
+                        ${pending.length > 0 ? `
+                        <button onclick="window.module.bulkApproveAllPending()"
+                                class="px-4 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition shadow-sm">
+                            ✓ Approve All Pending (${pending.length})
+                        </button>` : ''}
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        ${statCard('📝', 'Total Reviews', all.length, 'indigo')}
+                        ${statCard('⏳', 'Pending', pending.length, 'yellow')}
+                        ${statCard('✅', 'Approved', approved.length, 'green')}
+                        ${statCard('⭐', 'Avg Rating', avgRating, 'orange')}
+                    </div>
+
+                    <!-- Filter tabs -->
+                    <div class="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                        ${['pending','approved','all'].map(f => `
+                        <button onclick="window.module.renderReviewsTab('${f}')"
+                                class="px-4 py-1.5 rounded-md text-sm font-semibold transition
+                                       ${filter === f ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">
+                            ${f === 'pending' ? `⏳ Pending (${pending.length})` : f === 'approved' ? `✅ Approved (${approved.length})` : `All (${all.length})`}
+                        </button>`).join('')}
+                    </div>
+
+                    <!-- Reviews list -->
+                    <div class="space-y-3">${rows}</div>
+                </div>`;
+
+                translatePage();
+            } catch (err) {
+                el.innerHTML = `<div class="text-center py-12 text-red-500">Error: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        async function bulkApproveAllPending() {
+            const snap = await getDocs(
+                query(collection(db, REVIEWS_COLLECTION), where('approved', '==', false))
+            );
+            if (snap.empty) { showMessage('info', 'No pending reviews.', 2000, 'reviews'); return; }
+            if (!confirm(`Approve all ${snap.size} pending review${snap.size !== 1 ? 's' : ''}?`)) return;
+
+            try {
+                await Promise.all(snap.docs.map(d =>
+                    updateDoc(doc(db, REVIEWS_COLLECTION, d.id), { approved: true })
+                ));
+                showMessage('success', `${snap.size} review${snap.size !== 1 ? 's' : ''} approved.`, 3000, 'reviews');
+                window.module.renderReviewsTab('approved');
+            } catch (err) {
+                showMessage('error', `Bulk approve failed: ${err.message}`, 3000, 'reviews');
+            }
+        }
+
+        async function unapproveReview(reviewId) {
+            try {
+                await updateDoc(doc(db, REVIEWS_COLLECTION, reviewId), { approved: false });
+                showMessage('success', 'Review moved back to pending.', 2000, 'reviews');
+                window.module.renderReviewsTab('approved');
+            } catch (err) {
+                showMessage('error', err.message, 3000, 'reviews');
+            }
+        }
+
+        // ── Per-product modal ─────────────────────────────────────────────────────────
+
         async function openReviewsModal(itemId) {
             const item     = state.items.find(i => i.id === itemId);
             const itemName = item?.name || itemId;
-            // Show modal shell immediately
             const existing = document.getElementById('reviewsModalContainer');
             if (existing) existing.remove();
             const container = document.createElement('div');
@@ -2604,19 +2772,38 @@
                             </svg>
                         </button>
                     </div>
+                    <div class="flex gap-1 bg-gray-50 px-6 py-2 border-b" id="reviewsModalFilterBar">
+                        ${['all','pending','approved'].map(f => `
+                        <button onclick="window.module.refreshReviewsModal('${itemId}','${f}')"
+                                data-filter="${f}"
+                                class="px-3 py-1 rounded-md text-xs font-semibold transition review-filter-btn
+                                       ${f === 'all' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">
+                            ${f === 'all' ? 'All' : f === 'pending' ? '⏳ Pending' : '✅ Approved'}
+                        </button>`).join('')}
+                    </div>
                     <div id="reviewsModalBody" class="overflow-y-auto flex-1 p-6">
                         <p class="text-center text-gray-400 py-8">Loading reviews…</p>
                     </div>
                 </div>
             </div>`;
             document.body.appendChild(container);
-
-            await refreshReviewsModal(itemId);
+            await refreshReviewsModal(itemId, 'all');
         }
 
-        async function refreshReviewsModal(itemId) {
+        async function refreshReviewsModal(itemId, filter = 'all') {
             const body = document.getElementById('reviewsModalBody');
             if (!body) return;
+
+            // Update active filter button
+            document.querySelectorAll('.review-filter-btn').forEach(btn => {
+                const isActive = btn.dataset.filter === filter;
+                btn.className = btn.className
+                    .replace('bg-white text-indigo-700 shadow-sm', '')
+                    .replace('text-gray-500 hover:text-gray-700', '')
+                    .trim();
+                btn.className += isActive ? ' bg-white text-indigo-700 shadow-sm' : ' text-gray-500 hover:text-gray-700';
+            });
+
             try {
                 const q    = query(collection(db, REVIEWS_COLLECTION),
                                    where('productId', '==', itemId),
@@ -2628,8 +2815,50 @@
                     return;
                 }
 
-                const STAR_LABELS = ['','Poor','Fair','Good','Very Good','Excellent'];
-                const rows = snap.docs.map(d => {
+                let docs = snap.docs;
+                if (filter === 'pending')  docs = docs.filter(d => !d.data().approved);
+                if (filter === 'approved') docs = docs.filter(d =>  d.data().approved);
+
+                const all      = snap.docs.length;
+                const pending  = snap.docs.filter(d => !d.data().approved).length;
+                const approved = snap.docs.filter(d =>  d.data().approved).length;
+
+                // Rating distribution
+                const ratings = [5,4,3,2,1].map(n => ({
+                    n, count: snap.docs.filter(d => d.data().rating === n && d.data().approved).length
+                }));
+                const avgRating = approved > 0
+                    ? (snap.docs.filter(d => d.data().approved).reduce((s,d) => s + (d.data().rating||0), 0) / approved).toFixed(1)
+                    : null;
+
+                const ratingBar = approved > 0 ? `
+                <div class="bg-gray-50 rounded-xl p-4 mb-4 flex gap-6 items-center">
+                    <div class="text-center flex-shrink-0">
+                        <div class="text-4xl font-black text-gray-800">${avgRating}</div>
+                        <div class="flex justify-center mt-1">${[1,2,3,4,5].map(n =>
+                            `<span class="${n <= Math.round(parseFloat(avgRating)) ? 'text-yellow-400' : 'text-gray-200'} text-lg">★</span>`
+                        ).join('')}</div>
+                        <div class="text-xs text-gray-500 mt-1">${approved} approved</div>
+                    </div>
+                    <div class="flex-1 space-y-1">
+                        ${ratings.map(({n, count}) => `
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 w-4">${n}</span>
+                            <span class="text-yellow-400 text-xs">★</span>
+                            <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                <div class="bg-yellow-400 h-2 rounded-full" style="width:${approved > 0 ? Math.round(count/approved*100) : 0}%"></div>
+                            </div>
+                            <span class="text-xs text-gray-400 w-4">${count}</span>
+                        </div>`).join('')}
+                    </div>
+                </div>` : '';
+
+                if (docs.length === 0) {
+                    body.innerHTML = ratingBar + `<p class="text-center text-gray-400 py-6">No ${filter} reviews.</p>`;
+                    return;
+                }
+
+                const rows = docs.map(d => {
                     const r    = { id: d.id, ...d.data() };
                     const date = r.createdAt?.toDate?.()?.toLocaleDateString() || '—';
                     const stars = [1,2,3,4,5].map(n =>
@@ -2644,7 +2873,7 @@
                         <div class="flex items-start justify-between gap-3">
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-center gap-2 mb-1 flex-wrap">
-                                    <span class="font-semibold text-sm text-gray-800">${escapeHtml(r.userName || r.userEmail || '—')}</span>
+                                    <span class="font-semibold text-sm text-gray-800">${escapeHtml(r.userName || r.userEmail?.split('@')[0] || '—')}</span>
                                     <div class="flex text-sm">${stars}</div>
                                     <span class="text-xs text-gray-400">${STAR_LABELS[r.rating] || ''}</span>
                                     ${badge}
@@ -2654,11 +2883,15 @@
                             </div>
                             <div class="flex flex-col gap-1 flex-shrink-0">
                                 ${!r.approved ? `
-                                <button onclick="window.module.approveReview('${d.id}', '${itemId}')"
+                                <button onclick="window.module.approveReview('${d.id}','${itemId}')"
                                         class="px-3 py-1 text-xs font-bold text-green-700 bg-green-100 hover:bg-green-200 rounded-lg transition">
                                     ✓ Approve
-                                </button>` : ''}
-                                <button onclick="window.module.deleteReview('${d.id}', '${itemId}')"
+                                </button>` : `
+                                <button onclick="window.module.unapproveReview('${d.id}'); window.module.refreshReviewsModal('${itemId}','${filter}');"
+                                        class="px-3 py-1 text-xs font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                                    ↩ Unapprove
+                                </button>`}
+                                <button onclick="window.module.deleteReview('${d.id}','${itemId}')"
                                         class="px-3 py-1 text-xs font-bold text-red-600 bg-red-100 hover:bg-red-200 rounded-lg transition">
                                     🗑 Delete
                                 </button>
@@ -2667,42 +2900,68 @@
                     </div>`;
                 }).join('');
 
-                const pending  = snap.docs.filter(d => !d.data().approved).length;
-                const approved = snap.docs.filter(d =>  d.data().approved).length;
-
                 body.innerHTML = `
+                ${ratingBar}
                 <div class="flex gap-4 mb-4 text-sm">
-                    <span class="font-bold text-gray-700">${snap.size} total</span>
+                    <span class="font-bold text-gray-700">${all} total</span>
                     <span class="text-green-600 font-semibold">${approved} approved</span>
                     <span class="text-yellow-600 font-semibold">${pending} pending</span>
+                    ${pending > 0 && filter !== 'approved' ? `
+                    <button onclick="window.module.bulkApproveProduct('${itemId}')"
+                            class="ml-auto px-3 py-0.5 text-xs font-bold text-green-700 bg-green-100 hover:bg-green-200 rounded-lg transition">
+                        ✓ Approve All Pending
+                    </button>` : ''}
                 </div>
                 <div class="space-y-3">${rows}</div>`;
 
             } catch (e) {
-                console.error('refreshReviewsModal error:', e);
-                body.innerHTML = `<p class="text-center text-red-400 py-8">Error loading reviews: ${e.message}</p>`;
+                body.innerHTML = `<p class="text-center text-red-400 py-8">Error: ${e.message}</p>`;
             }
         }
 
-        async function approveReview(reviewId, itemId) {
+        async function approveReview(reviewId, itemId, fromTab = false) {
             try {
                 await updateDoc(doc(db, REVIEWS_COLLECTION, reviewId), { approved: true });
-                await refreshReviewsModal(itemId);
-                showMessage('success', 'Review approved.', 2000, 'catalog');
+                if (fromTab) {
+                    showMessage('success', 'Review approved.', 2000, 'reviews');
+                    window.module.renderReviewsTab('pending');
+                } else {
+                    await refreshReviewsModal(itemId);
+                    showMessage('success', 'Review approved.', 2000, 'catalog');
+                }
             } catch (e) {
-                showMessage('error', `Failed to approve: ${e.message}`, 3000, 'catalog');
+                showMessage('error', `Failed: ${e.message}`, 3000, fromTab ? 'reviews' : 'catalog');
             }
         }
 
-        async function deleteReview(reviewId, itemId) {
+        async function deleteReview(reviewId, itemId, fromTab = false) {
             if (!confirm('Delete this review? This cannot be undone.')) return;
             try {
                 await deleteDoc(doc(db, REVIEWS_COLLECTION, reviewId));
-                await refreshReviewsModal(itemId);
-                showMessage('success', 'Review deleted.', 2000, 'catalog');
+                if (fromTab) {
+                    showMessage('success', 'Review deleted.', 2000, 'reviews');
+                    window.module.renderReviewsTab();
+                } else {
+                    await refreshReviewsModal(itemId);
+                    showMessage('success', 'Review deleted.', 2000, 'catalog');
+                }
             } catch (e) {
-                showMessage('error', `Failed to delete: ${e.message}`, 3000, 'catalog');
+                showMessage('error', `Failed: ${e.message}`, 3000, fromTab ? 'reviews' : 'catalog');
             }
+        }
+
+        async function bulkApproveProduct(itemId) {
+            if (!confirm('Approve all pending reviews for this product?')) return;
+            const snap = await getDocs(
+                query(collection(db, REVIEWS_COLLECTION),
+                      where('productId', '==', itemId),
+                      where('approved', '==', false))
+            );
+            await Promise.all(snap.docs.map(d =>
+                updateDoc(doc(db, REVIEWS_COLLECTION, d.id), { approved: true })
+            ));
+            showMessage('success', `${snap.size} review${snap.size !== 1 ? 's' : ''} approved.`, 2000, 'catalog');
+            await refreshReviewsModal(itemId, 'all');
         }
 
         function toggleCatalogFullscreen() {
@@ -4246,6 +4505,8 @@
                 setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
             } else if (tab === 'returns') {
                 setTimeout(() => window.module.renderReturnsSection(), 100);
+            } else if (tab === 'reviews') {
+                setTimeout(() => window.module.renderReviewsTab(), 100);
             } else if (tab === 'config') {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
@@ -7729,6 +7990,7 @@
                     const TAB_GROUPS = {
                         catalog:            'catalog',
                         inventory:          'catalog',
+                        reviews:            'catalog',
                         orders:             'orders',
                         shippingLabels:     'orders',
                         externalOrders:     'orders',
@@ -7773,11 +8035,12 @@
                     const divider = () => `<div class="border-t border-gray-100"></div>`;
 
                     return `
-                    ${groupHeader('catalog', '📦', 'Catalog & Inventory', 2)}
+                    ${groupHeader('catalog', '📦', 'Catalog & Inventory', 3)}
                     ${isOpen('catalog') ? `
                     <div class="bg-gray-50/60 pb-1">
                         ${tabBtn('catalog',   '🗂️', t('tabCatalog'))}
                         ${tabBtn('inventory', '📋', t('tabInventory'))}
+                        ${tabBtn('reviews',   '⭐', 'Reviews')}
                     </div>` : ''}
 
                     ${divider()}
@@ -7840,6 +8103,7 @@
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
             if (state.activeTab === 'abandonedCarts' && !state.previewMode) setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
             if (state.activeTab === 'returns' && !state.previewMode) setTimeout(() => window.module.renderReturnsSection(), 100);
+            if (state.activeTab === 'reviews' && !state.previewMode) setTimeout(() => window.module.renderReviewsTab(), 100);
             if (state.activeTab === 'config' && !state.previewMode) {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
@@ -15680,8 +15944,13 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             downloadCatalog,
             printCatalogBrochure,
             openReviewsModal,
+            refreshReviewsModal,
             approveReview,
             deleteReview,
+            unapproveReview,
+            bulkApproveAllPending,
+            bulkApproveProduct,
+            renderReviewsTab,
             renderInventorySection,
             handleUpdateStock,
             showPurchaseOrderForm,
