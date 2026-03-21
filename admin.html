@@ -3300,7 +3300,22 @@
                 case 'BAN_USER':
                 case 'UNBAN_USER':        return details.uid?.slice?.(0,12) || '—';
                 case 'ADMIN_AUTO_LOGOUT': return details.reason || 'Idle timeout';
-                case 'ADMIN_CONFIG_UPDATED': return 'Site configuration updated';
+                case 'ADMIN_CONFIG_UPDATED': {
+                    // Show what actually changed as a readable summary
+                    const before = details.before || {};
+                    const after  = details.after  || {};
+                    const changed = [];
+                    if (before.maintenanceMode   !== after.maintenanceMode)   changed.push(`Maintenance ${after.maintenanceMode ? 'ON' : 'OFF'}`);
+                    if (before.chatWidgetEnabled !== after.chatWidgetEnabled)  changed.push(`Chat ${after.chatWidgetEnabled ? 'enabled' : 'disabled'}`);
+                    if (before.seasonalEnabled   !== after.seasonalEnabled)    changed.push(`Banner ${after.seasonalEnabled ? 'enabled' : 'disabled'}`);
+                    if (before.seasonalTheme     !== after.seasonalTheme)      changed.push(`Theme → ${after.seasonalTheme}`);
+                    if (before.chatActiveDays    !== after.chatActiveDays)     changed.push('Chat schedule days');
+                    if (before.chatEnableTime    !== after.chatEnableTime ||
+                        before.chatDisableTime   !== after.chatDisableTime)    changed.push('Chat hours');
+                    if (before.headerEN          !== after.headerEN)           changed.push(`Name → ${after.headerEN}`);
+                    if (before.logoUrl           !== after.logoUrl)            changed.push('Logo URL');
+                    return changed.length > 0 ? changed.join(', ') : 'Site configuration updated';
+                }
                 case 'CATALOG_EMAIL_SENT': return `→ ${details.toEmail || '—'}${details.couponCode ? ' · ' + details.couponCode : ''}`;
                 case 'CONTACT_CREATED':
                 case 'CONTACT_UPDATED':   return details.name || '—';
@@ -3312,8 +3327,45 @@
             const before = details.before;
             const after  = details.after;
 
-            // Only show diff if we have explicit before/after
-            if (!before && !after) {
+            // Human-readable field labels
+            const FIELD_LABELS = {
+                maintenanceMode:   'Maintenance Mode',
+                chatWidgetEnabled: 'Chat Widget',
+                chatEnableTime:    'Chat Opens',
+                chatDisableTime:   'Chat Closes',
+                chatActiveDays:    'Chat Days',
+                headerEN:          'Store Name (EN)',
+                logoUrl:           'Logo URL',
+                seasonalEnabled:   'Banner Enabled',
+                seasonalTheme:     'Banner Theme',
+                name:              'Name',
+                price:             'Price',
+                stock:             'Stock',
+                description:       'Description',
+                oldStatus:         'Status',
+                newStatus:         'Status',
+                oldStock:          'Stock',
+                newStock:          'Stock',
+                code:              'Code',
+                type:              'Type',
+                value:             'Value',
+            };
+
+            const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+            // Format a value for display
+            const fmt = (key, v) => {
+                if (v == null || v === '') return '—';
+                if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+                // Day list: "1,2,3,4,5" → "Mon Tue Wed Thu Fri"
+                if (key === 'chatActiveDays' && typeof v === 'string') {
+                    return v.split(',').filter(Boolean).map(n => DAY_NAMES[parseInt(n)] || n).join(', ') || '—';
+                }
+                if (key.toLowerCase().includes('cents') || key.toLowerCase().includes('price')) {
+                    return formatPriceDisplay(Number(v));
+                }
+                return String(v);
+            };
                 // For actions that inherently have old/new fields
                 if (actionType === 'ORDER_STATUS_UPDATED' && details.oldStatus && details.newStatus) {
                     return buildDiffTable([
@@ -3329,10 +3381,25 @@
                 return null;
             }
 
+            // Only show diff if we have explicit before/after
+            if (!before && !after) {
+                if (actionType === 'ORDER_STATUS_UPDATED' && details.oldStatus && details.newStatus) {
+                    return buildDiffTable([
+                        { field: 'Status', before: details.oldStatus, after: details.newStatus }
+                    ]);
+                }
+                if ((actionType === 'INVENTORY_UPDATED' || actionType === 'STOCK_ADJUSTED') &&
+                    details.oldStock != null && details.newStock != null) {
+                    return buildDiffTable([
+                        { field: 'Stock', before: String(details.oldStock), after: String(details.newStock) }
+                    ]);
+                }
+                return null;
+            }
+
             if (!before || !after) return null;
 
-            // Compare before/after objects — only show changed fields
-            const allKeys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+            const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
             const changes = [];
 
             for (const key of allKeys) {
@@ -3341,18 +3408,8 @@
                 const bStr = bVal == null ? '' : String(bVal);
                 const aStr = aVal == null ? '' : String(aVal);
                 if (bStr !== aStr) {
-                    // Format field name nicely
-                    const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-                    // Format values (prices, booleans)
-                    const fmt = (v) => {
-                        if (v == null || v === '') return '—';
-                        if (typeof v === 'boolean') return v ? 'Yes' : 'No';
-                        if (key.toLowerCase().includes('cents') || key.toLowerCase().includes('price')) {
-                            return formatPriceDisplay(Number(v));
-                        }
-                        return String(v);
-                    };
-                    changes.push({ field: label, before: fmt(bVal), after: fmt(aVal) });
+                    const label = FIELD_LABELS[key] || key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+                    changes.push({ field: label, before: fmt(key, bVal), after: fmt(key, aVal) });
                 }
             }
 
@@ -6965,8 +7022,20 @@ ${printScript}
             const messageDiv = document.getElementById('configMessage');
 
             try {
-                // ✅ GET THE ID TOKEN FIRST
                 const idToken = await auth.currentUser.getIdToken();
+
+                // ── Snapshot before state NOW, before anything is saved ──────────────
+                const beforeSnapshot = {
+                    maintenanceMode:   globalConfig?.maintenanceMode,
+                    chatWidgetEnabled: globalConfig?.chatWidgetEnabled,
+                    chatEnableTime:    globalConfig?.chatSchedule?.enableTime,
+                    chatDisableTime:   globalConfig?.chatSchedule?.disableTime,
+                    chatActiveDays:    (globalConfig?.chatSchedule?.activeDays || []).join(','),
+                    headerEN:          globalConfig?.branding?.headerText?.en,
+                    logoUrl:           globalConfig?.branding?.logoUrl,
+                    seasonalEnabled:   globalConfig?.seasonalBanner?.enabled,
+                    seasonalTheme:     globalConfig?.seasonalBanner?.theme,
+                };
 
                 const updates = {
                     maintenanceMode: document.getElementById('maintenanceToggle').checked,
@@ -6996,14 +7065,12 @@ ${printScript}
                         enabled: document.getElementById('seasonalBannerEnabled')?.checked ?? false,
                         theme:   document.getElementById('seasonalBannerTheme')?.value || 'stpatricks',
                         message: document.getElementById('seasonalBannerMessage')?.value?.trim() || '',
-                        autoManaged: false,  // manual save overrides scheduler
+                        autoManaged: false,
                     }
                 };
 
-                console.log('💾 SAVING CONFIG:', JSON.stringify(updates, null, 2)); // ✅ NEW
-                console.log('💾 Branding colors being sent:', updates.branding.colors); // ✅ NEW
+                console.log('💾 SAVING CONFIG:', JSON.stringify(updates, null, 2));
 
-                // ✅ ADD AUTHORIZATION HEADER
                 const response = await fetch(UPDATE_ADMIN_CONFIG_FUNCTION, {
                     method: 'POST',
                     headers: {
@@ -7013,46 +7080,45 @@ ${printScript}
                     body: JSON.stringify(updates)
                 });
 
-                console.log('💾 Response status:', response.status); // ✅ NEW
-
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error('💾 Save failed:', errorText); // ✅ NEW
+                    console.error('💾 Save failed:', errorText);
                     throw new Error('Failed to update config');
                 }
 
                 const result = await response.json();
                 console.log('💾 Save successful:', result);
 
-                // Immediately update globalConfig in memory so re-render has correct values
                 Object.assign(globalConfig, updates);
 
                 messageDiv.innerHTML = '<div class="p-4 bg-green-100 text-green-700 rounded-lg">Configuration updated successfully!</div>';
 
-                // Re-render the config tab so toggle checked states are baked into HTML correctly
                 renderAdminPage(auth.currentUser?.email || 'Admin');
 
-                // Restore the success message after re-render wipes it
                 setTimeout(() => {
                     const md = document.getElementById('configMessage');
                     if (md) md.innerHTML = '<div class="p-4 bg-green-100 text-green-700 rounded-lg">Configuration updated successfully!</div>';
                     setTimeout(() => { if (md) md.innerHTML = ''; }, 4000);
                 }, 100);
 
-                // Refresh config from server to get updated lastUpdated timestamp
                 await fetchAdminConfig();
 
+                // ── Build after snapshot from updates (not from re-fetched globalConfig) ──
+                const afterSnapshot = {
+                    maintenanceMode:   updates.maintenanceMode,
+                    chatWidgetEnabled: updates.chatWidgetEnabled,
+                    chatEnableTime:    updates.chatSchedule.enableTime,
+                    chatDisableTime:   updates.chatSchedule.disableTime,
+                    chatActiveDays:    updates.chatSchedule.activeDays.join(','),
+                    headerEN:          updates.branding.headerText.en,
+                    logoUrl:           updates.branding.logoUrl,
+                    seasonalEnabled:   updates.seasonalBanner.enabled,
+                    seasonalTheme:     updates.seasonalBanner.theme,
+                };
+
                 logAdminAction('ADMIN_CONFIG_UPDATED', {
-                    before: {
-                        maintenanceMode:   globalConfig?.maintenanceMode,
-                        chatWidgetEnabled: globalConfig?.chatWidgetEnabled,
-                        brandingHeaderEN:  globalConfig?.branding?.headerText?.en,
-                    },
-                    after: {
-                        maintenanceMode:   updates.maintenanceMode,
-                        chatWidgetEnabled: updates.chatWidgetEnabled,
-                        brandingHeaderEN:  updates.branding?.headerText?.en,
-                    }
+                    before: beforeSnapshot,
+                    after:  afterSnapshot,
                 });
 
             } catch (error) {
