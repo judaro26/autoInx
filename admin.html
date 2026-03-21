@@ -324,7 +324,15 @@
             'Processing': 'En Proceso',
             'Shipped': 'Enviado',
             'Delivered': 'Entregado',
-            'Returns & Refunds': 'Devoluciones y Reembolsos',
+            'Contacts': 'Contactos',
+            '👤 Contacts': '👤 Contactos',
+            'Total Contacts': 'Total de Contactos',
+            'Catalog Sent': 'Catálogo Enviado',
+            'Added This Week': 'Agregados Esta Semana',
+            'Last Contact': 'Último Contacto',
+            '+ Add Contact': '+ Agregar Contacto',
+            '✉ Catalog': '✉ Catálogo',
+            'Not sent': 'No enviado',
             '↩️ Returns & Refunds': '↩️ Devoluciones y Reembolsos',
             'Audit Log': 'Registro de Auditoría',
             '📋 Audit Log': '📋 Registro de Auditoría',
@@ -1015,6 +1023,9 @@
             }
             if (state.activeTab === 'reviews') {
                 return `<section id="reviewsTabPage"><div class="text-center py-12 text-gray-400">Loading reviews…</div></section>`;
+            }
+            if (state.activeTab === 'contacts') {
+                return `<section id="contactsPage"><div class="text-center py-12 text-gray-400">Loading contacts…</div></section>`;
             }
             if (state.activeTab === 'auditLog') {
                 return `<section id="auditLogPage"><div class="text-center py-12 text-gray-400">Loading audit log…</div></section>`;
@@ -4901,6 +4912,8 @@ ${printScript}
                 setTimeout(() => window.module.renderReturnsSection(), 100);
             } else if (tab === 'reviews') {
                 setTimeout(() => window.module.renderReviewsTab(), 100);
+            } else if (tab === 'contacts') {
+                setTimeout(() => window.module.renderContactsSection(), 100);
             } else if (tab === 'auditLog') {
                 setTimeout(() => window.module.renderAuditLog(), 100);
             } else if (tab === 'config') {
@@ -8398,6 +8411,7 @@ ${printScript}
                         profitAnalysis:     'finance',
                         returns:            'finance',
                         marketing:          'marketing',
+                        contacts:           'marketing',
                         users:              'users',
                         config:             'users',
                         auditLog:           'users',
@@ -8475,10 +8489,11 @@ ${printScript}
 
                     ${divider()}
 
-                    ${groupHeader('marketing', '📣', 'Marketing', 1)}
+                    ${groupHeader('marketing', '📣', 'Marketing', 2)}
                     ${isOpen('marketing') ? `
                     <div class="bg-gray-50/60 pb-1">
                         ${tabBtn('marketing', '🎯', 'Campaigns & Discounts')}
+                        ${tabBtn('contacts',  '👤', 'Contacts')}
                     </div>` : ''}
 
                     ${divider()}
@@ -8513,6 +8528,7 @@ ${printScript}
             if (state.activeTab === 'abandonedCarts' && !state.previewMode) setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
             if (state.activeTab === 'returns' && !state.previewMode) setTimeout(() => window.module.renderReturnsSection(), 100);
             if (state.activeTab === 'reviews' && !state.previewMode) setTimeout(() => window.module.renderReviewsTab(), 100);
+            if (state.activeTab === 'contacts' && !state.previewMode) setTimeout(() => window.module.renderContactsSection(), 100);
             if (state.activeTab === 'auditLog' && !state.previewMode) setTimeout(() => window.module.renderAuditLog(), 100);
             if (state.activeTab === 'config' && !state.previewMode) {
                 setTimeout(() => {
@@ -12632,7 +12648,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
         // ─────────────────────────────────────────────────────────────────────────────
 
         function getFilteredEmailNotifications() {
-            let items = state.emailNotifications || [];
+            // catalog_sent entries live in the Contacts tab — exclude from this log
+            let items = (state.emailNotifications || []).filter(n => n.type !== 'catalog_sent');
             const f = state.emailNotifFilters || {};
 
             if (f.searchTerm) {
@@ -12657,8 +12674,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 el.innerHTML = renderEmailNotificationsTable();
                 return;
             }
-            // Full page render
-            const all   = state.emailNotifications || [];
+            // Full page render — exclude catalog_sent (those live in Contacts tab)
+            const all   = (state.emailNotifications || []).filter(n => n.type !== 'catalog_sent');
             const types = {
                 order_confirmation: { label: 'Order Confirmations', icon: '📦', color: 'blue'   },
                 payment_link:       { label: 'Payment Links',       icon: '💳', color: 'orange' },
@@ -13541,6 +13558,332 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 console.error('Error fetching discounts:', error);
                 showMessage('error', 'Failed to load discounts.', 5000, 'marketing');
             }
+        }
+
+        // ─── CONTACTS (Potential Customers) ──────────────────────────────────────────
+
+        const CONTACTS_COLLECTION = 'contacts';
+
+        async function renderContactsSection() {
+            const el = document.getElementById('contactsPage');
+            if (!el) return;
+            el.innerHTML = `<div class="text-center py-12 text-gray-400">Loading…</div>`;
+
+            try {
+                const snap = await getDocs(
+                    query(collection(db, CONTACTS_COLLECTION), orderBy('createdAt', 'desc'))
+                );
+                const contacts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                // Fetch catalog_sent emails to enrich contacts
+                const emailSnap = await getDocs(
+                    query(collection(db, EMAIL_NOTIFICATIONS_COLLECTION),
+                          where('type', '==', 'catalog_sent'),
+                          orderBy('sentAt', 'desc'))
+                );
+                const catalogEmails = emailSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                // Map emails by recipientEmail for quick lookup
+                const emailsByContact = {};
+                catalogEmails.forEach(e => {
+                    const key = (e.recipientEmail || '').toLowerCase();
+                    if (!emailsByContact[key]) emailsByContact[key] = [];
+                    emailsByContact[key].push(e);
+                });
+
+                const stats = {
+                    total:    contacts.length,
+                    emailed:  contacts.filter(c => emailsByContact[(c.email||'').toLowerCase()]?.length > 0).length,
+                    thisWeek: contacts.filter(c => {
+                        const d = c.createdAt?.toDate?.() || new Date(c.createdAt || 0);
+                        return (Date.now() - d.getTime()) < 7 * 86400000;
+                    }).length,
+                };
+
+                const statCard = (icon, label, val, color) => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <div class="text-2xl mb-1">${icon}</div>
+                        <div class="text-xl font-black text-${color}-600">${val}</div>
+                        <div class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-0.5">${label}</div>
+                    </div>`;
+
+                const rows = contacts.length === 0
+                    ? `<tr><td colspan="7" class="px-6 py-12 text-center text-gray-400">No contacts yet. Add your first potential customer above.</td></tr>`
+                    : contacts.map(c => {
+                        const emails   = emailsByContact[(c.email||'').toLowerCase()] || [];
+                        const lastEmail = emails[0];
+                        const lastContact = c.lastContactedAt?.toDate?.()?.toLocaleDateString()
+                                         || c.createdAt?.toDate?.()?.toLocaleDateString() || '—';
+                        const emailBadge = lastEmail
+                            ? `<div class="flex flex-col gap-0.5">
+                                 <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">✉ Sent (${emails.length})</span>
+                                 <span class="text-xs text-gray-400">${lastEmail.sentAt?.toDate?.()?.toLocaleDateString() || '—'}</span>
+                               </div>`
+                            : `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500">Not sent</span>`;
+
+                        const tagBadges = (c.tags || []).map(t =>
+                            `<span class="px-1.5 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700">${escapeHtml(t)}</span>`
+                        ).join(' ');
+
+                        return `
+                        <tr class="hover:bg-gray-50 border-b border-gray-100 transition">
+                            <td class="px-4 py-3">
+                                <p class="text-sm font-bold text-gray-800">${escapeHtml(c.name || '—')}</p>
+                                ${tagBadges ? `<div class="flex flex-wrap gap-1 mt-1">${tagBadges}</div>` : ''}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-600">${escapeHtml(c.email || '—')}</td>
+                            <td class="px-4 py-3 text-sm text-gray-600">${escapeHtml(c.phone || '—')}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500">${lastContact}</td>
+                            <td class="px-4 py-3">${emailBadge}</td>
+                            <td class="px-4 py-3 text-xs text-gray-400 max-w-[160px] truncate" title="${escapeHtml(c.notes || '')}">${escapeHtml(c.notes || '—')}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex gap-1.5">
+                                    ${c.email ? `
+                                    <button onclick="window.module.sendCatalogToContact('${c.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded transition" title="Send catalog">
+                                        ✉ Catalog
+                                    </button>` : ''}
+                                    <button onclick="window.module.openContactModal('${c.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded transition" title="Edit">
+                                        ✏️ Edit
+                                    </button>
+                                    <button onclick="window.module.deleteContact('${c.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-red-500 hover:bg-red-50 rounded transition" title="Delete">
+                                        🗑
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>`;
+                    }).join('');
+
+                el.innerHTML = `
+                <div class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-indigo-700">👤 Contacts</h2>
+                            <p class="text-sm text-gray-500 mt-0.5">Potential customers and leads</p>
+                        </div>
+                        <button onclick="window.module.openContactModal()"
+                                class="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition shadow-sm">
+                            + Add Contact
+                        </button>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        ${statCard('👤', 'Total Contacts', stats.total,    'indigo')}
+                        ${statCard('✉',  'Catalog Sent',  stats.emailed,  'green')}
+                        ${statCard('🆕', 'Added This Week', stats.thisWeek, 'blue')}
+                    </div>
+
+                    <!-- Table -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-100">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Name</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Email</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Phone</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Last Contact</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Catalog</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Notes</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+
+                translatePage();
+            } catch (err) {
+                el.innerHTML = `<div class="text-center py-12 text-red-500">Error: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        function openContactModal(contactId = null) {
+            const existing = document.getElementById('contactModal');
+            if (existing) existing.remove();
+
+            const c = contactId ? (state._editingContact || {}) : {};
+            const isEdit = !!contactId;
+
+            // If editing, fetch the contact first
+            if (isEdit) {
+                getDoc(doc(db, CONTACTS_COLLECTION, contactId)).then(snap => {
+                    if (!snap.exists()) { alert('Contact not found.'); return; }
+                    state._editingContact = { id: snap.id, ...snap.data() };
+                    _renderContactModal(contactId, state._editingContact);
+                });
+                return;
+            }
+            _renderContactModal(null, {});
+        }
+
+        function _renderContactModal(contactId, c) {
+            const existing = document.getElementById('contactModal');
+            if (existing) existing.remove();
+
+            const isEdit = !!contactId;
+            const tagsStr = (c.tags || []).join(', ');
+
+            const modal = document.createElement('div');
+            modal.id = 'contactModal';
+            modal.innerHTML = `
+            <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                 onclick="if(event.target===this)document.getElementById('contactModal').remove()">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                    <div class="flex items-center justify-between px-6 py-4 border-b">
+                        <h3 class="text-lg font-bold text-gray-800">${isEdit ? '✏️ Edit Contact' : '👤 New Contact'}</h3>
+                        <button onclick="document.getElementById('contactModal').remove()" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="col-span-2">
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Full Name *</label>
+                                <input type="text" id="contactName" value="${escapeHtml(c.name || '')}"
+                                       placeholder="e.g. John Smith"
+                                       class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Email</label>
+                                <input type="email" id="contactEmail" value="${escapeHtml(c.email || '')}"
+                                       placeholder="john@example.com"
+                                       class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Phone</label>
+                                <input type="tel" id="contactPhone" value="${escapeHtml(c.phone || '')}"
+                                       placeholder="510-555-0100"
+                                       class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Tags
+                                    <span class="font-normal text-gray-400">(comma-separated, e.g. east-bay, mechanic)</span>
+                                </label>
+                                <input type="text" id="contactTags" value="${escapeHtml(tagsStr)}"
+                                       placeholder="east-bay, lead, mechanic"
+                                       class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
+                                <textarea id="contactNotes" rows="3"
+                                          placeholder="How you met, vehicle info, interests…"
+                                          class="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 resize-none">${escapeHtml(c.notes || '')}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-3 px-6 pb-6">
+                        <button onclick="document.getElementById('contactModal').remove()"
+                                class="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
+                        <button onclick="window.module.saveContact(${contactId ? `'${contactId}'` : 'null'})"
+                                class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition">
+                            ${isEdit ? 'Save Changes' : 'Add Contact'}
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+        }
+
+        async function saveContact(contactId = null) {
+            const name  = document.getElementById('contactName')?.value?.trim();
+            const email = document.getElementById('contactEmail')?.value?.trim();
+            const phone = document.getElementById('contactPhone')?.value?.trim();
+            const notes = document.getElementById('contactNotes')?.value?.trim();
+            const tagsRaw = document.getElementById('contactTags')?.value || '';
+            const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+
+            if (!name) { alert('Name is required.'); return; }
+
+            const data = {
+                name, email: email || null, phone: phone || null,
+                notes: notes || '', tags,
+                updatedAt: serverTimestamp(),
+                lastContactedAt: serverTimestamp(),
+            };
+
+            try {
+                if (contactId) {
+                    await updateDoc(doc(db, CONTACTS_COLLECTION, contactId), data);
+                    logAdminAction('CONTACT_UPDATED', { name, contactId });
+                } else {
+                    data.createdAt = serverTimestamp();
+                    const ref = await addDoc(collection(db, CONTACTS_COLLECTION), data);
+                    logAdminAction('CONTACT_CREATED', { name, contactId: ref.id });
+                }
+                document.getElementById('contactModal')?.remove();
+                showMessage('success', `Contact ${contactId ? 'updated' : 'added'}.`, 2000, 'contacts');
+                window.module.renderContactsSection();
+            } catch (err) {
+                alert(`Failed: ${err.message}`);
+            }
+        }
+
+        async function deleteContact(contactId) {
+            const snap = await getDoc(doc(db, CONTACTS_COLLECTION, contactId));
+            const name = snap.data()?.name || 'this contact';
+            if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+            try {
+                await deleteDoc(doc(db, CONTACTS_COLLECTION, contactId));
+                showMessage('success', 'Contact deleted.', 2000, 'contacts');
+                window.module.renderContactsSection();
+            } catch (err) {
+                showMessage('error', err.message, 3000, 'contacts');
+            }
+        }
+
+        async function sendCatalogToContact(contactId) {
+            // Pre-fill the send catalog form in Marketing tab with this contact's details
+            const snap = await getDoc(doc(db, CONTACTS_COLLECTION, contactId));
+            if (!snap.exists()) { alert('Contact not found.'); return; }
+            const c = snap.data();
+
+            if (!c.email) {
+                alert('This contact has no email address. Please add one first.');
+                return;
+            }
+
+            // Switch to marketing tab — the send catalog form is at the top
+            window.module.switchAdminTab('marketing');
+            setTimeout(() => {
+                const emailField = document.getElementById('catalogEmailTo');
+                const nameField  = document.getElementById('catalogEmailName');
+                if (emailField) { emailField.value = c.email; emailField.focus(); }
+                if (nameField)  { nameField.value  = c.name || ''; }
+                // Scroll to the send catalog card
+                emailField?.closest('.bg-gradient-to-br')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                showMessage('info', `Ready to send catalog to ${c.name || c.email}`, 3000, 'marketing');
+
+                // Log the contact was touched
+                updateDoc(doc(db, CONTACTS_COLLECTION, contactId), {
+                    lastContactedAt: serverTimestamp()
+                }).catch(() => {});
+            }, 400);
+        }
+
+        async function renderContactSendHistory(contactEmail) {
+            // Returns HTML for the email history of a contact — used in future detail view
+            try {
+                const snap = await getDocs(
+                    query(collection(db, EMAIL_NOTIFICATIONS_COLLECTION),
+                          where('type', '==', 'catalog_sent'),
+                          where('recipientEmail', '==', contactEmail),
+                          orderBy('sentAt', 'desc'))
+                );
+                if (snap.empty) return '<p class="text-xs text-gray-400">No catalogs sent yet.</p>';
+                return snap.docs.map(d => {
+                    const e    = d.data();
+                    const date = e.sentAt?.toDate?.()?.toLocaleString() || '—';
+                    return `<div class="flex justify-between items-center py-1.5 border-b border-gray-50 text-sm">
+                        <span class="text-gray-600">${date}</span>
+                        ${e.couponCode ? `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-mono">${escapeHtml(e.couponCode)}</span>` : ''}
+                        ${e.attachedPdf ? '<span class="text-xs text-gray-400">📎 PDF</span>' : ''}
+                    </div>`;
+                }).join('');
+            } catch { return '<p class="text-xs text-red-400">Error loading history.</p>'; }
         }
 
         async function sendCatalogEmail() {
@@ -16653,6 +16996,11 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             downloadRefundsCsv,
             handleCreateDiscount,
             sendCatalogEmail,
+            renderContactsSection,
+            openContactModal,
+            saveContact,
+            deleteContact,
+            sendCatalogToContact,
             handleDeleteDiscount,
             toggleDiscountEnabled,
             printPromoCards,
