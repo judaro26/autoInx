@@ -3029,6 +3029,9 @@
             DISCOUNT_USED:               { label: 'Discount Used',          icon: '🏷️', color: 'indigo' },
             SHIPPING_LABEL_GENERATED:    { label: 'Label Generated',        icon: '📬', color: 'indigo' },
             CATALOG_EMAIL_SENT:          { label: 'Catalog Email Sent',      icon: '✉️', color: 'indigo' },
+            ADMIN_CONFIG_UPDATED:        { label: 'Config Updated',          icon: '⚙️', color: 'gray'   },
+            CONTACT_CREATED:             { label: 'Contact Created',         icon: '👤', color: 'green'  },
+            CONTACT_UPDATED:             { label: 'Contact Updated',         icon: '👤', color: 'blue'   },
             PROFIT_DATA_UPDATED:         { label: 'Profit Data Updated',    icon: '📈', color: 'blue'   },
             EMAIL_NOTIF_PURGED:          { label: 'Email Logs Purged',      icon: '🗑️', color: 'gray'   },
             CLEANUP_ANON_USERS:          { label: 'Anon Users Cleared',     icon: '👥', color: 'gray'   },
@@ -3042,8 +3045,8 @@
             'Inventory': ['INVENTORY_UPDATED','INVENTORY_DECREASED','STOCK_ADJUSTED','STOCK_UPDATED'],
             'Orders':    ['ORDER_UPDATED','ORDER_STATUS_UPDATED','ORDER_DELETED','ORDER_DISCOUNT_REMOVED','PAYMENT_ADDED','PAYMENT_REMOVED','REFUND_PROCESSED','RETURN_REFUNDED'],
             'Vendors':   ['VENDOR_ORDER_CREATED','VENDOR_ORDER_UPDATED','VENDOR_ORDER_DELETED','VENDOR_ORDER_DUPES_REMOVED','VENDOR_COST_SYNCED_TO_PROFIT'],
-            'Marketing': ['DISCOUNT_CREATED','DISCOUNT_UPDATED','DISCOUNT_DELETED','DISCOUNT_TOGGLED','DISCOUNT_USED'],
-            'System':    ['SHIPPING_LABEL_GENERATED','PROFIT_DATA_UPDATED','EMAIL_NOTIF_PURGED','CLEANUP_ANON_USERS','BAN_USER','UNBAN_USER','ADMIN_AUTO_LOGOUT'],
+            'Marketing': ['DISCOUNT_CREATED','DISCOUNT_UPDATED','DISCOUNT_DELETED','DISCOUNT_TOGGLED','DISCOUNT_USED','CATALOG_EMAIL_SENT','CONTACT_CREATED','CONTACT_UPDATED'],
+            'System':    ['SHIPPING_LABEL_GENERATED','PROFIT_DATA_UPDATED','EMAIL_NOTIF_PURGED','CLEANUP_ANON_USERS','BAN_USER','UNBAN_USER','ADMIN_AUTO_LOGOUT','ADMIN_CONFIG_UPDATED'],
         };
 
         // State for audit log filters
@@ -3121,8 +3124,14 @@
                 for (const path of paths) {
                     try {
                         const ref = path.includes('/') ? collection(db, ...path.split('/')) : collection(db, path);
-                        const q   = query(ref, orderBy('timestamp', 'desc'), limit(500));
-                        const s   = await getDocs(q);
+                        let s;
+                        try {
+                            // Try with orderBy first (requires index)
+                            s = await getDocs(query(ref, orderBy('timestamp', 'desc'), limit(500)));
+                        } catch (_) {
+                            // Fall back to unordered if index missing
+                            s = await getDocs(query(ref, limit(500)));
+                        }
                         if (!s.empty) { snap = s; usedPath = path; break; }
                     } catch (_) {}
                 }
@@ -3132,12 +3141,19 @@
                     <div class="text-center py-16 px-6">
                         <div class="text-4xl mb-3">📋</div>
                         <p class="text-gray-500 font-semibold">No audit log entries found.</p>
-                        <p class="text-gray-400 text-sm mt-1">Actions will appear here once your <code class="bg-gray-100 px-1 rounded">logAdminAction</code> Netlify function writes to Firestore.</p>
+                        <p class="text-gray-400 text-sm mt-1">Actions are logged automatically as you use the admin panel. Try saving a config change or updating an order.</p>
                     </div>`;
                     return;
                 }
 
-                let entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                // Sort client-side newest-first (fallback for when index is missing)
+                let entries = snap.docs
+                    .map(d => ({ id: d.id, ...d.data() }))
+                    .sort((a, b) => {
+                        const ta = a.timestamp?.toDate?.()?.getTime() || 0;
+                        const tb = b.timestamp?.toDate?.()?.getTime() || 0;
+                        return tb - ta;
+                    });
 
                 // Apply category filter
                 if (state.auditLog.category !== 'all') {
@@ -4774,6 +4790,7 @@ ${printScript}
 
         async function logAdminAction(actionType, details, objectId = null) {
             if (!db || !auth.currentUser) return;
+            console.log(`📋 Audit log: ${actionType}`, details || {});
             try {
                 await addDoc(collection(db, AUDIT_LOG_COLLECTION), {
                     actionType,
@@ -4783,8 +4800,9 @@ ${printScript}
                     performedByUid:   auth.currentUser.uid   || null,
                     timestamp:        serverTimestamp(),
                 });
+                console.log(`✅ Audit log written: ${actionType}`);
             } catch (e) {
-                console.warn('Audit log write failed:', e.message, '— action:', actionType);
+                console.warn('❌ Audit log write failed:', e.message, '— action:', actionType);
             }
         }
 
@@ -6920,6 +6938,12 @@ ${printScript}
 
                 // Refresh config from server to get updated lastUpdated timestamp
                 await fetchAdminConfig();
+
+                logAdminAction('ADMIN_CONFIG_UPDATED', {
+                    maintenanceMode: updates.maintenanceMode,
+                    chatWidgetEnabled: updates.chatWidgetEnabled,
+                    brandingHeaderEN: updates.branding?.headerText?.en,
+                });
 
             } catch (error) {
                 console.error('❌ Error updating config:', error);
