@@ -325,6 +325,15 @@
             'Shipped': 'Enviado',
             'Delivered': 'Entregado',
             'Cancelled': 'Cancelado',
+            'Abandoned Carts': 'Carritos Abandonados',
+            '🛒 Abandoned Carts': '🛒 Carritos Abandonados',
+            'Total Carts': 'Total de Carritos',
+            'Avg Cart Value': 'Valor Promedio',
+            'Reminders Sent': 'Recordatorios Enviados',
+            '⏳ Pending': '⏳ Pendiente',
+            '✉ Reminded': '✉ Recordado',
+            '👁 View': '👁 Ver',
+            '✉ Remind': '✉ Recordar',
             'Order ID': 'ID del Pedido',
             'Customer': 'Cliente',
             'Email': 'Correo',
@@ -1455,6 +1464,8 @@
                 }
             } else if (state.activeTab === 'emailNotifications') {
                 return `<section id="emailNotifPage"></section>`;
+            } else if (state.activeTab === 'abandonedCarts') {
+                return `<section id="abandonedCartsPage"><div class="text-center py-12 text-gray-400">Loading abandoned carts…</div></section>`;
             } else if (state.activeTab === 'marketing') {
                 return renderMarketingTab();
             } else if (state.activeTab === 'shippingLabels') {
@@ -4205,6 +4216,8 @@
             if (tab === 'externalOrders') {
                 window.module.fetchExternalOrders();
                 setTimeout(() => window.module.loadEbaySyncStatus(), 300);
+            } else if (tab === 'abandonedCarts') {
+                setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
             } else if (tab === 'config') {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
@@ -7673,6 +7686,7 @@
                         shippingLabels:     'orders',
                         externalOrders:     'orders',
                         emailNotifications: 'orders',
+                        abandonedCarts:     'orders',
                         financials:         'finance',
                         vendorOrders:       'finance',
                         profitAnalysis:     'finance',
@@ -7720,13 +7734,14 @@
 
                     ${divider()}
 
-                    ${groupHeader('orders', '🛒', 'Orders & Fulfillment', 4)}
+                    ${groupHeader('orders', '🛒', 'Orders & Fulfillment', 5)}
                     ${isOpen('orders') ? `
                     <div class="bg-gray-50/60 pb-1">
                         ${tabBtn('orders',             '📝', t('tabOrders'))}
                         ${tabBtn('externalOrders',     '🌐', 'External Orders')}
                         ${tabBtn('shippingLabels',     '🏷️', 'Shipping Labels')}
                         ${tabBtn('emailNotifications', '📬', 'Email Log')}
+                        ${tabBtn('abandonedCarts',     '🛒', 'Abandoned Carts')}
                     </div>` : ''}
 
                     ${divider()}
@@ -7774,7 +7789,7 @@
 
             // Post-render data population
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
-            if (state.activeTab === 'config' && !state.previewMode) {
+            if (state.activeTab === 'abandonedCarts' && !state.previewMode) setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
                     window.module.displayStaticIps();
@@ -12125,8 +12140,227 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        // DISCOUNT CRUD OPERATIONS
+        }
+
+        // ─── ABANDONED CARTS ──────────────────────────────────────────────────────────
+
+        async function renderAbandonedCartsSection() {
+            const el = document.getElementById('abandonedCartsPage');
+            if (!el) return;
+
+            el.innerHTML = `<div class="text-center py-12 text-gray-400">Loading…</div>`;
+
+            try {
+                const snap = await getDocs(
+                    query(collection(db, 'abandoned_carts'), orderBy('updatedAt', 'desc'))
+                );
+
+                const carts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                // Stats
+                const totalCarts     = carts.length;
+                const totalValue     = carts.reduce((s, c) => s + (c.totalCents || 0), 0);
+                const remindersSent  = carts.filter(c => c.reminderSent).length;
+                const avgValue       = totalCarts > 0 ? totalValue / totalCarts : 0;
+
+                const statCard = (icon, label, value, color) => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <div class="text-2xl mb-1">${icon}</div>
+                        <div class="text-2xl font-black text-${color}-600">${value}</div>
+                        <div class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-0.5">${label}</div>
+                    </div>`;
+
+                const rows = carts.length === 0
+                    ? `<tr><td colspan="7" class="px-6 py-12 text-center text-gray-400">No abandoned carts yet. Once customers add items and don't check out, they'll appear here.</td></tr>`
+                    : carts.map(cart => {
+                        const updatedAt = cart.updatedAt?.toDate?.() || new Date(cart.updatedAt || 0);
+                        const age       = Math.round((Date.now() - updatedAt.getTime()) / 3600000);
+                        const ageLabel  = age < 1 ? 'Just now' : age < 24 ? `${age}h ago` : `${Math.round(age/24)}d ago`;
+                        const items     = cart.items || [];
+                        const preview   = items.slice(0, 2).map(i => escapeHtml(i.name)).join(', ') + (items.length > 2 ? ` +${items.length - 2} more` : '');
+                        const statusBadge = cart.reminderSent
+                            ? `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">✉ Reminded</span>`
+                            : `<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">⏳ Pending</span>`;
+
+                        return `
+                        <tr class="hover:bg-gray-50 transition border-b border-gray-100">
+                            <td class="px-4 py-3 text-sm font-medium text-gray-800">${escapeHtml(cart.userEmail || cart.id?.slice(0,8) || '—')}</td>
+                            <td class="px-4 py-3 text-sm font-black text-indigo-700">${formatPriceDisplay(cart.totalCents || 0)}</td>
+                            <td class="px-4 py-3 text-sm text-gray-600 text-center">${cart.itemCount || items.length}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate" title="${escapeHtml(items.map(i=>i.name).join(', '))}">${escapeHtml(preview)}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">${ageLabel}</td>
+                            <td class="px-4 py-3">${statusBadge}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex gap-2">
+                                    <button onclick="window.module.viewAbandonedCart('${cart.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded transition" title="View cart contents">
+                                        👁 View
+                                    </button>
+                                    ${!cart.reminderSent && cart.userEmail ? `
+                                    <button onclick="window.module.sendCartReminder('${cart.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-orange-600 hover:bg-orange-50 rounded transition" title="Send reminder email">
+                                        ✉ Remind
+                                    </button>` : ''}
+                                    <button onclick="window.module.deleteAbandonedCart('${cart.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-red-500 hover:bg-red-50 rounded transition" title="Delete">
+                                        🗑
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>`;
+                    }).join('');
+
+                el.innerHTML = `
+                <div class="space-y-6">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-indigo-700">🛒 Abandoned Carts</h2>
+                            <p class="text-sm text-gray-500 mt-0.5">Customers who added items but didn't check out</p>
+                        </div>
+                        <button onclick="window.module.renderAbandonedCartsSection()"
+                                class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">
+                            ↺ Refresh
+                        </button>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        ${statCard('🛒', 'Total Carts',     totalCarts,                    'indigo')}
+                        ${statCard('💰', 'Total Value',     formatPriceDisplay(totalValue), 'green')}
+                        ${statCard('📊', 'Avg Cart Value',  formatPriceDisplay(avgValue),   'blue')}
+                        ${statCard('✉',  'Reminders Sent',  remindersSent,                 'orange')}
+                    </div>
+
+                    <!-- Table -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-100">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Customer</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Value</th>
+                                        <th class="px-4 py-3 text-center text-xs font-bold text-gray-600 uppercase">Items</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Products</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Abandoned</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+
+                translatePage();
+            } catch (err) {
+                el.innerHTML = `<div class="text-center py-12 text-red-500">Error loading abandoned carts: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        function viewAbandonedCart(cartId) {
+            // Find the cart from current page data by re-fetching
+            getDoc(doc(db, 'abandoned_carts', cartId)).then(snap => {
+                if (!snap.exists()) { alert('Cart not found.'); return; }
+                const cart  = { id: snap.id, ...snap.data() };
+                const items = cart.items || [];
+                const updatedAt = cart.updatedAt?.toDate?.()?.toLocaleString() || '—';
+
+                const rows = items.map(item => `
+                    <tr class="border-b border-gray-100">
+                        <td class="px-4 py-3 text-sm">
+                            ${item.imageUrl ? `<img src="${item.imageUrl}" class="w-10 h-10 object-contain rounded border" onerror="this.style.display='none'">` : '<div class="w-10 h-10 bg-gray-100 rounded"></div>'}
+                        </td>
+                        <td class="px-4 py-3 text-sm font-semibold text-gray-800">${escapeHtml(item.name)}</td>
+                        <td class="px-4 py-3 text-xs font-mono text-gray-400">${escapeHtml(item.sku || '—')}</td>
+                        <td class="px-4 py-3 text-sm text-center">${item.quantity}</td>
+                        <td class="px-4 py-3 text-sm font-bold text-indigo-700">${formatPriceDisplay((item.price || 0) * item.quantity)}</td>
+                    </tr>`).join('');
+
+                const existing = document.getElementById('abandonedCartModal');
+                if (existing) existing.remove();
+
+                const modal = document.createElement('div');
+                modal.id = 'abandonedCartModal';
+                modal.innerHTML = `
+                <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                     onclick="if(event.target===this)document.getElementById('abandonedCartModal').remove()">
+                    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+                        <div class="flex items-center justify-between px-6 py-4 border-b">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-800">🛒 Cart Details</h3>
+                                <p class="text-xs text-gray-400">${escapeHtml(cart.userEmail || cart.id)} · Last updated ${updatedAt}</p>
+                            </div>
+                            <button onclick="document.getElementById('abandonedCartModal').remove()"
+                                    class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                        </div>
+                        <div class="overflow-y-auto flex-1 px-2">
+                            <table class="w-full">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-bold text-gray-500"></th>
+                                        <th class="px-4 py-2 text-left text-xs font-bold text-gray-500">PRODUCT</th>
+                                        <th class="px-4 py-2 text-left text-xs font-bold text-gray-500">SKU</th>
+                                        <th class="px-4 py-2 text-center text-xs font-bold text-gray-500">QTY</th>
+                                        <th class="px-4 py-2 text-left text-xs font-bold text-gray-500">TOTAL</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                        <div class="px-6 py-4 border-t flex items-center justify-between bg-gray-50 rounded-b-2xl">
+                            <span class="text-sm text-gray-600">${items.length} item${items.length !== 1 ? 's' : ''}</span>
+                            <span class="text-lg font-black text-indigo-700">${formatPriceDisplay(cart.totalCents || 0)}</span>
+                        </div>
+                    </div>
+                </div>`;
+                document.body.appendChild(modal);
+            }).catch(err => alert('Error loading cart: ' + err.message));
+        }
+
+        async function deleteAbandonedCart(cartId) {
+            if (!confirm('Delete this abandoned cart record? This cannot be undone.')) return;
+            try {
+                await deleteDoc(doc(db, 'abandoned_carts', cartId));
+                showMessage('success', 'Cart deleted.', 2000, 'abandonedCarts');
+                window.module.renderAbandonedCartsSection();
+            } catch (err) {
+                showMessage('error', `Failed to delete: ${err.message}`, 3000, 'abandonedCarts');
+            }
+        }
+
+        async function sendCartReminder(cartId) {
+            const btn = event?.target;
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+            try {
+                const snap = await getDoc(doc(db, 'abandoned_carts', cartId));
+                if (!snap.exists()) throw new Error('Cart not found');
+                const cart = snap.data();
+                if (!cart.userEmail) throw new Error('No email address on file for this cart');
+
+                const idToken = await auth.currentUser.getIdToken();
+                const res = await fetch('/.netlify/functions/abandonedCartReminder', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cartId, userEmail: cart.userEmail, manual: true })
+                });
+
+                if (!res.ok) throw new Error(`Reminder function returned ${res.status}`);
+
+                // Mark as reminded in Firestore
+                await updateDoc(doc(db, 'abandoned_carts', cartId), {
+                    reminderSent: true,
+                    reminderSentAt: serverTimestamp()
+                });
+
+                showMessage('success', `Reminder sent to ${cart.userEmail}`, 3000, 'abandonedCarts');
+                window.module.renderAbandonedCartsSection();
+            } catch (err) {
+                showMessage('error', `Failed to send reminder: ${err.message}`, 4000, 'abandonedCarts');
+                if (btn) { btn.disabled = false; btn.textContent = '✉ Remind'; }
+            }
+        }
         // ─────────────────────────────────────────────────────────────────────────────
 
         async function fetchDiscounts() {
@@ -15091,6 +15325,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleEmailNotifSortFilter,
             setEmailNotifTypeFilter,
             purgeOldEmailNotifications,
+            renderAbandonedCartsSection,
+            viewAbandonedCart,
+            deleteAbandonedCart,
+            sendCartReminder,
             previewSeasonalBanner,
             resetBrandingColors,
             applySeasonalThemeColors,
