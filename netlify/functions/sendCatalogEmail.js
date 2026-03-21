@@ -21,30 +21,17 @@ async function verifyIdToken(authHeader) {
     return admin.auth().verifyIdToken(token); // throws if invalid
 }
 
-// ── Email transporter ──────────────────────────────────────────────────────────
+// ── Email transporter (Brevo SMTP) ────────────────────────────────────────────
 function createTransport() {
-    // Supports either SMTP credentials or SendGrid/Mailgun via SMTP
-    if (process.env.SMTP_HOST) {
-        return nodemailer.createTransporter({
-            host:   process.env.SMTP_HOST,
-            port:   parseInt(process.env.SMTP_PORT || '587'),
-            secure: process.env.SMTP_SECURE === 'true',
-            auth: {
-                user: process.env.SMTP_USER,
-                pass: process.env.SMTP_PASS,
-            },
-        });
-    }
-    // SendGrid shorthand
-    if (process.env.SENDGRID_API_KEY) {
-        return nodemailer.createTransporter({
-            host:   'smtp.sendgrid.net',
-            port:   587,
-            secure: false,
-            auth: { user: 'apikey', pass: process.env.SENDGRID_API_KEY },
-        });
-    }
-    throw new Error('No email transport configured. Set SMTP_HOST or SENDGRID_API_KEY.');
+    return nodemailer.createTransport({
+        host:   process.env.BREVO_SMTP_HOST,
+        port:   parseInt(process.env.BREVO_SMTP_PORT || '587'),
+        secure: false,
+        auth: {
+            user: process.env.BREVO_SMTP_USER,
+            pass: process.env.BREVO_SMTP_PASSWORD,
+        },
+    });
 }
 
 // ── PDF generation via puppeteer ──────────────────────────────────────────────
@@ -372,10 +359,9 @@ exports.handler = async function(event) {
         // Send email
         const transporter = createTransport();
         const fromName    = storeName;
-        const fromEmail   = process.env.EMAIL_FROM || 'catalog@autoinx.com';
 
         const mailOptions = {
-            from:    `"${fromName}" <${fromEmail}>`,
+            from:    `"${fromName}" <noreply@autoinx.com>`,
             to:      toEmail,
             subject: `Your ${storeName} Catalog${couponCode ? ` — Special Coupon Inside 🎁` : ''}`,
             html:    emailHtml,
@@ -388,6 +374,13 @@ exports.handler = async function(event) {
 
         const info = await transporter.sendMail(mailOptions);
         console.log(`✅ Catalog sent: ${info.messageId}`);
+
+        // Internal copy to orders inbox
+        await transporter.sendMail({
+            ...mailOptions,
+            to:      'orders@autoinx.com',
+            subject: `[CATALOG SENT] → ${toEmail}${couponCode ? ` · Coupon: ${couponCode}` : ''}`,
+        });
 
         // Log to Firestore
         try {
