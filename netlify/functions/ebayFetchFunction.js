@@ -236,10 +236,12 @@ exports.handler = async (event) => {
     const googleToken = await getGoogleAccessToken();
     console.log('✅ Google auth OK');
 
-    // Get last sync time
+    // Get last sync time — use 30 days back on first run to catch existing orders
     const syncState  = await fsGet(googleToken, 'admin/ebay_sync_state');
     const lastSyncTs = syncState?.lastSyncedAt;
-    const lastSync   = lastSyncTs instanceof Date ? lastSyncTs : new Date(Date.now() - 3600000);
+    const lastSync   = lastSyncTs instanceof Date
+      ? lastSyncTs
+      : new Date(Date.now() - 30 * 24 * 3600000); // 30 days on first run
     console.log(`📅 Fetching eBay orders since: ${lastSync.toISOString()}`);
 
     const ebayToken  = await getEbayAccessToken();
