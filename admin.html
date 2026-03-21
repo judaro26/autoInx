@@ -1237,6 +1237,7 @@
                                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
                                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
                                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Tracking</th>
                                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Qty</th>
                                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Sale Price</th>
                                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Vendor Cost</th>
@@ -1247,7 +1248,7 @@
                                 </thead>
                                 <tbody id="externalOrdersTableBody">
                                     <tr>
-                                        <td colspan="12" class="px-4 py-8 text-center text-gray-500">
+                                        <td colspan="13" class="px-4 py-8 text-center text-gray-500">
                                             Loading orders...
                                         </td>
                                     </tr>
@@ -14453,11 +14454,14 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                             const pricing = pricingMap[order.id] || {};
                             return {
                                 ...order,
-                                quantity:         pricing.quantity         ?? order.quantity         ?? 1,
-                                shippingCharged:  pricing.shippingCharged  ?? order.shippingCharged  ?? 0,
-                                transactionCost:  pricing.transactionCost  ?? order.transactionCost  ?? 0,
-                                vendorCostPerUnit: pricing.vendorCostPerUnit ?? order.vendorCostPerUnit ?? null,
-                                productId:        pricing.productId        ?? order.productId        ?? null,
+                                quantity:          pricing.quantity          ?? order.quantity          ?? 1,
+                                shippingCharged:   pricing.shippingCharged   ?? order.shippingCharged   ?? 0,
+                                transactionCost:   pricing.transactionCost   ?? order.transactionCost   ?? 0,
+                                vendorCostPerUnit: pricing.vendorCostPerUnit  ?? order.vendorCostPerUnit ?? null,
+                                productId:         pricing.productId          ?? order.productId         ?? null,
+                                // Tracking & shipping info synced from eBay
+                                trackingNumber:    order.trackingNumber       ?? pricing.trackingNumber  ?? null,
+                                shippingAddress:   pricing.shippingAddress    ?? order.shippingAddress   ?? null,
                             };
                         });
                     } catch (e) {
@@ -14471,7 +14475,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     console.error('Error fetching external orders:', error);
                     const tbody = document.getElementById('externalOrdersTableBody');
                     if (tbody) {
-                        tbody.innerHTML = `<tr><td colspan="12" class="px-4 py-8 text-center text-red-500">
+                        tbody.innerHTML = `<tr><td colspan="13" class="px-4 py-8 text-center text-red-500">
                             Error loading orders. Please refresh the page.
                         </td></tr>`;
                     }
@@ -14562,6 +14566,21 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold ${statusColors[order.status] || 'bg-gray-100 text-gray-800'}">
                         ${order.status}
                     </span>
+                </td>
+                <td class="px-4 py-3 text-sm max-w-[140px]">
+                    ${order.trackingNumber ? (() => {
+                        const tn  = order.trackingNumber;
+                        const url = window.module.getCarrierTrackingUrl(tn);
+                        const carrier = window.module.detectCarrier(tn);
+                        const addr = order.shippingAddress || '';
+                        return `<div>
+                            <a href="${url}" target="_blank" rel="noopener"
+                               class="font-mono text-xs text-blue-600 hover:text-blue-800 hover:underline break-all"
+                               title="${escapeHtml(tn)}">${escapeHtml(tn.length > 20 ? tn.slice(0,20)+'…' : tn)}</a>
+                            <div class="text-xs text-gray-400 mt-0.5">${carrier}</div>
+                            ${addr ? `<div class="text-xs text-gray-400 truncate max-w-[130px]" title="${escapeHtml(addr)}">${escapeHtml(addr.split(',')[0])}</div>` : ''}
+                        </div>`;
+                    })() : '<span class="text-gray-300 text-xs">—</span>'}
                 </td>
                 <td class="px-4 py-3 text-sm text-center">${qty}</td>
                 <td class="px-4 py-3 text-sm font-semibold">${salePriceUnit > 0 ? '$' + salePriceUnit.toFixed(2) : '—'}</td>
@@ -14970,6 +14989,32 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             formatDate: function (dateString) {
                 const date = new Date(dateString);
                 return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+            },
+
+            detectCarrier: function (tn) {
+                if (!tn) return '';
+                const t = tn.replace(/\s/g, '').toUpperCase();
+                if (/^1Z[A-Z0-9]{16}$/.test(t))                      return 'UPS';
+                if (/^(94|93|92|94|95)\d{20}$/.test(t))              return 'USPS';
+                if (/^\d{12}$/.test(t) || /^\d{15}$/.test(t) || /^\d{20}$/.test(t)) return 'FedEx';
+                if (/^[0-9]{10,11}$/.test(t))                        return 'DHL';
+                if (/^JD/.test(t))                                    return 'DHL';
+                return 'Carrier';
+            },
+
+            getCarrierTrackingUrl: function (tn) {
+                if (!tn) return '#';
+                const t = tn.replace(/\s/g, '').toUpperCase();
+                if (/^1Z[A-Z0-9]{16}$/.test(t))
+                    return `https://www.ups.com/track?tracknum=${tn}`;
+                if (/^(94|93|92|95)\d{20}$/.test(t))
+                    return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${tn}`;
+                if (/^\d{12}$/.test(t) || /^\d{15}$/.test(t) || /^\d{20}$/.test(t))
+                    return `https://www.fedex.com/fedextrack/?trknbr=${tn}`;
+                if (/^JD/.test(t) || /^[0-9]{10,11}$/.test(t))
+                    return `https://www.dhl.com/en/express/tracking.html?AWB=${tn}`;
+                // eBay order — fall back to eBay's own tracking page
+                return `https://www.ebay.com/itm/${tn}`;
             },
 
             handleStockAdjustment: async function (itemId, adjustment, setToZero = false) {
