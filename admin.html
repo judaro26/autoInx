@@ -14755,6 +14755,294 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             container.innerHTML = buildEmailPreviewHtml(fields);
         }
 
+        // ── Direct jsPDF catalog builder ─────────────────────────────────────────
+        // Builds the PDF entirely with jsPDF primitives (text, rect, addImage).
+        // No html2canvas → no blank page, no layout issues, no viewport problems.
+        async function generateCatalogPdfDirect(storeName, logoUrl) {
+            // Load jsPDF from CDN if not already present
+            if (!window.jspdf) {
+                await new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                    s.onload = resolve;
+                    s.onerror = () => reject(new Error('Failed to load jsPDF'));
+                    document.head.appendChild(s);
+                });
+            }
+
+            const { jsPDF } = window.jspdf;
+            const doc  = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+            const PW   = 612;   // page width  (pt, Letter)
+            const PH   = 792;   // page height (pt, Letter)
+            const MAR  = 36;    // margin
+            const CW   = PW - MAR * 2;   // content width = 540
+
+            const brand   = globalConfig?.branding || {};
+            const colors  = brand.colors || {};
+            const accent  = colors.addToCart || '#4f46e5';
+            const date    = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+
+            // Hex → r,g,b
+            const hexRgb = (hex) => {
+                const r = parseInt(hex.slice(1,3), 16);
+                const g = parseInt(hex.slice(3,5), 16);
+                const b = parseInt(hex.slice(5,7), 16);
+                return [r, g, b];
+            };
+            const setAccent = () => doc.setTextColor(...hexRgb(accent));
+            const setWhite  = () => doc.setTextColor(255, 255, 255);
+            const setDark   = () => doc.setTextColor(30, 27, 75);
+            const setGray   = () => doc.setTextColor(107, 114, 128);
+            const setLight  = () => doc.setTextColor(148, 163, 184);
+
+            const stripHtml = (s) => (s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+            // Group items by category
+            const groups = new Map();
+            state.catalogs.forEach(c => groups.set(c.id, { name: c.name, items: [] }));
+            groups.set('__other__', { name: 'Other', items: [] });
+            getFilteredItems().forEach(item => {
+                const key = item.catalogId && groups.has(item.catalogId) ? item.catalogId : '__other__';
+                groups.get(key).items.push(item);
+            });
+            const activeGroups = [...groups.values()].filter(g => g.items.length > 0);
+            const totalItems   = activeGroups.reduce((s, g) => s + g.items.length, 0);
+
+            // ── Helper: load image as dataURL ──────────────────────────────
+            const loadImg = (url) => new Promise(resolve => {
+                if (!url) return resolve(null);
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    try {
+                        const c = document.createElement('canvas');
+                        c.width = img.naturalWidth || 80;
+                        c.height = img.naturalHeight || 80;
+                        const ctx = c.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        resolve(c.toDataURL('image/jpeg', 0.85));
+                    } catch { resolve(null); }
+                };
+                img.onerror = () => resolve(null);
+                img.src = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+                setTimeout(() => resolve(null), 5000); // 5s timeout
+            });
+
+            // ── Cover page ─────────────────────────────────────────────────
+            doc.setFillColor(...hexRgb(accent));
+            doc.rect(0, 0, PW, PH, 'F');
+
+            // Logo on cover
+            if (logoUrl) {
+                const logoData = await loadImg(logoUrl);
+                if (logoData) {
+                    try { doc.addImage(logoData, 'JPEG', PW/2 - 35, 160, 70, 70); } catch {}
+                }
+            }
+
+            // Store name
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(42);
+            setWhite();
+            doc.text(storeName, PW / 2, logoUrl ? 260 : 220, { align: 'center' });
+
+            // Subtitle
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(12);
+            doc.setTextColor(255, 255, 255, 0.8);
+            doc.text('PRODUCT CATALOG', PW / 2, 285, { align: 'center', charSpace: 3 });
+
+            // Stats row
+            const stats = [
+                { val: String(totalItems),          lbl: 'PRODUCTS'   },
+                { val: String(activeGroups.length), lbl: 'CATEGORIES' },
+                { val: date.split(' ')[1],           lbl: date.split(' ')[0].toUpperCase() },
+            ];
+            const statW = 120;
+            const statsX = PW / 2 - statW * 1.5;
+            stats.forEach((st, i) => {
+                const x = statsX + i * statW + statW / 2;
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(28);
+                setWhite();
+                doc.text(st.val, x, 345, { align: 'center' });
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.setTextColor(255, 255, 255);
+                doc.text(st.lbl, x, 360, { align: 'center', charSpace: 1.5 });
+                if (i < 2) {
+                    doc.setDrawColor(255, 255, 255);
+                    doc.setLineWidth(0.5);
+                    doc.setGState(new doc.GState({ opacity: 0.3 }));
+                    doc.line(statsX + (i + 1) * statW, 325, statsX + (i + 1) * statW, 365);
+                    doc.setGState(new doc.GState({ opacity: 1 }));
+                }
+            });
+
+            // Contact info
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(255, 255, 255);
+            doc.text('autoinx.com  ·  support@autoinx.com  ·  finance@autoinx.com  ·  341-222-7912', PW / 2, 420, { align: 'center' });
+
+            // ── Content pages ──────────────────────────────────────────────
+            const CARD_W  = 162;  // (540 - 2×18) / 3 = 168; with gaps: 3×162 + 2×27 = 540
+            const CARD_GAP = 27;
+            const IMG_H   = 90;
+            const CARD_H  = 170;
+
+            let y = 0; // current y, reset each page
+
+            const newContentPage = () => {
+                doc.addPage();
+                doc.setFillColor(255, 255, 255);
+                doc.rect(0, 0, PW, PH, 'F');
+                // Page header
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(14);
+                setAccent();
+                doc.text(storeName, MAR, MAR + 14);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                setLight();
+                doc.text(`Product Catalog · ${date}`, PW - MAR, MAR + 14, { align: 'right' });
+                doc.setDrawColor(...hexRgb(accent));
+                doc.setLineWidth(1.5);
+                doc.line(MAR, MAR + 20, PW - MAR, MAR + 20);
+                y = MAR + 36;
+            };
+
+            const checkNewPage = (neededH) => {
+                if (y + neededH > PH - MAR - 20) {
+                    // Footer before page break
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    setLight();
+                    doc.text('autoinx.com  ·  support@autoinx.com  ·  341-222-7912', MAR, PH - 18);
+                    newContentPage();
+                }
+            };
+
+            newContentPage();
+
+            for (const group of activeGroups) {
+                // Category header
+                checkNewPage(28 + CARD_H);
+                setAccent();
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(9);
+                doc.text(group.name.toUpperCase(), MAR, y + 9, { charSpace: 1.5 });
+                doc.setDrawColor(...hexRgb(accent));
+                doc.setLineWidth(1);
+                doc.line(MAR, y + 13, PW - MAR, y + 13);
+                y += 22;
+
+                // Items in rows of 3
+                const rows = [];
+                for (let i = 0; i < group.items.length; i += 3) rows.push(group.items.slice(i, i + 3));
+
+                for (const row of rows) {
+                    checkNewPage(CARD_H + 10);
+
+                    // Load images in parallel
+                    const imgDatas = await Promise.all(
+                        row.map(item => loadImg(item.imageUrls?.[0] || item.imageUrl || null))
+                    );
+
+                    for (let ci = 0; ci < row.length; ci++) {
+                        const item   = row[ci];
+                        const cx     = MAR + ci * (CARD_W + CARD_GAP);
+                        const desc   = stripHtml(item.description || '');
+                        const price  = item.price != null ? `$${(item.price / 100).toFixed(2)}` : '';
+
+                        // Card border
+                        doc.setDrawColor(226, 232, 240);
+                        doc.setLineWidth(0.5);
+                        doc.setFillColor(255, 255, 255);
+                        doc.roundedRect(cx, y, CARD_W, CARD_H, 4, 4, 'FD');
+
+                        // Image area background
+                        doc.setFillColor(248, 250, 252);
+                        doc.roundedRect(cx, y, CARD_W, IMG_H, 4, 4, 'F');
+                        // Cover border overlap at bottom of img area
+                        doc.setFillColor(255, 255, 255);
+                        doc.rect(cx, y + IMG_H - 4, CARD_W, 4, 'F');
+
+                        // Product image
+                        if (imgDatas[ci]) {
+                            try {
+                                // Fit image within the image area
+                                const iw = CARD_W - 10;
+                                const ih = IMG_H - 6;
+                                doc.addImage(imgDatas[ci], 'JPEG', cx + 5, y + 3, iw, ih, undefined, 'FAST');
+                            } catch {}
+                        }
+
+                        // Product name
+                        const tx = cx + 8;
+                        let ty   = y + IMG_H + 9;
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(8);
+                        setDark();
+                        const nameLines = doc.splitTextToSize(item.name, CARD_W - 16);
+                        const nameLinesShown = nameLines.slice(0, 2);
+                        doc.text(nameLinesShown, tx, ty);
+                        ty += nameLinesShown.length * 10;
+
+                        // SKU
+                        if (item.sku) {
+                            doc.setFont('courier', 'normal');
+                            doc.setFontSize(7);
+                            setLight();
+                            doc.text(`SKU: ${item.sku}`, tx, ty);
+                            ty += 9;
+                        }
+
+                        // Description
+                        if (desc) {
+                            doc.setFont('helvetica', 'normal');
+                            doc.setFontSize(7);
+                            setGray();
+                            const descLines = doc.splitTextToSize(desc, CARD_W - 16).slice(0, 2);
+                            doc.text(descLines, tx, ty);
+                            ty += descLines.length * 8 + 2;
+                        }
+
+                        // Price (pinned near bottom of card)
+                        const priceY = y + CARD_H - 12;
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(11);
+                        setAccent();
+                        doc.text(price, tx, priceY);
+
+                        if (item.stock != null) {
+                            doc.setFont('helvetica', 'normal');
+                            doc.setFontSize(7);
+                            setLight();
+                            doc.text(`${item.stock} in stock`, cx + CARD_W - 8, priceY, { align: 'right' });
+                        }
+
+                        // Divider above price
+                        doc.setDrawColor(241, 245, 249);
+                        doc.setLineWidth(0.5);
+                        doc.line(cx + 6, priceY - 6, cx + CARD_W - 6, priceY - 6);
+                    }
+
+                    y += CARD_H + 10;
+                }
+                y += 6; // extra gap between categories
+            }
+
+            // Final page footer
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            setLight();
+            doc.text('autoinx.com  ·  support@autoinx.com  ·  341-222-7912', MAR, PH - 18);
+            doc.text(`${storeName} · ${date}`, PW - MAR, PH - 18, { align: 'right' });
+
+            return doc.output('datauristring').split(',')[1];
+        }
+
         async function sendCatalogEmail() {
             const fields    = getCatalogEmailFields();
             const toEmail   = fields.toEmail;
@@ -14811,59 +15099,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             try {
                 let pdfBase64 = null;
                 if (attachPdf) {
-                    if (msgEl) msgEl.innerHTML = '<p class="text-blue-600 text-sm">Generating PDF…</p>';
-
-                    if (!window.html2pdf) {
-                        await new Promise((resolve, reject) => {
-                            const s = document.createElement('script');
-                            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-                            s.onload = resolve;
-                            s.onerror = () => reject(new Error('Failed to load html2pdf.js'));
-                            document.head.appendChild(s);
-                        });
-                    }
-
-                    const pdfParts = buildPdfHtml();
-                    if (!pdfParts) throw new Error('No products available for PDF');
-
-                    // Inject into a real DOM div — html2canvas works reliably on
-                    // elements that are part of the main document with known dimensions.
-                    const pdfWrap = document.createElement('div');
-                    pdfWrap.style.cssText = 'position:fixed;left:-19999px;top:0;width:816px;overflow:visible;z-index:-1;';
-                    pdfWrap.innerHTML = pdfParts.css + pdfParts.coverHtml + pdfParts.contentHtml;
-                    document.body.appendChild(pdfWrap);
-
-                    try {
-                        // Give browser time to lay out and load images
-                        await new Promise(r => setTimeout(r, 1500));
-
-                        const pdfBlob = await html2pdf().set({
-                            margin:      [0.25, 0.25, 0.25, 0.25],
-                            filename:    `${storeName}-Catalog.pdf`,
-                            image:       { type: 'jpeg', quality: 0.90 },
-                            html2canvas: {
-                                scale:           1.5,
-                                useCORS:         true,
-                                allowTaint:      true,
-                                logging:         false,
-                                backgroundColor: '#ffffff',
-                                width:           816,
-                                scrollX:         0,
-                                scrollY:         0,
-                            },
-                            jsPDF:       { unit: 'px', format: [816, 1056], orientation: 'portrait' },
-                            pagebreak:   { mode: ['css', 'legacy'] },
-                        }).from(pdfWrap).outputPdf('blob');
-
-                        pdfBase64 = await new Promise((resolve, reject) => {
-                            const reader = new FileReader();
-                            reader.onload = () => resolve(reader.result.split(',')[1]);
-                            reader.onerror = reject;
-                            reader.readAsDataURL(pdfBlob);
-                        });
-                    } finally {
-                        document.body.removeChild(pdfWrap);
-                    }
+                    if (msgEl) msgEl.innerHTML = '<p class="text-blue-600 text-sm">Building PDF…</p>';
+                    pdfBase64 = await generateCatalogPdfDirect(storeName, logoUrl);
                 }
 
                 if (msgEl) msgEl.innerHTML = '<p class="text-blue-600 text-sm">Sending email…</p>';
