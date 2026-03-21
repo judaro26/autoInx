@@ -91,14 +91,20 @@ async function fsGet(token, path) {
 }
 
 async function fsSet(token, path, data, merge = false) {
-  // Always use PATCH with updateMask for merge, or full set without
   const fields = toFirestoreFields(data);
   const url    = `${FS_BASE}/${path}`;
-  const params = merge
-    ? { 'updateMask.fieldPaths': Object.keys(fields) }
-    : {};
-  const res = await axios.patch(url, { fields }, {
-    params,
+
+  // Firestore REST requires repeated params: ?updateMask.fieldPaths=a&updateMask.fieldPaths=b
+  // axios params object can't do this — build the query string manually
+  let fullUrl = url;
+  if (merge) {
+    const qs = Object.keys(fields)
+      .map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+      .join('&');
+    fullUrl = `${url}?${qs}`;
+  }
+
+  const res = await axios.patch(fullUrl, { fields }, {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     validateStatus: () => true
   });
