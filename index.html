@@ -1546,7 +1546,58 @@
         const CATALOGS_COLLECTION = `artifacts/${appId}/public/data/catalogs`;
         const ITEMS_COLLECTION = `artifacts/${appId}/public/data/items`;
         const REVIEWS_COLLECTION = 'product_reviews';
+        const ABANDONED_CARTS_COLLECTION = 'abandoned_carts';
         // --- PERSISTENCE & LISTENING ---
+
+        // ─── ABANDONED CART PERSISTENCE ──────────────────────────────────────────────
+        let _cartPersistTimer = null;
+
+        function scheduleCartPersist() {
+            // Debounce — only write after 2s of no changes
+            clearTimeout(_cartPersistTimer);
+            _cartPersistTimer = setTimeout(() => persistCartToFirestore(), 2000);
+        }
+
+        async function persistCartToFirestore() {
+            if (!db || !userId) return;
+            const cartEntries = Object.values(state.cart);
+            if (cartEntries.length === 0) {
+                // Cart is empty — remove any existing record
+                try { await deleteDoc(doc(db, ABANDONED_CARTS_COLLECTION, userId)); } catch (_) {}
+                return;
+            }
+
+            const items = cartEntries.map(entry => ({
+                id:       entry.item.id,
+                name:     entry.item.name,
+                price:    entry.item.price,
+                sku:      entry.item.sku || null,
+                imageUrl: entry.item.imageUrls?.[0] || entry.item.imageUrl || null,
+                quantity: entry.quantity,
+            }));
+            const totalCents = items.reduce((s, i) => s + i.price * i.quantity, 0);
+
+            try {
+                await setDoc(doc(db, ABANDONED_CARTS_COLLECTION, userId), {
+                    userId,
+                    userEmail:    state.userName || null,
+                    items,
+                    totalCents,
+                    itemCount:    items.reduce((s, i) => s + i.quantity, 0),
+                    updatedAt:    serverTimestamp(),
+                    createdAt:    serverTimestamp(),
+                    reminderSent: false,
+                    status:       'active',
+                }, { merge: true });
+            } catch (e) {
+                console.warn('Cart persist failed:', e.message);
+            }
+        }
+
+        async function clearAbandonedCart() {
+            if (!db || !userId) return;
+            try { await deleteDoc(doc(db, ABANDONED_CARTS_COLLECTION, userId)); } catch (_) {}
+        }
 
         function loadCartFromSession() {
             try {
@@ -1622,7 +1673,7 @@
             };
         
             sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
-        
+            scheduleCartPersist();
             showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
             render();
         }
@@ -1641,10 +1692,9 @@
             }
 
             state.cart = newCart;
-
             // SYNC TO STORAGE
             sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
-
+            scheduleCartPersist();
             render();
         }
         function continueToCheckout() {
