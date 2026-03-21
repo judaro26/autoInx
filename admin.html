@@ -3821,10 +3821,11 @@
         }
 
         // ── PDF-specific HTML builder ─────────────────────────────────────────────
-        // Rules: table layout only, fixed px widths, Arial font, all inline styles.
-        // Page width: 816px. Margins: 0.3in each side = ~58px. Usable = 758px.
-        // Content padding: 24px each side → inner = 758 - 48 = 710px.
-        // 3-col layout: card = 220px, gap = 15px → 3×220 + 2×15 = 690px ✓
+        // Returns { coverHtml, contentHtml, css } — caller injects into a real DOM div
+        // so html2canvas renders at a known fixed width without iframe viewport issues.
+        // Page: 816px wide. html2pdf margin 0.3in each side ≈ 29px → usable ≈ 758px.
+        // Content padded 20px each side → inner = 718px.
+        // 3-col: card 226px × 3 + gap 20px × 2 = 718px ✓
         function buildPdfHtml() {
             const items = getFilteredItems();
             if (items.length === 0) return null;
@@ -3836,7 +3837,12 @@
             const storeName  = brand.headerText?.en || brand.headerText || 'AutoInx';
             const date       = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
 
-            // Strip HTML tags from a string (descriptions may contain rich-text HTML)
+            // Ensure logo is absolute URL
+            const absLogoUrl = logoUrl
+                ? (logoUrl.startsWith('http') ? logoUrl : `https://autoinx.com${logoUrl.startsWith('/') ? '' : '/'}${logoUrl}`)
+                : '';
+
+            // Strip HTML tags — descriptions may contain rich-text markup
             const stripHtml = (str) => (str || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
             // Group by category
@@ -3849,49 +3855,36 @@
             });
             const activeGroups = [...groups.values()].filter(g => g.items.length > 0);
 
-            const INNER_W = 710;  // usable inner width in px
-            const CARD_W  = 220;  // card width
-            const GAP     = 15;   // gap between cards (2 gaps = 30px, 3×220+30 = 690 ≤ 710 ✓)
-            const IMG_H   = 120;
+            const W       = 816;   // total page width px
+            const INNER   = 718;   // inner content width (W - 2×49px padding)
+            const CARD_W  = 226;   // card width (3 × 226 + 2 × 20 = 718)
+            const GAP     = 20;
+            const IMG_H   = 130;
 
-            // ── Cover page ─────────────────────────────────────────────────────
-            const logoHtml = logoUrl && logoUrl.startsWith('http')
-                ? `<img src="${logoUrl}" width="80" height="80" style="object-fit:contain;display:block;margin:0 auto 20px;border-radius:12px;background:rgba(255,255,255,0.2);" onerror="this.style.display='none'">`
+            // ── Cover ────────────────────────────────────────────────────────
+            const logoHtml = absLogoUrl
+                ? `<img src="${absLogoUrl}" width="90" height="90" style="object-fit:contain;display:block;margin:0 auto 20px;border-radius:14px;background:rgba(255,255,255,0.18);" onerror="this.style.display='none'">`
                 : '';
 
             const coverHtml = `
-<div style="width:758px;background:${accent};padding:0;margin:0;page-break-after:always;">
-  <table width="758" cellpadding="0" cellspacing="0">
-    <tr><td style="padding:160px 40px 60px;text-align:center;vertical-align:middle;">
-      ${logoHtml}
-      <div style="font-size:56px;font-weight:900;color:#ffffff;letter-spacing:-1px;font-family:Arial,Helvetica,sans-serif;margin-bottom:10px;">${escapeHtml(storeName)}</div>
-      <div style="font-size:15px;color:rgba(255,255,255,0.85);letter-spacing:4px;text-transform:uppercase;font-family:Arial,Helvetica,sans-serif;margin-bottom:40px;">Product Catalog</div>
-      <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
-        <tr>
-          <td style="padding:0 24px;text-align:center;color:#ffffff;font-family:Arial,Helvetica,sans-serif;border-right:1px solid rgba(255,255,255,0.3);">
-            <div style="font-size:34px;font-weight:900;">${items.length}</div>
-            <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:0.8;">Products</div>
-          </td>
-          <td style="padding:0 24px;text-align:center;color:#ffffff;font-family:Arial,Helvetica,sans-serif;border-right:1px solid rgba(255,255,255,0.3);">
-            <div style="font-size:34px;font-weight:900;">${activeGroups.length}</div>
-            <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:0.8;">Categories</div>
-          </td>
-          <td style="padding:0 24px;text-align:center;color:#ffffff;font-family:Arial,Helvetica,sans-serif;">
-            <div style="font-size:34px;font-weight:900;">${date.split(' ')[1]}</div>
-            <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:0.8;">${date.split(' ')[0]}</div>
-          </td>
-        </tr>
-      </table>
-      <div style="margin-top:40px;font-size:12px;color:rgba(255,255,255,0.75);font-family:Arial,Helvetica,sans-serif;line-height:2;">
-        autoinx.com &nbsp;·&nbsp; support@autoinx.com &nbsp;·&nbsp; finance@autoinx.com &nbsp;·&nbsp; 341-222-7912
-      </div>
-    </td></tr>
-  </table>
+<div class="pdf-cover">
+  <div class="pdf-cover-inner">
+    ${logoHtml}
+    <div class="pdf-store-name">${escapeHtml(storeName)}</div>
+    <div class="pdf-catalog-label">Product Catalog</div>
+    <table class="pdf-stats-table" cellpadding="0" cellspacing="0">
+      <tr>
+        <td class="pdf-stat-cell pdf-stat-border"><div class="pdf-stat-num">${items.length}</div><div class="pdf-stat-lbl">Products</div></td>
+        <td class="pdf-stat-cell pdf-stat-border"><div class="pdf-stat-num">${activeGroups.length}</div><div class="pdf-stat-lbl">Categories</div></td>
+        <td class="pdf-stat-cell"><div class="pdf-stat-num">${date.split(' ')[1]}</div><div class="pdf-stat-lbl">${date.split(' ')[0]}</div></td>
+      </tr>
+    </table>
+    <div class="pdf-cover-contact">autoinx.com &nbsp;·&nbsp; support@autoinx.com &nbsp;·&nbsp; finance@autoinx.com &nbsp;·&nbsp; 341-222-7912</div>
+  </div>
 </div>`;
 
-            // ── Product pages ─────────────────────────────────────────────────
+            // ── Category product cards ────────────────────────────────────
             const categoryHtml = activeGroups.map(g => {
-                // Chunk into rows of 3
                 const chunks = [];
                 for (let i = 0; i < g.items.length; i += 3) chunks.push(g.items.slice(i, i + 3));
 
@@ -3901,68 +3894,100 @@
                         const price = item.price != null ? `$${(item.price / 100).toFixed(2)}` : '';
                         const rawDesc = stripHtml(item.description || '');
                         const desc  = rawDesc.length > 90 ? rawDesc.slice(0, 90) + '…' : rawDesc;
-
                         const imgHtml = img
-                            ? `<img src="${img}" width="${CARD_W}" height="${IMG_H}" style="display:block;object-fit:contain;background:#f8fafc;" onerror="this.style.display='none';">`
-                            : `<div style="width:${CARD_W}px;height:${IMG_H}px;background:#f1f5f9;text-align:center;line-height:${IMG_H}px;font-size:11px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">No Image</div>`;
+                            ? `<img src="${img}" width="${CARD_W}" height="${IMG_H}" style="display:block;width:${CARD_W}px;height:${IMG_H}px;object-fit:contain;background:#f8fafc;" onerror="this.style.visibility='hidden';">`
+                            : `<div style="width:${CARD_W}px;height:${IMG_H}px;background:#f1f5f9;display:table-cell;vertical-align:middle;text-align:center;font-size:11px;color:#94a3b8;">No Image</div>`;
 
-                        return `<td width="${CARD_W}" style="vertical-align:top;padding-right:${GAP}px;">
-                          <div style="width:${CARD_W}px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;background:#ffffff;font-family:Arial,Helvetica,sans-serif;">
-                            <div style="width:${CARD_W}px;height:${IMG_H}px;overflow:hidden;background:#f8fafc;">${imgHtml}</div>
-                            <div style="padding:10px 12px 12px 12px;">
-                              <div style="font-size:12px;font-weight:700;color:#1e1b4b;margin-bottom:3px;line-height:1.3;">${escapeHtml(item.name)}</div>
-                              ${item.sku ? `<div style="font-size:10px;color:#94a3b8;font-family:monospace;margin-bottom:4px;">SKU: ${escapeHtml(item.sku)}</div>` : ''}
-                              ${desc ? `<div style="font-size:10px;color:#475569;line-height:1.4;margin-bottom:6px;">${escapeHtml(desc)}</div>` : ''}
-                              <div style="border-top:1px solid #f1f5f9;padding-top:7px;margin-top:4px;">
-                                <span style="font-size:15px;font-weight:900;color:${accent};">${price}</span>
-                                ${item.stock != null ? `<span style="font-size:10px;color:#94a3b8;float:right;padding-top:3px;">${item.stock} in stock</span>` : ''}
+                        return `<td class="pdf-card-td">
+                          <div class="pdf-card">
+                            <div class="pdf-card-img">${imgHtml}</div>
+                            <div class="pdf-card-body">
+                              <div class="pdf-card-name">${escapeHtml(item.name)}</div>
+                              ${item.sku ? `<div class="pdf-card-sku">SKU: ${escapeHtml(item.sku)}</div>` : ''}
+                              ${desc ? `<div class="pdf-card-desc">${escapeHtml(desc)}</div>` : ''}
+                              <div class="pdf-card-footer">
+                                <span class="pdf-card-price">${price}</span>
+                                ${item.stock != null ? `<span class="pdf-card-stock">${item.stock} in stock</span>` : ''}
                               </div>
                             </div>
                           </div>
                         </td>`;
                     }).join('');
-
-                    // Pad row to 3 columns so table stays fixed
-                    const empties = 3 - row.length;
-                    const padCells = Array(empties).fill(`<td width="${CARD_W}" style="padding-right:${GAP}px;"></td>`).join('');
-
-                    return `<tr style="vertical-align:top;">${cells}${padCells}</tr><tr><td colspan="3" style="height:14px;"></td></tr>`;
+                    const pads = Array(3 - row.length).fill(`<td class="pdf-card-td"></td>`).join('');
+                    return `<tr>${cells}${pads}</tr><tr class="pdf-row-gap"><td colspan="3"></td></tr>`;
                 }).join('');
 
-                return `<div style="margin-bottom:24px;">
-                  <div style="border-bottom:2px solid ${accent};margin-bottom:12px;padding-bottom:5px;">
-                    <span style="font-size:12px;font-weight:800;color:${accent};text-transform:uppercase;letter-spacing:2px;font-family:Arial,Helvetica,sans-serif;">${escapeHtml(g.name)}</span>
-                  </div>
-                  <table cellpadding="0" cellspacing="0" style="table-layout:fixed;width:${INNER_W}px;border-collapse:separate;border-spacing:0;">
+                return `<div class="pdf-category">
+                  <div class="pdf-cat-header"><span class="pdf-cat-title">${escapeHtml(g.name)}</span></div>
+                  <table class="pdf-product-table" cellpadding="0" cellspacing="0">
+                    <colgroup><col width="${CARD_W}"><col width="${GAP}"><col width="${CARD_W}"><col width="${GAP}"><col width="${CARD_W}"></colgroup>
                     ${tableRows}
                   </table>
                 </div>`;
             }).join('');
 
             const contentHtml = `
-<div style="width:758px;padding:20px 24px;background:#ffffff;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:3px solid ${accent};margin-bottom:22px;padding-bottom:10px;">
-    <tr>
-      <td style="font-size:17px;font-weight:800;color:${accent};font-family:Arial,Helvetica,sans-serif;">${escapeHtml(storeName)}</td>
-      <td style="text-align:right;font-size:11px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">Product Catalog · ${date}</td>
-    </tr>
-  </table>
+<div class="pdf-content">
+  <div class="pdf-page-header">
+    <span class="pdf-page-brand">${escapeHtml(storeName)}</span>
+    <span class="pdf-page-date">Product Catalog · ${date}</span>
+  </div>
   ${categoryHtml}
-  <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e2e8f0;margin-top:20px;padding-top:10px;">
-    <tr>
-      <td style="font-size:10px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">autoinx.com · support@autoinx.com · finance@autoinx.com · 341-222-7912</td>
-      <td style="text-align:right;font-size:10px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">${escapeHtml(storeName)} · ${date}</td>
-    </tr>
-  </table>
+  <div class="pdf-page-footer">
+    <span>autoinx.com · support@autoinx.com · finance@autoinx.com · 341-222-7912</span>
+    <span>${escapeHtml(storeName)} · ${date}</span>
+  </div>
 </div>`;
 
-            return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<style>* { box-sizing:border-box; margin:0; padding:0; } body { background:#fff; }</style>
-</head><body style="background:#ffffff;">
-${coverHtml}
-${contentHtml}
-</body></html>`;
+            // All styles inline in <style> tag — no external fonts
+            const css = `
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#fff; font-family:Arial,Helvetica,sans-serif; width:${W}px; }
+
+/* Cover */
+.pdf-cover { width:${W}px; background:${accent}; page-break-after:always; }
+.pdf-cover-inner { padding:140px 40px 60px; text-align:center; }
+.pdf-store-name { font-size:54px; font-weight:900; color:#fff; letter-spacing:-1px; margin-bottom:10px; line-height:1; }
+.pdf-catalog-label { font-size:14px; color:rgba(255,255,255,0.85); letter-spacing:4px; text-transform:uppercase; margin-bottom:40px; }
+.pdf-stats-table { margin:0 auto; border-collapse:collapse; }
+.pdf-stat-cell { padding:0 28px; text-align:center; color:#fff; }
+.pdf-stat-border { border-right:1px solid rgba(255,255,255,0.35); }
+.pdf-stat-num { font-size:32px; font-weight:900; }
+.pdf-stat-lbl { font-size:10px; text-transform:uppercase; letter-spacing:2px; opacity:0.8; margin-top:3px; }
+.pdf-cover-contact { margin-top:40px; font-size:12px; color:rgba(255,255,255,0.75); line-height:2; }
+
+/* Content page */
+.pdf-content { width:${W}px; padding:20px 49px; background:#fff; }
+.pdf-page-header { display:table; width:100%; border-bottom:3px solid ${accent}; padding-bottom:10px; margin-bottom:22px; }
+.pdf-page-brand { display:table-cell; font-size:18px; font-weight:800; color:${accent}; }
+.pdf-page-date { display:table-cell; text-align:right; font-size:11px; color:#94a3b8; vertical-align:bottom; }
+.pdf-page-footer { display:table; width:100%; border-top:1px solid #e2e8f0; margin-top:20px; padding-top:10px; font-size:10px; color:#94a3b8; }
+.pdf-page-footer span { display:table-cell; }
+.pdf-page-footer span:last-child { text-align:right; }
+
+/* Category */
+.pdf-category { margin-bottom:24px; }
+.pdf-cat-header { border-bottom:2px solid ${accent}; margin-bottom:12px; padding-bottom:5px; }
+.pdf-cat-title { font-size:12px; font-weight:800; color:${accent}; text-transform:uppercase; letter-spacing:2px; }
+
+/* Product table */
+.pdf-product-table { width:${INNER}px; border-collapse:separate; border-spacing:0; table-layout:fixed; }
+.pdf-card-td { width:${CARD_W}px; vertical-align:top; padding-right:${GAP}px; }
+.pdf-card-td:last-child { padding-right:0; }
+.pdf-row-gap td { height:12px; }
+.pdf-card { width:${CARD_W}px; border:1px solid #e2e8f0; border-radius:6px; overflow:hidden; background:#fff; }
+.pdf-card-img { width:${CARD_W}px; height:${IMG_H}px; overflow:hidden; background:#f8fafc; }
+.pdf-card-body { padding:10px 10px 10px; }
+.pdf-card-name { font-size:12px; font-weight:700; color:#1e1b4b; margin-bottom:3px; line-height:1.3; }
+.pdf-card-sku { font-size:10px; color:#94a3b8; font-family:monospace; margin-bottom:4px; }
+.pdf-card-desc { font-size:10px; color:#475569; line-height:1.4; margin-bottom:5px; }
+.pdf-card-footer { border-top:1px solid #f1f5f9; padding-top:6px; }
+.pdf-card-price { font-size:15px; font-weight:900; color:${accent}; }
+.pdf-card-stock { font-size:10px; color:#94a3b8; float:right; padding-top:3px; }
+</style>`;
+
+            return { coverHtml, contentHtml, css, ok: true };
         }
 
                 function buildCatalogBrochureHtml({ forPrint = false } = {}) {
@@ -14470,9 +14495,18 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                                     </div>
                                     <div>
                                         <label class="block text-xs font-semibold text-gray-600 mb-1">Intro Paragraph</label>
-                                        <textarea id="cemail_intro" rows="3"
+                                        <select onchange="window.module.applyIntroTemplate(this.value)"
+                                                class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 mb-1">
+                                            <option value="">— Use a template or write your own —</option>
+                                            <option value="general">General introduction</option>
+                                            <option value="new_customer">New customer welcome</option>
+                                            <option value="mechanic">For mechanics / repair shops</option>
+                                            <option value="fleet">For fleet managers</option>
+                                            <option value="returning">Returning customer follow-up</option>
+                                        </select>
+                                        <textarea id="cemail_intro" rows="4"
                                                   oninput="window.module.refreshCatalogPreview()"
-                                                  placeholder="Default intro will be used if blank…"
+                                                  placeholder="Leave blank to use default intro, or pick a template above…"
                                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
                                     </div>
                                     <div>
@@ -14682,6 +14716,26 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             </div>`;
         }
 
+        const CATALOG_INTRO_TEMPLATES = {
+            general: `AutoInx is a Bay Area-based automotive parts supplier specializing in quality engine, air, oil, and cabin filters, spark plugs, wiper blades, and more. We carry parts compatible with a wide range of makes and models — all at competitive prices. Our goal is to make it easy for you to find the right part and get it fast, whether you're a professional shop or maintaining your own vehicle.`,
+
+            new_customer: `Thank you for your interest in AutoInx! We're a local automotive parts supplier based in the East Bay, and we'd love to earn your business. We carry a wide range of quality filters, spark plugs, wiper blades, and other essential auto parts at prices that make sense for shops and individual customers alike. We're also happy to source parts not listed in this catalog — just ask.`,
+
+            mechanic: `We work closely with mechanics and independent repair shops throughout the East Bay. AutoInx offers bulk pricing, fast local availability, and a no-hassle return policy. If you run a shop and are looking for a reliable local supplier for filters, spark plugs, and other maintenance parts, we'd love to talk. Many of our shop partners save significantly compared to dealership and big-box pricing.`,
+
+            fleet: `Managing a fleet means keeping vehicles running efficiently and cost-effectively. AutoInx supplies fleet operators with quality maintenance parts — filters, spark plugs, wiper blades, and more — at pricing that reflects your volume needs. We can work with you on recurring orders and custom pricing. Reach out and let's put together a plan that fits your fleet's schedule.`,
+
+            returning: `It's great to connect with you again! We've updated our catalog with new products and have continued to expand our selection of quality auto parts. Whether you're restocking on filters or looking for something new, we hope you'll find exactly what you need. And as always, don't hesitate to reach out — we're happy to help you find the right part.`,
+        };
+
+        function applyIntroTemplate(templateKey) {
+            if (!templateKey) return;
+            const el = document.getElementById('cemail_intro');
+            if (!el) return;
+            el.value = CATALOG_INTRO_TEMPLATES[templateKey] || '';
+            window.module.refreshCatalogPreview();
+        }
+
         function refreshCatalogPreview() {
             const container = document.getElementById('cemail_preview_container');
             const subjectEl = document.getElementById('cemail_subject_preview');
@@ -14769,41 +14823,37 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         });
                     }
 
-                    const pdfHtml = buildPdfHtml();
-                    if (!pdfHtml) throw new Error('No products available for PDF');
+                    const pdfParts = buildPdfHtml();
+                    if (!pdfParts) throw new Error('No products available for PDF');
 
-                    const iframe = document.createElement('iframe');
-                    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:816px;height:1px;border:none;visibility:hidden;';
-                    document.body.appendChild(iframe);
+                    // Inject into a real DOM div — html2canvas works reliably on
+                    // elements that are part of the main document with known dimensions.
+                    const pdfWrap = document.createElement('div');
+                    pdfWrap.style.cssText = 'position:fixed;left:-19999px;top:0;width:816px;overflow:visible;z-index:-1;';
+                    pdfWrap.innerHTML = pdfParts.css + pdfParts.coverHtml + pdfParts.contentHtml;
+                    document.body.appendChild(pdfWrap);
 
                     try {
-                        await new Promise(resolve => {
-                            iframe.onload = resolve;
-                            iframe.contentDocument.open();
-                            iframe.contentDocument.write(pdfHtml);
-                            iframe.contentDocument.close();
-                        });
+                        // Give browser time to lay out and load images
+                        await new Promise(r => setTimeout(r, 1500));
 
-                        await new Promise(r => setTimeout(r, 1200));
-
-                        const iframeBody = iframe.contentDocument.body;
                         const pdfBlob = await html2pdf().set({
-                            margin:      [0.3, 0.3, 0.3, 0.3],
+                            margin:      [0.25, 0.25, 0.25, 0.25],
                             filename:    `${storeName}-Catalog.pdf`,
-                            image:       { type: 'jpeg', quality: 0.88 },
+                            image:       { type: 'jpeg', quality: 0.90 },
                             html2canvas: {
-                                scale:           2,
+                                scale:           1.5,
                                 useCORS:         true,
                                 allowTaint:      true,
                                 logging:         false,
                                 backgroundColor: '#ffffff',
-                                windowWidth:     816,
+                                width:           816,
                                 scrollX:         0,
                                 scrollY:         0,
                             },
-                            jsPDF:       { unit: 'in', format: 'letter', orientation: 'portrait' },
+                            jsPDF:       { unit: 'px', format: [816, 1056], orientation: 'portrait' },
                             pagebreak:   { mode: ['css', 'legacy'] },
-                        }).from(iframeBody).outputPdf('blob');
+                        }).from(pdfWrap).outputPdf('blob');
 
                         pdfBase64 = await new Promise((resolve, reject) => {
                             const reader = new FileReader();
@@ -14812,7 +14862,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                             reader.readAsDataURL(pdfBlob);
                         });
                     } finally {
-                        document.body.removeChild(iframe);
+                        document.body.removeChild(pdfWrap);
                     }
                 }
 
@@ -17826,6 +17876,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             sendCatalogEmail,
             openCatalogEmailModal,
             refreshCatalogPreview,
+            applyIntroTemplate,
             renderContactsSection,
             openContactModal,
             saveContact,
