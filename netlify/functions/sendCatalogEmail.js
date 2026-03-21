@@ -18,7 +18,7 @@ const db = admin.firestore();
 async function verifyIdToken(authHeader) {
     if (!authHeader?.startsWith('Bearer ')) throw new Error('Missing auth token');
     const token = authHeader.slice(7);
-    return admin.auth().verifyIdToken(token); // throws if invalid
+    return admin.auth().verifyIdToken(token);
 }
 
 // ── Email transporter (Brevo SMTP) ────────────────────────────────────────────
@@ -34,34 +34,91 @@ function createTransport() {
     });
 }
 
-// ── PDF generation via puppeteer ──────────────────────────────────────────────
-async function generateCatalogPdf(htmlContent) {
-    try {
-        // Try to use puppeteer-core + @sparticuz/chromium (Netlify-compatible)
-        const chromium  = require('@sparticuz/chromium');
-        const puppeteer = require('puppeteer-core');
-
-        const browser = await puppeteer.launch({
-            args:            chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath:  await chromium.executablePath(),
-            headless:        chromium.headless,
-        });
-
-        const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-        const pdf = await page.pdf({
-            format:         'Letter',
-            printBackground: true,
-            margin: { top: '0.3in', right: '0.3in', bottom: '0.3in', left: '0.3in' },
-        });
-        await browser.close();
-        return pdf;
-    } catch (err) {
-        console.warn('⚠️  PDF generation skipped:', err.message);
-        return null;
+// ── Handler ────────────────────────────────────────────────────────────────────
+exports.handler = async function(event) {
+    if (event.httpMethod !== 'POST') {
+        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
-}
+
+    try {
+        await verifyIdToken(event.headers['authorization']);
+
+        const {
+            toEmail, toName = 'there', message = '', couponCode, couponLabel,
+            localNote = true, storeName = 'AutoInx',
+            logoUrl, siteUrl = 'https://autoinx.com',
+            categories = [], adminEmail,
+            pdfBase64 = null,   // PDF generated client-side, sent as base64
+        } = JSON.parse(event.body);
+
+        if (!toEmail)            throw new Error('toEmail is required');
+        if (categories.length === 0) throw new Error('No products to include');
+
+        console.log(`📧 Sending catalog to ${toEmail} (${categories.length} categories, pdf=${!!pdfBase64})`);
+
+        const emailHtml = buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, storeName, logoUrl, siteUrl, categories });
+
+        const transporter = createTransport();
+        const fromName    = storeName;
+
+        const attachments = pdfBase64 ? [{
+            filename:    `${storeName.replace(/\s+/g, '-')}-Catalog.pdf`,
+            content:     Buffer.from(pdfBase64, 'base64'),
+            contentType: 'application/pdf',
+        }] : [];
+
+        const mailOptions = {
+            from:    `"${fromName}" <noreply@autoinx.com>`,
+            to:      toEmail,
+            subject: `Your ${storeName} Catalog${couponCode ? ` — Special Coupon Inside 🎁` : ''}`,
+            html:    emailHtml,
+            attachments,
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`✅ Catalog sent: ${info.messageId}`);
+
+        // Internal copy to orders inbox
+        await transporter.sendMail({
+            ...mailOptions,
+            to:          'orders@autoinx.com',
+            subject:     `[CATALOG SENT] → ${toEmail}${couponCode ? ` · Coupon: ${couponCode}` : ''}`,
+            attachments: [], // skip PDF on internal copy to save inbox space
+        });
+
+        // Log to Firestore
+        try {
+            await db.collection('email_notifications').add({
+                type:           'catalog_sent',
+                recipientEmail: toEmail,
+                recipientName:  toName,
+                couponCode:     couponCode || null,
+                attachedPdf:    !!pdfBase64,
+                localNote,
+                sentBy:         adminEmail || 'admin',
+                messageId:      info.messageId,
+                sentAt:         admin.firestore.FieldValue.serverTimestamp(),
+                status:         'sent',
+            });
+        } catch (logErr) {
+            console.warn('⚠️ Firestore log failed:', logErr.message);
+        }
+
+        return {
+            statusCode: 200,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ success: true, messageId: info.messageId, pdfAttached: !!pdfBase64 }),
+        };
+
+    } catch (err) {
+        console.error('❌ sendCatalogEmail error:', err);
+        return {
+            statusCode: 500,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ success: false, error: err.message }),
+        };
+    }
+};
 
 // ── Email HTML builder ─────────────────────────────────────────────────────────
 function buildEmailHtml({ toName, message, couponCode, couponLabel, localNote, storeName, logoUrl, siteUrl, categories }) {
