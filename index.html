@@ -262,12 +262,16 @@
             footerConfig: null,
             seasonalBanner: null,
             reviewsBanner: [],
-            // ── Local pickup ──────────────────────────────────
-            customerZip:        '',        // zip code the customer entered
-            isLocalEligible:    false,     // within 50 miles of 94541
-            localDistanceMiles: null,      // computed distance
-            deliveryMethod:     'ship',    // 'ship' | 'pickup'
-            zipCheckState:      'idle',    // 'idle' | 'checking' | 'eligible' | 'ineligible' | 'error'
+            // ── Local pickup & delivery estimate ──────────────
+            customerZip:        '',
+            isLocalEligible:    false,
+            localDistanceMiles: null,
+            deliveryMethod:     'ship',
+            zipCheckState:      'idle',
+            customerCity:       '',
+            customerState:      '',
+            shippingEstimate:   null,   // live Shippo rate
+            taxEstimate:        null,   // live tax calculation
         };
 
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
@@ -1994,14 +1998,69 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
-        // Fetch lat/lng for a US zip code via free Zippopotam.us API (no key required)
+        // Fetch lat/lng + city/state for a US zip code via free Zippopotam.us API
         async function zipToLatLng(zip) {
             const res  = await fetch(`https://api.zippopotam.us/us/${zip.trim()}`);
             if (!res.ok) throw new Error('ZIP not found');
             const data = await res.json();
             const place = data.places?.[0];
             if (!place) throw new Error('No location data');
-            return { lat: parseFloat(place.latitude), lng: parseFloat(place.longitude) };
+            return {
+                lat:   parseFloat(place.latitude),
+                lng:   parseFloat(place.longitude),
+                city:  place['place name'] || '',
+                state: place['state abbreviation'] || '',
+            };
+        }
+
+        // Fetch real Shippo rates + tax for a ZIP — called after distance check passes
+        async function fetchShippingAndTaxEstimate(zip, city, state) {
+            // Cart weight: 1 lb per unit (rough estimate for pre-checkout display)
+            const totalUnits = Object.values(state.cart).reduce((s, e) => s + e.quantity, 0);
+            const cartCents  = Object.values(state.cart).reduce((s, e) => s + e.item.price * e.quantity, 0);
+
+            let shippingResult = null;
+            let taxResult      = null;
+
+            // Run both in parallel
+            const [shipRes, taxRes] = await Promise.allSettled([
+                fetch('/.netlify/functions/calculateShipping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        addressTo: {
+                            name: 'Customer',
+                            street1: '1 Main St',
+                            city,
+                            state,
+                            zip,
+                            country: 'US',
+                        },
+                        parcels: [{
+                            length: '12', width: '8', height: '6',
+                            distance_unit: 'in',
+                            weight: String(Math.max(1, totalUnits)),
+                            mass_unit: 'lb',
+                        }],
+                    }),
+                }),
+                fetch('/.netlify/functions/calculateTax', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subtotalCents: cartCents, state, zipCode: zip }),
+                }),
+            ]);
+
+            if (shipRes.status === 'fulfilled' && shipRes.value.ok) {
+                const d = await shipRes.value.json();
+                if (d.bestRate) shippingResult = d.bestRate;
+            }
+            if (taxRes.status === 'fulfilled' && taxRes.value.ok) {
+                const d = await taxRes.value.json();
+                if (d.taxCents != null) taxResult = d;
+            }
+
+            return { shippingResult, taxResult };
         }
 
         // Called when user finishes typing their zip
@@ -2058,28 +2117,17 @@
             return { label, color, arrival, days };
         }
 
-        // Updates only the pickup section DOM — never touches the zip input itself,
-        // so the user's cursor position and focus are never disturbed.
+        // Updates only the pickup section DOM — never touches the zip input itself
         function _updatePickupSection() {
             const container = document.getElementById('zipPickupSection');
             if (!container) return;
 
-            const { zipCheckState, isLocalEligible, deliveryMethod, localDistanceMiles } = state;
+            const { zipCheckState, isLocalEligible, deliveryMethod,
+                    localDistanceMiles, shippingEstimate, taxEstimate } = state;
 
-            // Delivery estimate (only shown when we have a distance)
-            const estimate = (zipCheckState === 'eligible' || zipCheckState === 'ineligible')
-                ? getDeliveryEstimate(localDistanceMiles) : null;
+            const cartCents = Object.values(state.cart).reduce((s, e) => s + e.item.price * e.quantity, 0);
 
-            const estimateHtml = estimate ? `
-                <div class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs text-gray-500">📦 Estimated delivery</span>
-                        <span class="text-xs font-bold ${estimate.color}">${estimate.label}</span>
-                    </div>
-                    <p class="text-xs text-gray-500 mt-0.5">Arrives: <span class="font-semibold text-gray-700">${estimate.arrival}</span></p>
-                    <p class="text-xs text-gray-400 mt-0.5">Standard ground shipping · ${localDistanceMiles} mi from our warehouse</p>
-                </div>` : '';
-
+            // ── Status line ──────────────────────────────────────────────────
             const statusHtml = {
                 idle:       '',
                 checking:   `<p class="text-xs text-blue-500 mt-1">📍 Checking your location…</p>`,
@@ -2088,18 +2136,85 @@
                 error:      `<p class="text-xs text-red-400 mt-1">⚠️ Couldn't verify ZIP code.</p>`,
             }[zipCheckState] || '';
 
+            // ── Delivery + cost estimate card ────────────────────────────────
+            let estimateHtml = '';
+            if (zipCheckState === 'eligible' || zipCheckState === 'ineligible') {
+                if (shippingEstimate) {
+                    // Live Shippo rates available
+                    const shipCents = Math.round(shippingEstimate.amount * 100);
+                    const taxCents  = taxEstimate?.taxCents || 0;
+                    const subtotal  = cartCents;
+                    const total     = subtotal + shipCents + taxCents;
+                    const etaDays   = shippingEstimate.estimated_days;
+                    const etaLabel  = etaDays === 1 ? 'Next business day'
+                                    : etaDays  ? `${etaDays} business days` : '';
+
+                    // Arrival date
+                    function addBizDays(n) {
+                        let d = new Date(), added = 0;
+                        while (added < n) {
+                            d.setDate(d.getDate() + 1);
+                            if (d.getDay() !== 0 && d.getDay() !== 6) added++;
+                        }
+                        return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    }
+                    const arrival = etaDays ? `Arrives ~${addBizDays(etaDays)}` : '';
+
+                    estimateHtml = `
+                    <div class="mt-2 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+                        <div class="px-3 py-2 bg-indigo-50 border-b border-gray-200 flex items-center justify-between">
+                            <span class="text-xs font-bold text-indigo-700">📦 ${shippingEstimate.provider} ${shippingEstimate.servicelevel?.name || ''}</span>
+                            ${etaLabel ? `<span class="text-xs font-semibold text-green-600">${etaLabel}</span>` : ''}
+                        </div>
+                        <div class="px-3 py-2 space-y-1">
+                            ${arrival ? `<p class="text-xs text-gray-500">${arrival}</p>` : ''}
+                            <div class="flex justify-between text-xs text-gray-600">
+                                <span>Subtotal</span>
+                                <span>${formatPrice(subtotal)}</span>
+                            </div>
+                            <div class="flex justify-between text-xs text-gray-600">
+                                <span>Shipping</span>
+                                <span class="font-semibold text-indigo-600">${formatPrice(shipCents)}</span>
+                            </div>
+                            ${taxCents > 0 ? `
+                            <div class="flex justify-between text-xs text-gray-600">
+                                <span>Tax ${taxEstimate?.taxRatePercent ? `(${taxEstimate.taxRatePercent}%)` : ''}</span>
+                                <span>${formatPrice(taxCents)}</span>
+                            </div>` : ''}
+                            <div class="flex justify-between text-xs font-bold text-gray-800 border-t border-gray-200 pt-1 mt-1">
+                                <span>Estimated Total</span>
+                                <span>${formatPrice(total)}</span>
+                            </div>
+                        </div>
+                    </div>`;
+                } else if (zipCheckState !== 'idle') {
+                    // Shippo not returned yet — show distance-based fallback
+                    const fallback = getDeliveryEstimate(localDistanceMiles);
+                    if (fallback) {
+                        estimateHtml = `
+                        <div class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs text-gray-500">📦 Estimated delivery</span>
+                                <span class="text-xs font-bold ${fallback.color}">${fallback.label}</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-0.5">Arrives: <span class="font-semibold text-gray-700">${fallback.arrival}</span></p>
+                            <p class="text-xs text-gray-400 mt-0.5">Loading shipping cost…</p>
+                        </div>`;
+                    }
+                }
+            }
+
+            // ── Pickup toggle ────────────────────────────────────────────────
             const pickupToggle = isLocalEligible ? `
             <div class="mt-2 flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
                 <button onclick="window.module.selectDeliveryMethod('ship')"
                         class="flex-1 py-1.5 transition ${deliveryMethod === 'ship'
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-white text-gray-500 hover:bg-gray-50'}">
+                            ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}">
                     📦 Ship
                 </button>
                 <button onclick="window.module.selectDeliveryMethod('pickup')"
                         class="flex-1 py-1.5 border-l border-gray-200 transition ${deliveryMethod === 'pickup'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-white text-gray-500 hover:bg-gray-50'}">
+                            ? 'bg-green-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}">
                     🏪 Local Pickup
                 </button>
             </div>
@@ -2110,7 +2225,7 @@
                 <p class="mt-1 text-green-600">No shipping charge · No sales tax</p>
             </div>` : ''}` : '';
 
-            // Update input border class without replacing the input itself
+            // Update input border
             const input = document.getElementById('zipCodeInput');
             if (input) {
                 input.className = `w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
@@ -2124,7 +2239,10 @@
         }
 
         async function handleZipInput(zip) {
-            state.customerZip = zip.trim();
+            state.customerZip       = zip.trim();
+            state.shippingEstimate  = null;
+            state.taxEstimate       = null;
+
             if (state.customerZip.length < 5) {
                 state.zipCheckState   = 'idle';
                 state.isLocalEligible = false;
@@ -2148,6 +2266,8 @@
                 ]);
                 const miles = haversineMiles(customer.lat, customer.lng, store.lat, store.lng);
                 state.localDistanceMiles = Math.round(miles);
+                state.customerCity       = customer.city;
+                state.customerState      = customer.state;
                 state.isLocalEligible    = miles <= PICKUP_RADIUS_MI;
                 state.zipCheckState      = state.isLocalEligible ? 'eligible' : 'ineligible';
                 if (!state.isLocalEligible) state.deliveryMethod = 'ship';
@@ -2155,9 +2275,28 @@
                 state.zipCheckState   = 'error';
                 state.isLocalEligible = false;
                 state.deliveryMethod  = 'ship';
+                _updatePickupSection();
+                _savePickupPreference();
+                return;
             }
+
+            // Show distance result immediately, then fetch live rates in background
             _updatePickupSection();
             _savePickupPreference();
+
+            // Fetch real Shippo rates + tax only when cart has items
+            if (Object.keys(state.cart).length > 0 && state.customerState) {
+                try {
+                    const { shippingResult, taxResult } = await fetchShippingAndTaxEstimate(
+                        state.customerZip, state.customerCity, state.customerState
+                    );
+                    state.shippingEstimate = shippingResult;
+                    state.taxEstimate      = taxResult;
+                } catch (e) {
+                    console.warn('Rate fetch failed:', e.message);
+                }
+                _updatePickupSection();
+            }
         }
 
         function selectDeliveryMethod(method) {
