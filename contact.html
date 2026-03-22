@@ -203,16 +203,30 @@
                             Respuesta Prioritaria
                         </h3>
                         <div class="space-y-5">
+                            <!-- Live Chat (tawk.to) -->
                             <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6 hover:bg-white/30 transition">
-                                <p class="text-base sm:text-lg opacity-90 mb-2">WhatsApp EE.UU.</p>
-                                <a href="https://wa.me/19377016185" target="_blank" class="text-xl sm:text-2xl font-black flex items-center hover:scale-105 transition">
-                                    <i class="fab fa-whatsapp mr-3 text-3xl sm:text-4xl"></i> (937) 701-6185
+                                <p id="label-live-chat" class="text-base sm:text-lg opacity-90 mb-3">Chat en Vivo</p>
+                                <button onclick="window.openLiveChat()"
+                                        class="w-full bg-white/25 hover:bg-white/40 transition text-white font-black text-lg sm:text-xl py-3 px-5 rounded-xl flex items-center justify-center gap-3 border-2 border-white/40 hover:border-white/70">
+                                    <svg class="w-7 h-7 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+                                    </svg>
+                                    <span id="live-chat-btn-text">Chatear con un Agente</span>
+                                </button>
+                                <p id="live-chat-hours-note" class="text-xs opacity-70 mt-2 text-center">Disponible en horario de atención</p>
+                            </div>
+                            <!-- US Phone -->
+                            <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6 hover:bg-white/30 transition">
+                                <p id="label-phone-us" class="text-base sm:text-lg opacity-90 mb-2">Teléfono EE.UU.</p>
+                                <a href="tel:+19377016185" class="text-xl sm:text-2xl font-black flex items-center hover:scale-105 transition">
+                                    <i class="fas fa-phone mr-3 text-2xl sm:text-3xl"></i> (937) 701-6185
                                 </a>
                             </div>
+                            <!-- Colombia Phone -->
                             <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6 hover:bg-white/30 transition">
-                                <p class="text-base sm:text-lg opacity-90 mb-2">WhatsApp Colombia</p>
-                                <a href="https://wa.me/573217040789" target="_blank" class="text-xl sm:text-2xl font-black flex items-center hover:scale-105 transition">
-                                    <i class="fab fa-whatsapp mr-3 text-3xl sm:text-4xl"></i> +57 321 704 0789
+                                <p id="label-phone-co" class="text-base sm:text-lg opacity-90 mb-2">Teléfono Colombia</p>
+                                <a href="tel:+573217040789" class="text-xl sm:text-2xl font-black flex items-center hover:scale-105 transition">
+                                    <i class="fas fa-phone mr-3 text-2xl sm:text-3xl"></i> +57 321 704 0789
                                 </a>
                             </div>
                             <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6">
@@ -223,8 +237,8 @@
                             </div>
                             <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6">
                                 <p class="text-base sm:text-lg opacity-90 mb-2">Pedidos</p>
-                                <a href="mailto:orders@autoinx.com" class="text-lg sm:text-xl font-bold flex items-center">
-                                    <i class="fas fa-shopping-bag mr-3 text-2xl"></i> orders@autoinx.com
+                                <a href="mailto:finance@autoinx.com" class="text-lg sm:text-xl font-bold flex items-center">
+                                    <i class="fas fa-shopping-bag mr-3 text-2xl"></i> finance@autoinx.com
                                 </a>
                             </div>
                         </div>
@@ -253,7 +267,7 @@
 
     <div id="chatWidget" class="hidden"></div>
 
-    <script>
+    <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
         let currentLang = 'es';
         let chatWidgetEnabled = false;
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
@@ -280,6 +294,11 @@
                 successMsg: '¡Mensaje enviado con éxito! Te responderemos pronto.',
                 errorMsg: 'Error al enviar el mensaje. Por favor, intenta de nuevo o usa el email directo.',
                 immediateResponse: 'Respuesta Prioritaria',
+                liveChatLabel: 'Chat en Vivo',
+                liveChatBtn: 'Chatear con un Agente',
+                liveChatHours: 'Disponible en horario de atención',
+                phoneUS: 'Teléfono EE.UU.',
+                phoneCO: 'Teléfono Colombia',
                 hoursTitle: 'Horario de Atención',
                 hoursDays: 'Lunes a Sábado',
                 hoursTime: '8:00 AM - 8:00 PM',
@@ -306,6 +325,11 @@
                 successMsg: 'Message sent successfully! We will reply soon.',
                 errorMsg: 'Error sending message. Please try again or use direct email.',
                 immediateResponse: 'Prioritized Response',
+                liveChatLabel: 'Live Chat',
+                liveChatBtn: 'Chat with an Agent',
+                liveChatHours: 'Available during business hours',
+                phoneUS: 'US Phone',
+                phoneCO: 'Colombia Phone',
                 hoursTitle: 'Business Hours',
                 hoursDays: 'Monday to Saturday',
                 hoursTime: '8:00 AM - 8:00 PM',
@@ -429,19 +453,9 @@
         function renderChatWidget() {
             const widget = $('chatWidget');
             if (!widget) return;
-            if (!chatWidgetEnabled) {
-                widget.classList.add('hidden');
-                return;
-            }
-            widget.classList.remove('hidden');
-            widget.className = "fixed bottom-6 right-6 z-50";
-            widget.innerHTML = `
-                <a href="${WHATSAPP_LINK}" target="_blank" rel="noopener"
-                    class="block w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-2xl hover:shadow-3xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center border-4 border-white"
-                    aria-label="WhatsApp">
-                    <i class="fab fa-whatsapp text-white text-4xl sm:text-5xl"></i>
-                </a>
-            `;
+            // tawk.to is loaded separately and hidden by default.
+            // The live chat button in the sidebar opens it on demand.
+            widget.classList.add('hidden');
         }
 
         function renderHeader() {
@@ -532,6 +546,11 @@
             `;
             $('buttonText').textContent = t('sendBtn');
             $('sidebar-title').innerHTML = `<i class="fas fa-bolt mr-4 text-4xl sm:text-5xl"></i>${t('immediateResponse')}`;
+            if ($('label-live-chat'))      $('label-live-chat').textContent      = t('liveChatLabel');
+            if ($('live-chat-btn-text'))   $('live-chat-btn-text').textContent   = t('liveChatBtn');
+            if ($('live-chat-hours-note')) $('live-chat-hours-note').textContent = t('liveChatHours');
+            if ($('label-phone-us'))       $('label-phone-us').textContent       = t('phoneUS');
+            if ($('label-phone-co'))       $('label-phone-co').textContent       = t('phoneCO');
             $('hours-title').textContent = t('hoursTitle');
             const liveHours = getBusinessHoursDisplay();
             $('hours-days').textContent = liveHours ? liveHours.days : t('hoursDays');
@@ -564,17 +583,38 @@
                 $('langButtonFallback').textContent = TEXT[currentLang === 'es' ? 'en' : 'es'].langButton;
                 $('langButtonFallback').onclick = forceSetLanguage;
             }
-            $('query-type')?.addEventListener('change', toggleOrderNumberField);
             await fetchAdminConfig();
             render();
         }
 
-        window.module = {
-            setLanguage,
-            submitContactForm
-        };
-
-        document.addEventListener('DOMContentLoaded', initApp);
+        window.module = { submitContactForm };
+        initApp();
     </script>
+
+    <script>
+        window.openLiveChat = function() {
+            if (window.Tawk_API) {
+                window.Tawk_API.showWidget();
+                window.Tawk_API.maximize();
+            } else {
+                window.location.href = 'mailto:support@autoinx.com';
+            }
+        };
+    </script>
+
+    <!--Start of Tawk.to Script-->
+    <script type="text/javascript">
+    var Tawk_API=Tawk_API||{}, Tawk_LoadStart=new Date();
+    Tawk_API.onLoad = function() { Tawk_API.hideWidget(); };
+    (function(){
+    var s1=document.createElement("script"),s0=document.getElementsByTagName("script")[0];
+    s1.async=true;
+    s1.src='https://embed.tawk.to/69c04734efc5d11c3692ab52/1jkbhc8sv';
+    s1.charset='UTF-8';
+    s1.setAttribute('crossorigin','*');
+    s0.parentNode.insertBefore(s1,s0);
+    })();
+    </script>
+    <!--End of Tawk.to Script-->
 </body>
 </html>
