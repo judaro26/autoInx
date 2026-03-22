@@ -2005,23 +2005,74 @@
         }
 
         // Called when user finishes typing their zip
+        // Updates only the pickup section DOM — never touches the zip input itself,
+        // so the user's cursor position and focus are never disturbed.
+        function _updatePickupSection() {
+            const container = document.getElementById('zipPickupSection');
+            if (!container) return;
+
+            const { zipCheckState, isLocalEligible, deliveryMethod, localDistanceMiles } = state;
+
+            const statusHtml = {
+                idle:       '',
+                checking:   `<p class="text-xs text-blue-500 mt-1">📍 Checking your location…</p>`,
+                eligible:   `<p class="text-xs text-green-600 mt-1 font-semibold">✅ You're ${localDistanceMiles} mi away — local pickup available!</p>`,
+                ineligible: `<p class="text-xs text-gray-400 mt-1">📦 ${localDistanceMiles} mi away — outside our local delivery area.</p>`,
+                error:      `<p class="text-xs text-red-400 mt-1">⚠️ Couldn't verify ZIP code.</p>`,
+            }[zipCheckState] || '';
+
+            const pickupToggle = isLocalEligible ? `
+            <div class="mt-2 flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
+                <button onclick="window.module.selectDeliveryMethod('ship')"
+                        class="flex-1 py-1.5 transition ${deliveryMethod === 'ship'
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-white text-gray-500 hover:bg-gray-50'}">
+                    📦 Ship
+                </button>
+                <button onclick="window.module.selectDeliveryMethod('pickup')"
+                        class="flex-1 py-1.5 border-l border-gray-200 transition ${deliveryMethod === 'pickup'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-white text-gray-500 hover:bg-gray-50'}">
+                    🏪 Local Pickup
+                </button>
+            </div>
+            ${deliveryMethod === 'pickup' ? `
+            <div class="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
+                <p class="font-semibold mb-0.5">📍 Pickup location:</p>
+                <p>${PICKUP_ADDRESS}</p>
+                <p class="mt-1 text-green-600">No shipping charge · No sales tax</p>
+            </div>` : ''}` : '';
+
+            // Update input border class without replacing the input itself
+            const input = document.getElementById('zipCodeInput');
+            if (input) {
+                input.className = `w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+                    zipCheckState === 'eligible'   ? 'border-green-400 bg-green-50' :
+                    zipCheckState === 'ineligible' ? 'border-gray-300' :
+                    zipCheckState === 'error'      ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                }`;
+            }
+
+            container.innerHTML = statusHtml + pickupToggle;
+        }
+
         async function handleZipInput(zip) {
             state.customerZip = zip.trim();
             if (state.customerZip.length < 5) {
                 state.zipCheckState   = 'idle';
                 state.isLocalEligible = false;
                 state.deliveryMethod  = 'ship';
-                render();
+                _updatePickupSection();
                 return;
             }
             if (!/^\d{5}$/.test(state.customerZip)) {
                 state.zipCheckState = 'error';
-                render();
+                _updatePickupSection();
                 return;
             }
 
             state.zipCheckState = 'checking';
-            render();
+            _updatePickupSection();
 
             try {
                 const [customer, store] = await Promise.all([
@@ -2038,16 +2089,14 @@
                 state.isLocalEligible = false;
                 state.deliveryMethod  = 'ship';
             }
-            render();
-
-            // Persist pickup preference so checkout.html can read it
+            _updatePickupSection();
             _savePickupPreference();
         }
 
         function selectDeliveryMethod(method) {
             state.deliveryMethod = method;
             _savePickupPreference();
-            render();
+            _updatePickupSection();
         }
 
         function _savePickupPreference() {
@@ -2097,6 +2146,7 @@
             <div class="pt-3 mt-3 border-t border-gray-100">
                 <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Your ZIP Code</label>
                 <input type="text"
+                       id="zipCodeInput"
                        inputmode="numeric"
                        maxlength="5"
                        placeholder="e.g. 94541"
@@ -2107,8 +2157,7 @@
                            zipCheckState === 'ineligible' ? 'border-gray-300' :
                            zipCheckState === 'error'      ? 'border-red-300 bg-red-50' : 'border-gray-200'
                        }">
-                ${statusHtml}
-                ${pickupToggle}
+                <div id="zipPickupSection">${statusHtml}${pickupToggle}</div>
             </div>`;
         }
 
