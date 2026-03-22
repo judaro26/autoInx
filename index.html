@@ -2014,7 +2014,7 @@
         }
 
         // Fetch real Shippo rates + tax for a ZIP — called after distance check passes
-        async function fetchShippingAndTaxEstimate(zip, city, state) {
+        async function fetchShippingAndTaxEstimate(zip, city, stateCode) {
             // Cart weight: 1 lb per unit (rough estimate for pre-checkout display)
             const totalUnits = Object.values(state.cart).reduce((s, e) => s + e.quantity, 0);
             const cartCents  = Object.values(state.cart).reduce((s, e) => s + e.item.price * e.quantity, 0);
@@ -2032,7 +2032,7 @@
                             name: 'Customer',
                             street1: '1 Main St',
                             city,
-                            state,
+                            state: stateCode,
                             zip,
                             country: 'US',
                         },
@@ -2047,7 +2047,14 @@
                 fetch('/.netlify/functions/calculateTax', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ subtotalCents: cartCents, state, zipCode: zip }),
+                    body: JSON.stringify({
+                        subtotalCents: cartCents,
+                        state:   stateCode,
+                        zipCode: zip,
+                        city,
+                        street:  '1 Main St',   // placeholder — ZIP+city+state is enough for Stripe Tax
+                        country: 'US',
+                    }),
                 }),
             ]);
 
@@ -2057,7 +2064,7 @@
             }
             if (taxRes.status === 'fulfilled' && taxRes.value.ok) {
                 const d = await taxRes.value.json();
-                if (d.taxCents != null) taxResult = d;
+                if (d.success) taxResult = d;  // accept even when taxCents === 0 (no nexus state)
             }
 
             return { shippingResult, taxResult };
@@ -2178,9 +2185,12 @@
                             </div>
                             ${taxCents > 0 ? `
                             <div class="flex justify-between text-xs text-gray-600">
-                                <span>Tax ${taxEstimate?.taxRatePercent ? `(${taxEstimate.taxRatePercent}%)` : ''}</span>
+                                <span>Tax ${taxEstimate?.taxRatePercent ? `(${parseFloat(taxEstimate.taxRatePercent).toFixed(2)}%)` : ''}</span>
                                 <span>${formatPrice(taxCents)}</span>
-                            </div>` : ''}
+                            </div>` : (taxEstimate?.jurisdiction === 'No nexus' ? `
+                            <div class="flex justify-between text-xs text-gray-400">
+                                <span>Tax</span><span>$0.00 (no tax in this state)</span>
+                            </div>` : '')}
                             <div class="flex justify-between text-xs font-bold text-gray-800 border-t border-gray-200 pt-1 mt-1">
                                 <span>Estimated Total</span>
                                 <span>${formatPrice(total)}</span>
