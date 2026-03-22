@@ -25,7 +25,7 @@ RESPONSE FORMAT — you MUST always reply with valid JSON only, no markdown, no 
 
 CONTACT:
 ${isBusinessHours
-    ? '- If customer needs human help: mention they can tap the WhatsApp button below.'
+    ? '- If customer needs human help: tell them to tap "Chat with an agent" at the bottom of this chat window.'
     : '- We are AFTER HOURS. If customer needs human help: tell them to email support@autoinx.com and we will respond next business day.'}
 
 RULES:
