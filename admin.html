@@ -18702,80 +18702,209 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     return;
                 }
 
-                const sku = item.sku || 'NO-SKU';
-                const name = item.name || 'Unknown Item';
-                const description = (item.description || '').substring(0, 100); // Limit description length
-                const price = formatPriceDisplay(item.price);
+                const sku      = item.sku || 'NO-SKU';
+                const name     = item.name || 'Unknown Item';
+                const price    = formatPriceDisplay(item.price);
+                const cat      = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                const stock    = item.stock != null ? `Stock: ${item.stock}` : '';
 
-                const cat = state.catalogs.find(c => c.id === item.catalogId)?.name || 'Uncategorized';
+                // Strip HTML from description (Amazon imports contain raw markup)
+                const rawDesc  = (item.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                const desc     = rawDesc.length > 120 ? rawDesc.slice(0, 120) + '…' : rawDesc;
 
-                // Generate label HTML
-                const labelHtml = `
-                    <div class="label-print-area" style="font-family: Arial, sans-serif; background: white; border: 2px solid #333; box-sizing: border-box;">
-                        <!-- Company Header -->
-                        <div style="text-align: center; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 8px;">
-                            <h1 style="margin: 0; font-size: 18px; font-weight: bold;">autoInx Inventory</h1>
-                        </div>
-                        
-                        <!-- Barcode -->
-                        <div style="text-align: center; margin: 10px 0;">
-                            <svg id="barcode-${itemId}"></svg>
-                        </div>
-                        
-                        <!-- SKU Text -->
-                        <div style="text-align: center; font-size: 14px; font-weight: bold; margin: 5px 0;">
-                            SKU: ${escapeHtml(sku)}
-                        </div>
-                        
-                        <!-- Product Info -->
-                        <div style="font-size: 11px; margin-top: 8px;">
-                            <div style="font-weight: bold; font-size: 13px; margin-bottom: 3px;">
-                                ${escapeHtml(name)}
-                            </div>
-                            <div style="color: #666; margin-bottom: 3px;">
-                                ${escapeHtml(description)}
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-top: 5px; padding-top: 5px; border-top: 1px solid #ddd;">
-                                <span><strong>Category:</strong> ${escapeHtml(cat)}</span>
-                                <span><strong>Price:</strong> ${price}</span>
-                            </div>
-                        </div>
-                    </div>
-                `;
+                // ── Rongta thermal label: 4" × 2" (101.6mm × 50.8mm) ────────────
+                // Rongta prints at 203 dpi → 4" = 812px, 2" = 406px in screen terms.
+                // We open a popup at these exact dimensions so the browser sends the
+                // right page size to the printer driver.
+                const W_MM = 101, H_MM = 51;   // label size in mm
+                const W_PX = 384, H_PX = 192;  // screen pixels (96dpi × inches)
 
-                // Insert into hidden print container
-                const printContainer = document.getElementById('printLabel');
-                if (!printContainer) {
-                    showMessage('error', 'Print container not found', 3000, 'inventory');
-                    return;
-                }
-
-                printContainer.innerHTML = labelHtml;
-                printContainer.style.display = 'block';
-
-                // Generate barcode using JsBarcode
+                // Generate barcode SVG string via a temporary off-screen SVG
+                let barcodeSvg = '';
                 try {
-                    JsBarcode(`#barcode-${itemId}`, sku, {
-                        format: "CODE128",
-                        width: 2,
-                        height: 50,
+                    const tmpSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    document.body.appendChild(tmpSvg);
+                    JsBarcode(tmpSvg, sku, {
+                        format: 'CODE128',
+                        width: 1.5,
+                        height: 36,
                         displayValue: false,
-                        margin: 5
+                        margin: 0,
+                        background: '#ffffff',
+                        lineColor: '#000000',
                     });
-                } catch (barcodeError) {
-                    console.error('Barcode generation error:', barcodeError);
-                    showMessage('error', 'Failed to generate barcode. Check SKU format.', 5000, 'inventory');
-                    printContainer.style.display = 'none';
-                    return;
+                    barcodeSvg = tmpSvg.outerHTML;
+                    document.body.removeChild(tmpSvg);
+                } catch (e) {
+                    console.warn('Barcode generation failed:', e);
+                    barcodeSvg = `<div style="font-size:7px;color:#999;">Barcode unavailable</div>`;
                 }
 
-                // Wait for barcode to render, then print
-                setTimeout(() => {
-                    window.print();
-                    printContainer.style.display = 'none';
-                }, 100);
+                const labelHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Label – ${sku}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
 
-                showMessage('success', `Label prepared for ${name}`, 3000, 'inventory');
+  @page {
+    size: ${W_MM}mm ${H_MM}mm;
+    margin: 0;
+  }
+
+  html, body {
+    width:  ${W_MM}mm;
+    height: ${H_MM}mm;
+    overflow: hidden;
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .label {
+    width:  ${W_MM}mm;
+    height: ${H_MM}mm;
+    padding: 3mm 4mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: #fff;
+  }
+
+  /* ── Header row ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 0.5px solid #000;
+    padding-bottom: 1.5mm;
+    margin-bottom: 1.5mm;
+  }
+  .brand {
+    font-size: 11pt;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+    color: #000;
+  }
+  .cat-badge {
+    font-size: 6pt;
+    font-weight: 700;
+    background: #000;
+    color: #fff;
+    padding: 1px 4px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Product name ── */
+  .product-name {
+    font-size: 8pt;
+    font-weight: 700;
+    line-height: 1.25;
+    color: #000;
+    max-height: 10mm;
+    overflow: hidden;
+    margin-bottom: 1mm;
+  }
+
+  /* ── Description ── */
+  .product-desc {
+    font-size: 5.5pt;
+    color: #444;
+    line-height: 1.3;
+    max-height: 8mm;
+    overflow: hidden;
+    margin-bottom: 1.5mm;
+  }
+
+  /* ── Barcode block ── */
+  .barcode-block {
+    text-align: center;
+    line-height: 1;
+  }
+  .barcode-block svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 0 auto;
+  }
+  .sku-text {
+    font-size: 6pt;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.5px;
+    margin-top: 0.5mm;
+    color: #000;
+  }
+
+  /* ── Footer row ── */
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 0.5px solid #000;
+    padding-top: 1.5mm;
+    margin-top: 1mm;
+  }
+  .price {
+    font-size: 12pt;
+    font-weight: 900;
+    color: #000;
+  }
+  .stock-info {
+    font-size: 6pt;
+    color: #555;
+    text-align: right;
+  }
+
+  @media print {
+    html, body { width: ${W_MM}mm; height: ${H_MM}mm; }
+  }
+</style>
+</head>
+<body>
+<div class="label">
+  <div class="header">
+    <span class="brand">AutoInx</span>
+    <span class="cat-badge">${cat.slice(0, 18)}</span>
+  </div>
+
+  <div class="product-name">${name}</div>
+  ${desc ? `<div class="product-desc">${desc}</div>` : ''}
+
+  <div class="barcode-block">
+    ${barcodeSvg}
+    <div class="sku-text">${sku}</div>
+  </div>
+
+  <div class="footer">
+    <span class="price">${price}</span>
+    ${stock ? `<span class="stock-info">${stock}</span>` : ''}
+  </div>
+</div>
+<script>
+  window.onload = function() {
+    window.print();
+    setTimeout(function() { window.close(); }, 800);
+  };
+</script>
+</body>
+</html>`;
+
+                // Open popup exactly sized to the label
+                const popup = window.open('', '_blank',
+                    `width=${W_PX},height=${H_PX},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=no`);
+                if (!popup) {
+                    showMessage('error', 'Pop-up blocked — please allow pop-ups for this site and try again.', 5000, 'inventory');
+                    return;
+                }
+                popup.document.open();
+                popup.document.write(labelHtml);
+                popup.document.close();
+
+                showMessage('success', `Label sent to printer for ${name}`, 3000, 'inventory');
             },
 
             printMultipleLabels: function (itemIds) {
