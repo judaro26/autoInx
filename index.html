@@ -257,10 +257,16 @@
             selectedCategoryId: 'all',
             selectedItem: null,
             captchaToken: null,
-            branding: null,        // ✅ ADD THIS
-            footerConfig: null,    // ✅ ADD THIS
-            seasonalBanner: null,  // seasonal banner config from admin
-            reviewsBanner: [],     // approved reviews for rotating banner
+            branding: null,
+            footerConfig: null,
+            seasonalBanner: null,
+            reviewsBanner: [],
+            // ── Local pickup ──────────────────────────────────
+            customerZip:        '',        // zip code the customer entered
+            isLocalEligible:    false,     // within 50 miles of 94541
+            localDistanceMiles: null,      // computed distance
+            deliveryMethod:     'ship',    // 'ship' | 'pickup'
+            zipCheckState:      'idle',    // 'idle' | 'checking' | 'eligible' | 'ineligible' | 'error'
         };
 
         const GET_CONFIG_FUNCTION = '/.netlify/functions/getAdminConfig';
@@ -1205,22 +1211,187 @@
         }
         // --- RENDER CHAT WIDGET (MODIFIED) ---
         function renderChatWidget() {
-            // Check 1: If Chat is globally disabled, or if the view is explicitly 'admin', hide it.
             if (!state.chatWidgetEnabled || state.view === 'admin') return '';
 
-            // NOTE: The WhatsApp number from checkout.html is used here: +57 300 123 4567
-
             return `
-                <div id="chatWidget" class="fixed bottom-6 right-6 z-50">
-                    <a href="https://wa.me/573001234567" target="_blank" rel="noopener"
-                        class="block w-14 h-14 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-xl hover:shadow-2xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center animate-pulse"
-                        aria-label="Open WhatsApp Chat">
-                        <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.297-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.265c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488z"/>
-                        </svg>
-                    </a>
+                <div id="chatWidgetRoot" class="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+
+                    <!-- AI Chat Panel (hidden by default) -->
+                    <div id="aiChatPanel" class="hidden w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col" style="max-height:480px;">
+                        <!-- Header -->
+                        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 flex items-center justify-between flex-shrink-0">
+                            <div class="flex items-center gap-2">
+                                <div class="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center text-sm">🔧</div>
+                                <div>
+                                    <p class="text-white text-sm font-bold leading-tight">AutoInx Parts Advisor</p>
+                                    <p class="text-indigo-200 text-xs">Ask me about any part</p>
+                                </div>
+                            </div>
+                            <button onclick="window.module.toggleAiChat()" class="text-white/70 hover:text-white text-lg leading-none">✕</button>
+                        </div>
+
+                        <!-- Messages -->
+                        <div id="aiChatMessages" class="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50" style="min-height:200px;max-height:300px;">
+                            <div class="flex gap-2 items-start">
+                                <div class="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">🔧</div>
+                                <div class="bg-white rounded-xl rounded-tl-none px-3 py-2 text-sm text-gray-700 shadow-sm max-w-[85%]">
+                                    Hi! I can help you find the right auto part. Tell me your vehicle's year, make, and model — or describe what you're looking for!
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Input -->
+                        <div class="px-3 py-2 border-t bg-white flex-shrink-0">
+                            <div class="flex gap-2 items-center">
+                                <input type="text" id="aiChatInput"
+                                       placeholder="e.g. Air filter for 2018 Honda Civic"
+                                       maxlength="300"
+                                       onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); window.module.sendAiChatMessage(); }"
+                                       class="flex-1 text-sm p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+                                <button onclick="window.module.sendAiChatMessage()"
+                                        id="aiChatSendBtn"
+                                        class="w-8 h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg flex items-center justify-center flex-shrink-0 transition">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-300 mt-1 text-center">Powered by AI · Not a substitute for professional advice</p>
+                        </div>
+                    </div>
+
+                    <!-- Buttons row -->
+                    <div class="flex gap-3 items-center">
+                        <!-- AI Chat toggle button -->
+                        <button onclick="window.module.toggleAiChat()"
+                                id="aiChatToggleBtn"
+                                title="Ask our AI Parts Advisor"
+                                class="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-xl hover:shadow-2xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center">
+                            <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+                            </svg>
+                        </button>
+
+                        <!-- WhatsApp button -->
+                        <a href="https://wa.me/573001234567" target="_blank" rel="noopener"
+                            title="Chat on WhatsApp"
+                            class="w-14 h-14 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full shadow-xl hover:shadow-2xl transform hover:scale-110 transition-all duration-300 flex items-center justify-center">
+                            <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.297-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.265c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488z"/>
+                            </svg>
+                        </a>
+                    </div>
                 </div>
             `;
+        }
+
+        // ── AI Chat logic ──────────────────────────────────────────────────────────
+        const _aiChatHistory = [];  // { role: 'user'|'assistant', content: string }
+
+        function toggleAiChat() {
+            const panel = document.getElementById('aiChatPanel');
+            if (!panel) return;
+            const isOpen = !panel.classList.contains('hidden');
+            panel.classList.toggle('hidden', isOpen);
+            if (!isOpen) {
+                // Focus input when opening
+                setTimeout(() => document.getElementById('aiChatInput')?.focus(), 50);
+            }
+        }
+
+        async function sendAiChatMessage() {
+            const input = document.getElementById('aiChatInput');
+            const sendBtn = document.getElementById('aiChatSendBtn');
+            const msgContainer = document.getElementById('aiChatMessages');
+            if (!input || !msgContainer) return;
+
+            const text = input.value.trim();
+            if (!text) return;
+
+            // Add user message to UI
+            _aiChatHistory.push({ role: 'user', content: text });
+            input.value = '';
+            if (sendBtn) sendBtn.disabled = true;
+            _renderAiChatMessages(msgContainer);
+
+            // Typing indicator
+            const typingId = 'ai-typing-' + Date.now();
+            msgContainer.insertAdjacentHTML('beforeend', `
+                <div id="${typingId}" class="flex gap-2 items-start">
+                    <div class="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">🔧</div>
+                    <div class="bg-white rounded-xl rounded-tl-none px-3 py-2 shadow-sm">
+                        <div class="flex gap-1 items-center h-5">
+                            <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:0ms"></span>
+                            <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:150ms"></span>
+                            <span class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:300ms"></span>
+                        </div>
+                    </div>
+                </div>`);
+            msgContainer.scrollTop = msgContainer.scrollHeight;
+
+            try {
+                // Build compact product list from loaded catalog
+                const brand = state.branding || {};
+                const storeName = brand.headerText?.en || brand.headerText || 'AutoInx';
+                const products = state.items
+                    .filter(i => !i.temporarilyUnavailable)
+                    .map(i => ({
+                        name:  i.name,
+                        sku:   i.sku || '',
+                        price: ((i.price || 0) / 100).toFixed(2),
+                        description: (i.description || '').replace(/<[^>]*>/g, '').slice(0, 150),
+                        stock: i.stock,
+                    }));
+
+                const res = await fetch('/.netlify/functions/catalogChat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages:  _aiChatHistory,
+                        products,
+                        storeName,
+                    }),
+                });
+
+                const data = await res.json();
+                const reply = data.reply || 'Sorry, I could not get a response. Please try again.';
+                _aiChatHistory.push({ role: 'assistant', content: reply });
+            } catch {
+                _aiChatHistory.push({ role: 'assistant', content: 'Sorry, the chat service is temporarily unavailable. Please contact us at support@autoinx.com.' });
+            } finally {
+                document.getElementById(typingId)?.remove();
+                _renderAiChatMessages(msgContainer);
+                if (sendBtn) sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+
+        function _renderAiChatMessages(container) {
+            if (!container) return;
+            // Re-render all messages (skip the initial greeting which is in the HTML)
+            const msgs = _aiChatHistory.map(m => {
+                if (m.role === 'user') {
+                    return `
+                    <div class="flex gap-2 items-start justify-end">
+                        <div class="bg-indigo-600 rounded-xl rounded-tr-none px-3 py-2 text-sm text-white shadow-sm max-w-[85%]">
+                            ${escapeHtml(m.content)}
+                        </div>
+                    </div>`;
+                } else {
+                    return `
+                    <div class="flex gap-2 items-start">
+                        <div class="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">🔧</div>
+                        <div class="bg-white rounded-xl rounded-tl-none px-3 py-2 text-sm text-gray-700 shadow-sm max-w-[85%]" style="white-space:pre-wrap;">${escapeHtml(m.content)}</div>
+                    </div>`;
+                }
+            }).join('');
+
+            // Keep the greeting, replace only the dynamic messages
+            const greeting = container.querySelector(':first-child');
+            container.innerHTML = '';
+            if (greeting) container.appendChild(greeting);
+            container.insertAdjacentHTML('beforeend', msgs);
+            container.scrollTop = container.scrollHeight;
         }
 
         function renderFooter() {
@@ -1372,7 +1543,11 @@
                                 <span class="text-sm uppercase">${t('total') || 'Total'}:</span>
                                 <span>${formatPrice(totalCartPrice)}</span>
                             </div>
+                            ${state.deliveryMethod === 'pickup' ? `
+                            <p class="text-xs text-green-600 font-semibold mt-1">🏪 Local Pickup selected — no shipping fee</p>
+                            ` : ''}
                         </div>
+                        ${renderPickupSection()}
                     </div>
                 </div>
             `;
@@ -1718,6 +1893,140 @@
             scheduleCartPersist();
             render();
         }
+        // ── Local Pickup / Distance Check ─────────────────────────────────────────
+        const STORE_ZIP        = '94541';    // Hayward, CA
+        const PICKUP_RADIUS_MI = 50;
+        const PICKUP_ADDRESS   = '25451 Clawiter Rd, Hayward, CA 94545'; // display address
+
+        // Haversine formula — returns distance in miles between two lat/lng points
+        function haversineMiles(lat1, lon1, lat2, lon2) {
+            const R  = 3958.8; // Earth radius in miles
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+            const a  = Math.sin(Δφ/2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        // Fetch lat/lng for a US zip code via free Zippopotam.us API (no key required)
+        async function zipToLatLng(zip) {
+            const res  = await fetch(`https://api.zippopotam.us/us/${zip.trim()}`);
+            if (!res.ok) throw new Error('ZIP not found');
+            const data = await res.json();
+            const place = data.places?.[0];
+            if (!place) throw new Error('No location data');
+            return { lat: parseFloat(place.latitude), lng: parseFloat(place.longitude) };
+        }
+
+        // Called when user finishes typing their zip
+        async function handleZipInput(zip) {
+            state.customerZip = zip.trim();
+            if (state.customerZip.length < 5) {
+                state.zipCheckState   = 'idle';
+                state.isLocalEligible = false;
+                state.deliveryMethod  = 'ship';
+                render();
+                return;
+            }
+            if (!/^\d{5}$/.test(state.customerZip)) {
+                state.zipCheckState = 'error';
+                render();
+                return;
+            }
+
+            state.zipCheckState = 'checking';
+            render();
+
+            try {
+                const [customer, store] = await Promise.all([
+                    zipToLatLng(state.customerZip),
+                    zipToLatLng(STORE_ZIP),
+                ]);
+                const miles = haversineMiles(customer.lat, customer.lng, store.lat, store.lng);
+                state.localDistanceMiles = Math.round(miles);
+                state.isLocalEligible    = miles <= PICKUP_RADIUS_MI;
+                state.zipCheckState      = state.isLocalEligible ? 'eligible' : 'ineligible';
+                if (!state.isLocalEligible) state.deliveryMethod = 'ship';
+            } catch {
+                state.zipCheckState   = 'error';
+                state.isLocalEligible = false;
+                state.deliveryMethod  = 'ship';
+            }
+            render();
+
+            // Persist pickup preference so checkout.html can read it
+            _savePickupPreference();
+        }
+
+        function selectDeliveryMethod(method) {
+            state.deliveryMethod = method;
+            _savePickupPreference();
+            render();
+        }
+
+        function _savePickupPreference() {
+            try {
+                sessionStorage.setItem('autoInxDeliveryMethod', state.deliveryMethod);
+                sessionStorage.setItem('autoInxCustomerZip',    state.customerZip);
+                sessionStorage.setItem('autoInxIsLocalPickup',  state.deliveryMethod === 'pickup' ? '1' : '0');
+            } catch {}
+        }
+
+        function renderPickupSection() {
+            if (Object.keys(state.cart).length === 0) return '';
+
+            const { zipCheckState, isLocalEligible, deliveryMethod, localDistanceMiles, customerZip } = state;
+
+            const statusHtml = {
+                idle:       '',
+                checking:   `<p class="text-xs text-blue-500 mt-1">📍 Checking your location…</p>`,
+                eligible:   `<p class="text-xs text-green-600 mt-1 font-semibold">✅ You're ${localDistanceMiles} mi away — local pickup available!</p>`,
+                ineligible: `<p class="text-xs text-gray-400 mt-1">📦 ${localDistanceMiles} mi away — outside our local delivery area.</p>`,
+                error:      `<p class="text-xs text-red-400 mt-1">⚠️ Couldn't verify ZIP code.</p>`,
+            }[zipCheckState] || '';
+
+            const pickupToggle = isLocalEligible ? `
+            <div class="mt-2 flex rounded-lg overflow-hidden border border-gray-200 text-xs font-semibold">
+                <button onclick="window.module.selectDeliveryMethod('ship')"
+                        class="flex-1 py-1.5 transition ${deliveryMethod === 'ship'
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-white text-gray-500 hover:bg-gray-50'}">
+                    📦 Ship
+                </button>
+                <button onclick="window.module.selectDeliveryMethod('pickup')"
+                        class="flex-1 py-1.5 border-l border-gray-200 transition ${deliveryMethod === 'pickup'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-white text-gray-500 hover:bg-gray-50'}">
+                    🏪 Local Pickup
+                </button>
+            </div>
+            ${deliveryMethod === 'pickup' ? `
+            <div class="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
+                <p class="font-semibold mb-0.5">📍 Pickup location:</p>
+                <p>${PICKUP_ADDRESS}</p>
+                <p class="mt-1 text-green-600">No shipping charge · No sales tax</p>
+            </div>` : ''}` : '';
+
+            return `
+            <div class="pt-3 mt-3 border-t border-gray-100">
+                <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Your ZIP Code</label>
+                <input type="text"
+                       inputmode="numeric"
+                       maxlength="5"
+                       placeholder="e.g. 94541"
+                       value="${customerZip}"
+                       oninput="window.module.handleZipInput(this.value)"
+                       class="w-full p-2 text-sm border rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none ${
+                           zipCheckState === 'eligible'   ? 'border-green-400 bg-green-50' :
+                           zipCheckState === 'ineligible' ? 'border-gray-300' :
+                           zipCheckState === 'error'      ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                       }">
+                ${statusHtml}
+                ${pickupToggle}
+            </div>`;
+        }
+
         function continueToCheckout() {
             if (state.isMaintenanceMode) {
                 showMessage('warning', t('maintenanceMsg'), 4000);
@@ -1735,6 +2044,10 @@
                 showMessage('error', 'Could not save cart for checkout. Try clearing your browser cache.', 5000);
                 return;
             }
+
+            // Persist delivery method for checkout.html
+            _savePickupPreference();
+
             window.location.href = '/checkout.html';
         }
         // --- AUTHENTICATION & MODAL FUNCTIONS ---
@@ -2898,6 +3211,10 @@
             addToCart,
             updateCartQuantity,
             continueToCheckout,
+            handleZipInput,
+            selectDeliveryMethod,
+            toggleAiChat,
+            sendAiChatMessage,
             handleProductSearchInput,
             selectCategory,
             requestPasswordReset,
