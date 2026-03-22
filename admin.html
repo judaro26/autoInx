@@ -633,6 +633,7 @@
                 sortDirection: 'desc',
                 filterMargin: 'all'
             },
+            aboutConfig: null,
 
             // --- BILLING STATE ---
             editingOrderDraftCart: {},
@@ -691,6 +692,7 @@
         const SHIPPING_LABELS_COLLECTION = 'shippingLabels';
         const EMAIL_NOTIFICATIONS_COLLECTION = 'email_notifications';
         const REVIEWS_COLLECTION = 'product_reviews';
+        const ABOUT_CONFIG_DOC   = 'site_config/about';
 
         // --- CORE FIREBASE SETUP ---
         async function loadFirebaseConfig() {
@@ -1046,6 +1048,9 @@
             }
             if (state.activeTab === 'auditLog') {
                 return `<section id="auditLogPage"><div class="text-center py-12 text-gray-400">Loading audit log…</div></section>`;
+            }
+            if (state.activeTab === 'aboutPage') {
+                return renderAboutPageEditor();
             }
             if (state.activeTab === 'liveChat') {
                 return `
@@ -3117,6 +3122,7 @@
             SHIPPING_LABEL_GENERATED:    { label: 'Label Generated',        icon: '📬', color: 'indigo' },
             CATALOG_EMAIL_SENT:          { label: 'Catalog Email Sent',      icon: '✉️', color: 'indigo' },
             ADMIN_CONFIG_UPDATED:        { label: 'Config Updated',          icon: '⚙️', color: 'gray'   },
+            ABOUT_PAGE_UPDATED:          { label: 'About Page Updated',      icon: '📄', color: 'indigo' },
             CONTACT_CREATED:             { label: 'Contact Created',         icon: '👤', color: 'green'  },
             CONTACT_UPDATED:             { label: 'Contact Updated',         icon: '👤', color: 'blue'   },
             PROFIT_DATA_UPDATED:         { label: 'Profit Data Updated',    icon: '📈', color: 'blue'   },
@@ -3139,6 +3145,221 @@
         // State for audit log filters
         if (!state.auditLog) state.auditLog = { category: 'all', search: '', page: 0, entries: [], loading: false };
         const AUDIT_PAGE_SIZE = 50;
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // ABOUT PAGE EDITOR
+        // ─────────────────────────────────────────────────────────────────────────
+
+        function renderAboutPageEditor() {
+            const ab = state.aboutConfig || {};
+            const f  = (path, fallback = '') => {
+                const keys = path.split('.');
+                let v = ab;
+                for (const k of keys) v = v?.[k];
+                return v != null ? escapeHtml(String(v)) : fallback;
+            };
+
+            // Bilingual field helper
+            const bi = (labelEN, labelES, fieldEN, fieldES, type = 'textarea') => {
+                const tag   = type === 'input' ? 'input' : 'textarea';
+                const extra = type === 'input' ? `type="text"` : `rows="3"`;
+                const cls   = 'w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400';
+                return `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">🇺🇸 ${labelEN}</label>
+                        <${tag} ${extra} id="ab_${fieldEN}" class="${cls} ${type !== 'input' ? 'resize-none' : ''}">${type === 'input' ? '' : f(fieldEN) + `</${tag}>`}
+                        ${type === 'input' ? `value="${f(fieldEN)}" />` : ''}
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">🇨🇴 ${labelES}</label>
+                        <${tag} ${extra} id="ab_${fieldES}" class="${cls} ${type !== 'input' ? 'resize-none' : ''}">${type === 'input' ? '' : f(fieldES) + `</${tag}>`}
+                        ${type === 'input' ? `value="${f(fieldES)}" />` : ''}
+                    </div>
+                </div>`;
+            };
+
+            const section = (title, color, content) => `
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="px-5 py-3 border-b border-gray-100 bg-${color}-50 flex items-center gap-2">
+                        <span class="text-sm font-bold text-${color}-700">${title}</span>
+                    </div>
+                    <div class="p-5 space-y-4">${content}</div>
+                </div>`;
+
+            return `
+            <section class="space-y-6">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <h2 class="text-2xl font-bold text-indigo-700">📄 About Us Page</h2>
+                        <p class="text-sm text-gray-500 mt-0.5">Edit the content displayed on <a href="/about.html" target="_blank" class="text-indigo-500 underline">about.html</a></p>
+                    </div>
+                    <div class="flex gap-2">
+                        <a href="/about.html" target="_blank"
+                           class="px-4 py-2 text-sm font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition">
+                            ↗ Preview Page
+                        </a>
+                        <button onclick="window.module.saveAboutConfig()"
+                                class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 shadow-md transition">
+                            💾 Save Changes
+                        </button>
+                    </div>
+                </div>
+
+                <div id="aboutPageMessage"></div>
+
+                <!-- Hero / Tagline -->
+                ${section('🏷️ Tagline & Founded Line', 'indigo', `
+                    ${bi('Tagline (EN)', 'Tagline (ES)', 'tagline.en', 'tagline.es', 'input')}
+                    ${bi('Founded line (EN)', 'Founded line (ES)', 'founded.en', 'founded.es', 'input')}
+                `)}
+
+                <!-- Mission -->
+                ${section('🎯 Mission', 'pink', `
+                    ${bi('Header (EN)', 'Header (ES)', 'mission.header.en', 'mission.header.es', 'input')}
+                    ${bi('Text (EN)', 'Text (ES)', 'mission.text.en', 'mission.text.es')}
+                `)}
+
+                <!-- Heritage -->
+                ${section('🏡 Heritage', 'yellow', `
+                    ${bi('Header (EN)', 'Header (ES)', 'heritage.header.en', 'heritage.header.es', 'input')}
+                    ${bi('Text (EN)', 'Text (ES)', 'heritage.text.en', 'heritage.text.es')}
+                `)}
+
+                <!-- Markets -->
+                ${section('🌎 Markets', 'green', `
+                    ${bi('Header (EN)', 'Header (ES)', 'markets.header.en', 'markets.header.es', 'input')}
+                    ${bi('Text (EN)', 'Text (ES)', 'markets.text.en', 'markets.text.es')}
+                `)}
+
+                <!-- Team section header -->
+                ${section('👥 Team Section', 'purple', `
+                    ${bi('Section heading (EN)', 'Section heading (ES)', 'team.heading.en', 'team.heading.es', 'input')}
+                `)}
+
+                <!-- Profile 1 -->
+                ${section('👤 Founder 1', 'indigo', `
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Name</label>
+                            <input type="text" id="ab_profiles.0.name" value="${f('profiles.0.name')}"
+                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Photo URL</label>
+                            <input type="text" id="ab_profiles.0.image" value="${f('profiles.0.image')}"
+                                   placeholder="https://… or /images/…"
+                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                        </div>
+                    </div>
+                    ${bi('Title (EN)', 'Title (ES)', 'profiles.0.title.en', 'profiles.0.title.es', 'input')}
+                    ${bi('Bio (EN)', 'Bio (ES)', 'profiles.0.bio.en', 'profiles.0.bio.es')}
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Fallback avatar initials (shown if photo fails)</label>
+                        <input type="text" id="ab_profiles.0.initials" value="${f('profiles.0.initials', 'JR')}" maxlength="3"
+                               class="w-24 p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                `)}
+
+                <!-- Profile 2 -->
+                ${section('👤 Founder 2', 'green', `
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Name</label>
+                            <input type="text" id="ab_profiles.1.name" value="${f('profiles.1.name')}"
+                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Photo URL</label>
+                            <input type="text" id="ab_profiles.1.image" value="${f('profiles.1.image')}"
+                                   placeholder="https://… or /images/…"
+                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                        </div>
+                    </div>
+                    ${bi('Title (EN)', 'Title (ES)', 'profiles.1.title.en', 'profiles.1.title.es', 'input')}
+                    ${bi('Bio (EN)', 'Bio (ES)', 'profiles.1.bio.en', 'profiles.1.bio.es')}
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Fallback avatar initials</label>
+                        <input type="text" id="ab_profiles.1.initials" value="${f('profiles.1.initials', 'BB')}" maxlength="3"
+                               class="w-24 p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                `)}
+
+                <div class="flex justify-end">
+                    <button onclick="window.module.saveAboutConfig()"
+                            class="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg transition">
+                        💾 Save Changes
+                    </button>
+                </div>
+            </section>`;
+        }
+
+        function gab(id) {
+            const el = document.getElementById(`ab_${id}`);
+            return el ? el.value.trim() : '';
+        }
+
+        async function saveAboutConfig() {
+            const config = {
+                tagline:  { en: gab('tagline.en'),  es: gab('tagline.es')  },
+                founded:  { en: gab('founded.en'),  es: gab('founded.es')  },
+                mission:  {
+                    header: { en: gab('mission.header.en'), es: gab('mission.header.es') },
+                    text:   { en: gab('mission.text.en'),   es: gab('mission.text.es')   },
+                },
+                heritage: {
+                    header: { en: gab('heritage.header.en'), es: gab('heritage.header.es') },
+                    text:   { en: gab('heritage.text.en'),   es: gab('heritage.text.es')   },
+                },
+                markets: {
+                    header: { en: gab('markets.header.en'), es: gab('markets.header.es') },
+                    text:   { en: gab('markets.text.en'),   es: gab('markets.text.es')   },
+                },
+                team: {
+                    heading: { en: gab('team.heading.en'), es: gab('team.heading.es') },
+                },
+                profiles: [
+                    {
+                        name:     gab('profiles.0.name'),
+                        image:    gab('profiles.0.image'),
+                        initials: gab('profiles.0.initials') || 'JR',
+                        title:    { en: gab('profiles.0.title.en'), es: gab('profiles.0.title.es') },
+                        bio:      { en: gab('profiles.0.bio.en'),   es: gab('profiles.0.bio.es')   },
+                    },
+                    {
+                        name:     gab('profiles.1.name'),
+                        image:    gab('profiles.1.image'),
+                        initials: gab('profiles.1.initials') || 'BB',
+                        title:    { en: gab('profiles.1.title.en'), es: gab('profiles.1.title.es') },
+                        bio:      { en: gab('profiles.1.bio.en'),   es: gab('profiles.1.bio.es')   },
+                    },
+                ],
+                updatedAt: new Date().toISOString(),
+            };
+
+            try {
+                const [col, docId] = ABOUT_CONFIG_DOC.split('/');
+                await setDoc(doc(db, col, docId), config);
+                state.aboutConfig = config;
+                showMessage('success', '✅ About page saved successfully.', 4000, 'aboutPage');
+                logAdminAction('ABOUT_PAGE_UPDATED', { updatedAt: config.updatedAt });
+            } catch (err) {
+                console.error('saveAboutConfig error:', err);
+                showMessage('error', `Failed to save: ${err.message}`, 5000, 'aboutPage');
+            }
+        }
+
+        async function loadAboutConfig() {
+            try {
+                const [col, docId] = ABOUT_CONFIG_DOC.split('/');
+                const snap = await getDoc(doc(db, col, docId));
+                if (snap.exists()) {
+                    state.aboutConfig = snap.data();
+                }
+            } catch (err) {
+                console.warn('loadAboutConfig:', err.message);
+            }
+        }
 
         async function renderAuditLog(category = null, search = null, page = 0) {
             const el = document.getElementById('auditLogPage');
@@ -9063,6 +9284,7 @@ ${printScript}
                         returns:            'finance',
                         marketing:          'marketing',
                         contacts:           'marketing',
+                        aboutPage:          'marketing',
                         users:              'users',
                         config:             'users',
                         auditLog:           'users',
@@ -9141,11 +9363,12 @@ ${printScript}
 
                     ${divider()}
 
-                    ${groupHeader('marketing', '📣', 'Marketing', 2)}
+                    ${groupHeader('marketing', '📣', 'Marketing', 3)}
                     ${isOpen('marketing') ? `
                     <div class="bg-gray-50/60 pb-1">
-                        ${tabBtn('marketing', '🎯', 'Campaigns & Discounts')}
-                        ${tabBtn('contacts',  '👤', 'Contacts')}
+                        ${tabBtn('marketing',  '🎯', 'Campaigns & Discounts')}
+                        ${tabBtn('contacts',   '👤', 'Contacts')}
+                        ${tabBtn('aboutPage',  '📄', 'About Us Page')}
                     </div>` : ''}
 
                     ${divider()}
@@ -9182,7 +9405,8 @@ ${printScript}
             if (state.activeTab === 'returns' && !state.previewMode) setTimeout(() => window.module.renderReturnsSection(), 100);
             if (state.activeTab === 'reviews' && !state.previewMode) setTimeout(() => window.module.renderReviewsTab(), 100);
             if (state.activeTab === 'contacts' && !state.previewMode) setTimeout(() => window.module.renderContactsSection(), 100);
-            if (state.activeTab === 'auditLog' && !state.previewMode) setTimeout(() => window.module.renderAuditLog(), 100);
+            if (state.activeTab === 'auditLog'  && !state.previewMode) setTimeout(() => window.module.renderAuditLog(), 100);
+            if (state.activeTab === 'aboutPage' && !state.previewMode && !state.aboutConfig) loadAboutConfig().then(() => renderAdminPage(auth.currentUser?.email || 'Admin'));
             if (state.activeTab === 'config' && !state.previewMode) {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
@@ -18244,6 +18468,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             downloadIndividualItemSalesCsv,
             calculateAdminOrderShippingTax,
             setAdminOrderMethod,
+            saveAboutConfig,
 
             // ========================================================================
             // MANUAL ORDER CREATION (ADMIN CART)
