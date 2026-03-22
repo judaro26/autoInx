@@ -613,6 +613,7 @@
             refundHistory: [],
             // ✅ NEW: Admin order creation shipping/tax
             adminOrderShippingCents: 0,
+            adminOrderMethod: 'ship',  // 'ship' | 'pickup'
             adminOrderTaxCents: 0,
             adminOrderShippingDetails: null,
             adminOrderTaxDetails: null,
@@ -6469,6 +6470,44 @@ ${printScript}
 
 
         // ✅ NEW: Calculate shipping and tax for manual orders
+        function setAdminOrderMethod(method) {
+            state.adminOrderMethod = method;
+
+            const shipBtn    = document.getElementById('methodShipBtn');
+            const pickupBtn  = document.getElementById('methodPickupBtn');
+            const shipSec    = document.getElementById('adminShipSection');
+            const pickupSec  = document.getElementById('adminPickupSection');
+            const addrInput  = document.getElementById('deliveryAddress');
+
+            if (method === 'pickup') {
+                if (shipBtn)   { shipBtn.className   = shipBtn.className.replace('bg-green-600 text-white','bg-white text-gray-500 hover:bg-green-50'); }
+                if (pickupBtn) { pickupBtn.className  = pickupBtn.className.replace('bg-white text-gray-500 hover:bg-green-50','bg-green-600 text-white'); }
+                if (shipSec)   shipSec.classList.add('hidden');
+                if (pickupSec) pickupSec.classList.remove('hidden');
+                // Mark address as valid so form can submit
+                if (addrInput) {
+                    addrInput.value               = '25451 Clawiter Rd, Hayward, CA 94545';
+                    addrInput.dataset.validated   = 'true';
+                }
+                // Zero out shipping for pickup
+                state.adminOrderShippingCents   = 0;
+                state.adminOrderShippingDetails = { provider: 'Local Pickup', amount: 0 };
+                updateAdminCartDisplay();
+            } else {
+                if (shipBtn)   { shipBtn.className   = shipBtn.className.replace('bg-white text-gray-500 hover:bg-green-50','bg-green-600 text-white'); }
+                if (pickupBtn) { pickupBtn.className  = pickupBtn.className.replace('bg-green-600 text-white','bg-white text-gray-500 hover:bg-green-50'); }
+                if (shipSec)   shipSec.classList.remove('hidden');
+                if (pickupSec) pickupSec.classList.add('hidden');
+                if (addrInput) {
+                    addrInput.value             = '';
+                    addrInput.dataset.validated = 'false';
+                }
+                state.adminOrderShippingCents   = 0;
+                state.adminOrderShippingDetails = null;
+                updateAdminCartDisplay();
+            }
+        }
+
         async function calculateAdminOrderShippingTax() {
             const addressInput = document.getElementById('deliveryAddress');
             const address = addressInput?.value?.trim();
@@ -6622,7 +6661,10 @@ ${printScript}
             const email = buyerEmail;
             const name = buyerName;
             const phone = buyerPhone;
-            const address = deliveryAddress.value.trim();
+            const isPickup  = state.adminOrderMethod === 'pickup';
+            const address   = isPickup
+                ? '25451 Clawiter Rd, Hayward, CA 94545'
+                : deliveryAddress.value.trim();
             const itemsToOrder = Object.values(state.adminCart);
 
             // 1.1 Validation
@@ -6630,7 +6672,7 @@ ${printScript}
                 return showMessage('error', 'The order cart is empty.', 3000, 'orders');
             }
 
-            if (deliveryAddress.dataset.validated !== 'true') {
+            if (!isPickup && deliveryAddress.dataset.validated !== 'true') {
                 return showMessage('error', 'Please select a valid delivery address from the dropdown.', 5000, 'orders');
             }
 
@@ -6674,6 +6716,7 @@ ${printScript}
                     buyerName: name,
                     buyerPhone: phone,
                     deliveryAddress: address,
+                    isLocalPickup:  isPickup,
                     whatsappConsent: whatsappConsent,
                     smsConsent: smsConsent,
                     notificationPreferences: {
@@ -7801,16 +7844,43 @@ ${printScript}
                                         </div>
                                     </div>
         
-                                    <!-- Delivery Address -->
+                                    <!-- Delivery Method -->
                                     <div class="border-2 border-green-200 rounded-lg p-4 bg-green-50">
-                                        <h3 class="text-lg font-bold mb-4 text-green-800">📍 Delivery Address</h3>
-                                        <div>
+                                        <h3 class="text-lg font-bold mb-3 text-green-800">🚚 Delivery Method</h3>
+
+                                        <!-- Ship / Local Pickup toggle -->
+                                        <div class="flex rounded-lg overflow-hidden border border-green-300 mb-4">
+                                            <button type="button"
+                                                    id="methodShipBtn"
+                                                    onclick="window.module.setAdminOrderMethod('ship')"
+                                                    class="flex-1 py-2.5 text-sm font-bold transition bg-green-600 text-white">
+                                                📦 Ship to Address
+                                            </button>
+                                            <button type="button"
+                                                    id="methodPickupBtn"
+                                                    onclick="window.module.setAdminOrderMethod('pickup')"
+                                                    class="flex-1 py-2.5 text-sm font-bold border-l border-green-300 transition bg-white text-gray-500 hover:bg-green-50">
+                                                🏪 Local Pickup
+                                            </button>
+                                        </div>
+
+                                        <!-- Ship: address input -->
+                                        <div id="adminShipSection">
                                             <label class="block text-sm font-semibold mb-2">Search for Address *</label>
-                                            <input type="text" id="deliveryAddress" required data-validated="false"
+                                            <input type="text" id="deliveryAddress" data-validated="false"
                                                    placeholder="Start typing to search for address..."
                                                    class="w-full p-4 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:ring-2 focus:ring-green-200 text-lg">
                                             <div id="addressErrorAdmin" class="mt-2 text-sm text-orange-600 font-semibold">
                                                 ⚠️ Please select a valid address from the dropdown
+                                            </div>
+                                        </div>
+
+                                        <!-- Pickup: info card -->
+                                        <div id="adminPickupSection" class="hidden">
+                                            <div class="bg-white border border-green-300 rounded-lg p-4">
+                                                <p class="font-semibold text-green-800 mb-1">📍 Pickup Location</p>
+                                                <p class="text-sm text-gray-700">25451 Clawiter Rd, Hayward, CA 94545</p>
+                                                <p class="text-xs text-green-600 mt-2 font-semibold">No shipping charge · No sales tax</p>
                                             </div>
                                         </div>
                                     </div>
@@ -18072,6 +18142,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             downloadCategorySalesCsv,
             downloadIndividualItemSalesCsv,
             calculateAdminOrderShippingTax,
+            setAdminOrderMethod,
 
             // ========================================================================
             // MANUAL ORDER CREATION (ADMIN CART)
