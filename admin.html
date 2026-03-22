@@ -9282,6 +9282,14 @@ ${printScript}
         }
 
         function renderAdminPage(userName) {
+            // Don't wipe the DOM while the About editor is active — it would
+            // destroy input focus and any unsaved text the admin is typing.
+            // The editor is self-contained; callers that need a full re-render
+            // after saving should set state.aboutConfig first, then call this.
+            if (state.activeTab === 'aboutPage' && !state.previewMode &&
+                document.getElementById('ab_tagline.en')) {
+                return; // editor is already rendered with current data
+            }
             document.getElementById('app').innerHTML = `
         <header class="flex flex-col sm:flex-row justify-between items-center mb-10 pb-4 border-b-4 border-indigo-600 gap-4">
             <div class="flex items-center space-x-3">
@@ -9450,7 +9458,19 @@ ${printScript}
             if (state.activeTab === 'reviews' && !state.previewMode) setTimeout(() => window.module.renderReviewsTab(), 100);
             if (state.activeTab === 'contacts' && !state.previewMode) setTimeout(() => window.module.renderContactsSection(), 100);
             if (state.activeTab === 'auditLog'  && !state.previewMode) setTimeout(() => window.module.renderAuditLog(), 100);
-            if (state.activeTab === 'aboutPage' && !state.previewMode && !state.aboutConfig) loadAboutConfig().then(() => renderAdminPage(auth.currentUser?.email || 'Admin'));
+            if (state.activeTab === 'aboutPage' && !state.previewMode && !state.aboutConfig) {
+                loadAboutConfig().then(() => {
+                    // Only re-render if the about tab is still active and the editor is in the DOM
+                    // Use targeted update instead of full re-render to avoid disrupting input focus
+                    const container = document.querySelector('section.space-y-6');
+                    if (state.activeTab === 'aboutPage' && container) {
+                        const main = document.querySelector('main');
+                        if (main) main.innerHTML = renderAboutPageEditor();
+                    } else if (state.activeTab === 'aboutPage') {
+                        renderAdminPage(auth.currentUser?.email || 'Admin');
+                    }
+                });
+            }
             if (state.activeTab === 'config' && !state.previewMode) {
                 setTimeout(() => {
                     window.module.fetchAdminConfig();
