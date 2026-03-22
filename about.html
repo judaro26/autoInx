@@ -163,25 +163,46 @@
         </header>`;
     }
 
-    function renderProfile(p) {
-        const name     = esc(p.name || '');
-        const title    = esc(p.title?.[currentLang] || p.title?.en || '');
-        const bio      = esc(p.bio?.[currentLang]   || p.bio?.en   || '');
-        const imgUrl   = p.image || '';
-        const initials = esc(p.initials || name.split(' ').map(w=>w[0]).join('').slice(0,2) || '?');
-        const color    = p._index === 0 ? 'indigo' : 'green';
-        const titleColor = p._index === 0 ? 'text-pink-600' : 'text-purple-600';
-        const borderColor = p._index === 0 ? 'border-indigo-200' : 'border-green-200';
-        const fallbackBg  = p._index === 0 ? 'a78bfa' : '63d471';
+    const AVATAR_COLORS = [
+        { bg: '#e0e7ff', text: '#4338ca', border: '#a5b4fc' }, // indigo
+        { bg: '#dcfce7', text: '#16a34a', border: '#86efac' }, // green
+        { bg: '#f3e8ff', text: '#7c3aed', border: '#c4b5fd' }, // purple
+        { bg: '#fce7f3', text: '#be185d', border: '#f9a8d4' }, // pink
+        { bg: '#ffedd5', text: '#c2410c', border: '#fdba74' }, // orange
+        { bg: '#ccfbf1', text: '#0f766e', border: '#5eead4' }, // teal
+    ];
 
-        const imgTag = `<img src="${esc(imgUrl)}" alt="${name}"
-                             class="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-full border-4 ${borderColor} flex-shrink-0"
-                             onerror="this.src='https://placehold.co/100x100/${fallbackBg}/ffffff?text=${initials}';">`;
+    function renderProfile(p) {
+        const name       = esc(p.name || '');
+        const title      = esc(p.title?.[currentLang] || p.title?.en || '');
+        const bio        = esc(p.bio?.[currentLang]   || p.bio?.en   || '');
+        const imgUrl     = (p.image || '').trim();
+        const initials   = esc(p.initials || name.replace(/&[^;]+;/g,'').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() || '?');
+        const ac         = AVATAR_COLORS[p._index % AVATAR_COLORS.length];
+        const titleColors= ['text-pink-600','text-purple-600','text-indigo-600','text-orange-600','text-teal-600','text-rose-600'];
+        const titleColor = titleColors[p._index % titleColors.length];
+
+        // Show real photo if URL provided, otherwise a styled initials circle
+        const avatarHtml = imgUrl
+            ? `<div class="flex-shrink-0 relative">
+                   <img src="${esc(imgUrl)}" alt="${name}"
+                        class="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-full flex-shrink-0"
+                        style="border: 3px solid ${ac.border};"
+                        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                   <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full items-center justify-center font-black text-2xl flex-shrink-0"
+                        style="display:none;background:${ac.bg};color:${ac.text};border:3px solid ${ac.border};">
+                       ${initials}
+                   </div>
+               </div>`
+            : `<div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center font-black text-2xl flex-shrink-0"
+                    style="background:${ac.bg};color:${ac.text};border:3px solid ${ac.border};">
+                   ${initials}
+               </div>`;
 
         return `
         <div class="profile-card bg-gray-50 p-6 rounded-2xl shadow-lg border border-gray-200 transition duration-300 focus-within:shadow-2xl" tabindex="0">
             <div class="flex items-center space-x-4 sm:space-x-6">
-                ${imgTag}
+                ${avatarHtml}
                 <div>
                     <h4 class="text-lg sm:text-xl font-bold text-gray-900">${name}</h4>
                     <p class="${titleColor} font-medium text-sm sm:text-base">${title}</p>
