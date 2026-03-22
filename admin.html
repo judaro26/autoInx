@@ -11093,17 +11093,19 @@ ${printScript}
         // ============================================================================
 
         // ── Vendor landed-cost lookup ─────────────────────────────────────────────
-        // Builds a Map of SKU → { landedCostPerUnitCents, orderId, orderDate }
-        // using the most-recent non-cancelled vendor order per SKU.
-        // Landed cost per item is weighted by that item's share of the order subtotal
-        // so items with different unit costs get the right proportion of overhead.
+        // Builds a Map of SKU → { landedCostPerUnitCents } using the most-recent
+        // non-cancelled vendor order per SKU. Normalizes raw Firestore docs first
+        // so cents fields and legacy dollar fields are both handled correctly.
         function buildVendorCostMap() {
-            const map = new Map(); // sku → { landedCostPerUnitCents, orderId, orderDate }
+            const map = new Map();
+
             const vendorOrders = (state.vendorOrders || [])
+                .map(o => o._normalized ? o : normalizeVendorOrder(o))  // normalize raw docs
                 .filter(o => o.status !== 'Cancelled - Refunded' && o.landedCost > 0 && Array.isArray(o.items) && o.items.length > 0)
                 .sort((a, b) => new Date(b.orderDate || 0) - new Date(a.orderDate || 0)); // newest first
 
             for (const order of vendorOrders) {
+                // order.items[].unitCost and order.landedCost are already in dollars after normalization
                 const orderSubtotal = order.items.reduce((s, i) => s + ((i.unitCost || 0) * (i.quantity || 0)), 0);
                 const landedCostDollars = order.landedCost || 0;
 
@@ -11114,13 +11116,13 @@ ${printScript}
                     const qty = lineItem.quantity || 0;
                     if (qty === 0) continue;
 
-                    // Proportional share of landed cost for this line item
+                    // Proportional share of landed overhead for this line item
                     const lineSubtotal = (lineItem.unitCost || 0) * qty;
                     const proportion   = orderSubtotal > 0 ? lineSubtotal / orderSubtotal : 1 / order.items.length;
-                    const itemLandedCostDollars = landedCostDollars * proportion;
+                    const itemLandedOverheadDollars = (landedCostDollars - orderSubtotal) * proportion;
 
-                    // Per unit: base unit cost + proportional landed overhead
-                    const perUnitDollars = (lineItem.unitCost || 0) + (itemLandedCostDollars / qty);
+                    // Per unit: base unit cost + proportional overhead share
+                    const perUnitDollars = (lineItem.unitCost || 0) + (itemLandedOverheadDollars / qty);
                     const perUnitCents   = Math.round(perUnitDollars * 100);
 
                     map.set(sku, {
