@@ -1,31 +1,23 @@
-/**
- * Netlify Function (Admin Only) to create an order manually.
- * It uses the Firebase Admin SDK to save the order and then calls the send-email function.
- */
 const admin = require('firebase-admin');
 const fetch = require('node-fetch');
 
-// Ensure Firebase Admin is initialized once
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
+      projectId:   process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
+      privateKey:  process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
     }),
   });
 }
 
 const db = admin.firestore();
-const SITE_URL = process.env.URL || 'https://autoinx-placeholder.netlify.app'; 
-// Use the correct function path for the email service
+const SITE_URL          = process.env.URL || 'https://autoinx-placeholder.netlify.app';
 const ORDERS_COLLECTION = process.env.ORDERS_COLLECTION_PATH || 'artifacts/default-app-id/public/data/orders';
 
-// Helper function to sanitize strings and remove HTML/script tags
 function sanitizeString(str) {
     if (!str) return '';
-    // Simple filter to prevent XSS (Cross-Site Scripting) injection
-    return String(str).replace(/</g, "&lt;").replace(/>/g, "&gt;").trim();
+    return String(str).replace(/</g, '&lt;').replace(/>/g, '&gt;').trim();
 }
 
 exports.handler = async function (event) {
@@ -33,158 +25,157 @@ exports.handler = async function (event) {
         return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
 
-    // --- 1. Security Check: Validate Admin Token (CRITICAL) ---
+    // ── Auth ────────────────────────────────────────────────────────────────────
     const authHeader = event.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader?.startsWith('Bearer ')) {
         return { statusCode: 401, body: JSON.stringify({ error: 'Authorization token required.' }) };
     }
-
-    const idToken = authHeader.split('Bearer ')[1];
     let decodedToken;
     try {
-        decodedToken = await admin.auth().verifyIdToken(idToken);
-    } catch (e) {
+        decodedToken = await admin.auth().verifyIdToken(authHeader.split('Bearer ')[1]);
+    } catch {
         return { statusCode: 401, body: JSON.stringify({ error: 'Invalid or expired token.' }) };
     }
-
     if (decodedToken.admin !== true) {
-        return { statusCode: 403, body: JSON.stringify({ error: 'Access denied: Admin privileges required.' }) };
+        return { statusCode: 403, body: JSON.stringify({ error: 'Admin privileges required.' }) };
     }
-    // --- End Security Check ---
 
+    // ── Parse body ──────────────────────────────────────────────────────────────
     let orderDetails;
-    try {
-        orderDetails = JSON.parse(event.body);
-    } catch (error) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) };
-    }
+    try { orderDetails = JSON.parse(event.body); }
+    catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) }; }
 
-    const { 
-        buyerEmail, 
-        items, 
-        totalCents,
-        buyerName,
-        buyerPhone, 
-        deliveryAddress,
-        notes,
-        geolocation 
+    const {
+        buyerEmail, buyerName, buyerPhone, deliveryAddress,
+        items, notes, geolocation,
+        // Financial breakdown from admin panel
+        subtotalCents, shippingCents = 0, taxCents = 0,
+        discountCents = 0, totalCents,
+        discount, shippingDetails, taxDetails,
+        // Local pickup
+        isLocalPickup = false,
+        // Other
+        language, communicationLang,
+        adminNotes, notificationPreferences,
+        whatsappConsent, smsConsent,
     } = orderDetails;
-    
-    // --- 2. Enhanced Input Validation and Sanitization ---
-    
-    // Check for required fields and basic types
-    if (!buyerEmail || typeof buyerEmail !== 'string' || 
-        !items || !Array.isArray(items) || items.length === 0 || 
-        !totalCents || typeof totalCents !== 'number' || totalCents <= 0 || 
-        !buyerName || typeof buyerName !== 'string' || 
-        !deliveryAddress || typeof deliveryAddress !== 'string') {
-        
-        return { statusCode: 400, body: JSON.stringify({ error: 'Missing or invalid required order fields: email, items (array), totalCents (number > 0), name, or address.' }) };
-    }
-    
-    // Sanitize user-provided string inputs
-    const sanitizedName = sanitizeString(buyerName);
-    const sanitizedAddress = sanitizeString(deliveryAddress);
-    const sanitizedNotes = sanitizeString(notes);
-    
-    // Validate item structure and calculate total for price integrity check
-    let calculatedTotalCents = 0;
-    
-    const validatedItems = items.map(item => {
-        const quantity = item.quantity && typeof item.quantity === 'number' && item.quantity > 0 ? Math.floor(item.quantity) : 0;
-        const price = item.price && typeof item.price === 'number' && item.price >= 0 ? item.price : 0;
-        
-        if (quantity === 0 || price === 0) {
-            console.warn("Invalid item quantity or price detected and ignored.");
-            return null; 
-        }
-        
-        calculatedTotalCents += quantity * price;
-        
-        return {
-            id: sanitizeString(item.id),
-            name: sanitizeString(item.name),
-            sku: sanitizeString(item.sku),
-            price: price,
-            quantity: quantity
-        };
-    }).filter(item => item !== null);
 
-    // Price Integrity Check: Ensure client's total matches server's calculation
-    if (Math.abs(calculatedTotalCents - totalCents) > 1) { 
-        return { statusCode: 400, body: JSON.stringify({ error: `Price integrity failure. Calculated total (${calculatedTotalCents}) does not match provided total (${totalCents}).` }) };
+    // ── Validation ───────────────────────────────────────────────────────────────
+    if (!buyerEmail || typeof buyerEmail !== 'string' ||
+        !items || !Array.isArray(items) || items.length === 0 ||
+        !buyerName || typeof buyerName !== 'string') {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields: email, name, items.' }) };
     }
-    
-    // Validate geolocation if present
+
+    // For pickup orders, delivery address is optional (replaced by pickup address)
+    if (!isLocalPickup && (!deliveryAddress || typeof deliveryAddress !== 'string')) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Delivery address is required for non-pickup orders.' }) };
+    }
+
+    // ── Item validation & subtotal calculation ──────────────────────────────────
+    let calculatedSubtotal = 0;
+    const validatedItems = items.map(item => {
+        const qty   = Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 0;
+        const price = typeof item.price === 'number' && item.price >= 0 ? item.price : 0;
+        if (!qty || !price) { console.warn('Skipping invalid item:', item); return null; }
+        calculatedSubtotal += qty * price;
+        return {
+            id:       sanitizeString(item.id),
+            name:     sanitizeString(item.name),
+            sku:      sanitizeString(item.sku),
+            price,
+            quantity: qty,
+        };
+    }).filter(Boolean);
+
+    if (validatedItems.length === 0) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'No valid items in order.' }) };
+    }
+
+    // ── Price integrity: verify ITEM subtotal only ───────────────────────────────
+    // The old code compared calculatedSubtotal (items only) vs totalCents (items +
+    // shipping + tax - discount), which always fails when shipping/tax/discount exist.
+    // Now we only verify item prices; shipping/tax/discount are admin-controlled.
+    if (subtotalCents != null && Math.abs(calculatedSubtotal - subtotalCents) > 1) {
+        return { statusCode: 400, body: JSON.stringify({
+            error: `Price integrity failure. Item subtotal mismatch: calculated ${calculatedSubtotal}, provided ${subtotalCents}.`
+        })};
+    }
+
+    // Recompute grand total server-side
+    const finalSubtotal = calculatedSubtotal;
+    const finalDiscount = typeof discountCents === 'number' ? discountCents : 0;
+    const finalShipping = typeof shippingCents === 'number' ? (isLocalPickup ? 0 : shippingCents) : 0;
+    const finalTax      = typeof taxCents      === 'number' ? taxCents      : 0;
+    const finalTotal    = Math.max(0, finalSubtotal - finalDiscount + finalShipping + finalTax);
+
+    if (totalCents != null && Math.abs(finalTotal - totalCents) > 2) {
+        console.warn(`Grand total mismatch — computed ${finalTotal}, received ${totalCents}. Using computed.`);
+    }
+
     let finalGeolocation = null;
-    if (geolocation && typeof geolocation.lat === 'number' && typeof geolocation.lng === 'number') {
+    if (geolocation?.lat != null && geolocation?.lng != null) {
         finalGeolocation = { lat: geolocation.lat, lng: geolocation.lng };
     }
-    
-    // --- End Enhanced Input Validation and Sanitization ---
+
+    // ── Build Firestore document ─────────────────────────────────────────────────
+    const PICKUP_ADDRESS = '25451 Clawiter Rd, Hayward, CA 94545';
+
+    const orderData = {
+        buyerEmail:            buyerEmail.trim(),
+        buyerName:             sanitizeString(buyerName),
+        buyerPhone:            buyerPhone || null,
+        deliveryAddress:       isLocalPickup ? PICKUP_ADDRESS : sanitizeString(deliveryAddress),
+        isLocalPickup:         !!isLocalPickup,
+        notes:                 sanitizeString(notes),
+        adminNotes:            sanitizeString(adminNotes),
+        items:                 validatedItems,
+        subtotalCents:         finalSubtotal,
+        shippingCents:         finalShipping,
+        taxCents:              finalTax,
+        discountCents:         finalDiscount,
+        totalCents:            finalTotal,
+        discount:              discount || null,
+        shippingDetails:       isLocalPickup ? { provider: 'Local Pickup', amount: 0 } : (shippingDetails || null),
+        taxDetails:            taxDetails || null,
+        geolocation:           finalGeolocation,
+        notificationPreferences: notificationPreferences || { email: true, whatsapp: !!whatsappConsent, sms: !!smsConsent },
+        language:              language || communicationLang || 'en',
+        communicationLang:     language || communicationLang || 'en',
+        status:                'Manually Created',
+        createdByAdmin:        decodedToken.email,
+        timestamp:             new Date().toISOString(),
+        createdAt:             admin.firestore.FieldValue.serverTimestamp(),
+    };
 
     let orderRef = null;
-
     try {
-        // 3. Prepare the order record for Firestore (using sanitized/validated data)
-        const orderData = {
-            buyerEmail: buyerEmail.trim(), 
-            buyerName: sanitizedName,
-            buyerPhone: buyerPhone || null,
-            deliveryAddress: sanitizedAddress,
-            notes: sanitizedNotes,
-            items: validatedItems,
-            totalCents: calculatedTotalCents,
-            geolocation: finalGeolocation,
-            status: 'Manually Created',
-            createdByAdmin: decodedToken.email,
-            timestamp: new Date().toISOString(),
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        };
-
-        // 4. Save the order to Firestore
-        orderRef = await db.collection(ORDERS_COLLECTION).add(orderData); 
+        orderRef = await db.collection(ORDERS_COLLECTION).add(orderData);
         const orderId = orderRef.id;
 
-        // 5. Call Netlify Function to send email
-        const emailPayload = { 
-            ...orderDetails, 
-            orderId: orderId,
-            timestamp: orderData.timestamp,
-            // Explicitly ensure 'communicationLang' is set for the emailer
-            communicationLang: orderDetails.language || orderDetails.communicationLang || 'en'
+        // ── Send confirmation email ────────────────────────────────────────────
+        const emailPayload = {
+            ...orderDetails, ...orderData,
+            orderId,
+            timestamp:        orderData.timestamp,
+            communicationLang: orderData.communicationLang,
         };
-        
-        const emailResponse = await fetch(`${SITE_URL}/.netlify/functions/sendOrderConfirmation`, {
+        const emailRes = await fetch(`${SITE_URL}/.netlify/functions/sendOrderConfirmation`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(emailPayload)
+            body: JSON.stringify(emailPayload),
         });
-
-        if (!emailResponse.ok) {
-            const emailErrorText = await emailResponse.text();
-            console.error(`Email function failed for order ${orderId}: ${emailErrorText}`);
-            await orderRef.update({ emailStatus: 'Failed' });
-        } else {
-            await orderRef.update({ emailStatus: 'Sent' });
-        }
+        await orderRef.update({ emailStatus: emailRes.ok ? 'Sent' : 'Failed' });
+        if (!emailRes.ok) console.error(`Email failed for order ${orderId}:`, await emailRes.text());
 
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                message: 'Order created and email initiated successfully.', 
-                orderId: orderId 
-            }),
+            body: JSON.stringify({ message: 'Order created successfully.', orderId }),
         };
-
     } catch (error) {
         console.error('Error creating order:', error);
-        
-        if (orderRef) {
-            await orderRef.update({ status: 'Creation Failed', failureDetails: error.message });
-        }
-
+        if (orderRef) await orderRef.update({ status: 'Creation Failed', failureDetails: error.message }).catch(() => {});
         return {
             statusCode: 500,
             body: JSON.stringify({ error: 'Failed to create order', details: error.message }),
