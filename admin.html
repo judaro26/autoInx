@@ -11000,7 +11000,13 @@ ${printScript}
                         <td class="p-3 text-sm font-bold">${formatPriceDisplay(item.price)}</td>
                         
                         <td class="p-3 text-sm ${analysis.hasData ? '' : 'text-gray-400 italic'}">
-                            ${analysis.hasData ? formatPriceDisplay(analysis.purchasePriceCents) : 'Not set'}
+                            ${analysis.purchasePriceSource === 'none'
+                                ? '<span class="text-gray-400 italic">Not set</span>'
+                                : `${formatPriceDisplay(analysis.purchasePriceCents)}
+                                   <div class="text-xs mt-0.5 ${analysis.purchasePriceSource === 'vendor' ? 'text-blue-500' : 'text-gray-400'}">
+                                       ${analysis.purchasePriceSource === 'vendor' ? '🏭 from vendor order' : '✏️ manual'}
+                                   </div>`
+                            }
                         </td>
                         
                         <td class="p-3 text-sm">
@@ -11086,73 +11092,110 @@ ${printScript}
         // HELPER FUNCTIONS
         // ============================================================================
 
+        // ── Vendor landed-cost lookup ─────────────────────────────────────────────
+        // Builds a Map of SKU → { landedCostPerUnitCents, orderId, orderDate }
+        // using the most-recent non-cancelled vendor order per SKU.
+        // Landed cost per item is weighted by that item's share of the order subtotal
+        // so items with different unit costs get the right proportion of overhead.
+        function buildVendorCostMap() {
+            const map = new Map(); // sku → { landedCostPerUnitCents, orderId, orderDate }
+            const vendorOrders = (state.vendorOrders || [])
+                .filter(o => o.status !== 'Cancelled - Refunded' && o.landedCost > 0 && Array.isArray(o.items) && o.items.length > 0)
+                .sort((a, b) => new Date(b.orderDate || 0) - new Date(a.orderDate || 0)); // newest first
+
+            for (const order of vendorOrders) {
+                const orderSubtotal = order.items.reduce((s, i) => s + ((i.unitCost || 0) * (i.quantity || 0)), 0);
+                const landedCostDollars = order.landedCost || 0;
+
+                for (const lineItem of order.items) {
+                    const sku = (lineItem.sku || '').trim();
+                    if (!sku || map.has(sku)) continue; // already have a newer order for this SKU
+
+                    const qty = lineItem.quantity || 0;
+                    if (qty === 0) continue;
+
+                    // Proportional share of landed cost for this line item
+                    const lineSubtotal = (lineItem.unitCost || 0) * qty;
+                    const proportion   = orderSubtotal > 0 ? lineSubtotal / orderSubtotal : 1 / order.items.length;
+                    const itemLandedCostDollars = landedCostDollars * proportion;
+
+                    // Per unit: base unit cost + proportional landed overhead
+                    const perUnitDollars = (lineItem.unitCost || 0) + (itemLandedCostDollars / qty);
+                    const perUnitCents   = Math.round(perUnitDollars * 100);
+
+                    map.set(sku, {
+                        landedCostPerUnitCents: perUnitCents,
+                        orderId:   order.id,
+                        orderDate: order.orderDate,
+                        supplier:  order.supplier,
+                    });
+                }
+            }
+            return map;
+        }
+
         function calculateItemProfit(item) {
-            const sellingPriceCents = item.price || 0;
-            const purchasePriceCents = item.purchasePriceCents || 0;
+            const sellingPriceCents  = item.price || 0;
             const avgShippingCostCents = item.avgShippingCostCents || 0;
 
-            // ✅ NEW: Tariff calculations
+            // ── Purchase price: item field → vendor order landed cost → 0 ──────────
+            let purchasePriceCents = item.purchasePriceCents || 0;
+            let purchasePriceSource = 'manual'; // 'manual' | 'vendor' | 'none'
+
+            if (!purchasePriceCents && item.sku) {
+                const vendorMap = buildVendorCostMap();
+                const vendorData = vendorMap.get(item.sku.trim());
+                if (vendorData) {
+                    purchasePriceCents = vendorData.landedCostPerUnitCents;
+                    purchasePriceSource = 'vendor';
+                }
+            }
+            if (!purchasePriceCents) purchasePriceSource = 'none';
+
+            // ── Tariff ────────────────────────────────────────────────────────────
             const countryOfOrigin = item.countryOfOrigin || 'Unknown';
-            const tariffRate = item.tariffRate || 0; // Percentage (e.g., 25 for 25%)
+            const tariffRate  = item.tariffRate || 0;
             const tariffCents = Math.round((purchasePriceCents * tariffRate) / 100);
 
             const hasData = purchasePriceCents > 0 || avgShippingCostCents > 0 || tariffCents > 0;
 
-            // Cost per unit (vendor cost + tariff)
             const costPerUnitCents = purchasePriceCents + tariffCents;
 
-            // Profit if customer pays shipping (most common scenario)
             const profitWithoutShippingCents = sellingPriceCents - costPerUnitCents;
             const marginWithoutShippingPercent = sellingPriceCents > 0
-                ? (profitWithoutShippingCents / sellingPriceCents) * 100
-                : 0;
+                ? (profitWithoutShippingCents / sellingPriceCents) * 100 : 0;
 
-            // Actual profit if you absorb shipping cost
             const profitWithShippingCents = sellingPriceCents - (costPerUnitCents + avgShippingCostCents);
             const marginWithShippingPercent = sellingPriceCents > 0
-                ? (profitWithShippingCents / sellingPriceCents) * 100
-                : 0;
+                ? (profitWithShippingCents / sellingPriceCents) * 100 : 0;
 
-            // Break-even price if you were to offer free shipping (like Amazon)
             const breakEvenWithFreeShippingCents = costPerUnitCents + avgShippingCostCents;
 
-            // ✅ NEW: Calculate what profit would be WITHOUT tariffs (for comparison)
             const profitWithoutTariffCents = sellingPriceCents - (purchasePriceCents + avgShippingCostCents);
             const marginWithoutTariffPercent = sellingPriceCents > 0
-                ? ((sellingPriceCents - purchasePriceCents) / sellingPriceCents) * 100
-                : 0;
+                ? ((sellingPriceCents - purchasePriceCents) / sellingPriceCents) * 100 : 0;
 
             return {
                 hasData,
                 sellingPriceCents,
                 purchasePriceCents,
+                purchasePriceSource, // 'manual' | 'vendor' | 'none'
                 avgShippingCostCents,
-
-                // ✅ NEW: Tariff data
                 countryOfOrigin,
                 tariffRate,
                 tariffCents,
-                tariffImpactCents: tariffCents, // How much tariff adds to cost
-
-                // Cost breakdown
-                costPerUnitCents,  // Vendor cost + tariff
-
-                // Dual profit calculations (WITH tariffs)
-                profitWithoutShippingCents,      // When customer pays shipping
-                marginWithoutShippingPercent,    // Margin without shipping
-                profitWithShippingCents,         // If you absorb shipping
-                marginWithShippingPercent,       // Margin with shipping absorbed
-
-                // ✅ NEW: Pre-tariff comparison
-                profitWithoutTariffCents,        // What profit would be without tariffs
-                marginWithoutTariffPercent,      // What margin would be without tariffs
-
+                tariffImpactCents: tariffCents,
+                costPerUnitCents,
+                profitWithoutShippingCents,
+                marginWithoutShippingPercent,
+                profitWithShippingCents,
+                marginWithShippingPercent,
+                profitWithoutTariffCents,
+                marginWithoutTariffPercent,
                 breakEvenWithFreeShippingCents,
-
-                // Legacy (kept for backward compatibility)
-                totalCostCents: costPerUnitCents,
-                profitCents: profitWithoutShippingCents,
-                marginPercent: marginWithoutShippingPercent
+                totalCostCents:  costPerUnitCents,
+                profitCents:     profitWithoutShippingCents,
+                marginPercent:   marginWithoutShippingPercent,
             };
         }
 
@@ -11400,6 +11443,10 @@ ${printScript}
                                 <div class="space-y-4">
                                     <div>
                                         <label class="block text-sm font-semibold mb-2">Purchase Price (from vendor)</label>
+                                        ${analysis.purchasePriceSource === 'vendor' ? `
+                                        <div class="flex items-center gap-2 mb-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg">
+                                            <span class="text-blue-600 text-xs font-bold">🏭 Auto-filled from vendor order (landed cost per unit)</span>
+                                        </div>` : ''}
                                         <div class="flex gap-2">
                                             <span class="text-lg">$</span>
                                             <input type="number" 
@@ -11408,8 +11455,13 @@ ${printScript}
                                                    value="${(analysis.purchasePriceCents / 100).toFixed(2)}" 
                                                    placeholder="0.00"
                                                    onchange="window.module.recalculateTariffInModal()"
-                                                   class="flex-1 p-2 border-2 border-gray-300 rounded-lg text-lg">
+                                                   class="flex-1 p-2 border-2 ${analysis.purchasePriceSource === 'vendor' ? 'border-blue-300 bg-blue-50' : 'border-gray-300'} rounded-lg text-lg">
                                         </div>
+                                        ${analysis.purchasePriceSource === 'vendor' ? `
+                                        <p class="text-xs text-blue-500 mt-1">Override by typing a value above, then save to store it on the item directly.</p>
+                                        ` : analysis.purchasePriceSource === 'none' ? `
+                                        <p class="text-xs text-orange-500 mt-1">⚠️ No vendor order found for SKU "${escapeHtml(item.sku || '')}". Add a vendor order or enter manually.</p>
+                                        ` : ''}
                                     </div>
                                     
                                     <!-- Country of Origin -->
