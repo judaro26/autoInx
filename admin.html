@@ -634,6 +634,7 @@
                 filterMargin: 'all'
             },
             aboutConfig: null,
+            aboutProfiles: null,  // null = not loaded yet; array when loaded
 
             // --- BILLING STATE ---
             editingOrderDraftCart: {},
@@ -3281,61 +3282,155 @@
                     ${bi('Section heading (EN)', 'Section heading (ES)', 'team.heading.en', 'team.heading.es', 'input')}
                 `)}
 
-                <!-- Profile 1 -->
-                ${section('👤 Founder 1', 'indigo', `
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">Name</label>
-                            <input type="text" id="ab_profiles.0.name" value="${f('profiles.0.name')}"
-                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">Photo URL</label>
-                            <input type="text" id="ab_profiles.0.image" value="${f('profiles.0.image')}"
-                                   placeholder="https://… or /images/…"
-                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                        </div>
-                    </div>
-                    ${bi('Title (EN)', 'Title (ES)', 'profiles.0.title.en', 'profiles.0.title.es', 'input')}
-                    ${bi('Bio (EN)', 'Bio (ES)', 'profiles.0.bio.en', 'profiles.0.bio.es')}
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-500 mb-1">Fallback avatar initials (shown if photo fails)</label>
-                        <input type="text" id="ab_profiles.0.initials" value="${f('profiles.0.initials')}" maxlength="3"
-                               class="w-24 p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                    </div>
-                `)}
+                <!-- Team Members — dynamic list -->
+                <div id="aboutProfilesList">
+                    ${renderAboutProfiles(f)}
+                </div>
 
-                <!-- Profile 2 -->
-                ${section('👤 Founder 2', 'green', `
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">Name</label>
-                            <input type="text" id="ab_profiles.1.name" value="${f('profiles.1.name')}"
-                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-500 mb-1">Photo URL</label>
-                            <input type="text" id="ab_profiles.1.image" value="${f('profiles.1.image')}"
-                                   placeholder="https://… or /images/…"
-                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                        </div>
-                    </div>
-                    ${bi('Title (EN)', 'Title (ES)', 'profiles.1.title.en', 'profiles.1.title.es', 'input')}
-                    ${bi('Bio (EN)', 'Bio (ES)', 'profiles.1.bio.en', 'profiles.1.bio.es')}
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-500 mb-1">Fallback avatar initials</label>
-                        <input type="text" id="ab_profiles.1.initials" value="${f('profiles.1.initials')}" maxlength="3"
-                               class="w-24 p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                    </div>
-                `)}
-
-                <div class="flex justify-end">
+                <div class="flex justify-between items-center">
+                    <button onclick="window.module.addAboutProfile()"
+                            class="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-indigo-300 text-indigo-600 font-semibold text-sm rounded-xl hover:bg-indigo-50 transition">
+                        ＋ Add Team Member
+                    </button>
                     <button onclick="window.module.saveAboutConfig()"
                             class="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg transition">
                         💾 Save Changes
                     </button>
                 </div>
             </section>`;
+        }
+
+        // ── Profile card renderer (called both on first render and on add/remove) ─
+        const PROFILE_COLORS = ['indigo','green','purple','pink','orange','teal','blue','rose'];
+
+        function renderAboutProfiles(fResolver) {
+            // Use state.aboutProfiles if set, otherwise derive from config/defaults
+            if (!state.aboutProfiles) {
+                const saved = state.aboutConfig?.profiles;
+                state.aboutProfiles = saved && saved.length > 0 ? JSON.parse(JSON.stringify(saved)) : [
+                    { name: 'Juan Rodriguez', image: 'https://github.com/judaro26/autoInx/blob/main/images/juan.jpeg?raw=true',
+                      initials: 'JR',
+                      title: { en: 'Chief Operating Officer (COO)', es: 'Director de Operaciones (COO)' },
+                      bio:   { en: 'Juan oversees all import and logistics operations in the U.S.', es: 'Juan supervisa todas las operaciones de importación y logística en los EE. UU.' } },
+                    { name: 'Brian Bohada', image: '', initials: 'BB',
+                      title: { en: 'Chief Market Officer (CMO)', es: 'Director de Mercado (CMO)' },
+                      bio:   { en: 'Brian leads the expansion strategy in the Colombian market.', es: 'Brian lidera la estrategia de expansión en el mercado colombiano.' } },
+                ];
+            }
+
+            const cls = 'w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none';
+
+            return state.aboutProfiles.map((p, i) => {
+                const color = PROFILE_COLORS[i % PROFILE_COLORS.length];
+                const num   = i + 1;
+                return `
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-4" id="aboutProfile_${i}">
+                    <div class="px-5 py-3 border-b border-gray-100 bg-${color}-50 flex items-center justify-between">
+                        <span class="text-sm font-bold text-${color}-700">👤 Team Member ${num}${p.name ? ' — ' + escapeHtml(p.name) : ''}</span>
+                        <div class="flex items-center gap-2">
+                            ${i > 0 ? `<button onclick="window.module.moveAboutProfile(${i},-1)" title="Move up"
+                                    class="text-gray-400 hover:text-gray-700 text-lg leading-none">↑</button>` : ''}
+                            ${i < state.aboutProfiles.length - 1 ? `<button onclick="window.module.moveAboutProfile(${i},1)" title="Move down"
+                                    class="text-gray-400 hover:text-gray-700 text-lg leading-none">↓</button>` : ''}
+                            ${state.aboutProfiles.length > 1 ? `<button onclick="window.module.removeAboutProfile(${i})"
+                                    class="text-red-400 hover:text-red-600 text-xs font-semibold px-2 py-1 rounded hover:bg-red-50 transition">✕ Remove</button>` : ''}
+                        </div>
+                    </div>
+                    <div class="p-5 space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 mb-1">Name</label>
+                                <input type="text" id="abp_${i}_name" value="${escapeHtml(p.name || '')}"
+                                       oninput="window.module.updateAboutProfileField(${i},'name',this.value)"
+                                       class="${cls}">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 mb-1">Photo URL</label>
+                                <input type="text" id="abp_${i}_image" value="${escapeHtml(p.image || '')}"
+                                       placeholder="https://… or /images/…"
+                                       oninput="window.module.updateAboutProfileField(${i},'image',this.value)"
+                                       class="${cls}">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 mb-1">🇺🇸 Title (EN)</label>
+                                <input type="text" id="abp_${i}_title_en" value="${escapeHtml(p.title?.en || '')}"
+                                       oninput="window.module.updateAboutProfileField(${i},'title.en',this.value)"
+                                       class="${cls}">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 mb-1">🇨🇴 Title (ES)</label>
+                                <input type="text" id="abp_${i}_title_es" value="${escapeHtml(p.title?.es || '')}"
+                                       oninput="window.module.updateAboutProfileField(${i},'title.es',this.value)"
+                                       class="${cls}">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 mb-1">🇺🇸 Bio (EN)</label>
+                                <textarea id="abp_${i}_bio_en" rows="3"
+                                          oninput="window.module.updateAboutProfileField(${i},'bio.en',this.value)"
+                                          class="${cls} resize-none">${escapeHtml(p.bio?.en || '')}</textarea>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 mb-1">🇨🇴 Bio (ES)</label>
+                                <textarea id="abp_${i}_bio_es" rows="3"
+                                          oninput="window.module.updateAboutProfileField(${i},'bio.es',this.value)"
+                                          class="${cls} resize-none">${escapeHtml(p.bio?.es || '')}</textarea>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Fallback initials (if photo fails)</label>
+                            <input type="text" id="abp_${i}_initials" value="${escapeHtml(p.initials || '')}" maxlength="3"
+                                   oninput="window.module.updateAboutProfileField(${i},'initials',this.value)"
+                                   class="w-24 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function _refreshProfilesList() {
+            const el = document.getElementById('aboutProfilesList');
+            if (el) el.innerHTML = renderAboutProfiles(null);
+        }
+
+        function updateAboutProfileField(idx, path, value) {
+            if (!state.aboutProfiles?.[idx]) return;
+            const keys = path.split('.');
+            let obj = state.aboutProfiles[idx];
+            for (let i = 0; i < keys.length - 1; i++) {
+                if (!obj[keys[i]]) obj[keys[i]] = {};
+                obj = obj[keys[i]];
+            }
+            obj[keys[keys.length - 1]] = value;
+        }
+
+        function addAboutProfile() {
+            if (!state.aboutProfiles) state.aboutProfiles = [];
+            state.aboutProfiles.push({
+                name: '', image: '', initials: '',
+                title: { en: '', es: '' },
+                bio:   { en: '', es: '' },
+            });
+            _refreshProfilesList();
+        }
+
+        function removeAboutProfile(idx) {
+            if (!state.aboutProfiles || state.aboutProfiles.length <= 1) return;
+            if (!confirm(`Remove team member #${idx + 1}?`)) return;
+            state.aboutProfiles.splice(idx, 1);
+            _refreshProfilesList();
+        }
+
+        function moveAboutProfile(idx, dir) {
+            const arr = state.aboutProfiles;
+            if (!arr) return;
+            const newIdx = idx + dir;
+            if (newIdx < 0 || newIdx >= arr.length) return;
+            [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+            _refreshProfilesList();
         }
 
         function gab(id) {
@@ -3362,31 +3457,18 @@
                 team: {
                     heading: { en: gab('team.heading.en'), es: gab('team.heading.es') },
                 },
-                profiles: [
-                    {
-                        name:     gab('profiles.0.name'),
-                        image:    gab('profiles.0.image'),
-                        initials: gab('profiles.0.initials') || 'JR',
-                        title:    { en: gab('profiles.0.title.en'), es: gab('profiles.0.title.es') },
-                        bio:      { en: gab('profiles.0.bio.en'),   es: gab('profiles.0.bio.es')   },
-                    },
-                    {
-                        name:     gab('profiles.1.name'),
-                        image:    gab('profiles.1.image'),
-                        initials: gab('profiles.1.initials') || 'BB',
-                        title:    { en: gab('profiles.1.title.en'), es: gab('profiles.1.title.es') },
-                        bio:      { en: gab('profiles.1.bio.en'),   es: gab('profiles.1.bio.es')   },
-                    },
-                ],
+                // Profiles come from state.aboutProfiles (live-updated via oninput)
+                profiles: (state.aboutProfiles || []).filter(p => p.name || p.title?.en),
                 updatedAt: new Date().toISOString(),
             };
 
             try {
                 const [col, docId] = ABOUT_CONFIG_DOC.split('/');
                 await setDoc(doc(db, col, docId), config);
-                state.aboutConfig = config;
+                state.aboutConfig  = config;
+                state.aboutProfiles = JSON.parse(JSON.stringify(config.profiles));
                 showMessage('success', '✅ About page saved successfully.', 4000, 'aboutPage');
-                logAdminAction('ABOUT_PAGE_UPDATED', { updatedAt: config.updatedAt });
+                logAdminAction('ABOUT_PAGE_UPDATED', { members: config.profiles.length, updatedAt: config.updatedAt });
             } catch (err) {
                 console.error('saveAboutConfig error:', err);
                 showMessage('error', `Failed to save: ${err.message}`, 5000, 'aboutPage');
@@ -3398,7 +3480,8 @@
                 const [col, docId] = ABOUT_CONFIG_DOC.split('/');
                 const snap = await getDoc(doc(db, col, docId));
                 if (snap.exists()) {
-                    state.aboutConfig = snap.data();
+                    state.aboutConfig   = snap.data();
+                    state.aboutProfiles = JSON.parse(JSON.stringify(state.aboutConfig.profiles || []));
                 }
             } catch (err) {
                 console.warn('loadAboutConfig:', err.message);
@@ -5613,6 +5696,10 @@ ${printScript}
         }
 
         function switchAdminTab(tab) {
+            // Clear profile working state when leaving the About editor
+            if (state.activeTab === 'aboutPage' && tab !== 'aboutPage') {
+                state.aboutProfiles = null;
+            }
             state.activeTab = tab;
             state.editingItem = null;
             state.previewMode = false;
@@ -18533,6 +18620,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             calculateAdminOrderShippingTax,
             setAdminOrderMethod,
             saveAboutConfig,
+            addAboutProfile,
+            removeAboutProfile,
+            moveAboutProfile,
+            updateAboutProfileField,
 
             // ========================================================================
             // MANUAL ORDER CREATION (ADMIN CART)
