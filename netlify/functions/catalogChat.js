@@ -7,27 +7,33 @@ const Anthropic = require('@anthropic-ai/sdk');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = (products, storeName, isBusinessHours) => `You are a friendly and knowledgeable auto parts advisor for ${storeName}, an automotive parts retailer based in the East Bay, California. Your job is to help customers find the right parts from the store's current inventory.
+const SYSTEM_PROMPT = (products, storeName, isBusinessHours) => `You are a friendly and bilingual auto parts advisor for ${storeName}, a retailer based in the East Bay, California.
 
-CURRENT INVENTORY:
+LANGUAGE: Always respond in the same language the customer writes in. If they write in Spanish, reply fully in Spanish. If English, reply in English. You are equally fluent in both.
+
+CURRENT INVENTORY (use ONLY these products):
 ${products}
 
-CONTACT & HOURS:
-- It is currently ${isBusinessHours ? 'BUSINESS HOURS' : 'AFTER HOURS'}.
-- If the customer needs to speak with a person or has a question you can't answer:
-  ${isBusinessHours
-    ? '- Direct them to WhatsApp: they can tap the WhatsApp link shown below the chat.'
-    : '- We are currently outside business hours. Direct them to email support@autoinx.com — a team member will respond the next business day.'}
+RESPONSE FORMAT — you MUST always reply with valid JSON only, no markdown, no extra text:
+{
+  "reply": "Your conversational message to the customer (2-4 sentences)",
+  "recommendations": ["SKU1", "SKU2"]
+}
 
-GUIDELINES:
-- Only recommend products that are in the inventory list above.
-- Be specific: mention the product name, SKU, and price when recommending.
-- If a customer describes their vehicle (year/make/model), cross-reference it with the product descriptions to find compatible parts.
-- If no product matches, honestly say you don't currently carry that item and suggest they ${isBusinessHours ? 'contact us on WhatsApp' : 'email support@autoinx.com'}.
-- Keep responses concise and helpful — 2–4 sentences max unless the customer asks for more detail.
-- You can answer general automotive questions (e.g. "how often should I change my air filter?") even if the product isn't in stock.
-- Do NOT make up products, prices, or SKUs. Only reference what's in the inventory.
-- Friendly, conversational tone. Not overly formal.`;
+- "reply": helpful message in the customer's language
+- "recommendations": array of SKU strings for products you recommend (max 3). Empty array [] if none apply.
+
+CONTACT:
+${isBusinessHours
+    ? '- If customer needs human help: mention they can tap the WhatsApp button below.'
+    : '- We are AFTER HOURS. If customer needs human help: tell them to email support@autoinx.com and we will respond next business day.'}
+
+RULES:
+- Only recommend products from the inventory above. Never invent SKUs or prices.
+- Match vehicle year/make/model to product descriptions when possible.
+- If no match found, say so honestly and suggest contacting us.
+- Keep "reply" concise: 2-4 sentences max.
+- Always return valid JSON. No backticks, no markdown.`;
 
 exports.handler = async function (event) {
     if (event.httpMethod !== 'POST') {
@@ -35,11 +41,8 @@ exports.handler = async function (event) {
     }
 
     let body;
-    try {
-        body = JSON.parse(event.body);
-    } catch {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
-    }
+    try { body = JSON.parse(event.body); }
+    catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
     const { messages, products = [], storeName = 'AutoInx', isBusinessHours = true } = body;
 
@@ -47,36 +50,49 @@ exports.handler = async function (event) {
         return { statusCode: 400, body: JSON.stringify({ error: 'messages array is required' }) };
     }
 
-    // Sanitize messages — only allow user/assistant roles, text content only
     const safeMessages = messages
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ role: m.role, content: String(m.content).slice(0, 1000) }))
-        .slice(-10); // keep last 10 turns to stay within token budget
+        .slice(-10);
 
-    if (safeMessages.length === 0 || safeMessages[safeMessages.length - 1].role !== 'user') {
+    if (!safeMessages.length || safeMessages[safeMessages.length - 1].role !== 'user') {
         return { statusCode: 400, body: JSON.stringify({ error: 'Last message must be from user' }) };
     }
 
-    // Build a compact product list for the system prompt (cap at 150 products to stay within tokens)
+    // Compact product list — include id so we can match back
     const productContext = products
         .slice(0, 150)
-        .map(p => `- ${p.name}${p.sku ? ` [SKU: ${p.sku}]` : ''} — $${p.price}${p.description ? ` | ${p.description.slice(0, 120)}` : ''}${p.stock != null ? ` | Stock: ${p.stock}` : ''}`)
+        .map(p => `SKU:${p.sku || p.id} | ${p.name} | $${p.price}${p.description ? ' | ' + p.description.slice(0, 100) : ''}`)
         .join('\n');
 
     try {
         const response = await client.messages.create({
             model:      'claude-haiku-4-5-20251001',
-            max_tokens: 400,
+            max_tokens: 500,
             system:     SYSTEM_PROMPT(productContext || 'No products available.', storeName, isBusinessHours),
             messages:   safeMessages,
         });
 
-        const reply = response.content?.[0]?.text || "I'm sorry, I couldn't generate a response. Please try again.";
+        const raw = response.content?.[0]?.text || '{}';
+
+        // Parse structured response
+        let parsed;
+        try {
+            // Strip any accidental markdown fences
+            const clean = raw.replace(/```json|```/g, '').trim();
+            parsed = JSON.parse(clean);
+        } catch {
+            // Fallback: treat entire response as plain text reply
+            parsed = { reply: raw, recommendations: [] };
+        }
+
+        const reply           = parsed.reply           || 'Sorry, I could not generate a response.';
+        const recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations.slice(0, 3) : [];
 
         return {
             statusCode: 200,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reply }),
+            body: JSON.stringify({ reply, recommendations }),
         };
     } catch (err) {
         console.error('catalogChat error:', err);
