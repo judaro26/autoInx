@@ -3152,32 +3152,76 @@
 
         function renderAboutPageEditor() {
             const ab = state.aboutConfig || {};
-            const f  = (path, fallback = '') => {
-                const keys = path.split('.');
-                let v = ab;
-                for (const k of keys) v = v?.[k];
-                return v != null ? escapeHtml(String(v)) : fallback;
+
+            // Default values — shown when no config saved yet
+            const DEFAULTS = {
+                'tagline.en':  'Your Trusted Partner in Auto Parts for the Global Market.',
+                'tagline.es':  'Tu Socio de Confianza en Autopartes para el Mercado Global.',
+                'founded.en':  'Founded in 2025, we are a 100% family-owned company.',
+                'founded.es':  'Fundada en 2025, somos una empresa 100% familiar.',
+                'mission.header.en': 'Our Mission',
+                'mission.header.es': 'Nuestra Misión',
+                'mission.text.en':   'Founded in 2025, AutoInx specializes in importing high-quality auto parts. Our commitment is to ensure that mechanics and consumers in both Colombia and the United States have access to the components they need, without compromising on quality or price.',
+                'mission.text.es':   'Fundada en 2025, AutoInx se especializa en la importación de autopartes de alta calidad. Nuestro compromiso es garantizar que los talleres y consumidores en Colombia y Estados Unidos tengan acceso a los componentes que necesitan, sin comprometer la calidad ni el precio.',
+                'heritage.header.en': 'Family Heritage and Commitment',
+                'heritage.header.es': 'Herencia Familiar y Compromiso',
+                'heritage.text.en':   'We are a family-owned and operated business with a clear vision: to simplify the auto parts supply chain. We understand the needs of our markets and build relationships based on trust and exceptional service.',
+                'heritage.text.es':   'Somos una empresa familiar con una visión clara: simplificar la cadena de suministro de autopartes. Entendemos las necesidades de nuestros mercados y construimos relaciones basadas en la confianza y el servicio excepcional.',
+                'markets.header.en':  'Serving Colombia and the US',
+                'markets.header.es':  'Servicio a Colombia y EE. UU.',
+                'markets.text.en':    'With strategic operations in both Colombia and the US, we serve as an efficient bridge for the auto parts trade, offering a wide catalog of products that meet the highest international standards.',
+                'markets.text.es':    'Con operaciones estratégicas en Colombia y EE. UU., somos un puente eficiente para el comercio de autopartes, ofreciendo un amplio catálogo de productos que cumplen con los más altos estándares internacionales.',
+                'team.heading.en':    'Meet the Founders',
+                'team.heading.es':    'Conoce a los Fundadores',
+                'profiles.0.name':    'Juan Rodriguez',
+                'profiles.0.image':   'https://github.com/judaro26/autoInx/blob/main/images/juan.jpeg?raw=true',
+                'profiles.0.initials':'JR',
+                'profiles.0.title.en':'Chief Operating Officer (COO)',
+                'profiles.0.title.es':'Director de Operaciones (COO)',
+                'profiles.0.bio.en':  'Juan oversees all import and logistics operations in the U.S. His expertise ensures every part meets quality standards before shipping.',
+                'profiles.0.bio.es':  'Juan supervisa todas las operaciones de importación y logística en los EE. UU. Su experiencia asegura que cada parte cumpla con los estándares de calidad antes de ser enviada.',
+                'profiles.1.name':    'Brian Bohada',
+                'profiles.1.image':   '',
+                'profiles.1.initials':'BB',
+                'profiles.1.title.en':'Chief Market Officer (CMO)',
+                'profiles.1.title.es':'Director de Mercado (CMO)',
+                'profiles.1.bio.en':  'Brian leads the expansion strategy in the Colombian market, ensuring local customer needs are met with top service.',
+                'profiles.1.bio.es':  'Brian lidera la estrategia de expansión en el mercado colombiano, asegurando que las necesidades de los clientes locales se satisfagan con el mejor servicio.',
             };
 
-            // Bilingual field helper
-            const bi = (labelEN, labelES, fieldEN, fieldES, type = 'textarea') => {
-                const tag   = type === 'input' ? 'input' : 'textarea';
-                const extra = type === 'input' ? `type="text"` : `rows="3"`;
-                const cls   = 'w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400';
-                return `
+            // Resolve a dot-path against the loaded config, fall back to defaults
+            const f = (path) => {
+                const keys = path.split('.');
+                let v = ab;
+                for (const k of keys) {
+                    // handle numeric indices for profiles array
+                    v = Array.isArray(v) ? v[parseInt(k)] : v?.[k];
+                }
+                const val = (v != null && v !== '') ? String(v) : (DEFAULTS[path] || '');
+                return escapeHtml(val);
+            };
+
+            // Render a proper input or textarea — no broken partial tags
+            const field = (id, type, val) => {
+                const cls = 'w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none';
+                if (type === 'input') {
+                    return `<input type="text" id="ab_${id}" value="${val}" class="${cls}">`;
+                }
+                return `<textarea id="ab_${id}" rows="3" class="${cls} resize-none">${val}</textarea>`;
+            };
+
+            // Bilingual field pair
+            const bi = (labelEN, labelES, fieldEN, fieldES, type = 'textarea') => `
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 mb-1">🇺🇸 ${labelEN}</label>
-                        <${tag} ${extra} id="ab_${fieldEN}" class="${cls} ${type !== 'input' ? 'resize-none' : ''}">${type === 'input' ? '' : f(fieldEN) + `</${tag}>`}
-                        ${type === 'input' ? `value="${f(fieldEN)}" />` : ''}
+                        ${field(fieldEN, type, f(fieldEN))}
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 mb-1">🇨🇴 ${labelES}</label>
-                        <${tag} ${extra} id="ab_${fieldES}" class="${cls} ${type !== 'input' ? 'resize-none' : ''}">${type === 'input' ? '' : f(fieldES) + `</${tag}>`}
-                        ${type === 'input' ? `value="${f(fieldES)}" />` : ''}
+                        ${field(fieldES, type, f(fieldES))}
                     </div>
                 </div>`;
-            };
 
             const section = (title, color, content) => `
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -3256,7 +3300,7 @@
                     ${bi('Bio (EN)', 'Bio (ES)', 'profiles.0.bio.en', 'profiles.0.bio.es')}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 mb-1">Fallback avatar initials (shown if photo fails)</label>
-                        <input type="text" id="ab_profiles.0.initials" value="${f('profiles.0.initials', 'JR')}" maxlength="3"
+                        <input type="text" id="ab_profiles.0.initials" value="${f('profiles.0.initials')}" maxlength="3"
                                class="w-24 p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
                     </div>
                 `)}
@@ -3280,7 +3324,7 @@
                     ${bi('Bio (EN)', 'Bio (ES)', 'profiles.1.bio.en', 'profiles.1.bio.es')}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 mb-1">Fallback avatar initials</label>
-                        <input type="text" id="ab_profiles.1.initials" value="${f('profiles.1.initials', 'BB')}" maxlength="3"
+                        <input type="text" id="ab_profiles.1.initials" value="${f('profiles.1.initials')}" maxlength="3"
                                class="w-24 p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
                     </div>
                 `)}
