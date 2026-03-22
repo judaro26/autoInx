@@ -2005,6 +2005,59 @@
         }
 
         // Called when user finishes typing their zip
+        // Maps distance in miles to a shipping estimate.
+        // Based on USPS/UPS Ground typical transit times from Hayward, CA 94541.
+        function getDeliveryEstimate(miles) {
+            if (miles === null || miles === undefined) return null;
+            // Determine business days in transit
+            let days, label, color;
+            if (miles <= 50) {
+                days  = '1';
+                label = 'Next business day';
+                color = 'text-green-600';
+            } else if (miles <= 350) {
+                days  = '1–2';
+                label = '1–2 business days';
+                color = 'text-green-600';
+            } else if (miles <= 900) {
+                days  = '2–3';
+                label = '2–3 business days';
+                color = 'text-blue-600';
+            } else if (miles <= 1800) {
+                days  = '3–4';
+                label = '3–4 business days';
+                color = 'text-blue-600';
+            } else if (miles <= 2800) {
+                days  = '4–5';
+                label = '4–5 business days';
+                color = 'text-indigo-600';
+            } else {
+                days  = '5–7';
+                label = '5–7 business days';
+                color = 'text-indigo-600';
+            }
+            // Estimate arrival date range (skip weekends)
+            function addBusinessDays(date, n) {
+                let d = new Date(date);
+                let added = 0;
+                while (added < n) {
+                    d.setDate(d.getDate() + 1);
+                    if (d.getDay() !== 0 && d.getDay() !== 6) added++;
+                }
+                return d;
+            }
+            const fmt = d => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            const [minDays, maxDays] = days.split('–').map(Number);
+            const now  = new Date();
+            const low  = addBusinessDays(now, minDays);
+            const high = maxDays ? addBusinessDays(now, maxDays) : null;
+            const arrival = high && high.getTime() !== low.getTime()
+                ? `${fmt(low)} – ${fmt(high)}`
+                : fmt(low);
+
+            return { label, color, arrival, days };
+        }
+
         // Updates only the pickup section DOM — never touches the zip input itself,
         // so the user's cursor position and focus are never disturbed.
         function _updatePickupSection() {
@@ -2013,11 +2066,25 @@
 
             const { zipCheckState, isLocalEligible, deliveryMethod, localDistanceMiles } = state;
 
+            // Delivery estimate (only shown when we have a distance)
+            const estimate = (zipCheckState === 'eligible' || zipCheckState === 'ineligible')
+                ? getDeliveryEstimate(localDistanceMiles) : null;
+
+            const estimateHtml = estimate ? `
+                <div class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-500">📦 Estimated delivery</span>
+                        <span class="text-xs font-bold ${estimate.color}">${estimate.label}</span>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-0.5">Arrives: <span class="font-semibold text-gray-700">${estimate.arrival}</span></p>
+                    <p class="text-xs text-gray-400 mt-0.5">Standard ground shipping · ${localDistanceMiles} mi from our warehouse</p>
+                </div>` : '';
+
             const statusHtml = {
                 idle:       '',
                 checking:   `<p class="text-xs text-blue-500 mt-1">📍 Checking your location…</p>`,
                 eligible:   `<p class="text-xs text-green-600 mt-1 font-semibold">✅ You're ${localDistanceMiles} mi away — local pickup available!</p>`,
-                ineligible: `<p class="text-xs text-gray-400 mt-1">📦 ${localDistanceMiles} mi away — outside our local delivery area.</p>`,
+                ineligible: `<p class="text-xs text-gray-500 mt-1">📦 ${localDistanceMiles} mi from our warehouse</p>`,
                 error:      `<p class="text-xs text-red-400 mt-1">⚠️ Couldn't verify ZIP code.</p>`,
             }[zipCheckState] || '';
 
@@ -2053,7 +2120,7 @@
                 }`;
             }
 
-            container.innerHTML = statusHtml + pickupToggle;
+            container.innerHTML = statusHtml + estimateHtml + pickupToggle;
         }
 
         async function handleZipInput(zip) {
