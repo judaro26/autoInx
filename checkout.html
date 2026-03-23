@@ -650,13 +650,6 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                                 <input type="text" id="delivery-address" required class="address-input" data-validated="false" placeholder="${t('addressHelp')}">
                                 <div id="addressStatus" class="mt-3 font-bold text-orange-600">${t('statusDefault')}</div>
                                 
-                                <!-- ✅ ADD DEBUG INFO -->
-                                <div id="addressDebug" class="mt-2 p-2 bg-gray-100 rounded text-xs font-mono hidden">
-                                    <div><strong>Street:</strong> <span id="debug-street">-</span></div>
-                                    <div><strong>City:</strong> <span id="debug-city">-</span></div>
-                                    <div><strong>State:</strong> <span id="debug-state">-</span></div>
-                                    <div><strong>ZIP:</strong> <span id="debug-zip" class="font-bold text-red-600">-</span></div>
-                                </div>
                                 
                                 <div id="map-container"></div>
                             </div>
@@ -801,21 +794,6 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                     // Mark as validated
                     inp.dataset.validated = 'true';
                     $('addressStatus').innerHTML = `<span class="text-green-600">${t('valid')}</span>`;
-                    
-                    // ✅ Show debug info if available
-                    const debugDiv = $('addressDebug');
-                    if (debugDiv) {
-                        debugDiv.classList.remove('hidden');
-                        $('debug-street').textContent = selectedAddressComponents.street || '❌';
-                        $('debug-city').textContent = selectedAddressComponents.city || '❌';
-                        $('debug-state').textContent = selectedAddressComponents.state || '❌';
-                        $('debug-zip').textContent = selectedAddressComponents.zipCode || '❌';
-                        
-                        if (selectedAddressComponents.zipCode && selectedAddressComponents.zipCode !== '00000') {
-                            $('debug-zip').classList.remove('text-red-600');
-                            $('debug-zip').classList.add('text-green-600', 'font-bold');
-                        }
-                    }
                     
                     // Calculate shipping and tax
                     await calculateShippingAndTax();
@@ -1198,17 +1176,8 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             $('btnSubmit').innerHTML = `${t('calculatingTax')} <span class="calculating-spinner"></span>`;
             
             try {
-                // ✅ USE THE GLOBAL selectedAddressComponents DIRECTLY
                 const { street, city, state, zipCode, country } = selectedAddressComponents;
-                
-                console.log('🔍 ===== TAX CALCULATION DEBUG =====');
-                console.log('selectedAddressComponents:', selectedAddressComponents);
-                console.log('Destructured values:', { street, city, state, zipCode, country });
-                console.log('zipCode type:', typeof zipCode);
-                console.log('zipCode value:', zipCode);
-                console.log('zipCode === "00000"?', zipCode === '00000');
-                console.log('=====================================');
-                
+
                 const taxPayload = {
                     subtotalCents: cartTotalCents,
                     shippingCents: shippingCents,   // included so Stripe Tax can apply shipping tax code
@@ -1220,7 +1189,6 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 };
                 
                 console.log('📋 Tax payload being sent:', taxPayload);
-                console.log('📋 Tax payload JSON:', JSON.stringify(taxPayload));
                 
                 const taxRes = await fetch('/.netlify/functions/calculateTax', {
                     method: 'POST',
@@ -1344,18 +1312,10 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             timestamp: new Date().toISOString()
         };
     
-        console.log("=== ORDER BEING SUBMITTED ===");
-        console.log("Order data:", order);
-        console.log("Subtotal:", formatPrice(order.subtotalCents));
-        console.log("Shipping:", formatPrice(order.shippingCents));
-        console.log("Tax:", formatPrice(order.taxCents));
-        console.log("Total:", formatPrice(order.totalCents));
-        console.log("=============================");
-    
         try {
             // 1. Create order in Firestore
             const docRef = await addDoc(collection(db, "artifacts", "default-app-id", "public", "data", "orders"), order);
-            console.log("✅ Order created with ID:", docRef.id);
+            console.log("✅ Order created:", docRef.id.substring(0, 8));
              if (appliedDiscount) {
                  try {
                      await recordCheckoutDiscountUsage(appliedDiscount, docRef.id, order);
