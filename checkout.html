@@ -99,7 +99,14 @@
              discountNotApplicable: 'Este código no aplica a los productos en tu carrito',
              discountValidating: 'Validando...',
              discountLabel: 'Descuento',
-             discountHave: '¿Tienes un código de descuento?', 
+             discountHave: '¿Tienes un código de descuento?',
+             addProducts: 'Agregar productos',
+             searchPlaceholder: 'Buscar por nombre o SKU…',
+             searchNoResults: 'Sin resultados',
+             searchLoading: 'Buscando…',
+             outOfStock: 'Sin stock',
+             added: '✓ Agregado',
+             addToCart: '+ Agregar',
         },
         en: {
             title: 'Checkout', return: 'Back', email: 'Email Address', name: 'Full Name',
@@ -130,7 +137,14 @@
              discountNotApplicable: 'This code does not apply to items in your cart',
              discountValidating: 'Validating...',
              discountLabel: 'Discount',
-             discountHave: 'Have a discount code?',       
+             discountHave: 'Have a discount code?',
+             addProducts: 'Add products',
+             searchPlaceholder: 'Search by name or SKU…',
+             searchNoResults: 'No results found',
+             searchLoading: 'Searching…',
+             outOfStock: 'Out of stock',
+             added: '✓ Added',
+             addToCart: '+ Add',
         }
     };
 
@@ -657,13 +671,27 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 <div class="lg:col-span-1">
                     <div class="bg-white p-6 rounded-3xl shadow-xl sticky top-6 border-t-8 border-pink-500">
                         <h3 class="text-xl font-black mb-6 uppercase tracking-wider text-gray-400">${t('summary')}</h3>
-                        <div class="space-y-4 mb-6">
-                            ${Object.values(cartData).map(e => `
-                                <div class="flex justify-between text-sm border-b pb-2">
-                                    <span class="font-medium">${e.quantity}x ${e.item.name}</span>
-                                    <span class="font-bold">${formatPrice(e.item.price * e.quantity)}</span>
+                        <div class="mb-2" id="cart-items-container">
+                            ${renderCartItems()}
+                        </div>
+
+                        <!-- ── Add products panel ──────────────────────── -->
+                        <div class="mt-3 border-t border-gray-100 pt-3">
+                            <button type="button" onclick="toggleAddProducts()"
+                                    class="w-full flex items-center justify-between text-sm font-semibold text-indigo-600 hover:text-indigo-800 transition py-1">
+                                <span>➕ ${t('addProducts')}</span>
+                                <span id="add-products-chevron" class="text-gray-400 text-xs transition-transform duration-200">▼</span>
+                            </button>
+                            <div id="add-products-panel" class="hidden mt-2 space-y-2">
+                                <div class="relative">
+                                    <input type="text" id="product-search-input"
+                                           placeholder="${t('searchPlaceholder')}"
+                                           oninput="searchProducts(this.value)"
+                                           class="w-full pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-300 focus:outline-none">
+                                    <span class="absolute right-2 top-2 text-gray-300 text-sm">🔍</span>
                                 </div>
-                            `).join('')}
+                                <div id="product-search-results" class="space-y-1 max-h-64 overflow-y-auto"></div>
+                            </div>
                         </div>
                         
                         <div id="cart-summary-breakdown" class="mt-6 border-t-2 pt-6 space-y-3">
@@ -1642,6 +1670,195 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             orderCompleted = false; // Allow retry
         }
     }
+
+    // ── Cart management ──────────────────────────────────────────────────────
+    function renderCartItems() {
+        return Object.values(cartData).map(e => {
+            const itemTotal = e.item.price * e.quantity;
+            const stock = e.item.stock ?? 99;
+            const imgSrc = e.item.imageUrls?.[0] || e.item.imageUrl || '';
+            return `
+            <div class="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
+                ${imgSrc
+                    ? `<img src="${imgSrc}" class="w-14 h-14 object-contain rounded-lg bg-gray-50 border border-gray-200 flex-shrink-0">`
+                    : `<div class="w-14 h-14 bg-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center text-gray-300 text-xl">📦</div>`
+                }
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-gray-800 leading-tight">${e.item.name}</p>
+                    <p class="text-xs text-gray-400 mt-0.5">${formatPrice(e.item.price)} each</p>
+                    <div class="flex items-center justify-between mt-2">
+                        <div class="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+                            <button type="button" onclick="updateCartQty('${e.item.id}',-1)"
+                                    class="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-gray-100 transition font-bold text-lg leading-none">−</button>
+                            <span class="w-8 text-center text-sm font-bold text-gray-800">${e.quantity}</span>
+                            <button type="button" onclick="updateCartQty('${e.item.id}',1)"
+                                    ${e.quantity >= stock ? 'disabled' : ''}
+                                    class="w-8 h-8 flex items-center justify-center text-gray-500 hover:bg-gray-100 transition font-bold text-lg leading-none ${e.quantity >= stock ? 'opacity-30 cursor-not-allowed' : ''}">+</button>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-bold text-indigo-700">${formatPrice(itemTotal)}</span>
+                            <button type="button" onclick="removeCartItem('${e.item.id}')"
+                                    class="text-gray-300 hover:text-red-400 transition text-sm" title="Remove">✕</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    window.updateCartQty = function(itemId, delta) {
+        if (!cartData[itemId]) return;
+        const newQty = cartData[itemId].quantity + delta;
+        if (newQty <= 0) { removeCartItem(itemId); return; }
+        const stock = cartData[itemId].item.stock ?? 99;
+        if (newQty > stock) return;
+        cartData[itemId].quantity = newQty;
+        _persistAndRefreshCart();
+    };
+
+    window.removeCartItem = function(itemId) {
+        delete cartData[itemId];
+        _persistAndRefreshCart();
+    };
+
+    function _persistAndRefreshCart() {
+        sessionStorage.setItem('autoInxCart', JSON.stringify(cartData));
+        cartTotalCents = Object.values(cartData).reduce((s, e) => s + (e.item.price * e.quantity), 0);
+
+        if (appliedDiscount) {
+            if (appliedDiscount.type === 'percentage') {
+                discountCents = Math.round(cartTotalCents * (appliedDiscount.value / 100));
+                if (appliedDiscount.maxDiscountCents > 0 && discountCents > appliedDiscount.maxDiscountCents)
+                    discountCents = appliedDiscount.maxDiscountCents;
+            } else if (appliedDiscount.type === 'fixed') {
+                discountCents = Math.min(
+                    appliedDiscount.valueCents || Math.round(appliedDiscount.value * 100),
+                    cartTotalCents
+                );
+            } else if (appliedDiscount.type === 'freeShipping') {
+                discountCents = shippingCents;
+            }
+            appliedDiscount.savedCents = discountCents;
+        }
+
+        if (Object.keys(cartData).length === 0) { window.location.href = '/'; return; }
+
+        const itemsEl = document.getElementById('cart-items-container');
+        if (itemsEl) itemsEl.innerHTML = renderCartItems();
+        updateCartSummary();
+
+        const addrInput = document.getElementById('delivery-address');
+        if (addrInput?.dataset.validated === 'true') calculateShippingAndTax();
+    }
+
+
+    // ── Add products from checkout ────────────────────────────────────────────
+    let _allProducts = null;          // cached once from Firestore
+    let _searchTimer = null;
+
+    window.toggleAddProducts = function() {
+        const panel   = document.getElementById('add-products-panel');
+        const chevron = document.getElementById('add-products-chevron');
+        if (!panel) return;
+        const opening = panel.classList.toggle('hidden');  // toggle returns true when class was added (i.e. now hidden)
+        chevron.style.transform = opening ? '' : 'rotate(180deg)';
+        if (!opening) {
+            // Just opened — pre-load products & focus
+            _loadProducts();
+            setTimeout(() => document.getElementById('product-search-input')?.focus(), 80);
+        }
+    };
+
+    async function _loadProducts() {
+        if (_allProducts) return;   // already cached
+        try {
+            const snap = await getDocs(collection(db, 'artifacts/default-app-id/public/data/items'));
+            _allProducts = snap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .filter(p => !p.disabled && !p.hidden);
+        } catch (e) {
+            console.warn('Product load failed:', e.message);
+            _allProducts = [];
+        }
+    }
+
+    window.searchProducts = function(query) {
+        clearTimeout(_searchTimer);
+        _searchTimer = setTimeout(() => _runSearch(query.trim().toLowerCase()), 220);
+    };
+
+    function _runSearch(q) {
+        const el = document.getElementById('product-search-results');
+        if (!el) return;
+
+        if (!q) { el.innerHTML = ''; return; }
+
+        if (!_allProducts) {
+            el.innerHTML = `<p class="text-xs text-gray-400 px-1">${t('searchLoading')}</p>`;
+            _loadProducts().then(() => _runSearch(q));
+            return;
+        }
+
+        const hits = _allProducts.filter(p =>
+            (p.name  || '').toLowerCase().includes(q) ||
+            (p.sku   || '').toLowerCase().includes(q) ||
+            (p.description || '').toLowerCase().includes(q)
+        ).slice(0, 12);
+
+        if (!hits.length) {
+            el.innerHTML = `<p class="text-xs text-gray-400 px-1 py-2">${t('searchNoResults')}</p>`;
+            return;
+        }
+
+        el.innerHTML = hits.map(p => {
+            const inCart  = !!cartData[p.id];
+            const noStock = (p.stock ?? 0) <= 0;
+            const imgSrc  = p.imageUrls?.[0] || p.imageUrl || '';
+            const price   = formatPrice(p.price || 0);
+            const badge   = inCart  ? `<span class="text-xs font-bold text-green-600">${t('added')}</span>`
+                          : noStock ? `<span class="text-xs text-gray-400">${t('outOfStock')}</span>`
+                          : `<button type="button" onclick="addProductToCart('${p.id}')"
+                                    class="text-xs font-bold px-3 py-1 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+                                 ${t('addToCart')}
+                             </button>`;
+            return `
+            <div class="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-100 transition" id="search-row-${p.id}">
+                ${imgSrc
+                    ? `<img src="${imgSrc}" class="w-10 h-10 object-contain rounded bg-gray-50 border border-gray-100 flex-shrink-0">`
+                    : `<div class="w-10 h-10 bg-gray-100 rounded flex-shrink-0 flex items-center justify-center text-gray-300 text-base">📦</div>`
+                }
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-semibold text-gray-800 truncate">${p.name || ''}</p>
+                    <p class="text-xs text-indigo-600 font-bold">${price}</p>
+                </div>
+                <div class="flex-shrink-0">${badge}</div>
+            </div>`;
+        }).join('');
+    }
+
+    window.addProductToCart = function(productId) {
+        const product = _allProducts?.find(p => p.id === productId);
+        if (!product) return;
+
+        if (cartData[productId]) {
+            // Already in cart — just increment
+            cartData[productId].quantity += 1;
+        } else {
+            cartData[productId] = { item: product, quantity: 1 };
+        }
+
+        _persistAndRefreshCart();
+
+        // Re-render the search row so the button becomes "✓ Added"
+        const row = document.getElementById(`search-row-${productId}`);
+        if (row) {
+            const btn = row.querySelector('button');
+            if (btn) {
+                btn.outerHTML = `<span class="text-xs font-bold text-green-600">${t('added')}</span>`;
+            }
+        }
+    };
+
     init();
 </script>
 </body>
