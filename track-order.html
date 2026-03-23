@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Track Your Order — AutoInx</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:        #f0f4f8;
+            --surface:   #ffffff;
+            --border:    #e2e8f0;
+            --indigo:    #4f46e5;
+            --indigo-lt: #eef2ff;
+            --green:     #16a34a;
+            --green-lt:  #dcfce7;
+            --yellow:    #d97706;
+            --yellow-lt: #fef3c7;
+            --blue:      #2563eb;
+            --blue-lt:   #dbeafe;
+            --red:       #dc2626;
+            --red-lt:    #fee2e2;
+            --gray:      #64748b;
+            --text:      #0f172a;
+            --text-2:    #475569;
+            --mono:      'DM Mono', monospace;
+            --sans:      'DM Sans', sans-serif;
+        }
+
+        body {
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .logo { display: flex; align-items: center; gap: .6rem; text-decoration: none; }
+        .logo img { height: 32px; }
+        .logo-name { font-weight: 700; font-size: 1.1rem; color: var(--indigo); letter-spacing: -.02em; }
+        .back-link { font-size: .85rem; font-weight: 600; color: var(--gray); text-decoration: none; display: flex; align-items: center; gap: .3rem; transition: color .15s; }
+        .back-link:hover { color: var(--indigo); }
+
+        /* ── Layout ── */
+        .page { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+
+        .page-title { font-size: 1.75rem; font-weight: 700; letter-spacing: -.03em; margin-bottom: .35rem; }
+        .page-sub   { color: var(--text-2); font-size: .95rem; margin-bottom: 2rem; }
+
+        /* ── Search card ── */
+        .search-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.75rem;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+            margin-bottom: 1.5rem;
+        }
+        .search-card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 1.25rem; color: var(--text-2); text-transform: uppercase; letter-spacing: .06em; font-size: .75rem; }
+
+        .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: .875rem; margin-bottom: .875rem; }
+        @media (max-width: 540px) { .field-row { grid-template-columns: 1fr; } }
+
+        .field label { display: block; font-size: .8rem; font-weight: 600; color: var(--text-2); margin-bottom: .375rem; }
+        .field input {
+            width: 100%; padding: .65rem .85rem;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            font-family: var(--sans); font-size: .95rem;
+            transition: border-color .15s, box-shadow .15s;
+            outline: none;
+            background: #fafafa;
+        }
+        .field input:focus { border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(79,70,229,.12); background: #fff; }
+        .field input.mono { font-family: var(--mono); letter-spacing: .04em; }
+
+        .btn-track {
+            width: 100%; padding: .8rem;
+            background: var(--indigo); color: #fff;
+            border: none; border-radius: 10px;
+            font-family: var(--sans); font-size: 1rem; font-weight: 700;
+            cursor: pointer; transition: background .15s, transform .1s;
+            display: flex; align-items: center; justify-content: center; gap: .5rem;
+        }
+        .btn-track:hover { background: #4338ca; }
+        .btn-track:active { transform: scale(.99); }
+        .btn-track:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+        .search-error { margin-top: .75rem; padding: .65rem .875rem; background: var(--red-lt); border: 1px solid #fca5a5; border-radius: 8px; font-size: .875rem; color: var(--red); font-weight: 500; }
+
+        /* ── Result card ── */
+        #result { display: none; }
+
+        .order-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+        }
+
+        .order-header {
+            padding: 1.25rem 1.75rem;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem;
+            background: var(--indigo-lt);
+        }
+        .order-id { font-family: var(--mono); font-size: .95rem; font-weight: 500; color: var(--indigo); }
+        .order-date { font-size: .8rem; color: var(--text-2); }
+
+        /* ── Status timeline ── */
+        .timeline { padding: 1.5rem 1.75rem; border-bottom: 1px solid var(--border); }
+        .timeline h3 { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin-bottom: 1.25rem; }
+
+        .steps { display: flex; align-items: flex-start; gap: 0; position: relative; }
+        .step  { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
+
+        .step-line {
+            position: absolute; top: 14px; left: 50%; right: -50%;
+            height: 2px; background: var(--border); z-index: 0;
+        }
+        .step:last-child .step-line { display: none; }
+
+        .step-dot {
+            width: 28px; height: 28px; border-radius: 50%;
+            border: 2px solid var(--border);
+            background: var(--surface);
+            display: flex; align-items: center; justify-content: center;
+            font-size: .8rem; position: relative; z-index: 1;
+            transition: all .25s;
+        }
+        .step-dot.done  { background: var(--green);  border-color: var(--green);  color: #fff; }
+        .step-dot.active{ background: var(--indigo); border-color: var(--indigo); color: #fff; box-shadow: 0 0 0 4px rgba(79,70,229,.18); }
+        .step-dot.cancelled { background: var(--red); border-color: var(--red); color: #fff; }
+
+        .step-line.done { background: var(--green); }
+
+        .step-label { font-size: .72rem; font-weight: 600; margin-top: .5rem; color: var(--text-2); text-align: center; }
+        .step-label.active { color: var(--indigo); }
+        .step-label.done   { color: var(--green); }
+
+        /* ── Tracking ── */
+        .tracking-banner {
+            margin: 1.25rem 1.75rem 0;
+            padding: .875rem 1.1rem;
+            background: var(--blue-lt);
+            border: 1px solid #bfdbfe;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem;
+        }
+        .tracking-banner .label { font-size: .8rem; font-weight: 600; color: #1e40af; }
+        .tracking-banner .number { font-family: var(--mono); font-size: .9rem; color: #1e40af; }
+        .tracking-link {
+            font-size: .8rem; font-weight: 700; color: var(--blue);
+            text-decoration: none; padding: .35rem .75rem;
+            border: 1.5px solid var(--blue); border-radius: 7px;
+            transition: background .15s;
+            white-space: nowrap;
+        }
+        .tracking-link:hover { background: var(--blue); color: #fff; }
+
+        /* ── Payment badge ── */
+        .payment-row {
+            padding: 1rem 1.75rem;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+        }
+        .badge {
+            display: inline-flex; align-items: center; gap: .3rem;
+            padding: .3rem .75rem; border-radius: 999px;
+            font-size: .78rem; font-weight: 700;
+        }
+        .badge.paid       { background: var(--green-lt); color: var(--green); }
+        .badge.unpaid     { background: var(--yellow-lt); color: var(--yellow); }
+        .badge.processing { background: var(--blue-lt);   color: var(--blue); }
+        .badge.pending    { background: var(--yellow-lt); color: var(--yellow); }
+        .badge.delivered  { background: var(--green-lt);  color: var(--green); }
+        .badge.cancelled  { background: var(--red-lt);    color: var(--red); }
+        .pay-now-btn {
+            padding: .35rem 1rem; background: var(--indigo); color: #fff;
+            border-radius: 8px; text-decoration: none;
+            font-size: .82rem; font-weight: 700; transition: background .15s;
+        }
+        .pay-now-btn:hover { background: #4338ca; }
+
+        /* ── Items ── */
+        .items-section { padding: 1.25rem 1.75rem; border-bottom: 1px solid var(--border); }
+        .items-section h3 { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin-bottom: .875rem; }
+
+        .item-row { display: flex; align-items: center; gap: .875rem; padding: .6rem 0; border-bottom: 1px solid #f1f5f9; }
+        .item-row:last-child { border-bottom: none; }
+        .item-img { width: 48px; height: 48px; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); background: #f8fafc; flex-shrink: 0; }
+        .item-img-ph { width: 48px; height: 48px; border-radius: 8px; background: #f1f5f9; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+        .item-name  { flex: 1; font-size: .9rem; font-weight: 600; }
+        .item-qty   { font-size: .8rem; color: var(--text-2); }
+        .item-price { font-size: .9rem; font-weight: 700; color: var(--indigo); white-space: nowrap; }
+
+        /* ── Totals ── */
+        .totals { padding: 1.25rem 1.75rem; border-bottom: 1px solid var(--border); }
+        .totals-row { display: flex; justify-content: space-between; font-size: .9rem; padding: .3rem 0; color: var(--text-2); }
+        .totals-row.grand { font-size: 1.05rem; font-weight: 700; color: var(--text); border-top: 1.5px solid var(--border); padding-top: .6rem; margin-top: .3rem; }
+        .totals-row.discount { color: var(--green); }
+
+        /* ── Address ── */
+        .address-section { padding: 1.25rem 1.75rem; }
+        .address-section h3 { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin-bottom: .5rem; }
+        .address-text { font-size: .9rem; color: var(--text-2); line-height: 1.5; }
+
+        /* ── Spinner ── */
+        .spinner { width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Lang toggle ── */
+        .lang-btn { font-size: .78rem; font-weight: 700; padding: .3rem .7rem; border: 1.5px solid var(--border); border-radius: 7px; background: #fff; cursor: pointer; color: var(--gray); transition: all .15s; }
+        .lang-btn:hover { border-color: var(--indigo); color: var(--indigo); }
+    </style>
+</head>
+<body>
+
+<header>
+    <a href="/" class="logo">
+        <img src="/images/AutoInx logo.png" alt="AutoInx">
+        <span class="logo-name">AutoInx</span>
+    </a>
+    <div style="display:flex;align-items:center;gap:.75rem;">
+        <button class="lang-btn" onclick="toggleLang()" id="langBtn">ES</button>
+        <a href="/" class="back-link">
+            ← <span id="backTxt">Back to store</span>
+        </a>
+    </div>
+</header>
+
+<div class="page">
+    <h1 class="page-title" id="pageTitle">Track Your Order</h1>
+    <p class="page-sub" id="pageSub">Enter your order number and email address to see real-time status.</p>
+
+    <!-- Search card -->
+    <div class="search-card">
+        <h2 id="lookupLabel">Order Lookup</h2>
+        <div class="field-row">
+            <div class="field">
+                <label id="orderLabel">Order Number</label>
+                <input type="text" id="orderInput" class="mono" placeholder="e.g. a1b2c3d4"
+                       maxlength="20" oninput="this.value=this.value.replace(/\s/g,'').toLowerCase()"
+                       onkeydown="if(event.key==='Enter')lookupOrder()">
+            </div>
+            <div class="field">
+                <label id="emailLabel">Email Address</label>
+                <input type="email" id="emailInput" placeholder="you@example.com"
+                       onkeydown="if(event.key==='Enter')lookupOrder()">
+            </div>
+        </div>
+        <button class="btn-track" onclick="lookupOrder()" id="trackBtn">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <span id="trackBtnTxt">Track Order</span>
+        </button>
+        <div id="searchError" style="display:none" class="search-error"></div>
+    </div>
+
+    <!-- Result -->
+    <div id="result">
+        <div class="order-card" id="orderCard"></div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp }    from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+    import { getFirestore, doc, getDoc, collection, query, where, getDocs, limit }
+        from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+    let db;
+    let currentLang = localStorage.getItem('trackLang') ||
+                      (navigator.language.startsWith('es') ? 'es' : 'en');
+
+    const T = {
+        en: {
+            pageTitle: 'Track Your Order',
+            pageSub: 'Enter your order number and email address to see real-time status.',
+            lookupLabel: 'Order Lookup',
+            orderLabel: 'Order Number',
+            emailLabel: 'Email Address',
+            trackBtnTxt: 'Track Order',
+            backTxt: 'Back to store',
+            langBtn: 'ES',
+            notFound: 'No order found with that number and email combination. Please double-check and try again.',
+            emailMismatch: 'The email address doesn\'t match our records for this order.',
+            enterBoth: 'Please enter your order number and email address.',
+            orderNum: 'Order',
+            placedOn: 'Placed',
+            timeline: 'Order Progress',
+            items: 'Items Ordered',
+            totals: 'Order Total',
+            address: 'Delivery Address',
+            subtotal: 'Subtotal',
+            shipping: 'Shipping',
+            tax: 'Tax',
+            discount: 'Discount',
+            total: 'Total',
+            payStatus: 'Payment',
+            paidOn: 'Paid',
+            payNow: 'Pay Now',
+            trackShipment: 'Track Shipment',
+            carrier: 'Carrier',
+            steps: ['Order Placed', 'Processing', 'Shipped', 'Delivered'],
+            cancelled: 'Cancelled',
+            unpaidNote: 'Payment pending — complete your payment to confirm this order.',
+        },
+        es: {
+            pageTitle: 'Rastrear tu Pedido',
+            pageSub: 'Ingresa tu número de pedido y correo electrónico para ver el estado en tiempo real.',
+            lookupLabel: 'Buscar Pedido',
+            orderLabel: 'Número de Pedido',
+            emailLabel: 'Correo Electrónico',
+            trackBtnTxt: 'Rastrear Pedido',
+            backTxt: 'Volver a la tienda',
+            langBtn: 'EN',
+            notFound: 'No encontramos un pedido con ese número y correo. Verifica e intenta de nuevo.',
+            emailMismatch: 'El correo electrónico no coincide con el registrado para este pedido.',
+            enterBoth: 'Por favor ingresa tu número de pedido y correo electrónico.',
+            orderNum: 'Pedido',
+            placedOn: 'Realizado',
+            timeline: 'Progreso del Pedido',
+            items: 'Artículos Pedidos',
+            totals: 'Total del Pedido',
+            address: 'Dirección de Entrega',
+            subtotal: 'Subtotal',
+            shipping: 'Envío',
+            tax: 'Impuesto',
+            discount: 'Descuento',
+            total: 'Total',
+            payStatus: 'Pago',
+            paidOn: 'Pagado',
+            payNow: 'Pagar Ahora',
+            trackShipment: 'Rastrear Envío',
+            carrier: 'Transportista',
+            steps: ['Pedido Recibido', 'En Proceso', 'Enviado', 'Entregado'],
+            cancelled: 'Cancelado',
+            unpaidNote: 'Pago pendiente — completa tu pago para confirmar este pedido.',
+        }
+    };
+
+    const t = k => T[currentLang][k] || k;
+    const fmt = c => `$${(c / 100).toFixed(2)}`;
+    const $ = id => document.getElementById(id);
+
+    function applyLang() {
+        $('pageTitle').textContent   = t('pageTitle');
+        $('pageSub').textContent     = t('pageSub');
+        $('lookupLabel').textContent = t('lookupLabel');
+        $('orderLabel').textContent  = t('orderLabel');
+        $('emailLabel').textContent  = t('emailLabel');
+        $('trackBtnTxt').textContent = t('trackBtnTxt');
+        $('backTxt').textContent     = t('backTxt');
+        $('langBtn').textContent     = t('langBtn');
+        document.documentElement.lang = currentLang;
+    }
+
+    window.toggleLang = () => {
+        currentLang = currentLang === 'en' ? 'es' : 'en';
+        localStorage.setItem('trackLang', currentLang);
+        applyLang();
+    };
+
+    // ── Firebase init ─────────────────────────────────────────────────────────
+    async function initFirebase() {
+        try {
+            const res = await fetch('/.netlify/functions/getClientFirebaseConfig');
+            if (!res.ok) throw new Error('Config unavailable');
+            const cfg = await res.json();
+            const app = initializeApp(cfg);
+            db = getFirestore(app);
+        } catch (e) {
+            console.error('Firebase init failed:', e);
+        }
+    }
+
+    // ── Auto-populate from URL ?order=ID ─────────────────────────────────────
+    function readUrlParams() {
+        const params   = new URLSearchParams(location.search);
+        const orderId  = params.get('order') || params.get('orderId') || '';
+        const email    = params.get('email') || '';
+        if (orderId) $('orderInput').value = orderId.substring(0, 20);
+        if (email)   $('emailInput').value = email;
+        if (orderId) lookupOrder();   // auto-trigger if arriving from payment success
+    }
+
+    // ── Main lookup ───────────────────────────────────────────────────────────
+    window.lookupOrder = async function() {
+        const rawId = $('orderInput').value.trim().toLowerCase();
+        const email = $('emailInput').value.trim().toLowerCase();
+        const errEl = $('searchError');
+
+        errEl.style.display = 'none';
+        $('result').style.display = 'none';
+
+        if (!rawId || !email) {
+            showError(t('enterBoth')); return;
+        }
+
+        if (!db) { showError('Service unavailable. Please refresh.'); return; }
+
+        setLoading(true);
+
+        try {
+            let order = null;
+
+            // Try exact doc ID first (most common — we pass the full Firestore ID)
+            const directRef = doc(db, 'artifacts/default-app-id/public/data/orders', rawId);
+            const directSnap = await getDoc(directRef);
+
+            if (directSnap.exists()) {
+                order = { id: directSnap.id, ...directSnap.data() };
+            } else {
+                // Fallback: search by 8-char prefix shown to customer in emails
+                const q = query(
+                    collection(db, 'artifacts/default-app-id/public/data/orders'),
+                    where('buyerEmail', '==', email),
+                    limit(20)
+                );
+                const snap = await getDocs(q);
+                const match = snap.docs.find(d =>
+                    d.id.startsWith(rawId) || d.id.substring(0, 8) === rawId
+                );
+                if (match) order = { id: match.id, ...match.data() };
+            }
+
+            if (!order) { showError(t('notFound')); return; }
+
+            // Verify email matches
+            const storedEmail = (order.buyerEmail || '').toLowerCase();
+            if (storedEmail !== email) { showError(t('emailMismatch')); return; }
+
+            renderOrder(order);
+
+        } catch (err) {
+            console.error('Lookup error:', err);
+            showError(t('notFound'));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ── Render order card ─────────────────────────────────────────────────────
+    function renderOrder(order) {
+        const statusSteps  = ['Pending', 'Processing', 'Shipped', 'Delivered'];
+        const isCancelled  = order.status === 'Cancelled';
+        const currentStep  = isCancelled ? -1 : Math.max(0, statusSteps.indexOf(order.status));
+        const isPaid       = order.paymentStatus === 'Paid' || order.isPaid;
+        const stepLabels   = t('steps');
+
+        // ── Timeline ──
+        const timelineHtml = `
+            <div class="timeline">
+                <h3>${t('timeline')}</h3>
+                <div class="steps">
+                    ${statusSteps.map((step, i) => {
+                        const isDone   = !isCancelled && i < currentStep;
+                        const isActive = !isCancelled && i === currentStep;
+                        const cls      = isDone ? 'done' : isActive ? 'active' : '';
+                        const icon     = isDone   ? '✓'
+                                       : isActive ? (step === 'Shipped' ? '🚚' : step === 'Delivered' ? '✅' : '●')
+                                       : '';
+                        return `
+                        <div class="step">
+                            <div class="step-line ${isDone ? 'done' : ''}"></div>
+                            <div class="step-dot ${cls}">${icon}</div>
+                            <div class="step-label ${cls}">${stepLabels[i]}</div>
+                        </div>`;
+                    }).join('')}
+                    ${isCancelled ? `
+                    <div class="step" style="flex:0;margin-left:1rem;">
+                        <div class="step-dot cancelled">✕</div>
+                        <div class="step-label" style="color:var(--red)">${t('cancelled')}</div>
+                    </div>` : ''}
+                </div>
+            </div>`;
+
+        // ── Tracking banner ──
+        const trackingHtml = order.trackingNumber ? `
+            <div class="tracking-banner">
+                <div>
+                    <div class="label">📦 ${t('carrier')}: ${order.shippingDetails?.provider || order.trackingNumber}</div>
+                    <div class="number">${order.trackingNumber}</div>
+                </div>
+                ${order.trackingUrl ? `<a href="${order.trackingUrl}" target="_blank" class="tracking-link">${t('trackShipment')} →</a>` : ''}
+            </div>
+            <div style="height:1.25rem;border-bottom:1px solid var(--border);"></div>` : '';
+
+        // ── Payment row ──
+        const paidBadge   = `<span class="badge paid">✅ Paid${order.paidAt ? ' · ' + new Date(order.paidAt).toLocaleDateString() : ''}</span>`;
+        const unpaidBadge = `<span class="badge unpaid">⏳ ${t('payStatus')}: Pending</span>`;
+        const paymentHtml = `
+            <div class="payment-row">
+                ${isPaid ? paidBadge : unpaidBadge}
+                ${!isPaid && order.stripePaymentUrl ? `<a href="${order.stripePaymentUrl}" class="pay-now-btn">💳 ${t('payNow')}</a>` : ''}
+                ${!isPaid && order.stripePaymentUrl ? `<span style="font-size:.8rem;color:var(--text-2);">${t('unpaidNote')}</span>` : ''}
+            </div>`;
+
+        // ── Items ──
+        const items = order.items || [];
+        const itemsHtml = `
+            <div class="items-section">
+                <h3>${t('items')}</h3>
+                ${items.map(item => {
+                    const img = item.imageUrl || item.imageUrls?.[0] || '';
+                    return `
+                    <div class="item-row">
+                        ${img
+                            ? `<img class="item-img" src="${img}" alt="${item.name}">`
+                            : `<div class="item-img-ph">📦</div>`}
+                        <div class="item-name">${item.name || ''}</div>
+                        <div class="item-qty">×${item.quantity}</div>
+                        <div class="item-price">${fmt((item.price || 0) * item.quantity)}</div>
+                    </div>`;
+                }).join('')}
+            </div>`;
+
+        // ── Totals ──
+        const sub      = order.subtotalCents || 0;
+        const ship     = order.shippingCents || 0;
+        const tax      = order.taxCents      || 0;
+        const disc     = order.discountCents || 0;
+        const total    = order.totalCents    || (sub + ship + tax - disc);
+        const totalsHtml = `
+            <div class="totals">
+                <div class="totals-row"><span>${t('subtotal')}</span><span>${fmt(sub)}</span></div>
+                ${ship > 0 ? `<div class="totals-row"><span>📦 ${t('shipping')}</span><span>${fmt(ship)}</span></div>` : ''}
+                ${tax  > 0 ? `<div class="totals-row"><span>${t('tax')}</span><span>${fmt(tax)}</span></div>` : ''}
+                ${disc > 0 ? `<div class="totals-row discount"><span>🏷️ ${t('discount')}${order.discount?.code ? ` (${order.discount.code})` : ''}</span><span>−${fmt(disc)}</span></div>` : ''}
+                <div class="totals-row grand"><span>${t('total')}</span><span>${fmt(total)}</span></div>
+            </div>`;
+
+        // ── Address ──
+        const addressHtml = order.deliveryAddress ? `
+            <div class="address-section">
+                <h3>📍 ${t('address')}</h3>
+                <div class="address-text">${order.deliveryAddress}</div>
+            </div>` : '';
+
+        // ── Order header ──
+        const placedDate = order.timestamp
+            ? new Date(order.timestamp).toLocaleDateString(currentLang === 'es' ? 'es-CO' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+            : '';
+        const headerHtml = `
+            <div class="order-header">
+                <div>
+                    <div class="order-id">#${order.id.substring(0, 8).toUpperCase()}</div>
+                    ${placedDate ? `<div class="order-date">${t('placedOn')} ${placedDate}</div>` : ''}
+                </div>
+                <span class="badge ${(order.status || '').toLowerCase()}">${order.status || ''}</span>
+            </div>`;
+
+        $('orderCard').innerHTML = headerHtml + timelineHtml + trackingHtml + paymentHtml + itemsHtml + totalsHtml + addressHtml;
+        $('result').style.display = 'block';
+        $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function showError(msg) {
+        const el = $('searchError');
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+
+    function setLoading(on) {
+        const btn = $('trackBtn');
+        if (on) {
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner"></div>';
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><span>${t('trackBtnTxt')}</span>`;
+        }
+    }
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    applyLang();
+    await initFirebase();
+    readUrlParams();
+</script>
+</body>
+</html>
