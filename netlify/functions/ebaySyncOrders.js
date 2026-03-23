@@ -234,10 +234,22 @@ function mapEbayOrder(o) {
   const addr  = ship.contactAddress || {};
   const price = o.pricingSummary || {};
 
-  // Tracking: check shippingStep first (pre-ship), then fulfillments array (post-ship)
-  const trackingFromStep        = step.shipmentTrackingNumber || null;
-  const trackingFromFulfillment = o.fulfillments?.[0]?.shipmentTrackingNumber || null;
-  const trackingNumber          = trackingFromStep || trackingFromFulfillment || null;
+  // Tracking: eBay puts it in different places depending on fulfillment state
+  // 1. fulfillments[].shipmentTrackingNumber  — after label is purchased/shipped
+  // 2. fulfillmentStartInstructions[0].shippingStep.shipmentTrackingNumber — pre-ship
+  const trackingFromFulfillments = (() => {
+    const fulfillments = o.fulfillments || [];
+    for (const f of fulfillments) {
+      // Each fulfillment may have shipmentTrackingNumber directly
+      if (f.shipmentTrackingNumber) return f.shipmentTrackingNumber;
+      // Or nested under trackingInfo
+      if (f.trackingNumber) return f.trackingNumber;
+      // Or in lineItems[].lineItemFulfillmentStatus (rare)
+    }
+    return null;
+  })();
+  const trackingFromStep = step.shipmentTrackingNumber || null;
+  const trackingNumber   = trackingFromFulfillments || trackingFromStep || null;
 
   // Shipping address
   const shippingAddress = [addr.addressLine1, addr.addressLine2, addr.city, addr.stateOrProvince, addr.postalCode, addr.countryCode].filter(Boolean).join(', ');
@@ -316,12 +328,24 @@ exports.handler = async (event) => {
     const googleToken = await getGoogleAccessToken();
     console.log('✅ Google auth OK');
 
-    // Get last sync time — use 30 days back on first run to catch existing orders
+    // force=true (POST body or query param) re-fetches all orders from last 90 days
+    // to backfill finances and tracking for existing records
+    const body        = event?.body ? (() => { try { return JSON.parse(event.body); } catch { return {}; } })() : {};
+    const forceResync = body?.force === true || event?.queryStringParameters?.force === 'true';
+
+    // Get last sync time
     const syncState  = await fsGet(googleToken, 'admin/ebay_sync_state');
     const lastSyncTs = syncState?.lastSyncedAt;
-    const lastSync   = lastSyncTs instanceof Date
-      ? lastSyncTs
-      : new Date(Date.now() - 30 * 24 * 3600000); // 30 days on first run
+
+    let lastSync;
+    if (forceResync) {
+      lastSync = new Date(Date.now() - 90 * 24 * 3600000); // 90 days for force re-sync
+      console.log('🔄 Force re-sync: fetching last 90 days');
+    } else if (lastSyncTs instanceof Date) {
+      lastSync = lastSyncTs;
+    } else {
+      lastSync = new Date(Date.now() - 30 * 24 * 3600000); // 30 days on first run
+    }
     console.log(`📅 Fetching eBay orders since: ${lastSync.toISOString()}`);
 
     const ebayToken  = await getEbayAccessToken();
@@ -338,20 +362,21 @@ exports.handler = async (event) => {
         const mapped = mapEbayOrder(o);
         const { pricing, meta, ...core } = mapped;
 
-        // ── Fetch actual fees from Finances API (non-blocking) ─────────────
+        // ── Fetch actual fees + label cost from Finances API ──────────────
         const finances = await fetchEbayOrderFinances(ebayToken, mapped.externalOrderId);
         if (finances) {
-          // Replace Fulfillment API's inaccurate fee estimate with the real values
           pricing.transactionCost   = finances.transactionFee;
           pricing.shippingLabelCost = finances.shippingLabelCost;
-          // shippingCharged (buyer paid) stays as-is from Fulfillment API
-          console.log(`  💰 Order ${mapped.externalOrderId}: fee=$${finances.transactionFee} label=$${finances.shippingLabelCost}`);
+          console.log(`  💰 ${mapped.externalOrderId}: fee=$${finances.transactionFee} label=$${finances.shippingLabelCost}`);
+        } else {
+          console.log(`  ⚠️  ${mapped.externalOrderId}: Finances API returned no data`);
         }
 
         const indexData = await fsGet(googleToken, `external_orders_index/${mapped.externalOrderId}`);
         let savedId     = indexData?.internalId || null;
 
         if (!savedId) {
+          // ── New order ────────────────────────────────────────────────────
           savedId = `ebay_${mapped.externalOrderId}`;
           await fsSet(googleToken, `external_orders/${savedId}`, {
             ...core, id: savedId,
@@ -360,14 +385,29 @@ exports.handler = async (event) => {
           });
           created++;
         } else {
-          await fsSet(googleToken, `external_orders/${savedId}`, {
-            status: core.status,
-            trackingNumber: core.trackingNumber,
-            updatedAt: new Date().toISOString()
-          }, true);
+          // ── Existing order: always update status, tracking, AND finances──
+          // Never null-out trackingNumber if we already have it stored
+          const existingDoc = await fsGet(googleToken, `external_orders/${savedId}`);
+          const existingTracking = existingDoc?.trackingNumber || null;
+
+          const coreUpdate = {
+            status:    core.status,
+            updatedAt: new Date().toISOString(),
+          };
+          // Only update tracking if we found one from eBay — don't overwrite
+          // a manually-entered tracking with null
+          if (core.trackingNumber) {
+            coreUpdate.trackingNumber = core.trackingNumber;
+          } else if (!existingTracking) {
+            // Still null — leave as-is (don't write null over a manual entry)
+            coreUpdate.trackingNumber = null;
+          }
+
+          await fsSet(googleToken, `external_orders/${savedId}`, coreUpdate, true);
           updated++;
         }
 
+        // Always write full pricing (new and existing) so finances update on every sync
         await fsSet(googleToken, `external_order_pricing/${savedId}`, {
           ...pricing, ...meta, updatedAt: new Date().toISOString()
         }, true);
