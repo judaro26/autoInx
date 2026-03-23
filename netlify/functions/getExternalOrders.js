@@ -109,6 +109,7 @@ exports.handler = async function(event) {
                 quantity:          pricing.quantity          ?? data.quantity          ?? 1,
                 shippingCharged:   pricing.shippingCharged   ?? data.shippingCharged   ?? 0,
                 transactionCost:   pricing.transactionCost   ?? data.transactionCost   ?? 0,
+                shippingLabelCost: pricing.shippingLabelCost ?? data.shippingLabelCost ?? null,
                 vendorCostPerUnit: pricing.vendorCostPerUnit ?? data.vendorCostPerUnit ?? null,
                 productId:         pricing.productId         ?? data.productId         ?? null,
                 // eBay meta
