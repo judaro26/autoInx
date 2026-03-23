@@ -86,15 +86,18 @@ exports.handler = async function(event) {
 
         if (isEbay && !isNew) {
             // ── eBay existing order: only write admin-safe fields ─────────────
-            // NEVER overwrite amount, trackingNumber, shippingCharged, transactionCost
-            // — those belong to eBay and are refreshed on every sync.
-            await docRef.set({
-                status:    status    || 'Pending',
-                notes:     notes     || null,
+            // NEVER overwrite amount, shippingCharged, transactionCost — eBay-owned.
+            // Tracking IS writable: eBay API doesn't always provide it, admin may know it.
+            const ebayUpdate = {
+                status:    status || 'Pending',
+                notes:     notes  || null,
                 updatedAt: now,
-            }, { merge: true });
+            };
+            // Only write tracking if admin explicitly provided a value
+            if (trackingNumber) ebayUpdate.trackingNumber = trackingNumber;
 
-            console.log(`✅ eBay order ${docRef.id}: updated status/notes only`);
+            await docRef.set(ebayUpdate, { merge: true });
+            console.log(`✅ eBay order ${docRef.id}: updated status/notes/tracking`);
 
         } else if (isNew) {
             // ── New manual order ──────────────────────────────────────────────
