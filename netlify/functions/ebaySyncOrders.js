@@ -166,11 +166,13 @@ async function fetchEbayOrders(accessToken, createdAfter) {
 
 async function fetchEbayOrderFinances(accessToken, orderId) {
   try {
-    const res = await axios.get('https://api.ebay.com/sell/finances/v1/transaction', {
-      params: {
-        filter: `orderId:{${orderId}}`,
-        limit:  '20',
-      },
+    const url    = 'https://api.ebay.com/sell/finances/v1/transaction';
+    const filter = `orderId:{${orderId}}`;
+
+    console.log(`  📊 Finances API call: ${url}?filter=${filter}`);
+
+    const res = await axios.get(url, {
+      params: { filter, limit: '20' },
       headers: {
         'Authorization':           `Bearer ${accessToken}`,
         'Content-Type':            'application/json',
@@ -179,43 +181,60 @@ async function fetchEbayOrderFinances(accessToken, orderId) {
       validateStatus: () => true
     });
 
+    console.log(`  📊 Finances API status: ${res.status}`);
+
     if (res.status !== 200) {
-      console.warn(`⚠️  Finances API ${res.status} for order ${orderId}`);
+      console.warn(`  ⚠️  Finances API ${res.status} for order ${orderId}:`, JSON.stringify(res.data).substring(0, 300));
       return null;
     }
 
     const transactions = res.data.transactions || [];
-    let transactionFee   = 0;
+    console.log(`  📊 Finances transactions found: ${transactions.length}`);
+    if (transactions.length > 0) {
+      console.log(`  📊 Transaction types: ${transactions.map(t => t.transactionType).join(', ')}`);
+      console.log(`  📊 First tx sample:`, JSON.stringify(transactions[0]).substring(0, 400));
+    } else {
+      console.log(`  ⚠️  No transactions returned — full response:`, JSON.stringify(res.data).substring(0, 500));
+    }
+
+    let transactionFee    = 0;
     let shippingLabelCost = 0;
 
     for (const tx of transactions) {
       const amount = Math.abs(parseFloat(tx.amount?.value || 0));
       const type   = (tx.transactionType || '').toUpperCase();
 
-      // SALE transactions contain the fee breakdown in orderLineItems
       if (type === 'SALE') {
         const items = tx.orderLineItems || [];
         for (const item of items) {
           for (const fee of item.marketplaceFees || []) {
-            transactionFee += Math.abs(parseFloat(fee.amount?.value || 0));
+            const feeAmt = Math.abs(parseFloat(fee.amount?.value || 0));
+            console.log(`    💸 Fee: ${fee.feeType} = $${feeAmt}`);
+            transactionFee += feeAmt;
           }
+        }
+        // Also check top-level totalFeeAmount if marketplaceFees is missing
+        if (transactionFee === 0 && tx.totalFeeAmount?.value) {
+          transactionFee = Math.abs(parseFloat(tx.totalFeeAmount.value));
+          console.log(`    💸 Top-level totalFeeAmount: $${transactionFee}`);
         }
       }
 
-      // SHIPPING_LABEL transactions are the label purchase cost
       if (type === 'SHIPPING_LABEL') {
         shippingLabelCost += amount;
+        console.log(`    🏷️  Shipping label: $${amount}`);
       }
     }
 
-    // Round to 2dp
-    return {
-      transactionFee:    Math.round(transactionFee   * 100) / 100,
+    const result = {
+      transactionFee:    Math.round(transactionFee    * 100) / 100,
       shippingLabelCost: Math.round(shippingLabelCost * 100) / 100,
     };
+    console.log(`  ✅ Finances result for ${orderId}:`, result);
+    return result;
 
   } catch (err) {
-    console.warn(`⚠️  Finances API error for order ${orderId}:`, err.message);
+    console.warn(`  ⚠️  Finances API exception for order ${orderId}:`, err.message);
     return null;
   }
 }
