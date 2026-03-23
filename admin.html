@@ -1605,11 +1605,16 @@
                                 </div>
                             </div>
                             <div class="flex items-center gap-3">
-                                <button onclick="window.module.triggerEbaySync()"
+                                <button onclick="window.module.triggerEbaySync(false)"
                                         id="ebaySyncBtn"
                                         class="px-4 py-2 text-sm font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition"
-                                        title="Sync eBay orders now">
+                                        title="Sync new eBay orders">
                                     🔄 Sync eBay
+                                </button>
+                                <button onclick="if(confirm('Re-sync all orders from last 90 days to backfill fees and tracking?')) window.module.triggerEbaySync(true)"
+                                        class="px-4 py-2 text-sm font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition"
+                                        title="Re-sync all orders from last 90 days — updates fees and tracking for existing records">
+                                    🔁 Re-sync All
                                 </button>
                                 <button onclick="window.module.showAddExternalOrderModal()" 
                                         class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-md">
@@ -20225,19 +20230,27 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 }
             },
 
-            triggerEbaySync: async function () {
+            triggerEbaySync: async function (force = false) {
                 const btn = document.getElementById('ebaySyncBtn');
-                if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+                if (btn) { btn.disabled = true; btn.textContent = force ? '⏳ Re-syncing…' : '⏳ Syncing…'; }
                 try {
                     const idToken = await auth.currentUser.getIdToken();
-                    const res = await fetch('/.netlify/functions/ebayFetchFunction', {
+                    const res = await fetch('/.netlify/functions/ebaySyncOrders', {
                         method: 'POST',
-                        headers: { 'Authorization': `Bearer ${idToken}` }
+                        headers: {
+                            'Authorization': `Bearer ${idToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ force: !!force }),
                     });
                     if (res.ok) {
-                        showMessage('success', 'eBay sync triggered — orders will appear shortly.', 4000, 'externalOrders');
-                        setTimeout(() => window.module.fetchExternalOrders(), 3000);
-                        setTimeout(() => window.module.loadEbaySyncStatus(), 3500);
+                        const data = await res.json().catch(() => ({}));
+                        const msg = force
+                            ? `✅ Re-sync complete — ${data.created || 0} new, ${data.updated || 0} updated with latest fees`
+                            : 'eBay sync triggered — orders will appear shortly.';
+                        showMessage('success', msg, 6000, 'externalOrders');
+                        setTimeout(() => window.module.fetchExternalOrders(), 2000);
+                        setTimeout(() => window.module.loadEbaySyncStatus(), 2500);
                     } else {
                         showMessage('error', 'eBay sync trigger failed.', 4000, 'externalOrders');
                     }
