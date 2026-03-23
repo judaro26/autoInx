@@ -8,6 +8,7 @@ exports.handler = async function(event) {
     try {
         const {
             orderId,
+            userId,          // ← added: stored in Stripe metadata so webhook can clear abandoned cart
             buyerEmail,
             buyerName,
             items,
@@ -53,27 +54,22 @@ exports.handler = async function(event) {
             });
         }
 
-        // ✅ NOTE: Tax is NOT added as a line item anymore.
+        // NOTE: Tax is NOT added as a line item.
         // automatic_tax: { enabled: true } makes Stripe the authoritative
         // tax calculator — it collects buyer's address on the payment page,
         // applies the correct jurisdiction rates, and generates remittance reports.
 
-        // Create Stripe Payment Link
         const paymentLink = await stripe.paymentLinks.create({
             line_items: lineItems,
 
-            // ✅ KEY: automatic_tax makes Stripe the authoritative tax collector.
-            // Stripe collects the buyer's billing address on the payment page,
-            // applies the correct rates, and includes tax in settlement + reports.
             automatic_tax: { enabled: true },
-
-            // Collect billing address for tax jurisdiction accuracy
             billing_address_collection: 'required',
 
             metadata: {
-                order_id: orderId,
+                order_id:    orderId,
+                user_id:     userId || '',   // ← used by stripeWebhook to clear abandoned cart
                 buyer_email: buyerEmail,
-                buyer_name: buyerName,
+                buyer_name:  buyerName,
                 integration: 'autoinx_checkout'
             },
             after_completion: {
@@ -82,18 +78,13 @@ exports.handler = async function(event) {
                     url: `${process.env.URL || 'https://autoinx.com'}/payment-success?order=${orderId}`
                 }
             },
-            // Pre-fill customer email
             customer_creation: 'always',
-            phone_number_collection: {
-                enabled: false // We already have their phone
-            },
-            // Allow promocodes if you want
+            phone_number_collection: { enabled: false },
             allow_promotion_codes: true,
-            // Set custom text
             custom_text: {
                 submit: {
-                    message: language === 'es' 
-                        ? `Pedido #${orderId.substring(0, 8)}` 
+                    message: language === 'es'
+                        ? `Pedido #${orderId.substring(0, 8)}`
                         : `Order #${orderId.substring(0, 8)}`
                 }
             }
@@ -104,8 +95,8 @@ exports.handler = async function(event) {
         return {
             statusCode: 200,
             body: JSON.stringify({
-                success: true,
-                paymentUrl: paymentLink.url,
+                success:       true,
+                paymentUrl:    paymentLink.url,
                 paymentLinkId: paymentLink.id,
                 orderId
             })
@@ -116,7 +107,7 @@ exports.handler = async function(event) {
         return {
             statusCode: 500,
             body: JSON.stringify({
-                error: 'Failed to create payment link',
+                error:   'Failed to create payment link',
                 details: error.message
             })
         };
