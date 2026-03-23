@@ -185,7 +185,7 @@ async function fetchEbayOrderFinances(accessToken, orderId) {
 
     if (res.status !== 200) {
       console.warn(`  ⚠️  Finances API ${res.status} for order ${orderId}:`, JSON.stringify(res.data).substring(0, 300));
-      return null;
+      return { transactionFee: 0, shippingLabelCost: 0, _status: `http_${res.status}`, _error: JSON.stringify(res.data).substring(0, 200) };
     }
 
     const transactions = res.data.transactions || [];
@@ -229,13 +229,16 @@ async function fetchEbayOrderFinances(accessToken, orderId) {
     const result = {
       transactionFee:    Math.round(transactionFee    * 100) / 100,
       shippingLabelCost: Math.round(shippingLabelCost * 100) / 100,
+      _status:           'ok',
+      _txCount:          transactions.length,
+      _txTypes:          transactions.map(t => t.transactionType).join(','),
     };
     console.log(`  ✅ Finances result for ${orderId}:`, result);
     return result;
 
   } catch (err) {
     console.warn(`  ⚠️  Finances API exception for order ${orderId}:`, err.message);
-    return null;
+    return { transactionFee: 0, shippingLabelCost: 0, _status: 'exception', _error: err.message };
   }
 }
 
@@ -374,7 +377,8 @@ exports.handler = async (event) => {
     console.log(`📦 Found ${ebayOrders.length} eBay orders`);
 
     let created = 0, updated = 0;
-    const errors = [];
+    const errors            = [];
+    const financeDiagnostics = [];   // captured when force=true for debugging
 
     for (const o of ebayOrders) {
       try {
@@ -383,6 +387,12 @@ exports.handler = async (event) => {
 
         // ── Fetch actual fees + label cost from Finances API ──────────────
         const finances = await fetchEbayOrderFinances(ebayToken, mapped.externalOrderId);
+        if (forceResync) {
+          financeDiagnostics.push({
+            orderId: mapped.externalOrderId,
+            finances,
+          });
+        }
         if (finances) {
           pricing.transactionCost   = finances.transactionFee;
           pricing.shippingLabelCost = finances.shippingLabelCost;
@@ -449,8 +459,15 @@ exports.handler = async (event) => {
       lastResult:   { ordersFound: ebayOrders.length, created, updated, errors: errors.map(e => e.error) }
     }, true);
 
+    const summary = { created, updated, errors };
+
+    // When force re-sync, include diagnostics so the admin can see what happened
+    if (forceResync) {
+      summary.diagnostics = financeDiagnostics;
+    }
+
     console.log(`✅ Done — ${created} new, ${updated} updated, ${errors.length} errors`);
-    return { statusCode: 200, body: JSON.stringify({ created, updated, errors }) };
+    return { statusCode: 200, body: JSON.stringify(summary) };
 
   } catch (err) {
     console.error('❌ Fatal:', err.message);
