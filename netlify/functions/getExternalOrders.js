@@ -56,10 +56,21 @@ exports.handler = async function(event) {
     // ── Fetch orders ──────────────────────────────────────────────────────────
     try {
         const db   = getDb();
-        const snap = await db.collection('external_orders').orderBy('orderDate', 'desc').limit(500).get();
 
-        const orders = snap.docs.map(d => {
-            const data = d.data();
+        // Fetch orders and their pricing data in parallel
+        const [ordersSnap, pricingSnap] = await Promise.all([
+            db.collection('external_orders').orderBy('orderDate', 'desc').limit(500).get(),
+            db.collection('external_order_pricing').get(),
+        ]);
+
+        // Build pricing map keyed by order id
+        const pricingMap = {};
+        pricingSnap.docs.forEach(d => { pricingMap[d.id] = d.data(); });
+
+        const orders = ordersSnap.docs.map(d => {
+            const data    = d.data();
+            const pricing = pricingMap[d.id] || {};
+
             return {
                 id:              d.id,
                 platform:        data.platform        || 'Manual',
@@ -69,15 +80,22 @@ exports.handler = async function(event) {
                 product:         data.product         || '',
                 status:          data.status          || 'Pending',
                 amount:          data.amount          || 0,
-                trackingNumber:  data.trackingNumber  || null,
+                // Tracking — core doc first, pricing meta as fallback
+                trackingNumber:  data.trackingNumber  || pricing.trackingNumber  || null,
+                shippingAddress: data.shippingAddress || pricing.shippingAddress || null,
                 notes:           data.notes           || null,
-                quantity:        data.quantity        || 1,
-                shippingCharged: data.shippingCharged || 0,
-                transactionCost: data.transactionCost || 0,
-                vendorCostPerUnit: data.vendorCostPerUnit || null,
-                shippingAddress: data.shippingAddress || null,
-                createdAt:       data.createdAt       || null,
-                updatedAt:       data.updatedAt       || null,
+                // Financial fields from pricing collection
+                quantity:          pricing.quantity          ?? data.quantity          ?? 1,
+                shippingCharged:   pricing.shippingCharged   ?? data.shippingCharged   ?? 0,
+                transactionCost:   pricing.transactionCost   ?? data.transactionCost   ?? 0,
+                vendorCostPerUnit: pricing.vendorCostPerUnit ?? data.vendorCostPerUnit ?? null,
+                productId:         pricing.productId         ?? data.productId         ?? null,
+                // eBay meta fields
+                buyerUsername:   pricing.buyerUsername  || null,
+                buyerEmail:      pricing.buyerEmail     || null,
+                sku:             pricing.sku            || null,
+                createdAt:       data.createdAt         || null,
+                updatedAt:       data.updatedAt         || null,
             };
         });
 
