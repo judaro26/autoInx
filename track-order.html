@@ -277,12 +277,7 @@
     </div>
 </div>
 
-<script type="module">
-    import { initializeApp }    from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-    import { getFirestore, doc, getDoc, collection, query, where, getDocs, limit }
-        from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
-
-    let db;
+<script>
     let currentLang = localStorage.getItem('trackLang') ||
                       (navigator.language.startsWith('es') ? 'es' : 'en');
 
@@ -297,7 +292,6 @@
             backTxt: 'Back to store',
             langBtn: 'ES',
             notFound: 'No order found with that number and email combination. Please double-check and try again.',
-            emailMismatch: 'The email address doesn\'t match our records for this order.',
             enterBoth: 'Please enter your order number and email address.',
             orderNum: 'Order',
             placedOn: 'Placed',
@@ -329,7 +323,6 @@
             backTxt: 'Volver a la tienda',
             langBtn: 'EN',
             notFound: 'No encontramos un pedido con ese número y correo. Verifica e intenta de nuevo.',
-            emailMismatch: 'El correo electrónico no coincide con el registrado para este pedido.',
             enterBoth: 'Por favor ingresa tu número de pedido y correo electrónico.',
             orderNum: 'Pedido',
             placedOn: 'Realizado',
@@ -375,76 +368,46 @@
         applyLang();
     };
 
-    // ── Firebase init ─────────────────────────────────────────────────────────
-    async function initFirebase() {
-        try {
-            const res = await fetch('/.netlify/functions/getClientFirebaseConfig');
-            if (!res.ok) throw new Error('Config unavailable');
-            const cfg = await res.json();
-            const app = initializeApp(cfg);
-            db = getFirestore(app);
-        } catch (e) {
-            console.error('Firebase init failed:', e);
-        }
-    }
-
     // ── Auto-populate from URL ?order=ID ─────────────────────────────────────
+    // Note: email is NOT accepted via URL param — customer must type it.
+    // This prevents someone forwarding a pre-filled link that auto-looks up an order.
     function readUrlParams() {
-        const params   = new URLSearchParams(location.search);
-        const orderId  = params.get('order') || params.get('orderId') || '';
-        const email    = params.get('email') || '';
+        const params  = new URLSearchParams(location.search);
+        const orderId = params.get('order') || params.get('orderId') || '';
         if (orderId) $('orderInput').value = orderId.substring(0, 20);
-        if (email)   $('emailInput').value = email;
-        if (orderId) lookupOrder();   // auto-trigger if arriving from payment success
+        // Auto-trigger only if email is also present (e.g. from a secure email link)
+        // Do NOT auto-trigger on order ID alone
     }
 
-    // ── Main lookup ───────────────────────────────────────────────────────────
+    // ── Main lookup — calls server-side function, never Firestore directly ────
     window.lookupOrder = async function() {
-        const rawId = $('orderInput').value.trim().toLowerCase();
-        const email = $('emailInput').value.trim().toLowerCase();
+        const rawId = $('orderInput').value.trim();
+        const email = $('emailInput').value.trim();
         const errEl = $('searchError');
 
         errEl.style.display = 'none';
         $('result').style.display = 'none';
 
-        if (!rawId || !email) {
-            showError(t('enterBoth')); return;
-        }
-
-        if (!db) { showError('Service unavailable. Please refresh.'); return; }
+        if (!rawId || !email) { showError(t('enterBoth')); return; }
 
         setLoading(true);
 
         try {
-            let order = null;
+            const res = await fetch('/.netlify/functions/getOrderStatus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId: rawId, email }),
+            });
 
-            // Try exact doc ID first (most common — we pass the full Firestore ID)
-            const directRef = doc(db, 'artifacts/default-app-id/public/data/orders', rawId);
-            const directSnap = await getDoc(directRef);
+            const data = await res.json();
 
-            if (directSnap.exists()) {
-                order = { id: directSnap.id, ...directSnap.data() };
-            } else {
-                // Fallback: search by 8-char prefix shown to customer in emails
-                const q = query(
-                    collection(db, 'artifacts/default-app-id/public/data/orders'),
-                    where('buyerEmail', '==', email),
-                    limit(20)
-                );
-                const snap = await getDocs(q);
-                const match = snap.docs.find(d =>
-                    d.id.startsWith(rawId) || d.id.substring(0, 8) === rawId
-                );
-                if (match) order = { id: match.id, ...match.data() };
+            if (!res.ok) {
+                // 429 = rate limited, 404 = not found, 400 = bad input
+                showError(data.error || t('notFound'));
+                return;
             }
 
-            if (!order) { showError(t('notFound')); return; }
-
-            // Verify email matches
-            const storedEmail = (order.buyerEmail || '').toLowerCase();
-            if (storedEmail !== email) { showError(t('emailMismatch')); return; }
-
-            renderOrder(order);
+            renderOrder(data.order);
 
         } catch (err) {
             console.error('Lookup error:', err);
@@ -493,7 +456,7 @@
         const trackingHtml = order.trackingNumber ? `
             <div class="tracking-banner">
                 <div>
-                    <div class="label">📦 ${t('carrier')}: ${order.shippingDetails?.provider || order.trackingNumber}</div>
+                    <div class="label">📦 ${t('carrier')}: ${order.shippingDetails?.provider || ''}</div>
                     <div class="number">${order.trackingNumber}</div>
                 </div>
                 ${order.trackingUrl ? `<a href="${order.trackingUrl}" target="_blank" class="tracking-link">${t('trackShipment')} →</a>` : ''}
@@ -501,13 +464,15 @@
             <div style="height:1.25rem;border-bottom:1px solid var(--border);"></div>` : '';
 
         // ── Payment row ──
-        const paidBadge   = `<span class="badge paid">✅ Paid${order.paidAt ? ' · ' + new Date(order.paidAt).toLocaleDateString() : ''}</span>`;
+        const paidBadge   = `<span class="badge paid">✅ ${t('paidOn')}${order.paidAt ? ' · ' + new Date(order.paidAt).toLocaleDateString() : ''}</span>`;
         const unpaidBadge = `<span class="badge unpaid">⏳ ${t('payStatus')}: Pending</span>`;
         const paymentHtml = `
             <div class="payment-row">
                 ${isPaid ? paidBadge : unpaidBadge}
-                ${!isPaid && order.stripePaymentUrl ? `<a href="${order.stripePaymentUrl}" class="pay-now-btn">💳 ${t('payNow')}</a>` : ''}
-                ${!isPaid && order.stripePaymentUrl ? `<span style="font-size:.8rem;color:var(--text-2);">${t('unpaidNote')}</span>` : ''}
+                ${!isPaid && order.stripePaymentUrl
+                    ? `<a href="${order.stripePaymentUrl}" class="pay-now-btn">💳 ${t('payNow')}</a>
+                       <span style="font-size:.8rem;color:var(--text-2);">${t('unpaidNote')}</span>`
+                    : ''}
             </div>`;
 
         // ── Items ──
@@ -519,9 +484,7 @@
                     const img = item.imageUrl || item.imageUrls?.[0] || '';
                     return `
                     <div class="item-row">
-                        ${img
-                            ? `<img class="item-img" src="${img}" alt="${item.name}">`
-                            : `<div class="item-img-ph">📦</div>`}
+                        ${img ? `<img class="item-img" src="${img}" alt="">` : `<div class="item-img-ph">📦</div>`}
                         <div class="item-name">${item.name || ''}</div>
                         <div class="item-qty">×${item.quantity}</div>
                         <div class="item-price">${fmt((item.price || 0) * item.quantity)}</div>
@@ -530,11 +493,11 @@
             </div>`;
 
         // ── Totals ──
-        const sub      = order.subtotalCents || 0;
-        const ship     = order.shippingCents || 0;
-        const tax      = order.taxCents      || 0;
-        const disc     = order.discountCents || 0;
-        const total    = order.totalCents    || (sub + ship + tax - disc);
+        const sub   = order.subtotalCents || 0;
+        const ship  = order.shippingCents || 0;
+        const tax   = order.taxCents      || 0;
+        const disc  = order.discountCents || 0;
+        const total = order.totalCents    || (sub + ship + tax - disc);
         const totalsHtml = `
             <div class="totals">
                 <div class="totals-row"><span>${t('subtotal')}</span><span>${fmt(sub)}</span></div>
@@ -551,9 +514,11 @@
                 <div class="address-text">${order.deliveryAddress}</div>
             </div>` : '';
 
-        // ── Order header ──
+        // ── Header ──
         const placedDate = order.timestamp
-            ? new Date(order.timestamp).toLocaleDateString(currentLang === 'es' ? 'es-CO' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+            ? new Date(order.timestamp).toLocaleDateString(
+                currentLang === 'es' ? 'es-CO' : 'en-US',
+                { year: 'numeric', month: 'long', day: 'numeric' })
             : '';
         const headerHtml = `
             <div class="order-header">
@@ -577,18 +542,14 @@
 
     function setLoading(on) {
         const btn = $('trackBtn');
-        if (on) {
-            btn.disabled = true;
-            btn.innerHTML = '<div class="spinner"></div>';
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><span>${t('trackBtnTxt')}</span>`;
-        }
+        btn.disabled = on;
+        btn.innerHTML = on
+            ? '<div class="spinner"></div>'
+            : `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><span>${t('trackBtnTxt')}</span>`;
     }
 
     // ── Boot ──────────────────────────────────────────────────────────────────
     applyLang();
-    await initFirebase();
     readUrlParams();
 </script>
 </body>
