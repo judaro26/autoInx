@@ -160,6 +160,66 @@ async function fetchEbayOrders(accessToken, createdAfter) {
   return res.data.orders || [];
 }
 
+// ─── eBay Finances API ────────────────────────────────────────────────────────
+// Returns { transactionFee, shippingLabelCost } for a given eBay orderId.
+// The Finances API breaks down what eBay actually charged: platform fees + label costs.
+
+async function fetchEbayOrderFinances(accessToken, orderId) {
+  try {
+    const res = await axios.get('https://api.ebay.com/sell/finances/v1/transaction', {
+      params: {
+        filter: `orderId:{${orderId}}`,
+        limit:  '20',
+      },
+      headers: {
+        'Authorization':           `Bearer ${accessToken}`,
+        'Content-Type':            'application/json',
+        'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID || 'EBAY_US'
+      },
+      validateStatus: () => true
+    });
+
+    if (res.status !== 200) {
+      console.warn(`⚠️  Finances API ${res.status} for order ${orderId}`);
+      return null;
+    }
+
+    const transactions = res.data.transactions || [];
+    let transactionFee   = 0;
+    let shippingLabelCost = 0;
+
+    for (const tx of transactions) {
+      const amount = Math.abs(parseFloat(tx.amount?.value || 0));
+      const type   = (tx.transactionType || '').toUpperCase();
+
+      // SALE transactions contain the fee breakdown in orderLineItems
+      if (type === 'SALE') {
+        const items = tx.orderLineItems || [];
+        for (const item of items) {
+          for (const fee of item.marketplaceFees || []) {
+            transactionFee += Math.abs(parseFloat(fee.amount?.value || 0));
+          }
+        }
+      }
+
+      // SHIPPING_LABEL transactions are the label purchase cost
+      if (type === 'SHIPPING_LABEL') {
+        shippingLabelCost += amount;
+      }
+    }
+
+    // Round to 2dp
+    return {
+      transactionFee:    Math.round(transactionFee   * 100) / 100,
+      shippingLabelCost: Math.round(shippingLabelCost * 100) / 100,
+    };
+
+  } catch (err) {
+    console.warn(`⚠️  Finances API error for order ${orderId}:`, err.message);
+    return null;
+  }
+}
+
 // ─── Status + order mapping ───────────────────────────────────────────────────
 
 function mapEbayStatus(s) {
@@ -277,6 +337,16 @@ exports.handler = async (event) => {
       try {
         const mapped = mapEbayOrder(o);
         const { pricing, meta, ...core } = mapped;
+
+        // ── Fetch actual fees from Finances API (non-blocking) ─────────────
+        const finances = await fetchEbayOrderFinances(ebayToken, mapped.externalOrderId);
+        if (finances) {
+          // Replace Fulfillment API's inaccurate fee estimate with the real values
+          pricing.transactionCost   = finances.transactionFee;
+          pricing.shippingLabelCost = finances.shippingLabelCost;
+          // shippingCharged (buyer paid) stays as-is from Fulfillment API
+          console.log(`  💰 Order ${mapped.externalOrderId}: fee=$${finances.transactionFee} label=$${finances.shippingLabelCost}`);
+        }
 
         const indexData = await fsGet(googleToken, `external_orders_index/${mapped.externalOrderId}`);
         let savedId     = indexData?.internalId || null;
