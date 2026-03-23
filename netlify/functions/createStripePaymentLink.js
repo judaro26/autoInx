@@ -75,7 +75,7 @@ exports.handler = async function(event) {
             after_completion: {
                 type: 'redirect',
                 redirect: {
-                    url: `${process.env.URL || 'https://autoinx.com'}/payment-success?order=${orderId}`
+                    url: `${process.env.URL || 'https://autoinx.com'}/track-order.html?order=${orderId}`
                 }
             },
             customer_creation: 'always',
