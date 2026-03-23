@@ -19765,7 +19765,14 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 <td class="px-4 py-3 text-sm text-center">${qty}</td>
                 <td class="px-4 py-3 text-sm font-semibold">${salePriceUnit > 0 ? '$' + salePriceUnit.toFixed(2) : '—'}</td>
                 <td class="px-4 py-3 text-sm">${vendorCellHtml}</td>
-                <td class="px-4 py-3 text-sm ${shippingCost > 0 ? 'text-blue-600' : 'text-gray-300'}">${shippingCost > 0 ? '$' + shippingCost.toFixed(2) : '—'}</td>
+                <td class="px-4 py-3 text-sm ${shippingCost > 0 ? 'text-blue-600' : 'text-gray-400'}">
+                    ${shippingCost > 0
+                        ? '$' + shippingCost.toFixed(2)
+                        : order.shippingCharged === 0 && order.platform === 'eBay'
+                            ? '<span title="Free shipping listing">$0.00</span>'
+                            : '—'}
+                    ${order.shippingAddress ? `<div class="text-xs text-gray-400 truncate max-w-[80px]" title="${escapeHtml(order.shippingAddress)}">${escapeHtml(order.shippingAddress.split(',')[0])}</div>` : ''}
+                </td>
                 <td class="px-4 py-3 text-sm ${transactionCost > 0 ? 'text-red-600' : 'text-gray-300'}">${feeCellHtml}</td>
                 <td class="px-4 py-3">${profitCellHtml}</td>
                 <td class="px-4 py-3">
@@ -19945,9 +19952,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 document.getElementById('orderTracking').value = order.trackingNumber || '';
                 document.getElementById('orderNotes').value = order.notes || '';
 
-                // For eBay orders, lock the eBay-owned fields so admin edits can't overwrite them
+                // For eBay orders, lock financial fields that come from eBay — admin cannot override them.
+                // Tracking IS editable even for eBay orders (may be missing from API).
                 const isEbay = order.platform === 'eBay';
-                ['orderAmount', 'orderShippingCharged', 'orderTransactionCost', 'orderTracking'].forEach(id => {
+                ['orderAmount', 'orderShippingCharged', 'orderTransactionCost'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el) {
                         el.readOnly = isEbay;
@@ -19955,10 +19963,19 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         el.classList.toggle('text-amber-800', isEbay);
                     }
                 });
-                ['orderAmountNote','orderShippingNote','orderFeeNote','orderTrackingNote'].forEach(id => {
+                ['orderAmountNote','orderShippingNote','orderFeeNote'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el) el.classList.toggle('hidden', !isEbay);
                 });
+                // Tracking note: show only when eBay AND tracking is empty (invite manual entry)
+                const trackingNoteEl = document.getElementById('orderTrackingNote');
+                if (trackingNoteEl) {
+                    const hasTracking = !!order.trackingNumber;
+                    trackingNoteEl.textContent = hasTracking
+                        ? '🔒 Synced from eBay'
+                        : '✏️ Not provided by eBay — enter manually if known';
+                    trackingNoteEl.className = `text-xs mt-1 ${hasTracking ? 'text-amber-600' : 'text-blue-600'} ${isEbay ? '' : 'hidden'}`;
+                }
 
                 // Re-select the product in the dropdown if we have a productId
                 const selector = document.getElementById('orderProductSelector');
@@ -20025,8 +20042,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             closeExternalOrderModal: function () {
                 document.getElementById('externalOrderModal').classList.add('hidden');
                 document.getElementById('externalOrderForm').reset();
-                // Ensure eBay-locked fields are unlocked for next use (e.g. a new manual order)
-                ['orderAmount', 'orderShippingCharged', 'orderTransactionCost', 'orderTracking'].forEach(id => {
+                // Unlock eBay financial locks when modal closes
+                ['orderAmount', 'orderShippingCharged', 'orderTransactionCost'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el) { el.readOnly = false; el.classList.remove('bg-amber-50','text-amber-800'); }
                 });
