@@ -173,7 +173,26 @@ function mapEbayOrder(o) {
   const ship  = step.shipTo || {};
   const addr  = ship.contactAddress || {};
   const price = o.pricingSummary || {};
+
+  // Tracking: check shippingStep first (pre-ship), then fulfillments array (post-ship)
+  const trackingFromStep        = step.shipmentTrackingNumber || null;
+  const trackingFromFulfillment = o.fulfillments?.[0]?.shipmentTrackingNumber || null;
+  const trackingNumber          = trackingFromStep || trackingFromFulfillment || null;
+
+  // Shipping address
   const shippingAddress = [addr.addressLine1, addr.addressLine2, addr.city, addr.stateOrProvince, addr.postalCode, addr.countryCode].filter(Boolean).join(', ');
+
+  // Shipping cost: deliveryCost = what buyer paid. For free-ship listings this is 0.
+  // shippingDiscountAmount subtracted from full rate gives buyer price — we store buyer price.
+  const shippingCharged = Math.round(parseFloat(price.deliveryCost?.value || 0) * 100) / 100;
+
+  // eBay fees: totalMarketplaceFee is the actual fee charged.
+  // Fall back to fee.value or totalFeeBasisAmount (less accurate) if not present.
+  const ebayFeeRaw = price.totalMarketplaceFee?.value
+                  || price.fee?.value
+                  || price.totalFeeBasisAmount?.value
+                  || 0;
+  const transactionCost = Math.round(parseFloat(ebayFeeRaw) * 100) / 100;
 
   return {
     platform:        'eBay',
@@ -183,12 +202,12 @@ function mapEbayOrder(o) {
     product:         line.title || 'eBay Item',
     status:          mapEbayStatus(o.orderFulfillmentStatus || o.orderPaymentStatus),
     amount:          Math.round(parseFloat(line.lineItemCost?.value || 0) * 100) / 100,
-    trackingNumber:  step.shipmentTrackingNumber || null,
+    trackingNumber,
     notes:           [shippingAddress && `Ship to: ${shippingAddress}`, buyer.username && `eBay user: ${buyer.username}`, ship.email && `Email: ${ship.email}`].filter(Boolean).join(' | ') || null,
     pricing: {
       quantity:          line.quantity || 1,
-      shippingCharged:   Math.round(parseFloat(price.deliveryCost?.value || 0) * 100) / 100,
-      transactionCost:   Math.round((parseFloat(price.totalFeeBasisAmount?.value || price.fee?.value || 0) + parseFloat(price.tax?.value || 0)) * 100) / 100,
+      shippingCharged,
+      transactionCost,
       vendorCostPerUnit: null
     },
     meta: {
