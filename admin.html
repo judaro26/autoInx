@@ -20246,9 +20246,20 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     if (res.ok) {
                         const data = await res.json().catch(() => ({}));
                         const msg = force
-                            ? `✅ Re-sync complete — ${data.created || 0} new, ${data.updated || 0} updated with latest fees`
+                            ? `✅ Re-sync complete — ${data.created || 0} new, ${data.updated || 0} updated`
                             : 'eBay sync triggered — orders will appear shortly.';
                         showMessage('success', msg, 6000, 'externalOrders');
+
+                        // Show Finances API diagnostics if available
+                        if (force && data.diagnostics?.length) {
+                            const d = data.diagnostics[0];
+                            const fin = d.finances;
+                            const diagMsg = fin
+                                ? `💰 Finances API: fee=$${fin.transactionFee} label=$${fin.shippingLabelCost} (${fin._status || 'ok'})`
+                                : `⚠️ Finances API returned no data for order ${d.orderId} — check scope`;
+                            showMessage(fin ? 'success' : 'warning', diagMsg, 10000, 'externalOrders');
+                        }
+
                         setTimeout(() => window.module.fetchExternalOrders(), 2000);
                         setTimeout(() => window.module.loadEbaySyncStatus(), 2500);
                     } else {
