@@ -1855,6 +1855,7 @@
                                         <input type="number" id="orderAmount" step="0.01" placeholder="0.00" required
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                                        <p id="orderAmountNote" class="text-xs text-amber-600 mt-1 hidden">🔒 Synced from eBay — read only</p>
                                     </div>
 
                                     <div>
@@ -1862,6 +1863,7 @@
                                         <input type="number" id="orderShippingCharged" step="0.01" placeholder="0.00" value="0"
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                                        <p id="orderShippingNote" class="text-xs text-amber-600 mt-1 hidden">🔒 Synced from eBay — read only</p>
                                     </div>
 
                                     <div>
@@ -1869,6 +1871,7 @@
                                         <input type="number" id="orderTransactionCost" step="0.01" placeholder="0.00" value="0"
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                                        <p id="orderFeeNote" class="text-xs text-amber-600 mt-1 hidden">🔒 Synced from eBay — read only</p>
                                     </div>
             
                                     <div class="md:col-span-2">
@@ -1876,6 +1879,7 @@
                                         <input type="text" id="orderTracking" 
                                                placeholder="1Z999AA10123456784"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                                        <p id="orderTrackingNote" class="text-xs text-amber-600 mt-1 hidden">🔒 Synced from eBay — read only</p>
                                     </div>
             
                                     <div class="md:col-span-2">
@@ -19941,6 +19945,21 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 document.getElementById('orderTracking').value = order.trackingNumber || '';
                 document.getElementById('orderNotes').value = order.notes || '';
 
+                // For eBay orders, lock the eBay-owned fields so admin edits can't overwrite them
+                const isEbay = order.platform === 'eBay';
+                ['orderAmount', 'orderShippingCharged', 'orderTransactionCost', 'orderTracking'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.readOnly = isEbay;
+                        el.classList.toggle('bg-amber-50', isEbay);
+                        el.classList.toggle('text-amber-800', isEbay);
+                    }
+                });
+                ['orderAmountNote','orderShippingNote','orderFeeNote','orderTrackingNote'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.classList.toggle('hidden', !isEbay);
+                });
+
                 // Re-select the product in the dropdown if we have a productId
                 const selector = document.getElementById('orderProductSelector');
                 const productId = order.productId || null;
@@ -20006,6 +20025,15 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             closeExternalOrderModal: function () {
                 document.getElementById('externalOrderModal').classList.add('hidden');
                 document.getElementById('externalOrderForm').reset();
+                // Ensure eBay-locked fields are unlocked for next use (e.g. a new manual order)
+                ['orderAmount', 'orderShippingCharged', 'orderTransactionCost', 'orderTracking'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) { el.readOnly = false; el.classList.remove('bg-amber-50','text-amber-800'); }
+                });
+                ['orderAmountNote','orderShippingNote','orderFeeNote','orderTrackingNote'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.classList.add('hidden');
+                });
             },
 
             saveExternalOrder: async function (event) {
@@ -20046,7 +20074,13 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     status:          document.getElementById('orderStatus').value,
                     amount:          salePriceUnit,
                     trackingNumber:  document.getElementById('orderTracking').value || null,
-                    notes:           document.getElementById('orderNotes').value || null
+                    notes:           document.getElementById('orderNotes').value || null,
+                    // pricing fields — server protects eBay-owned ones
+                    quantity:          qty,
+                    shippingCharged:   shippingCharged,
+                    transactionCost:   transactionCost,
+                    vendorCostPerUnit: vendorCostPerUnit,
+                    productId:         productId || null,
                 };
 
                 try {
