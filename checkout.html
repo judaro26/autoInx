@@ -1374,6 +1374,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         orderId: docRef.id,
+                        userId: userId || null,        // passed to Stripe metadata so webhook can clear abandoned cart
                         buyerEmail: order.buyerEmail,
                         buyerName: order.buyerName,
                         items: order.items,
@@ -1381,7 +1382,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                         subtotalCents: order.subtotalCents,
                         shippingCents: order.shippingCents,
                         taxCents: order.taxCents,
-                        taxCalculationId: taxCalculationId,  // Stripe Tax calculation ID for audit trail
+                        taxCalculationId: taxCalculationId,
                         language: currentLang
                     })
                 });
@@ -1462,9 +1463,21 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 // Don't fail the order if email fails
             }
             
-            // 5. Lock rendering to prevent page refresh
+            // 5. Lock rendering and clear abandoned cart
             orderCompleted = true;
             sessionStorage.removeItem('autoInxCart');
+
+            // Clear the abandoned cart Firestore record so the scheduled
+            // reminder function never sends an email for a completed order.
+            try {
+                if (db && userId && userId !== 'guest') {
+                    await deleteDoc(doc(db, 'abandoned_carts', userId));
+                    console.log('🛒 Abandoned cart cleared for user:', userId);
+                }
+            } catch (e) {
+                console.warn('Could not clear abandoned cart:', e.message);
+                // Non-fatal — order is already saved
+            }
             
             // 6. Show success page
             const successMessage = currentLang === 'es' 
