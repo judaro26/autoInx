@@ -55,21 +55,40 @@ exports.handler = async function(event) {
 
     // ── Fetch orders ──────────────────────────────────────────────────────────
     try {
-        const db   = getDb();
+        const db  = getDb();
 
-        // Fetch orders and their pricing data in parallel
-        const [ordersSnap, pricingSnap] = await Promise.all([
-            db.collection('external_orders').orderBy('orderDate', 'desc').limit(500).get(),
-            db.collection('external_order_pricing').get(),
-        ]);
+        // Fetch orders and pricing in parallel.
+        // Use allSettled so a pricing read failure doesn't kill the orders.
+        // orderBy('orderDate') requires an index — fall back to unordered if it fails.
+        let ordersSnap, pricingSnap;
+        try {
+            [ordersSnap, pricingSnap] = await Promise.all([
+                db.collection('external_orders').orderBy('orderDate', 'desc').limit(500).get(),
+                db.collection('external_order_pricing').limit(500).get(),
+            ]);
+        } catch (indexErr) {
+            console.warn('⚠️ orderDate index missing — falling back to unordered query:', indexErr.message);
+            [ordersSnap, pricingSnap] = await Promise.all([
+                db.collection('external_orders').limit(500).get(),
+                db.collection('external_order_pricing').limit(500).get(),
+            ]);
+        }
 
-        // Build pricing map keyed by order id
+        // Build pricing map: doc id → pricing data
         const pricingMap = {};
-        pricingSnap.docs.forEach(d => { pricingMap[d.id] = d.data(); });
+        (pricingSnap?.docs || []).forEach(d => { pricingMap[d.id] = d.data(); });
+
+        console.log(`📦 external_orders: ${ordersSnap.docs.length} docs, external_order_pricing: ${Object.keys(pricingMap).length} docs`);
 
         const orders = ordersSnap.docs.map(d => {
             const data    = d.data();
             const pricing = pricingMap[d.id] || {};
+
+            // Log first order for debugging
+            if (d === ordersSnap.docs[0]) {
+                console.log('🔍 Sample order doc fields:', Object.keys(data));
+                console.log('🔍 Sample pricing doc fields:', Object.keys(pricing));
+            }
 
             return {
                 id:              d.id,
@@ -79,27 +98,29 @@ exports.handler = async function(event) {
                 orderDate:       data.orderDate       || '',
                 product:         data.product         || '',
                 status:          data.status          || 'Pending',
+                // amount: eBay stores line item cost in dollars (not cents)
                 amount:          data.amount          || 0,
-                // Tracking — core doc first, pricing meta as fallback
+                // trackingNumber lives in external_orders (core doc from eBay sync)
                 trackingNumber:  data.trackingNumber  || pricing.trackingNumber  || null,
-                shippingAddress: data.shippingAddress || pricing.shippingAddress || null,
+                // shippingAddress lives in external_order_pricing (meta from eBay sync)
+                shippingAddress: pricing.shippingAddress || data.shippingAddress || null,
                 notes:           data.notes           || null,
-                // Financial fields from pricing collection
+                // Financial fields from external_order_pricing
                 quantity:          pricing.quantity          ?? data.quantity          ?? 1,
                 shippingCharged:   pricing.shippingCharged   ?? data.shippingCharged   ?? 0,
                 transactionCost:   pricing.transactionCost   ?? data.transactionCost   ?? 0,
                 vendorCostPerUnit: pricing.vendorCostPerUnit ?? data.vendorCostPerUnit ?? null,
                 productId:         pricing.productId         ?? data.productId         ?? null,
-                // eBay meta fields
-                buyerUsername:   pricing.buyerUsername  || null,
-                buyerEmail:      pricing.buyerEmail     || null,
-                sku:             pricing.sku            || null,
-                createdAt:       data.createdAt         || null,
-                updatedAt:       data.updatedAt         || null,
+                // eBay meta
+                sku:             pricing.sku           || data.sku           || null,
+                buyerUsername:   pricing.buyerUsername || data.buyerUsername || null,
+                buyerEmail:      pricing.buyerEmail    || data.buyerEmail    || null,
+                createdAt:       data.createdAt        || null,
+                updatedAt:       data.updatedAt        || null,
             };
         });
 
-        console.log(`✅ getExternalOrders: returned ${orders.length} orders`);
+        console.log(`✅ getExternalOrders: returning ${orders.length} orders`);
 
         return {
             statusCode: 200,
