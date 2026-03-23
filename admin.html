@@ -19618,7 +19618,9 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     const data = await response.json();
                     const orders = data.orders || [];
 
-                    // Merge financial data from Firestore (qty, shippingCharged, transactionCost, vendorCostPerUnit)
+                    // getExternalOrders already merges pricing server-side.
+                    // Do a client-side top-up only for any fields the server didn't return,
+                    // using the local Firestore SDK as a fallback.
                     try {
                         const pricingSnap = await getDocs(collection(db, EXTERNAL_ORDER_PRICING_COLLECTION));
                         const pricingMap = {};
@@ -19626,16 +19628,16 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
                         allExternalOrders = orders.map(order => {
                             const pricing = pricingMap[order.id] || {};
+                            // Only fill in fields that are genuinely missing from server response
                             return {
                                 ...order,
-                                quantity:          pricing.quantity          ?? order.quantity          ?? 1,
-                                shippingCharged:   pricing.shippingCharged   ?? order.shippingCharged   ?? 0,
-                                transactionCost:   pricing.transactionCost   ?? order.transactionCost   ?? 0,
-                                vendorCostPerUnit: pricing.vendorCostPerUnit  ?? order.vendorCostPerUnit ?? null,
-                                productId:         pricing.productId          ?? order.productId         ?? null,
-                                // Tracking & shipping info synced from eBay
-                                trackingNumber:    order.trackingNumber       ?? pricing.trackingNumber  ?? null,
-                                shippingAddress:   pricing.shippingAddress    ?? order.shippingAddress   ?? null,
+                                quantity:          order.quantity          ?? pricing.quantity          ?? 1,
+                                shippingCharged:   order.shippingCharged   ?? pricing.shippingCharged   ?? 0,
+                                transactionCost:   order.transactionCost   ?? pricing.transactionCost   ?? 0,
+                                vendorCostPerUnit: order.vendorCostPerUnit ?? pricing.vendorCostPerUnit ?? null,
+                                productId:         order.productId         ?? pricing.productId         ?? null,
+                                trackingNumber:    order.trackingNumber    ?? pricing.trackingNumber    ?? null,
+                                shippingAddress:   order.shippingAddress   ?? pricing.shippingAddress   ?? null,
                             };
                         });
                     } catch (e) {
