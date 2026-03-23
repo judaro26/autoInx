@@ -1,11 +1,14 @@
 /**
  * saveExternalOrder.js
  *
- * Creates or updates an external order (eBay / manual) in Firestore.
- * - New orders: creates doc in external_orders/{id}
- * - Existing orders: updates only changed fields (upsert)
+ * Creates or updates an external order in Firestore.
  *
- * Requires admin Firebase ID token.
+ * eBay orders (platform === 'eBay') have PROTECTED fields that only the
+ * eBay sync function may write. The admin can only change:
+ *   core doc:  status, notes
+ *   pricing:   vendorCostPerUnit, productId, quantity
+ *
+ * Manual orders allow full field updates.
  */
 
 const admin = require('firebase-admin');
@@ -43,9 +46,8 @@ exports.handler = async function(event) {
     if (!authHeader.startsWith('Bearer ')) {
         return { statusCode: 401, headers: HEADERS, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
-
     try {
-        getDb(); // init app before admin.auth()
+        getDb();
         const decoded = await admin.auth().verifyIdToken(authHeader.replace('Bearer ', ''));
         if (!decoded.admin) {
             return { statusCode: 403, headers: HEADERS, body: JSON.stringify({ error: 'Admin access required' }) };
@@ -55,82 +57,106 @@ exports.handler = async function(event) {
         return { statusCode: 401, headers: HEADERS, body: JSON.stringify({ error: 'Invalid token' }) };
     }
 
-    // ── Parse body ────────────────────────────────────────────────────────────
-    let orderData;
-    try {
-        orderData = JSON.parse(event.body);
-    } catch {
-        return { statusCode: 400, headers: HEADERS, body: JSON.stringify({ error: 'Invalid JSON' }) };
-    }
+    let body;
+    try { body = JSON.parse(event.body); }
+    catch { return { statusCode: 400, headers: HEADERS, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-    const { id, platform, externalOrderId, customerName, orderDate,
-            product, status, amount, trackingNumber, notes } = orderData;
+    const {
+        id, platform, externalOrderId, customerName, orderDate,
+        product, status, amount, trackingNumber, notes,
+        // pricing fields (always admin-settable)
+        vendorCostPerUnit, productId, quantity,
+        shippingCharged, transactionCost,
+    } = body;
+
+    const isEbay = (platform || '').toLowerCase() === 'ebay';
+    const isNew  = !id;
 
     if (!platform || !customerName || !orderDate || !product) {
-        return {
-            statusCode: 400,
-            headers: HEADERS,
-            body: JSON.stringify({ error: 'Missing required fields: platform, customerName, orderDate, product' })
-        };
+        return { statusCode: 400, headers: HEADERS,
+            body: JSON.stringify({ error: 'Missing required fields: platform, customerName, orderDate, product' }) };
     }
 
     try {
         const db  = getDb();
-        const col = db.collection('external_orders');
         const now = admin.firestore.FieldValue.serverTimestamp();
+        const col = db.collection('external_orders');
 
-        // ── Determine doc ref ─────────────────────────────────────────────────
-        // Existing orders have an id already (from eBay sync: "ebay_xxx" or auto-id)
-        // New manual orders get an auto-generated id
-        let docRef;
-        const isNew = !id;
+        const docRef = id ? col.doc(id) : col.doc();
 
-        if (id) {
-            docRef = col.doc(id);
+        if (isEbay && !isNew) {
+            // ── eBay existing order: only write admin-safe fields ─────────────
+            // NEVER overwrite amount, trackingNumber, shippingCharged, transactionCost
+            // — those belong to eBay and are refreshed on every sync.
+            await docRef.set({
+                status:    status    || 'Pending',
+                notes:     notes     || null,
+                updatedAt: now,
+            }, { merge: true });
+
+            console.log(`✅ eBay order ${docRef.id}: updated status/notes only`);
+
+        } else if (isNew) {
+            // ── New manual order ──────────────────────────────────────────────
+            await docRef.set({
+                platform:        platform        || 'Manual',
+                externalOrderId: externalOrderId || docRef.id,
+                customerName:    customerName    || '',
+                orderDate:       orderDate       || '',
+                product:         product         || '',
+                status:          status          || 'Pending',
+                amount:          parseFloat(amount) || 0,
+                trackingNumber:  trackingNumber  || null,
+                notes:           notes           || null,
+                createdAt:       now,
+                updatedAt:       now,
+            });
+            console.log(`✅ Created manual external order: ${docRef.id}`);
+
         } else {
-            docRef = col.doc(); // auto-id
+            // ── Existing manual order: full update ────────────────────────────
+            await docRef.set({
+                platform:        platform        || 'Manual',
+                externalOrderId: externalOrderId || docRef.id,
+                customerName:    customerName    || '',
+                orderDate:       orderDate       || '',
+                product:         product         || '',
+                status:          status          || 'Pending',
+                amount:          parseFloat(amount) || 0,
+                trackingNumber:  trackingNumber  || null,
+                notes:           notes           || null,
+                updatedAt:       now,
+            }, { merge: true });
+            console.log(`✅ Updated manual external order: ${docRef.id}`);
         }
 
-        const payload = {
-            platform:        platform        || 'Manual',
-            externalOrderId: externalOrderId || docRef.id,
-            customerName:    customerName    || '',
-            orderDate:       orderDate       || '',
-            product:         product         || '',
-            status:          status          || 'Pending',
-            amount:          typeof amount === 'number' ? amount : (parseFloat(amount) || 0),
-            trackingNumber:  trackingNumber  || null,
-            notes:           notes           || null,
-            updatedAt:       now,
+        // ── Pricing doc: always update admin-editable fields ─────────────────
+        // For eBay orders we only write vendorCostPerUnit and productId.
+        // shippingCharged and transactionCost are eBay-owned — only write for manual orders.
+        const pricingUpdate = {
+            vendorCostPerUnit: vendorCostPerUnit != null ? vendorCostPerUnit : null,
+            productId:         productId         || null,
+            quantity:          parseInt(quantity) || 1,
+            updatedAt:         now,
         };
-
-        if (isNew) {
-            payload.createdAt = now;
-            await docRef.set(payload);
-            console.log(`✅ Created external order: ${docRef.id}`);
-        } else {
-            // set with merge so eBay-synced fields (meta, pricing) are preserved
-            await docRef.set(payload, { merge: true });
-            console.log(`✅ Updated external order: ${docRef.id}`);
+        if (!isEbay) {
+            pricingUpdate.shippingCharged  = parseFloat(shippingCharged)  || 0;
+            pricingUpdate.transactionCost  = parseFloat(transactionCost)  || 0;
         }
+
+        await db.collection('external_order_pricing').doc(docRef.id).set(
+            pricingUpdate, { merge: true }
+        );
 
         return {
             statusCode: 200,
             headers: HEADERS,
-            body: JSON.stringify({
-                success: true,
-                id:      docRef.id,
-                orderId: docRef.id,
-                isNew,
-            })
+            body: JSON.stringify({ success: true, id: docRef.id, orderId: docRef.id, isNew }),
         };
 
     } catch (err) {
         console.error('❌ saveExternalOrder error:', err);
-        return {
-            statusCode: 500,
-            headers: HEADERS,
-            body: JSON.stringify({ error: 'Failed to save order', details: err.message })
-        };
+        return { statusCode: 500, headers: HEADERS,
+            body: JSON.stringify({ error: 'Failed to save order', details: err.message }) };
     }
 };
