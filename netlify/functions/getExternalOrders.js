@@ -42,12 +42,14 @@ exports.handler = async function(event) {
     }
 
     try {
-        const token    = authHeader.replace('Bearer ', '');
-        const decoded  = await admin.auth().verifyIdToken(token);
+        getDb(); // ensure app is initialized before calling admin.auth()
+        const token   = authHeader.replace('Bearer ', '');
+        const decoded = await admin.auth().verifyIdToken(token);
         if (!decoded.admin) {
             return { statusCode: 403, headers: HEADERS, body: JSON.stringify({ error: 'Admin access required' }) };
         }
     } catch (err) {
+        console.error('Token verification failed:', err.message);
         return { statusCode: 401, headers: HEADERS, body: JSON.stringify({ error: 'Invalid token' }) };
     }
 
