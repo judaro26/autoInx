@@ -1703,7 +1703,8 @@
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Qty</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Sale Price</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Vendor Cost</th>
-                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Fee</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Ship Cost</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Fees</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Net Profit</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>
                                         </tr>
@@ -11617,11 +11618,22 @@ ${printScript}
                 .filter(t => t.length >= 4);
         }
 
+        // Normalize a product name for loose text matching:
+        // strips common filler words, lowercases, collapses whitespace
+        function normalizeProductName(str) {
+            if (!str) return '';
+            return str.toLowerCase()
+                .replace(/\b(for|the|and|oil|filter|air|fuel|spark|plug|brake|pad|kit|set|pack|oem|new|genuine|original|compatible|with|fits)\b/g, ' ')
+                .replace(/[^a-z0-9]+/g, ' ')
+                .trim();
+        }
+
         // Returns the vendor map keyed by normalised SKU,
         // PLUS a secondary index keyed by every SKU token found in the product name/notes.
         function buildVendorCostMap() {
             const map       = new Map(); // exact SKU → cost
             const tokenMap  = new Map(); // individual part-number token → cost (for fuzzy match)
+            const nameMap   = new Map(); // normalized name words → cost (for name-based match)
 
             const vendorOrders = (state.vendorOrders || [])
                 .map(o => o._normalized ? o : normalizeVendorOrder(o))
@@ -11650,10 +11662,10 @@ ${printScript}
                         sku,
                     };
 
-                    // Exact SKU map (newer orders win — list is sorted newest-first)
+                    // 1. Exact SKU map (newer orders win)
                     if (sku && !map.has(sku)) map.set(sku, entry);
 
-                    // Token map — index every part-number token in the SKU + description
+                    // 2. Token map — part-number tokens from SKU + description
                     const tokens = [
                         ...extractSkuTokens(sku),
                         ...extractSkuTokens(lineItem.description || lineItem.name || ''),
@@ -11661,29 +11673,74 @@ ${printScript}
                     for (const token of tokens) {
                         if (!tokenMap.has(token)) tokenMap.set(token, entry);
                     }
+
+                    // 3. Name map — meaningful words from the vendor item name
+                    const itemName = lineItem.description || lineItem.name || sku;
+                    const nameKey  = normalizeProductName(itemName);
+                    if (nameKey && !nameMap.has(nameKey)) nameMap.set(nameKey, entry);
+
+                    // Also index individual significant words (length ≥ 4) for partial matching
+                    nameKey.split(/\s+/).filter(w => w.length >= 4).forEach(word => {
+                        if (!nameMap.has(word)) nameMap.set(word, entry);
+                    });
                 }
             }
-            return { map, tokenMap };
+            return { map, tokenMap, nameMap };
+        }
+
+        // Score how well two normalized name strings match (0–1)
+        function nameSimilarity(a, b) {
+            if (!a || !b) return 0;
+            const wordsA = new Set(a.split(/\s+/).filter(w => w.length >= 4));
+            const wordsB = new Set(b.split(/\s+/).filter(w => w.length >= 4));
+            if (wordsA.size === 0 || wordsB.size === 0) return 0;
+            let shared = 0;
+            wordsA.forEach(w => { if (wordsB.has(w)) shared++; });
+            return shared / Math.max(wordsA.size, wordsB.size);
         }
 
         // Try to find a vendor cost for an item using:
         // 1. Exact SKU match
-        // 2. Any part-number token extracted from the item SKU or name
+        // 2. Part-number token match (e.g. "90915-YZZN1" inside a longer title)
+        // 3. Name similarity match (≥ 50% word overlap)
         function lookupVendorCost(item) {
             if (!item) return null;
-            const { map, tokenMap } = buildVendorCostMap();
+            const { map, tokenMap, nameMap } = buildVendorCostMap();
 
-            // 1. Exact match on item SKU
+            // 1. Exact SKU
             const exactSku = (item.sku || '').trim().toUpperCase();
-            if (exactSku && map.has(exactSku)) return map.get(exactSku);
+            if (exactSku && map.has(exactSku)) {
+                return { ...map.get(exactSku), matchType: 'exact' };
+            }
 
-            // 2. Token match — extract part numbers from our item's SKU + name
+            // 2. Part-number tokens from SKU + name
             const candidateTokens = [
                 ...extractSkuTokens(exactSku),
                 ...extractSkuTokens(item.name || ''),
             ];
             for (const token of candidateTokens) {
-                if (tokenMap.has(token)) return tokenMap.get(token);
+                if (tokenMap.has(token)) {
+                    return { ...tokenMap.get(token), matchType: 'sku_token' };
+                }
+            }
+
+            // 3. Name similarity — compare against all vendor item names
+            const itemNorm = normalizeProductName(item.name || item.sku || '');
+            if (itemNorm) {
+                let bestScore = 0;
+                let bestEntry = null;
+                nameMap.forEach((entry, nameKey) => {
+                    // Skip single-word keys in the second pass to avoid false positives
+                    if (!nameKey.includes(' ')) return;
+                    const score = nameSimilarity(itemNorm, nameKey);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestEntry = entry;
+                    }
+                });
+                if (bestScore >= 0.5 && bestEntry) {
+                    return { ...bestEntry, matchType: 'name', matchScore: bestScore };
+                }
             }
 
             return null;
@@ -19702,6 +19759,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 <td class="px-4 py-3 text-sm text-center">${qty}</td>
                 <td class="px-4 py-3 text-sm font-semibold">${salePriceUnit > 0 ? '$' + salePriceUnit.toFixed(2) : '—'}</td>
                 <td class="px-4 py-3 text-sm">${vendorCellHtml}</td>
+                <td class="px-4 py-3 text-sm ${shippingCost > 0 ? 'text-blue-600' : 'text-gray-300'}">${shippingCost > 0 ? '$' + shippingCost.toFixed(2) : '—'}</td>
                 <td class="px-4 py-3 text-sm ${transactionCost > 0 ? 'text-red-600' : 'text-gray-300'}">${feeCellHtml}</td>
                 <td class="px-4 py-3">${profitCellHtml}</td>
                 <td class="px-4 py-3">
@@ -19899,35 +19957,41 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         document.getElementById('previewDescription').textContent = description;
                         document.getElementById('previewPrice').textContent       = price ? `$${price}` : '—';
                         document.getElementById('previewStock').textContent       = stock;
-                        // Vendor cost: stored value → product purchasePrice → fuzzy SKU match
+                        // Vendor cost: stored value → product purchasePrice → fuzzy SKU/name match
                         let vendorCostDisplay = 'Not set in Profit Analysis';
                         if (order.vendorCostPerUnit) {
                             vendorCostDisplay = `$${Number(order.vendorCostPerUnit).toFixed(4)}`;
                         } else if (purchasePrice) {
                             vendorCostDisplay = `$${parseFloat(purchasePrice).toFixed(4)}`;
                         } else {
-                            // Try fuzzy match using the eBay product title / SKU tokens
                             const fakeItem = { sku: sku !== 'N/A' ? sku : '', name: order.product || '' };
                             const fuzzyMatch = lookupVendorCost(fakeItem);
                             if (fuzzyMatch) {
-                                vendorCostDisplay = `$${(fuzzyMatch.landedCostPerUnitCents / 100).toFixed(4)} 🔍 matched`;
+                                const badge = fuzzyMatch.matchType === 'name'
+                                    ? `🔤 name match (${Math.round((fuzzyMatch.matchScore||0)*100)}%)`
+                                    : fuzzyMatch.matchType === 'sku_token' ? '🔍 SKU match' : '✓ exact';
+                                vendorCostDisplay = `$${(fuzzyMatch.landedCostPerUnitCents / 100).toFixed(4)} ${badge}`;
                             }
                         }
                         document.getElementById('previewVendorCost').textContent = vendorCostDisplay;
                         document.getElementById('productDetailsPreview').classList.remove('hidden');
                     }
                 } else {
-                    // No productId — try fuzzy match from the eBay product title
+                    // No productId — try fuzzy match from eBay product title
                     const fakeItem = { sku: '', name: order.product || '' };
-                    const fuzzyMatch = order.vendorCostPerUnit
-                        ? null
-                        : lookupVendorCost(fakeItem);
+                    const fuzzyMatch = order.vendorCostPerUnit ? null : lookupVendorCost(fakeItem);
 
-                    const costText = order.vendorCostPerUnit
-                        ? `$${Number(order.vendorCostPerUnit).toFixed(4)}`
-                        : fuzzyMatch
-                            ? `$${(fuzzyMatch.landedCostPerUnitCents / 100).toFixed(4)} 🔍 matched`
-                            : 'Not linked to a catalog product';
+                    let costText;
+                    if (order.vendorCostPerUnit) {
+                        costText = `$${Number(order.vendorCostPerUnit).toFixed(4)}`;
+                    } else if (fuzzyMatch) {
+                        const badge = fuzzyMatch.matchType === 'name'
+                            ? `🔤 name match (${Math.round((fuzzyMatch.matchScore||0)*100)}%)`
+                            : fuzzyMatch.matchType === 'sku_token' ? '🔍 SKU match' : '✓ exact';
+                        costText = `$${(fuzzyMatch.landedCostPerUnitCents / 100).toFixed(4)} ${badge}`;
+                    } else {
+                        costText = 'No match found — link a catalog product above';
+                    }
 
                     document.getElementById('previewVendorCost').textContent = costText;
                     document.getElementById('productDetailsPreview').classList.remove('hidden');
