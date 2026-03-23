@@ -11608,44 +11608,85 @@ ${printScript}
         // Builds a Map of SKU → { landedCostPerUnitCents } using the most-recent
         // non-cancelled vendor order per SKU. Normalizes raw Firestore docs first
         // so cents fields and legacy dollar fields are both handled correctly.
+        // Extract all part-number-like tokens from a string.
+        // Matches patterns like: 90915-YZZN1, 16546-EN200, AB1234, 123-456-789
+        function extractSkuTokens(str) {
+            if (!str) return [];
+            return (str.match(/[A-Z0-9]{2,}[-][A-Z0-9]+(?:[-][A-Z0-9]+)*/gi) || [])
+                .map(t => t.toUpperCase().trim())
+                .filter(t => t.length >= 4);
+        }
+
+        // Returns the vendor map keyed by normalised SKU,
+        // PLUS a secondary index keyed by every SKU token found in the product name/notes.
         function buildVendorCostMap() {
-            const map = new Map();
+            const map       = new Map(); // exact SKU → cost
+            const tokenMap  = new Map(); // individual part-number token → cost (for fuzzy match)
 
             const vendorOrders = (state.vendorOrders || [])
-                .map(o => o._normalized ? o : normalizeVendorOrder(o))  // normalize raw docs
+                .map(o => o._normalized ? o : normalizeVendorOrder(o))
                 .filter(o => o.status !== 'Cancelled - Refunded' && o.landedCost > 0 && Array.isArray(o.items) && o.items.length > 0)
-                .sort((a, b) => new Date(b.orderDate || 0) - new Date(a.orderDate || 0)); // newest first
+                .sort((a, b) => new Date(b.orderDate || 0) - new Date(a.orderDate || 0));
 
             for (const order of vendorOrders) {
-                // order.items[].unitCost and order.landedCost are already in dollars after normalization
-                const orderSubtotal = order.items.reduce((s, i) => s + ((i.unitCost || 0) * (i.quantity || 0)), 0);
+                const orderSubtotal    = order.items.reduce((s, i) => s + ((i.unitCost || 0) * (i.quantity || 0)), 0);
                 const landedCostDollars = order.landedCost || 0;
 
                 for (const lineItem of order.items) {
-                    const sku = (lineItem.sku || '').trim();
-                    if (!sku || map.has(sku)) continue; // already have a newer order for this SKU
-
+                    const sku = (lineItem.sku || '').trim().toUpperCase();
                     const qty = lineItem.quantity || 0;
                     if (qty === 0) continue;
 
-                    // Proportional share of landed overhead for this line item
-                    const lineSubtotal = (lineItem.unitCost || 0) * qty;
-                    const proportion   = orderSubtotal > 0 ? lineSubtotal / orderSubtotal : 1 / order.items.length;
-                    const itemLandedOverheadDollars = (landedCostDollars - orderSubtotal) * proportion;
+                    const lineSubtotal  = (lineItem.unitCost || 0) * qty;
+                    const proportion    = orderSubtotal > 0 ? lineSubtotal / orderSubtotal : 1 / order.items.length;
+                    const overhead      = (landedCostDollars - orderSubtotal) * proportion;
+                    const perUnitCents  = Math.round(((lineItem.unitCost || 0) + overhead / qty) * 100);
 
-                    // Per unit: base unit cost + proportional overhead share
-                    const perUnitDollars = (lineItem.unitCost || 0) + (itemLandedOverheadDollars / qty);
-                    const perUnitCents   = Math.round(perUnitDollars * 100);
-
-                    map.set(sku, {
+                    const entry = {
                         landedCostPerUnitCents: perUnitCents,
                         orderId:   order.id,
                         orderDate: order.orderDate,
                         supplier:  order.supplier,
-                    });
+                        sku,
+                    };
+
+                    // Exact SKU map (newer orders win — list is sorted newest-first)
+                    if (sku && !map.has(sku)) map.set(sku, entry);
+
+                    // Token map — index every part-number token in the SKU + description
+                    const tokens = [
+                        ...extractSkuTokens(sku),
+                        ...extractSkuTokens(lineItem.description || lineItem.name || ''),
+                    ];
+                    for (const token of tokens) {
+                        if (!tokenMap.has(token)) tokenMap.set(token, entry);
+                    }
                 }
             }
-            return map;
+            return { map, tokenMap };
+        }
+
+        // Try to find a vendor cost for an item using:
+        // 1. Exact SKU match
+        // 2. Any part-number token extracted from the item SKU or name
+        function lookupVendorCost(item) {
+            if (!item) return null;
+            const { map, tokenMap } = buildVendorCostMap();
+
+            // 1. Exact match on item SKU
+            const exactSku = (item.sku || '').trim().toUpperCase();
+            if (exactSku && map.has(exactSku)) return map.get(exactSku);
+
+            // 2. Token match — extract part numbers from our item's SKU + name
+            const candidateTokens = [
+                ...extractSkuTokens(exactSku),
+                ...extractSkuTokens(item.name || ''),
+            ];
+            for (const token of candidateTokens) {
+                if (tokenMap.has(token)) return tokenMap.get(token);
+            }
+
+            return null;
         }
 
         function calculateItemProfit(item) {
@@ -11656,9 +11697,8 @@ ${printScript}
             let purchasePriceCents = item.purchasePriceCents || 0;
             let purchasePriceSource = 'manual'; // 'manual' | 'vendor' | 'none'
 
-            if (!purchasePriceCents && item.sku) {
-                const vendorMap = buildVendorCostMap();
-                const vendorData = vendorMap.get(item.sku.trim());
+            if (!purchasePriceCents && (item.sku || item.name)) {
+                const vendorData = lookupVendorCost(item);
                 if (vendorData) {
                     purchasePriceCents = vendorData.landedCostPerUnitCents;
                     purchasePriceSource = 'vendor';
@@ -19859,17 +19899,37 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         document.getElementById('previewDescription').textContent = description;
                         document.getElementById('previewPrice').textContent       = price ? `$${price}` : '—';
                         document.getElementById('previewStock').textContent       = stock;
-                        document.getElementById('previewVendorCost').textContent  =
-                            order.vendorCostPerUnit
-                                ? `$${Number(order.vendorCostPerUnit).toFixed(4)}`
-                                : purchasePrice
-                                    ? `$${parseFloat(purchasePrice).toFixed(4)}`
-                                    : 'Not set in Profit Analysis';
+                        // Vendor cost: stored value → product purchasePrice → fuzzy SKU match
+                        let vendorCostDisplay = 'Not set in Profit Analysis';
+                        if (order.vendorCostPerUnit) {
+                            vendorCostDisplay = `$${Number(order.vendorCostPerUnit).toFixed(4)}`;
+                        } else if (purchasePrice) {
+                            vendorCostDisplay = `$${parseFloat(purchasePrice).toFixed(4)}`;
+                        } else {
+                            // Try fuzzy match using the eBay product title / SKU tokens
+                            const fakeItem = { sku: sku !== 'N/A' ? sku : '', name: order.product || '' };
+                            const fuzzyMatch = lookupVendorCost(fakeItem);
+                            if (fuzzyMatch) {
+                                vendorCostDisplay = `$${(fuzzyMatch.landedCostPerUnitCents / 100).toFixed(4)} 🔍 matched`;
+                            }
+                        }
+                        document.getElementById('previewVendorCost').textContent = vendorCostDisplay;
                         document.getElementById('productDetailsPreview').classList.remove('hidden');
                     }
-                } else if (order.vendorCostPerUnit) {
-                    // No productId but we have a stored vendor cost — show it anyway
-                    document.getElementById('previewVendorCost').textContent = `$${Number(order.vendorCostPerUnit).toFixed(4)}`;
+                } else {
+                    // No productId — try fuzzy match from the eBay product title
+                    const fakeItem = { sku: '', name: order.product || '' };
+                    const fuzzyMatch = order.vendorCostPerUnit
+                        ? null
+                        : lookupVendorCost(fakeItem);
+
+                    const costText = order.vendorCostPerUnit
+                        ? `$${Number(order.vendorCostPerUnit).toFixed(4)}`
+                        : fuzzyMatch
+                            ? `$${(fuzzyMatch.landedCostPerUnitCents / 100).toFixed(4)} 🔍 matched`
+                            : 'Not linked to a catalog product';
+
+                    document.getElementById('previewVendorCost').textContent = costText;
                     document.getElementById('productDetailsPreview').classList.remove('hidden');
                 }
 
