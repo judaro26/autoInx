@@ -11173,6 +11173,7 @@ ${printScript}
             const ratesContainer = document.getElementById('shippingRatesContainer');
 
             if (!container || !ratesContainer) return;
+            window._currentShipmentRates = rates;
 
             const ratesHtml = rates.map((rate, index) => {
                 const isCheapest = index === 0;
@@ -11180,7 +11181,7 @@ ${printScript}
 
                 return `
                     <div class="relative bg-white p-4 rounded-lg border-2 hover:border-indigo-500 transition cursor-pointer ${isCheapest ? 'border-green-500 ring-2 ring-green-200' : 'border-gray-300'}"
-                         onclick="window.module.selectShippingRate('${rate.object_id}', '${orderId}', ${rate.amount}, '${rate.provider}', '${rate.servicelevel.name}')">
+                         onclick="window.module.selectShippingRateByIndex(${index}, '${orderId}')">
                         
                         <!-- Best Value Badge -->
                         ${isCheapest ? '<div class="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">💰 BEST VALUE</div>' : ''}
@@ -11204,7 +11205,7 @@ ${printScript}
                         </div>
                         
                         <button class="w-full mt-3 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold text-sm shadow-md"
-                                onclick="event.stopPropagation(); window.module.selectShippingRate('${rate.object_id}', '${orderId}', ${rate.amount}, '${rate.provider}', '${rate.servicelevel.name}')">
+                                onclick="event.stopPropagation(); window.module.selectShippingRateByIndex(${index}, '${orderId}')">
                             Select This Rate & Generate Label
                         </button>
                     </div>
@@ -13309,7 +13310,7 @@ ${printScript}
                     <div class="p-6 space-y-3">
                         ${rates.map((rate, index) => `
                             <div class="border-2 ${index === 0 ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'} rounded-xl p-4 cursor-pointer transition-all"
-                                 onclick="window.module.selectRate('${rate.object_id}', ${rate.amount}, '${rate.provider}', '${rate.servicelevel}', '${addressData.orderId || ''}', ${JSON.stringify(addressData).replace(/"/g, '&quot;')})">
+                                 onclick="window.module.selectRateByIndex(${index})">
                                 <div class="flex items-center justify-between">
                                     <div class="flex-1">
                                         <div class="flex items-center gap-3">
@@ -18765,7 +18766,42 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
 
         // --- EXPOSE TO WINDOW ---
-        window.module = {
+
+        function selectShippingRateByIndex(index, orderId) {
+            const rates = window._currentShipmentRates || [];
+            const rate  = rates[index];
+            if (!rate) {
+                showMessage('error', 'Rate data not found. Please refresh rates.', 4000, 'orders');
+                return;
+            }
+            const rateId = rate.object_id || rate.id;
+            if (!rateId) {
+                showMessage('error', 'Invalid rate ID from Shippo. Please try again.', 4000, 'orders');
+                console.error('Rate missing object_id/id:', rate);
+                return;
+            }
+            const servicelevel = rate.servicelevel?.name || rate.servicelevel || '';
+            selectShippingRate(rateId, orderId, rate.amount, rate.provider, servicelevel);
+        }
+
+        async function selectRateByIndex(index) {
+            const rate        = (window._currentLabelRates  || [])[index];
+            const addressData = window._currentLabelAddress || {};
+            if (!rate) {
+                showMessage('error', 'Rate data not found. Please refresh.', 4000, 'shippingLabel');
+                return;
+            }
+            const rateId = rate.object_id || rate.id;
+            if (!rateId) {
+                showMessage('error', 'Invalid rate ID from Shippo. Please try again.', 4000, 'shippingLabel');
+                return;
+            }
+            const servicelevel = rate.servicelevel?.name || rate.servicelevel || '';
+            await selectRate(rateId, rate.amount, rate.provider, servicelevel,
+                             addressData.orderId || '', addressData);
+        }
+
+                window.module = {
             // ========================================================================
             // AUTH & USER MANAGEMENT
             // ========================================================================
@@ -20439,6 +20475,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 if (modal) modal.innerHTML = '';
             },
 
+            selectShippingRateByIndex,
+            selectRateByIndex,
             fetchShippingRates: fetchShippingRates,
             selectShippingRate: selectShippingRate,
             updateOrderWithTracking: updateOrderWithTracking
