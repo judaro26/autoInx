@@ -3154,30 +3154,44 @@
 
         async function loadUserOrdersForReturn() {
             try {
-                const uid = auth.currentUser?.uid;
+                const uid   = auth.currentUser?.uid;
+                const email = auth.currentUser?.email;
                 if (!uid) throw new Error('Not logged in');
-
-                // Fetch orders belonging to this user
-                const snap = await getDocs(
-                    query(collection(db, ORDERS_COLLECTION),
-                          where('uid', '==', uid),
-                          orderBy('createdAt', 'desc'))
-                );
-
-                // Also try userId field as fallback
-                let docs = snap.docs;
-                if (docs.length === 0) {
-                    const snap2 = await getDocs(
-                        query(collection(db, ORDERS_COLLECTION),
-                              where('userId', '==', uid),
-                              orderBy('createdAt', 'desc'))
-                    );
-                    docs = snap2.docs;
+        
+                let docs = [];
+        
+                // Try each field — skip orderBy to avoid missing-index errors
+                const tryQuery = async (field, value) => {
+                    try {
+                        const s = await getDocs(
+                            query(collection(db, ORDERS_COLLECTION), where(field, '==', value))
+                        );
+                        return s.docs;
+                    } catch { return []; }
+                };
+        
+                const [byUid, byUserId, byEmail] = await Promise.all([
+                    tryQuery('uid',        uid),
+                    tryQuery('userId',     uid),
+                    email ? tryQuery('buyerEmail', email) : Promise.resolve([]),
+                ]);
+        
+                // Merge & deduplicate by doc id
+                const seen = new Set();
+                for (const d of [...byUid, ...byUserId, ...byEmail]) {
+                    if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); }
                 }
-
+        
                 state.returnModal.orders = docs
                     .map(d => ({ id: d.id, ...d.data() }))
-                    .filter(o => o.status !== 'Cancelled' && o.paymentStatus === 'Paid');
+                    // Accept isPaid:true OR paymentStatus:'Paid'
+                    .filter(o => o.status !== 'Cancelled' && (o.isPaid || o.paymentStatus === 'Paid'))
+                    .sort((a, b) => {
+                        const ta = a.createdAt?.toDate?.()?.getTime() || 0;
+                        const tb = b.createdAt?.toDate?.()?.getTime() || 0;
+                        return tb - ta;
+                    });
+        
                 state.returnModal.loadingOrders = false;
                 renderReturnModal();
             } catch (err) {
