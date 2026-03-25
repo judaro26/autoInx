@@ -1345,12 +1345,26 @@
             const btn    = document.getElementById('aiChatToggleBtn');
             if (!panel) return;
             const isOpen = !panel.classList.contains('hidden');
+            state.aiChatOpen = !isOpen;
             panel.classList.toggle('hidden', isOpen);
             if (label) label.textContent = isOpen ? 'Find My Part 🔧' : '✕ Close';
             if (btn)   btn.style.background = isOpen
                 ? 'linear-gradient(135deg,#4f46e5,#7c3aed)'
                 : 'linear-gradient(135deg,#6b7280,#4b5563)';
             if (!isOpen) setTimeout(() => document.getElementById('aiChatInput')?.focus(), 50);
+        }
+
+        // Restore chat panel to its pre-render state (open + messages intact)
+        function _restoreAiChatIfOpen() {
+            if (!state.aiChatOpen) return;
+            const panel = document.getElementById('aiChatPanel');
+            const label = document.getElementById('aiChatBtnLabel');
+            const btn   = document.getElementById('aiChatToggleBtn');
+            if (!panel) return;
+            panel.classList.remove('hidden');
+            if (label) label.textContent = '✕ Close';
+            if (btn)   btn.style.background = 'linear-gradient(135deg,#6b7280,#4b5563)';
+            _renderAiChatMessages(document.getElementById('aiChatMessages'));
         }
 
         async function sendAiChatMessage() {
@@ -1494,9 +1508,8 @@
         function addToCartFromChat(itemId) {
             const item = state.items.find(i => i.id === itemId);
             if (!item) return;
-            addToCart(item);
-            // Re-render messages so button updates to "✓ In Cart"
-            _renderAiChatMessages(document.getElementById('aiChatMessages'));
+            addToCart(item);  // calls render() — rebuilds DOM
+            _restoreAiChatIfOpen();  // re-open panel + re-render messages
         }
 
         function renderFooter() {
