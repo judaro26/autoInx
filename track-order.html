@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Track Your Order — AutoInx</title>
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -15,6 +15,7 @@
             --border:    #e2e8f0;
             --indigo:    #4f46e5;
             --indigo-lt: #eef2ff;
+            --indigo-dk: #4338ca;
             --green:     #16a34a;
             --green-lt:  #dcfce7;
             --yellow:    #d97706;
@@ -28,6 +29,8 @@
             --text-2:    #475569;
             --mono:      'DM Mono', monospace;
             --sans:      'DM Sans', sans-serif;
+            --radius:    16px;
+            --shadow:    0 1px 4px rgba(0,0,0,.06);
         }
 
         body {
@@ -42,53 +45,55 @@
             background: var(--surface);
             border-bottom: 1px solid var(--border);
             padding: 1rem 1.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 10;
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 10;
         }
         .logo { display: flex; align-items: center; gap: .6rem; text-decoration: none; }
         .logo img { height: 32px; }
         .logo-name { font-weight: 700; font-size: 1.1rem; color: var(--indigo); letter-spacing: -.02em; }
+        .header-right { display: flex; align-items: center; gap: .75rem; }
         .back-link { font-size: .85rem; font-weight: 600; color: var(--gray); text-decoration: none; display: flex; align-items: center; gap: .3rem; transition: color .15s; }
         .back-link:hover { color: var(--indigo); }
+        .lang-btn { font-size: .78rem; font-weight: 700; padding: .3rem .7rem; border: 1.5px solid var(--border); border-radius: 7px; background: #fff; cursor: pointer; color: var(--gray); transition: all .15s; }
+        .lang-btn:hover { border-color: var(--indigo); color: var(--indigo); }
 
         /* ── Layout ── */
         .page { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
-
         .page-title { font-size: 1.75rem; font-weight: 700; letter-spacing: -.03em; margin-bottom: .35rem; }
         .page-sub   { color: var(--text-2); font-size: .95rem; margin-bottom: 2rem; }
 
-        /* ── Search card ── */
+        /* ── Auth loading state ── */
+        #authLoader {
+            display: flex; align-items: center; justify-content: center;
+            padding: 3rem; gap: .75rem; color: var(--gray); font-size: .95rem;
+        }
+        .spin { width: 20px; height: 20px; border: 2.5px solid var(--border); border-top-color: var(--indigo); border-radius: 50%; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Guest search card ── */
         .search-card {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 16px;
+            border-radius: var(--radius);
             padding: 1.75rem;
-            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+            box-shadow: var(--shadow);
             margin-bottom: 1.5rem;
         }
-        .search-card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 1.25rem; color: var(--text-2); text-transform: uppercase; letter-spacing: .06em; font-size: .75rem; }
-
+        .card-label { font-size: .75rem; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 1.25rem; }
         .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: .875rem; margin-bottom: .875rem; }
         @media (max-width: 540px) { .field-row { grid-template-columns: 1fr; } }
-
         .field label { display: block; font-size: .8rem; font-weight: 600; color: var(--text-2); margin-bottom: .375rem; }
         .field input {
             width: 100%; padding: .65rem .85rem;
-            border: 1.5px solid var(--border);
-            border-radius: 10px;
+            border: 1.5px solid var(--border); border-radius: 10px;
             font-family: var(--sans); font-size: .95rem;
             transition: border-color .15s, box-shadow .15s;
-            outline: none;
-            background: #fafafa;
+            outline: none; background: #fafafa;
         }
         .field input:focus { border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(79,70,229,.12); background: #fff; }
         .field input.mono { font-family: var(--mono); letter-spacing: .04em; }
 
-        .btn-track {
+        .btn-primary {
             width: 100%; padding: .8rem;
             background: var(--indigo); color: #fff;
             border: none; border-radius: 10px;
@@ -96,114 +101,147 @@
             cursor: pointer; transition: background .15s, transform .1s;
             display: flex; align-items: center; justify-content: center; gap: .5rem;
         }
-        .btn-track:hover { background: #4338ca; }
-        .btn-track:active { transform: scale(.99); }
-        .btn-track:disabled { background: #a5b4fc; cursor: not-allowed; }
+        .btn-primary:hover { background: var(--indigo-dk); }
+        .btn-primary:active { transform: scale(.99); }
+        .btn-primary:disabled { background: #a5b4fc; cursor: not-allowed; }
 
         .search-error { margin-top: .75rem; padding: .65rem .875rem; background: var(--red-lt); border: 1px solid #fca5a5; border-radius: 8px; font-size: .875rem; color: var(--red); font-weight: 500; }
 
-        /* ── Result card ── */
-        #result { display: none; }
+        /* ── Logged-in orders list ── */
+        .section-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 1.25rem; flex-wrap: wrap; gap: .5rem;
+        }
+        .section-title { font-size: 1.1rem; font-weight: 700; letter-spacing: -.02em; }
+        .order-count { font-size: .8rem; color: var(--gray); background: var(--border); padding: .2rem .6rem; border-radius: 999px; font-weight: 600; }
 
+        .orders-empty {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 2.5rem;
+            text-align: center; color: var(--text-2);
+            box-shadow: var(--shadow);
+        }
+        .orders-empty .icon { font-size: 2.5rem; margin-bottom: .75rem; }
+        .orders-empty p { font-size: .95rem; }
+
+        /* ── Order summary card (in list) ── */
+        .order-summary-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            margin-bottom: 1rem;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .order-summary-card:hover { border-color: #c7d2fe; box-shadow: 0 4px 16px rgba(79,70,229,.1); }
+
+        .order-summary-header {
+            padding: 1rem 1.25rem;
+            display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem;
+            cursor: pointer; user-select: none;
+        }
+        .order-summary-left { display: flex; align-items: center; gap: .875rem; }
+        .order-thumb { width: 44px; height: 44px; border-radius: 10px; background: var(--indigo-lt); border: 1px solid #c7d2fe; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; overflow: hidden; }
+        .order-thumb img { width: 100%; height: 100%; object-fit: contain; }
+        .order-summary-meta { }
+        .order-summary-id { font-family: var(--mono); font-size: .88rem; font-weight: 500; color: var(--indigo); }
+        .order-summary-date { font-size: .78rem; color: var(--text-2); margin-top: .1rem; }
+        .order-summary-right { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+        .order-summary-total { font-size: .95rem; font-weight: 700; color: var(--text); }
+        .expand-btn { 
+            width: 28px; height: 28px; border-radius: 8px; background: var(--bg);
+            border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+            font-size: .75rem; color: var(--gray); transition: all .15s; flex-shrink: 0;
+        }
+        .order-summary-card.expanded .expand-btn { background: var(--indigo-lt); color: var(--indigo); border-color: #c7d2fe; transform: rotate(180deg); }
+
+        .order-detail-panel { display: none; border-top: 1px solid var(--border); }
+        .order-summary-card.expanded .order-detail-panel { display: block; }
+
+        /* ── Order detail (shared by list + search result) ── */
         .order-card {
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 16px;
+            border-radius: var(--radius);
             overflow: hidden;
-            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+            box-shadow: var(--shadow);
         }
-
         .order-header {
             padding: 1.25rem 1.75rem;
             border-bottom: 1px solid var(--border);
             display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem;
             background: var(--indigo-lt);
         }
-        .order-id { font-family: var(--mono); font-size: .95rem; font-weight: 500; color: var(--indigo); }
+        .order-id   { font-family: var(--mono); font-size: .95rem; font-weight: 500; color: var(--indigo); }
         .order-date { font-size: .8rem; color: var(--text-2); }
 
         /* ── Status timeline ── */
         .timeline { padding: 1.5rem 1.75rem; border-bottom: 1px solid var(--border); }
         .timeline h3 { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin-bottom: 1.25rem; }
-
-        .steps { display: flex; align-items: flex-start; gap: 0; position: relative; }
+        .steps { display: flex; align-items: flex-start; position: relative; }
         .step  { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
-
-        .step-line {
-            position: absolute; top: 14px; left: 50%; right: -50%;
-            height: 2px; background: var(--border); z-index: 0;
-        }
+        .step-line { position: absolute; top: 14px; left: 50%; right: -50%; height: 2px; background: var(--border); z-index: 0; }
         .step:last-child .step-line { display: none; }
-
         .step-dot {
             width: 28px; height: 28px; border-radius: 50%;
-            border: 2px solid var(--border);
-            background: var(--surface);
+            border: 2px solid var(--border); background: var(--surface);
             display: flex; align-items: center; justify-content: center;
-            font-size: .8rem; position: relative; z-index: 1;
-            transition: all .25s;
+            font-size: .8rem; position: relative; z-index: 1; transition: all .25s;
         }
-        .step-dot.done  { background: var(--green);  border-color: var(--green);  color: #fff; }
-        .step-dot.active{ background: var(--indigo); border-color: var(--indigo); color: #fff; box-shadow: 0 0 0 4px rgba(79,70,229,.18); }
-        .step-dot.cancelled { background: var(--red); border-color: var(--red); color: #fff; }
-
-        .step-line.done { background: var(--green); }
-
-        .step-label { font-size: .72rem; font-weight: 600; margin-top: .5rem; color: var(--text-2); text-align: center; }
+        .step-dot.done     { background: var(--green);  border-color: var(--green);  color: #fff; }
+        .step-dot.active   { background: var(--indigo); border-color: var(--indigo); color: #fff; box-shadow: 0 0 0 4px rgba(79,70,229,.18); }
+        .step-dot.cancelled{ background: var(--red);    border-color: var(--red);    color: #fff; }
+        .step-line.done    { background: var(--green); }
+        .step-label        { font-size: .72rem; font-weight: 600; margin-top: .5rem; color: var(--text-2); text-align: center; }
         .step-label.active { color: var(--indigo); }
         .step-label.done   { color: var(--green); }
 
-        /* ── Tracking ── */
+        /* ── Tracking banner ── */
         .tracking-banner {
             margin: 1.25rem 1.75rem 0;
             padding: .875rem 1.1rem;
-            background: var(--blue-lt);
-            border: 1px solid #bfdbfe;
-            border-radius: 10px;
+            background: var(--blue-lt); border: 1px solid #bfdbfe; border-radius: 10px;
             display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem;
         }
-        .tracking-banner .label { font-size: .8rem; font-weight: 600; color: #1e40af; }
+        .tracking-banner .label  { font-size: .8rem; font-weight: 600; color: #1e40af; }
         .tracking-banner .number { font-family: var(--mono); font-size: .9rem; color: #1e40af; }
         .tracking-link {
             font-size: .8rem; font-weight: 700; color: var(--blue);
             text-decoration: none; padding: .35rem .75rem;
-            border: 1.5px solid var(--blue); border-radius: 7px;
-            transition: background .15s;
-            white-space: nowrap;
+            border: 1.5px solid var(--blue); border-radius: 7px; transition: background .15s; white-space: nowrap;
         }
         .tracking-link:hover { background: var(--blue); color: #fff; }
 
-        /* ── Payment badge ── */
+        /* ── Payment row ── */
         .payment-row {
-            padding: 1rem 1.75rem;
-            border-bottom: 1px solid var(--border);
+            padding: 1rem 1.75rem; border-bottom: 1px solid var(--border);
             display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
         }
         .badge {
             display: inline-flex; align-items: center; gap: .3rem;
-            padding: .3rem .75rem; border-radius: 999px;
-            font-size: .78rem; font-weight: 700;
+            padding: .3rem .75rem; border-radius: 999px; font-size: .78rem; font-weight: 700;
         }
-        .badge.paid       { background: var(--green-lt); color: var(--green); }
+        .badge.paid       { background: var(--green-lt);  color: var(--green); }
         .badge.unpaid     { background: var(--yellow-lt); color: var(--yellow); }
         .badge.processing { background: var(--blue-lt);   color: var(--blue); }
         .badge.pending    { background: var(--yellow-lt); color: var(--yellow); }
         .badge.delivered  { background: var(--green-lt);  color: var(--green); }
         .badge.cancelled  { background: var(--red-lt);    color: var(--red); }
+        .badge.shipped    { background: var(--blue-lt);   color: var(--blue); }
         .pay-now-btn {
             padding: .35rem 1rem; background: var(--indigo); color: #fff;
             border-radius: 8px; text-decoration: none;
             font-size: .82rem; font-weight: 700; transition: background .15s;
         }
-        .pay-now-btn:hover { background: #4338ca; }
+        .pay-now-btn:hover { background: var(--indigo-dk); }
 
         /* ── Items ── */
         .items-section { padding: 1.25rem 1.75rem; border-bottom: 1px solid var(--border); }
         .items-section h3 { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin-bottom: .875rem; }
-
         .item-row { display: flex; align-items: center; gap: .875rem; padding: .6rem 0; border-bottom: 1px solid #f1f5f9; }
         .item-row:last-child { border-bottom: none; }
-        .item-img { width: 48px; height: 48px; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); background: #f8fafc; flex-shrink: 0; }
+        .item-img    { width: 48px; height: 48px; object-fit: contain; border-radius: 8px; border: 1px solid var(--border); background: #f8fafc; flex-shrink: 0; }
         .item-img-ph { width: 48px; height: 48px; border-radius: 8px; background: #f1f5f9; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
         .item-name  { flex: 1; font-size: .9rem; font-weight: 600; }
         .item-qty   { font-size: .8rem; color: var(--text-2); }
@@ -212,7 +250,7 @@
         /* ── Totals ── */
         .totals { padding: 1.25rem 1.75rem; border-bottom: 1px solid var(--border); }
         .totals-row { display: flex; justify-content: space-between; font-size: .9rem; padding: .3rem 0; color: var(--text-2); }
-        .totals-row.grand { font-size: 1.05rem; font-weight: 700; color: var(--text); border-top: 1.5px solid var(--border); padding-top: .6rem; margin-top: .3rem; }
+        .totals-row.grand    { font-size: 1.05rem; font-weight: 700; color: var(--text); border-top: 1.5px solid var(--border); padding-top: .6rem; margin-top: .3rem; }
         .totals-row.discount { color: var(--green); }
 
         /* ── Address ── */
@@ -220,13 +258,64 @@
         .address-section h3 { font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); margin-bottom: .5rem; }
         .address-text { font-size: .9rem; color: var(--text-2); line-height: 1.5; }
 
-        /* ── Spinner ── */
-        .spinner { width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* ── User greeting banner ── */
+        .user-banner {
+            display: flex; align-items: center; gap: 1rem;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem; box-shadow: var(--shadow);
+        }
+        .user-avatar {
+            width: 44px; height: 44px; border-radius: 50%;
+            background: var(--indigo-lt); border: 2px solid #c7d2fe;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; font-weight: 700; color: var(--indigo); flex-shrink: 0;
+        }
+        .user-info { flex: 1; }
+        .user-name { font-weight: 700; font-size: .95rem; }
+        .user-email { font-size: .8rem; color: var(--gray); }
+        .sign-out-btn {
+            font-size: .78rem; font-weight: 700; color: var(--gray);
+            border: 1.5px solid var(--border); border-radius: 8px;
+            background: none; cursor: pointer; padding: .3rem .75rem;
+            transition: all .15s; white-space: nowrap;
+        }
+        .sign-out-btn:hover { border-color: var(--red); color: var(--red); }
 
-        /* ── Lang toggle ── */
-        .lang-btn { font-size: .78rem; font-weight: 700; padding: .3rem .7rem; border: 1.5px solid var(--border); border-radius: 7px; background: #fff; cursor: pointer; color: var(--gray); transition: all .15s; }
-        .lang-btn:hover { border-color: var(--indigo); color: var(--indigo); }
+        /* ── Guest sign-in nudge ── */
+        .sign-in-nudge {
+            background: var(--indigo-lt); border: 1px solid #c7d2fe;
+            border-radius: var(--radius); padding: 1rem 1.25rem;
+            margin-bottom: 1.5rem;
+            display: flex; align-items: center; gap: .875rem; flex-wrap: wrap;
+        }
+        .sign-in-nudge .nudge-icon { font-size: 1.25rem; flex-shrink: 0; }
+        .sign-in-nudge .nudge-text { flex: 1; font-size: .88rem; color: var(--indigo); }
+        .sign-in-nudge .nudge-text strong { display: block; font-weight: 700; margin-bottom: .15rem; }
+        .btn-sign-in {
+            padding: .45rem 1.1rem; background: var(--indigo); color: #fff;
+            border: none; border-radius: 8px; font-family: var(--sans);
+            font-size: .85rem; font-weight: 700; cursor: pointer; transition: background .15s;
+            white-space: nowrap;
+        }
+        .btn-sign-in:hover { background: var(--indigo-dk); }
+
+        /* Loading orders spinner */
+        .orders-loading {
+            display: flex; align-items: center; justify-content: center;
+            padding: 2.5rem; gap: .75rem; color: var(--gray); font-size: .9rem;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); box-shadow: var(--shadow);
+        }
+
+        /* ── Detail spinner ── */
+        .spinner { width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+
+        /* tracking separator line */
+        .tracking-sep { height: 1.25rem; border-bottom: 1px solid var(--border); }
+
+        /* Guest search result */
+        #guestResult { display: none; }
     </style>
 </head>
 <body>
@@ -236,196 +325,414 @@
         <img src="/images/AutoInx logo.png" alt="AutoInx">
         <span class="logo-name">AutoInx</span>
     </a>
-    <div style="display:flex;align-items:center;gap:.75rem;">
+    <div class="header-right">
         <button class="lang-btn" onclick="toggleLang()" id="langBtn">ES</button>
-        <a href="/" class="back-link">
-            ← <span id="backTxt">Back to store</span>
-        </a>
+        <a href="/" class="back-link">← <span id="backTxt">Back to store</span></a>
     </div>
 </header>
 
 <div class="page">
     <h1 class="page-title" id="pageTitle">Track Your Order</h1>
-    <p class="page-sub" id="pageSub">Enter your order number and email address to see real-time status.</p>
+    <p class="page-sub" id="pageSub"></p>
 
-    <!-- Search card -->
-    <div class="search-card">
-        <h2 id="lookupLabel">Order Lookup</h2>
-        <div class="field-row">
-            <div class="field">
-                <label id="orderLabel">Order Number</label>
-                <input type="text" id="orderInput" class="mono" placeholder="e.g. a1b2c3d4"
-                       maxlength="20" oninput="this.value=this.value.replace(/\s/g,'').toLowerCase()"
-                       onkeydown="if(event.key==='Enter')lookupOrder()">
-            </div>
-            <div class="field">
-                <label id="emailLabel">Email Address</label>
-                <input type="email" id="emailInput" placeholder="you@example.com"
-                       onkeydown="if(event.key==='Enter')lookupOrder()">
-            </div>
-        </div>
-        <button class="btn-track" onclick="lookupOrder()" id="trackBtn">
-            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <span id="trackBtnTxt">Track Order</span>
-        </button>
-        <div id="searchError" style="display:none" class="search-error"></div>
+    <!-- Auth loading -->
+    <div id="authLoader">
+        <div class="spin"></div>
+        <span id="authLoaderTxt">Loading…</span>
     </div>
 
-    <!-- Result -->
-    <div id="result">
-        <div class="order-card" id="orderCard"></div>
+    <!-- ═══════════ LOGGED-IN VIEW ═══════════ -->
+    <div id="loggedInView" style="display:none">
+        <!-- User banner -->
+        <div class="user-banner">
+            <div class="user-avatar" id="userAvatar">👤</div>
+            <div class="user-info">
+                <div class="user-name" id="userName"></div>
+                <div class="user-email" id="userEmail"></div>
+            </div>
+            <button class="sign-out-btn" onclick="handleSignOut()" id="signOutBtn">Sign out</button>
+        </div>
+
+        <!-- Orders list -->
+        <div id="ordersLoadingEl" class="orders-loading" style="display:none">
+            <div class="spin" style="border-top-color:var(--indigo)"></div>
+            <span id="ordersLoadingTxt">Loading your orders…</span>
+        </div>
+
+        <div id="ordersListEl" style="display:none">
+            <div class="section-header">
+                <div class="section-title" id="myOrdersTitle">My Orders</div>
+                <span class="order-count" id="orderCountBadge"></span>
+            </div>
+            <div id="ordersContainer"></div>
+        </div>
+
+        <div id="ordersEmptyEl" class="orders-empty" style="display:none">
+            <div class="icon">📦</div>
+            <p id="ordersEmptyTxt">You don't have any orders yet.</p>
+        </div>
+    </div>
+
+    <!-- ═══════════ GUEST VIEW ═══════════ -->
+    <div id="guestView" style="display:none">
+        <!-- Sign-in nudge -->
+        <div class="sign-in-nudge">
+            <div class="nudge-icon">✨</div>
+            <div class="nudge-text">
+                <strong id="nudgeTitle">Sign in for instant access</strong>
+                <span id="nudgeBody">Log in to see all your orders in one place — no order number needed.</span>
+            </div>
+            <button class="btn-sign-in" onclick="goToSignIn()" id="signInBtn">Sign in</button>
+        </div>
+
+        <!-- Search card -->
+        <div class="search-card">
+            <div class="card-label" id="lookupLabel">Order Lookup</div>
+            <div class="field-row">
+                <div class="field">
+                    <label id="orderLabel">Order Number</label>
+                    <input type="text" id="orderInput" class="mono" placeholder="e.g. a1b2c3d4"
+                           maxlength="20" oninput="this.value=this.value.replace(/\s/g,'').toLowerCase()"
+                           onkeydown="if(event.key==='Enter')lookupOrder()">
+                </div>
+                <div class="field">
+                    <label id="emailLabel">Email Address</label>
+                    <input type="email" id="emailInput" placeholder="you@example.com"
+                           onkeydown="if(event.key==='Enter')lookupOrder()">
+                </div>
+            </div>
+            <button class="btn-primary" onclick="lookupOrder()" id="trackBtn">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <span id="trackBtnTxt">Track Order</span>
+            </button>
+            <div id="searchError" style="display:none" class="search-error"></div>
+        </div>
+
+        <!-- Guest result -->
+        <div id="guestResult">
+            <div class="order-card" id="guestOrderCard"></div>
+        </div>
     </div>
 </div>
 
-<script>
-    let currentLang = localStorage.getItem('trackLang') ||
-                      (navigator.language.startsWith('es') ? 'es' : 'en');
+<!-- Firebase SDKs -->
+<script type="module">
+    import { initializeApp }         from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getAuth, onAuthStateChanged, signOut }
+                                     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+    import { getFirestore, collection, query, where, getDocs }
+                                     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+    // ── i18n ────────────────────────────────────────────────────────────────
+    let lang = localStorage.getItem('trackLang') ||
+               (navigator.language.startsWith('es') ? 'es' : 'en');
 
     const T = {
         en: {
-            pageTitle: 'Track Your Order',
-            pageSub: 'Enter your order number and email address to see real-time status.',
-            lookupLabel: 'Order Lookup',
-            orderLabel: 'Order Number',
-            emailLabel: 'Email Address',
-            trackBtnTxt: 'Track Order',
-            backTxt: 'Back to store',
-            langBtn: 'ES',
-            notFound: 'No order found with that number and email combination. Please double-check and try again.',
-            enterBoth: 'Please enter your order number and email address.',
-            orderNum: 'Order',
-            placedOn: 'Placed',
-            timeline: 'Order Progress',
-            items: 'Items Ordered',
-            totals: 'Order Total',
-            address: 'Delivery Address',
-            subtotal: 'Subtotal',
-            shipping: 'Shipping',
-            tax: 'Tax',
-            discount: 'Discount',
-            total: 'Total',
-            payStatus: 'Payment',
-            paidOn: 'Paid',
-            payNow: 'Pay Now',
-            trackShipment: 'Track Shipment',
-            carrier: 'Carrier',
-            steps: ['Order Placed', 'Processing', 'Shipped', 'Delivered'],
-            cancelled: 'Cancelled',
-            unpaidNote: 'Payment pending — complete your payment to confirm this order.',
+            pageTitle:       'Track Your Order',
+            pageSub:         'Sign in to view your orders, or look up a specific order below.',
+            pageSub_guest:   'Enter your order number and email address to see real-time status.',
+            pageSub_loggedin:'Here are all your orders with live status and tracking.',
+            lookupLabel:     'Order Lookup',
+            orderLabel:      'Order Number',
+            emailLabel:      'Email Address',
+            trackBtnTxt:     'Track Order',
+            backTxt:         'Back to store',
+            langBtn:         'ES',
+            signOutBtn:      'Sign out',
+            signInBtn:       'Sign in',
+            nudgeTitle:      'Sign in for instant access',
+            nudgeBody:       'Log in to see all your orders in one place — no order number needed.',
+            myOrdersTitle:   'My Orders',
+            ordersLoadingTxt:'Loading your orders…',
+            ordersEmptyTxt:  "You don't have any orders yet.",
+            authLoaderTxt:   'Loading…',
+            notFound:        'No order found with that number and email combination. Please double-check and try again.',
+            enterBoth:       'Please enter your order number and email address.',
+            timeline:        'Order Progress',
+            items:           'Items Ordered',
+            totals:          'Order Total',
+            address:         'Delivery Address',
+            subtotal:        'Subtotal',
+            shipping:        'Shipping',
+            tax:             'Tax',
+            discount:        'Discount',
+            total:           'Total',
+            paidOn:          'Paid',
+            payNow:          'Pay Now',
+            trackShipment:   'Track Shipment',
+            carrier:         'Carrier',
+            steps:           ['Order Placed', 'Processing', 'Shipped', 'Delivered'],
+            cancelled:       'Cancelled',
+            placedOn:        'Placed',
+            unpaidNote:      'Payment pending — complete your payment to confirm this order.',
+            orderItems:      (n) => `${n} item${n !== 1 ? 's' : ''}`,
         },
         es: {
-            pageTitle: 'Rastrear tu Pedido',
-            pageSub: 'Ingresa tu número de pedido y correo electrónico para ver el estado en tiempo real.',
-            lookupLabel: 'Buscar Pedido',
-            orderLabel: 'Número de Pedido',
-            emailLabel: 'Correo Electrónico',
-            trackBtnTxt: 'Rastrear Pedido',
-            backTxt: 'Volver a la tienda',
-            langBtn: 'EN',
-            notFound: 'No encontramos un pedido con ese número y correo. Verifica e intenta de nuevo.',
-            enterBoth: 'Por favor ingresa tu número de pedido y correo electrónico.',
-            orderNum: 'Pedido',
-            placedOn: 'Realizado',
-            timeline: 'Progreso del Pedido',
-            items: 'Artículos Pedidos',
-            totals: 'Total del Pedido',
-            address: 'Dirección de Entrega',
-            subtotal: 'Subtotal',
-            shipping: 'Envío',
-            tax: 'Impuesto',
-            discount: 'Descuento',
-            total: 'Total',
-            payStatus: 'Pago',
-            paidOn: 'Pagado',
-            payNow: 'Pagar Ahora',
-            trackShipment: 'Rastrear Envío',
-            carrier: 'Transportista',
-            steps: ['Pedido Recibido', 'En Proceso', 'Enviado', 'Entregado'],
-            cancelled: 'Cancelado',
-            unpaidNote: 'Pago pendiente — completa tu pago para confirmar este pedido.',
+            pageTitle:       'Rastrear tu Pedido',
+            pageSub:         'Inicia sesión para ver todos tus pedidos, o busca uno específico.',
+            pageSub_guest:   'Ingresa tu número de pedido y correo electrónico para ver el estado.',
+            pageSub_loggedin:'Aquí están todos tus pedidos con estado en tiempo real.',
+            lookupLabel:     'Buscar Pedido',
+            orderLabel:      'Número de Pedido',
+            emailLabel:      'Correo Electrónico',
+            trackBtnTxt:     'Rastrear Pedido',
+            backTxt:         'Volver a la tienda',
+            langBtn:         'EN',
+            signOutBtn:      'Cerrar sesión',
+            signInBtn:       'Iniciar sesión',
+            nudgeTitle:      'Inicia sesión para acceso inmediato',
+            nudgeBody:       'Mira todos tus pedidos en un solo lugar — sin necesidad del número.',
+            myOrdersTitle:   'Mis Pedidos',
+            ordersLoadingTxt:'Cargando tus pedidos…',
+            ordersEmptyTxt:  'Aún no tienes pedidos.',
+            authLoaderTxt:   'Cargando…',
+            notFound:        'No encontramos un pedido con ese número y correo. Verifica e intenta de nuevo.',
+            enterBoth:       'Por favor ingresa tu número de pedido y correo electrónico.',
+            timeline:        'Progreso del Pedido',
+            items:           'Artículos Pedidos',
+            totals:          'Total del Pedido',
+            address:         'Dirección de Entrega',
+            subtotal:        'Subtotal',
+            shipping:        'Envío',
+            tax:             'Impuesto',
+            discount:        'Descuento',
+            total:           'Total',
+            paidOn:          'Pagado',
+            payNow:          'Pagar Ahora',
+            trackShipment:   'Rastrear Envío',
+            carrier:         'Transportista',
+            steps:           ['Pedido Recibido', 'En Proceso', 'Enviado', 'Entregado'],
+            cancelled:       'Cancelado',
+            placedOn:        'Realizado',
+            unpaidNote:      'Pago pendiente — completa tu pago para confirmar este pedido.',
+            orderItems:      (n) => `${n} artículo${n !== 1 ? 's' : ''}`,
         }
     };
 
-    const t = k => T[currentLang][k] || k;
+    const t  = k => (typeof T[lang][k] === 'function' ? T[lang][k] : T[lang][k]) || k;
+    const tf = (k, ...args) => { const v = T[lang][k]; return typeof v === 'function' ? v(...args) : v; };
     const fmt = c => `$${(c / 100).toFixed(2)}`;
-    const $ = id => document.getElementById(id);
+    const $   = id => document.getElementById(id);
 
-    function applyLang() {
-        $('pageTitle').textContent   = t('pageTitle');
-        $('pageSub').textContent     = t('pageSub');
-        $('lookupLabel').textContent = t('lookupLabel');
-        $('orderLabel').textContent  = t('orderLabel');
-        $('emailLabel').textContent  = t('emailLabel');
-        $('trackBtnTxt').textContent = t('trackBtnTxt');
-        $('backTxt').textContent     = t('backTxt');
-        $('langBtn').textContent     = t('langBtn');
-        document.documentElement.lang = currentLang;
+    // ── Apply language strings ───────────────────────────────────────────────
+    function applyLang(mode) {
+        $('pageTitle').textContent     = t('pageTitle');
+        $('lookupLabel').textContent   = t('lookupLabel');
+        $('orderLabel').textContent    = t('orderLabel');
+        $('emailLabel').textContent    = t('emailLabel');
+        $('trackBtnTxt').textContent   = t('trackBtnTxt');
+        $('backTxt').textContent       = t('backTxt');
+        $('langBtn').textContent       = t('langBtn');
+        $('signOutBtn').textContent    = t('signOutBtn');
+        $('signInBtn').textContent     = t('signInBtn');
+        $('nudgeTitle').textContent    = t('nudgeTitle');
+        $('nudgeBody').textContent     = t('nudgeBody');
+        $('myOrdersTitle').textContent = t('myOrdersTitle');
+        $('ordersLoadingTxt').textContent = t('ordersLoadingTxt');
+        $('ordersEmptyTxt').textContent   = t('ordersEmptyTxt');
+        $('authLoaderTxt').textContent    = t('authLoaderTxt');
+
+        const subKey = mode === 'loggedin' ? 'pageSub_loggedin'
+                     : mode === 'guest'    ? 'pageSub_guest'
+                     : 'pageSub';
+        $('pageSub').textContent = t(subKey);
+        document.documentElement.lang = lang;
     }
 
     window.toggleLang = () => {
-        currentLang = currentLang === 'en' ? 'es' : 'en';
-        localStorage.setItem('trackLang', currentLang);
-        applyLang();
+        lang = lang === 'en' ? 'es' : 'en';
+        localStorage.setItem('trackLang', lang);
+        // Re-render whatever is visible
+        applyLang(window._currentMode || '');
+        if (window._currentMode === 'loggedin') renderOrdersList(window._orders || []);
     };
 
-    // ── Auto-populate from URL ?order=ID ─────────────────────────────────────
-    // Note: email is NOT accepted via URL param — customer must type it.
-    // This prevents someone forwarding a pre-filled link that auto-looks up an order.
-    function readUrlParams() {
-        const params  = new URLSearchParams(location.search);
-        const orderId = params.get('order') || params.get('orderId') || '';
-        if (orderId) $('orderInput').value = orderId.substring(0, 20);
-        // Auto-trigger only if email is also present (e.g. from a secure email link)
-        // Do NOT auto-trigger on order ID alone
+    // ── Firebase init ────────────────────────────────────────────────────────
+    let db, auth, ORDERS_COLL;
+
+    async function initFirebase() {
+        try {
+            const res  = await fetch('/.netlify/functions/getClientFirebaseConfig');
+            const cfg  = await res.json();
+            const app  = initializeApp(cfg);
+            auth       = getAuth(app);
+            db         = getFirestore(app);
+            ORDERS_COLL = `artifacts/${cfg.appId}/public/data/orders`;
+            return true;
+        } catch (e) {
+            console.error('Firebase init failed', e);
+            return false;
+        }
     }
 
-    // ── Main lookup — calls server-side function, never Firestore directly ────
-    window.lookupOrder = async function() {
-        const rawId = $('orderInput').value.trim();
-        const email = $('emailInput').value.trim();
-        const errEl = $('searchError');
+    // ── Auth state ────────────────────────────────────────────────────────────
+    async function boot() {
+        applyLang('');
+        const ok = await initFirebase();
+        if (!ok) { showGuestView(); return; }
 
-        errEl.style.display = 'none';
-        $('result').style.display = 'none';
-
-        if (!rawId || !email) { showError(t('enterBoth')); return; }
-
-        setLoading(true);
-
-        try {
-            const res = await fetch('/.netlify/functions/getOrderStatus', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orderId: rawId, email }),
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                // 429 = rate limited, 404 = not found, 400 = bad input
-                showError(data.error || t('notFound'));
-                return;
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                showLoggedInView(user);
+                await loadUserOrders(user);
+            } else {
+                showGuestView();
             }
+        });
+    }
 
-            renderOrder(data.order);
+    function showLoggedInView(user) {
+        window._currentMode = 'loggedin';
+        applyLang('loggedin');
+        $('authLoader').style.display    = 'none';
+        $('guestView').style.display     = 'none';
+        $('loggedInView').style.display  = 'block';
 
-        } catch (err) {
-            console.error('Lookup error:', err);
-            showError(t('notFound'));
-        } finally {
-            setLoading(false);
-        }
+        // Avatar initials
+        const name  = user.displayName || '';
+        const email = user.email || '';
+        const init  = name ? name.charAt(0).toUpperCase() : (email ? email.charAt(0).toUpperCase() : '?');
+        $('userAvatar').textContent = init;
+        $('userName').textContent   = name || email;
+        $('userEmail').textContent  = email;
+    }
+
+    function showGuestView() {
+        window._currentMode = 'guest';
+        applyLang('guest');
+        $('authLoader').style.display   = 'none';
+        $('loggedInView').style.display = 'none';
+        $('guestView').style.display    = 'block';
+        readUrlParams();
+    }
+
+    window.handleSignOut = async () => {
+        try { await signOut(auth); } catch {}
     };
 
-    // ── Render order card ─────────────────────────────────────────────────────
-    function renderOrder(order) {
-        const statusSteps  = ['Pending', 'Processing', 'Shipped', 'Delivered'];
-        const isCancelled  = order.status === 'Cancelled';
-        const currentStep  = isCancelled ? -1 : Math.max(0, statusSteps.indexOf(order.status));
-        const isPaid       = order.paymentStatus === 'Paid' || order.isPaid;
-        const stepLabels   = t('steps');
+    window.goToSignIn = () => { window.location.href = '/?signin=1#account'; };
 
-        // ── Timeline ──
+    // ── Load user orders from Firestore ──────────────────────────────────────
+    async function loadUserOrders(user) {
+        $('ordersLoadingEl').style.display = 'flex';
+        $('ordersListEl').style.display    = 'none';
+        $('ordersEmptyEl').style.display   = 'none';
+
+        try {
+            const uid   = user.uid;
+            const email = user.email;
+
+            const tryQ = async (field, value) => {
+                if (!value) return [];
+                try {
+                    const s = await getDocs(query(collection(db, ORDERS_COLL), where(field, '==', value)));
+                    return s.docs;
+                } catch { return []; }
+            };
+
+            const [byUid, byUserId, byEmail] = await Promise.all([
+                tryQ('uid',        uid),
+                tryQ('userId',     uid),
+                tryQ('buyerEmail', email),
+            ]);
+
+            const seen = new Set();
+            const docs = [];
+            for (const d of [...byUid, ...byUserId, ...byEmail]) {
+                if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); }
+            }
+
+            const orders = docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => {
+                    const ta = a.createdAt?.toDate?.()?.getTime() || a.timestamp || 0;
+                    const tb = b.createdAt?.toDate?.()?.getTime() || b.timestamp || 0;
+                    return tb - ta;
+                });
+
+            window._orders = orders;
+            $('ordersLoadingEl').style.display = 'none';
+
+            if (orders.length === 0) {
+                $('ordersEmptyEl').style.display = 'block';
+            } else {
+                $('orderCountBadge').textContent = tf('orderItems', orders.length);
+                $('ordersListEl').style.display  = 'block';
+                renderOrdersList(orders);
+            }
+        } catch (err) {
+            console.error('Load orders error:', err);
+            $('ordersLoadingEl').style.display = 'none';
+            $('ordersEmptyEl').style.display   = 'block';
+        }
+    }
+
+    // ── Render orders list ───────────────────────────────────────────────────
+    function renderOrdersList(orders) {
+        const container = $('ordersContainer');
+        container.innerHTML = '';
+
+        orders.forEach((order, idx) => {
+            const card = document.createElement('div');
+            card.className = 'order-summary-card';
+            card.id = `ocard-${order.id}`;
+
+            const placedDate = order.timestamp
+                ? new Date(order.timestamp).toLocaleDateString(lang === 'es' ? 'es-CO' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                : (order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString(lang === 'es' ? 'es-CO' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '');
+
+            const items    = order.items || [];
+            const imgUrl   = items[0]?.imageUrl || items[0]?.imageUrls?.[0] || '';
+            const sub      = order.subtotalCents || 0;
+            const ship     = order.shippingCents || 0;
+            const tax      = order.taxCents || 0;
+            const disc     = order.discountCents || 0;
+            const total    = order.totalCents || (sub + ship + tax - disc);
+            const status   = order.status || 'Pending';
+            const statusLc = status.toLowerCase();
+
+            card.innerHTML = `
+                <div class="order-summary-header" onclick="toggleOrder('${order.id}')">
+                    <div class="order-summary-left">
+                        <div class="order-thumb">
+                            ${imgUrl ? `<img src="${imgUrl}" alt="">` : '📦'}
+                        </div>
+                        <div class="order-summary-meta">
+                            <div class="order-summary-id">#${order.id.substring(0,8).toUpperCase()}</div>
+                            ${placedDate ? `<div class="order-summary-date">${t('placedOn')} ${placedDate}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="order-summary-right">
+                        <span class="badge ${statusLc}">${status}</span>
+                        <div class="order-summary-total">${fmt(total)}</div>
+                        <div class="expand-btn">▼</div>
+                    </div>
+                </div>
+                <div class="order-detail-panel" id="detail-${order.id}">
+                    ${buildOrderDetailHtml(order)}
+                </div>`;
+
+            container.appendChild(card);
+
+            // Auto-expand first card
+            if (idx === 0) toggleOrder(order.id);
+        });
+    }
+
+    window.toggleOrder = (id) => {
+        const card = document.getElementById(`ocard-${id}`);
+        if (card) card.classList.toggle('expanded');
+    };
+
+    // ── Build order detail HTML (shared by list + guest result) ─────────────
+    function buildOrderDetailHtml(order) {
+        const statusSteps = ['Pending', 'Processing', 'Shipped', 'Delivered'];
+        const isCancelled = order.status === 'Cancelled';
+        const currentStep = isCancelled ? -1 : Math.max(0, statusSteps.indexOf(order.status));
+        const isPaid      = order.paymentStatus === 'Paid' || order.isPaid;
+        const stepLabels  = T[lang].steps;
+
         const timelineHtml = `
             <div class="timeline">
                 <h3>${t('timeline')}</h3>
@@ -433,10 +740,10 @@
                     ${statusSteps.map((step, i) => {
                         const isDone   = !isCancelled && i < currentStep;
                         const isActive = !isCancelled && i === currentStep;
-                        const cls      = isDone ? 'done' : isActive ? 'active' : '';
-                        const icon     = isDone   ? '✓'
-                                       : isActive ? (step === 'Shipped' ? '🚚' : step === 'Delivered' ? '✅' : '●')
-                                       : '';
+                        const cls  = isDone ? 'done' : isActive ? 'active' : '';
+                        const icon = isDone   ? '✓'
+                                   : isActive ? (step === 'Shipped' ? '🚚' : step === 'Delivered' ? '✅' : '●')
+                                   : '';
                         return `
                         <div class="step">
                             <div class="step-line ${isDone ? 'done' : ''}"></div>
@@ -452,7 +759,6 @@
                 </div>
             </div>`;
 
-        // ── Tracking banner ──
         const trackingHtml = order.trackingNumber ? `
             <div class="tracking-banner">
                 <div>
@@ -461,11 +767,10 @@
                 </div>
                 ${order.trackingUrl ? `<a href="${order.trackingUrl}" target="_blank" class="tracking-link">${t('trackShipment')} →</a>` : ''}
             </div>
-            <div style="height:1.25rem;border-bottom:1px solid var(--border);"></div>` : '';
+            <div class="tracking-sep"></div>` : '';
 
-        // ── Payment row ──
         const paidBadge   = `<span class="badge paid">✅ ${t('paidOn')}${order.paidAt ? ' · ' + new Date(order.paidAt).toLocaleDateString() : ''}</span>`;
-        const unpaidBadge = `<span class="badge unpaid">⏳ ${t('payStatus')}: Pending</span>`;
+        const unpaidBadge = `<span class="badge unpaid">⏳ Payment: Pending</span>`;
         const paymentHtml = `
             <div class="payment-row">
                 ${isPaid ? paidBadge : unpaidBadge}
@@ -475,7 +780,6 @@
                     : ''}
             </div>`;
 
-        // ── Items ──
         const items = order.items || [];
         const itemsHtml = `
             <div class="items-section">
@@ -492,12 +796,11 @@
                 }).join('')}
             </div>`;
 
-        // ── Totals ──
         const sub   = order.subtotalCents || 0;
         const ship  = order.shippingCents || 0;
-        const tax   = order.taxCents      || 0;
+        const tax   = order.taxCents || 0;
         const disc  = order.discountCents || 0;
-        const total = order.totalCents    || (sub + ship + tax - disc);
+        const total = order.totalCents || (sub + ship + tax - disc);
         const totalsHtml = `
             <div class="totals">
                 <div class="totals-row"><span>${t('subtotal')}</span><span>${fmt(sub)}</span></div>
@@ -507,40 +810,71 @@
                 <div class="totals-row grand"><span>${t('total')}</span><span>${fmt(total)}</span></div>
             </div>`;
 
-        // ── Address ──
         const addressHtml = order.deliveryAddress ? `
             <div class="address-section">
                 <h3>📍 ${t('address')}</h3>
                 <div class="address-text">${order.deliveryAddress}</div>
             </div>` : '';
 
-        // ── Header ──
+        return timelineHtml + trackingHtml + paymentHtml + itemsHtml + totalsHtml + addressHtml;
+    }
+
+    // ── Guest order lookup (server-side, no PII exposed) ─────────────────────
+    window.lookupOrder = async function() {
+        const rawId = $('orderInput').value.trim();
+        const email = $('emailInput').value.trim();
+        const errEl = $('searchError');
+
+        errEl.style.display = 'none';
+        $('guestResult').style.display = 'none';
+
+        if (!rawId || !email) { showErr(t('enterBoth')); return; }
+
+        setGuestLoading(true);
+        try {
+            const res  = await fetch('/.netlify/functions/getOrderStatus', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId: rawId, email }),
+            });
+            const data = await res.json();
+            if (!res.ok) { showErr(data.error || t('notFound')); return; }
+            renderGuestOrder(data.order);
+        } catch {
+            showErr(t('notFound'));
+        } finally {
+            setGuestLoading(false);
+        }
+    };
+
+    function renderGuestOrder(order) {
         const placedDate = order.timestamp
-            ? new Date(order.timestamp).toLocaleDateString(
-                currentLang === 'es' ? 'es-CO' : 'en-US',
-                { year: 'numeric', month: 'long', day: 'numeric' })
+            ? new Date(order.timestamp).toLocaleDateString(lang === 'es' ? 'es-CO' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })
             : '';
+        const status   = order.status || 'Pending';
+        const statusLc = status.toLowerCase();
+
         const headerHtml = `
             <div class="order-header">
                 <div>
-                    <div class="order-id">#${order.id.substring(0, 8).toUpperCase()}</div>
+                    <div class="order-id">#${order.id.substring(0,8).toUpperCase()}</div>
                     ${placedDate ? `<div class="order-date">${t('placedOn')} ${placedDate}</div>` : ''}
                 </div>
-                <span class="badge ${(order.status || '').toLowerCase()}">${order.status || ''}</span>
+                <span class="badge ${statusLc}">${status}</span>
             </div>`;
 
-        $('orderCard').innerHTML = headerHtml + timelineHtml + trackingHtml + paymentHtml + itemsHtml + totalsHtml + addressHtml;
-        $('result').style.display = 'block';
-        $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        $('guestOrderCard').innerHTML = headerHtml + buildOrderDetailHtml(order);
+        $('guestResult').style.display = 'block';
+        $('guestResult').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    function showError(msg) {
+    function showErr(msg) {
         const el = $('searchError');
-        el.textContent = msg;
-        el.style.display = 'block';
+        el.textContent    = msg;
+        el.style.display  = 'block';
     }
 
-    function setLoading(on) {
+    function setGuestLoading(on) {
         const btn = $('trackBtn');
         btn.disabled = on;
         btn.innerHTML = on
@@ -548,9 +882,14 @@
             : `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><span>${t('trackBtnTxt')}</span>`;
     }
 
+    function readUrlParams() {
+        const params  = new URLSearchParams(location.search);
+        const orderId = params.get('order') || params.get('orderId') || '';
+        if (orderId) $('orderInput').value = orderId.substring(0, 20);
+    }
+
     // ── Boot ──────────────────────────────────────────────────────────────────
-    applyLang();
-    readUrlParams();
+    boot();
 </script>
 </body>
 </html>
