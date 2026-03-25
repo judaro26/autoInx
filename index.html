@@ -1074,7 +1074,7 @@
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
                             </svg>
-                            <span class="hidden sm:inline">Return</span>
+                            <span class="hidden sm:inline">Return Order</span>
                         </button>
                         ${showAdminBtn ? `
                             <a href="/admin.html" class="px-3 py-2 rounded-lg font-semibold text-white bg-yellow-500 hover:bg-yellow-600 text-xs shadow-md transition">
@@ -1104,6 +1104,13 @@
                 <div class="flex items-center space-x-2 sm:space-x-4">
                     ${guestButtons}
                     ${trackOrderLink}
+                    <button onclick="window.module.openReturnRequestModal()"
+                            class="flex items-center gap-1 px-3 py-2 rounded-lg font-semibold text-orange-600 border border-orange-200 bg-white shadow-sm hover:bg-orange-50 transition text-xs sm:text-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
+                        </svg>
+                        <span class="hidden sm:inline">${currentLang === 'es' ? 'Devolver Pedido' : 'Return Order'}</span>
+                    </button>
                     <button onclick="window.module.showLoginModal('standard', 'login')" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-500 hover:bg-indigo-600 text-xs shadow-md">
                         ${t('standardLogin')}
                     </button>
@@ -3138,18 +3145,17 @@
         };
 
         async function openReturnRequestModal() {
-            if (!state.userName) {
-                showMessage('warning', 'Please log in to request a return.', 3000);
-                return;
-            }
+            const isGuest = !state.userName;
             state.returnModal = {
                 open: true, step: 1,
-                orders: [], loadingOrders: true,
+                guestMode: isGuest,
+                guestEmail: '', guestOrderInput: '', guestOrderData: null, guestLookingUp: false,
+                orders: [], loadingOrders: !isGuest,
                 selectedOrder: null, reason: '', notes: '',
                 images: [], uploading: false, submitted: false, error: null
             };
             renderReturnModal();
-            await loadUserOrdersForReturn();
+            if (!isGuest) await loadUserOrdersForReturn();
         }
 
         async function loadUserOrdersForReturn() {
@@ -3217,7 +3223,50 @@
             const isSp = currentLang === 'es';
 
             // ── Step 1: Order selection ─────────────────────────────────────────────
+            // ── Guest Step 1: manual lookup form ───────────────────────────────────
+            const guestStep1 = () => `
+                <div class="space-y-4">
+                    <div class="bg-orange-50 border border-orange-200 rounded-xl p-3 text-sm text-orange-800 flex gap-2">
+                        <span class="flex-shrink-0">💡</span>
+                        <span>${isSp
+                            ? 'Ingresa tu número de pedido y correo para localizar tu orden.'
+                            : 'Enter your order number and email to locate your order.'}</span>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1.5">${isSp ? 'Número de pedido *' : 'Order Number *'}</label>
+                        <input id="guestReturnOrderInput" type="text"
+                               value="${rm.guestOrderInput}"
+                               oninput="window.module.setGuestReturnField('guestOrderInput', this.value.replace(/\s/g,'').toLowerCase())"
+                               onkeydown="if(event.key==='Enter')window.module.guestReturnLookup()"
+                               placeholder="e.g. a1b2c3d4"
+                               class="w-full p-2.5 border rounded-xl text-sm font-mono focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1.5">${isSp ? 'Correo electrónico *' : 'Email Address *'}</label>
+                        <input id="guestReturnEmailInput" type="email"
+                               value="${rm.guestEmail}"
+                               oninput="window.module.setGuestReturnField('guestEmail', this.value.trim())"
+                               onkeydown="if(event.key==='Enter')window.module.guestReturnLookup()"
+                               placeholder="${isSp ? 'tu@correo.com' : 'you@example.com'}"
+                               class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400" />
+                    </div>
+                    ${rm.error ? `<div class="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">❌ ${rm.error}</div>` : ''}
+                    ${rm.guestLookingUp ? `
+                    <div class="flex items-center justify-center gap-2 py-3 text-sm text-gray-400">
+                        <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        ${isSp ? 'Verificando pedido…' : 'Verifying order…'}
+                    </div>` : ''}
+                    <p class="text-xs text-gray-400 text-center pt-1">
+                        ${isSp
+                            ? '¿Tienes cuenta? <button onclick="window.module.closeReturnModal();window.module.showLoginModal('standard','login')" class="text-indigo-600 font-semibold underline">Inicia sesión</button> para ver tus pedidos.'
+                            : 'Have an account? <button onclick="window.module.closeReturnModal();window.module.showLoginModal('standard','login')" class="text-indigo-600 font-semibold underline">Sign in</button> to see your orders.'}
+                    </p>
+                </div>`;
+
             const step1 = () => {
+                // Guest mode: show manual lookup form
+                if (rm.guestMode) return guestStep1();
+
                 if (rm.loadingOrders) return `
                     <div class="text-center py-10">
                         <div class="animate-spin w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full mx-auto mb-3"></div>
@@ -3383,11 +3432,17 @@
                         class="flex-1 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition">
                     ${isSp ? 'Cancelar' : 'Cancel'}
                 </button>
+                ${rm.guestMode ? `
+                <button onclick="window.module.guestReturnLookup()"
+                        ${rm.guestLookingUp ? 'disabled' : ''}
+                        class="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 transition text-sm">
+                    ${isSp ? 'Buscar pedido →' : 'Find Order →'}
+                </button>` : `
                 <button onclick="window.module.returnGoToStep2()"
                         ${!rm.selectedOrder ? 'disabled' : ''}
                         class="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 transition text-sm">
                     ${isSp ? 'Continuar →' : 'Continue →'}
-                </button>` : `
+                </button>`}` : `
                 <button onclick="window.module.returnGoToStep1()"
                         ${rm.uploading ? 'disabled' : ''}
                         class="flex-1 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition">
@@ -3471,6 +3526,68 @@
             renderReturnModal();
         }
 
+        // ── Guest return helpers ──────────────────────────────────────────────────
+        function setGuestReturnField(field, val) {
+            state.returnModal[field] = val;
+            // No re-render — let the user type freely
+        }
+
+        async function guestReturnLookup() {
+            const rm   = state.returnModal;
+            const isSp = currentLang === 'es';
+            rm.error   = null;
+
+            const orderId = (rm.guestOrderInput || '').trim();
+            const email   = (rm.guestEmail      || '').trim().toLowerCase();
+
+            if (!orderId || !email) {
+                rm.error = isSp
+                    ? 'Por favor ingresa el número de pedido y tu correo.'
+                    : 'Please enter your order number and email.';
+                renderReturnModal(); return;
+            }
+
+            rm.guestLookingUp = true;
+            renderReturnModal();
+
+            try {
+                const res  = await fetch('/.netlify/functions/getOrderStatus', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, email }),
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    rm.error          = data.error || (isSp ? 'Pedido no encontrado.' : 'Order not found.');
+                    rm.guestLookingUp = false;
+                    renderReturnModal(); return;
+                }
+
+                const order = data.order;
+                const isPaid = order.isPaid || order.paymentStatus === 'Paid';
+                if (!isPaid || order.status === 'Cancelled') {
+                    rm.error = isSp
+                        ? 'Este pedido no es elegible para devolución (debe estar pagado y no cancelado).'
+                        : 'This order is not eligible for a return (must be paid and not cancelled).';
+                    rm.guestLookingUp = false;
+                    renderReturnModal(); return;
+                }
+
+                rm.guestOrderData = order;
+                rm.selectedOrder  = order;
+                rm.guestLookingUp = false;
+                rm.step           = 2;
+                rm.error          = null;
+                renderReturnModal();
+
+            } catch (err) {
+                rm.error          = isSp ? 'Error al verificar el pedido. Intenta de nuevo.' : 'Could not verify order. Please try again.';
+                rm.guestLookingUp = false;
+                renderReturnModal();
+            }
+        }
+
         function setReturnReason(val)  { state.returnModal.reason = val; }
         function setReturnNotes(val)   { state.returnModal.notes  = val; }
 
@@ -3515,15 +3632,19 @@
 
             try {
                 const order   = rm.selectedOrder;
-                const user    = auth.currentUser;
+                const user    = auth.currentUser;  // null for guests
 
                 // Upload images to Firebase Storage
                 const imageUrls = [];
                 const storage   = window._storage;
 
                 if (storage && rm.images.length > 0) {
+                    // Guests upload to a guest path; authenticated users use their uid
+                    const uploadPath = user
+                        ? `return_images/${user.uid}`
+                        : `return_images/guest_${Date.now()}`;
                     for (const img of rm.images) {
-                        const path    = `return_images/${user.uid}/${Date.now()}_${img.file.name}`;
+                        const path    = `${uploadPath}/${Date.now()}_${img.file.name}`;
                         const fileRef = storageRef(storage, path);
                         await uploadBytes(fileRef, img.file);
                         const url = await getDownloadURL(fileRef);
@@ -3531,13 +3652,20 @@
                     }
                 }
 
+                // Resolve customer identity — authenticated user wins, fall back to guest fields
+                const customerEmail = order.buyerEmail || user?.email || rm.guestEmail || null;
+                const customerName  = order.buyerName  || user?.displayName || user?.email?.split('@')[0]
+                                   || rm.guestEmail?.split('@')[0] || 'Guest';
+                const customerId    = user?.uid || null;
+
                 // Write return request to Firestore
                 await addDoc(collection(db, RETURNS_COLLECTION), {
                     orderId:       order.id,
                     orderNumber:   order.orderNumber || order.id.slice(0,8),
-                    customerName:  order.buyerName   || user.displayName || user.email?.split('@')[0] || '—',
-                    customerEmail: order.buyerEmail  || user.email || null,
-                    customerId:    user.uid,
+                    customerName,
+                    customerEmail,
+                    customerId,
+                    isGuestReturn: !user,
                     stripePaymentIntentId: order.stripePaymentIntentId || null,
                     stripeChargeId:        order.stripeChargeId        || null,
                     reason:        rm.reason,
@@ -3548,9 +3676,11 @@
                     status:        'Requested',
                     source:        'customer',
                     statusHistory: [{
-                        status:    'Requested',
-                        adminEmail: user.email || 'customer',
-                        note:      'Submitted by customer via storefront',
+                        status:     'Requested',
+                        adminEmail: customerEmail || 'guest',
+                        note:       user
+                            ? 'Submitted by authenticated customer via storefront'
+                            : 'Submitted by guest via storefront',
                         timestamp: new Date().toISOString()
                     }],
                     stripeRefundId: null,
@@ -3613,6 +3743,8 @@
             handleReturnImages,
             removeReturnImage,
             submitReturnRequest,
+            guestReturnLookup,
+            setGuestReturnField,
         };
         document.addEventListener('DOMContentLoaded', () => {
             setupFirebase();
