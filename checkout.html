@@ -1947,11 +1947,23 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 }))
             });
 
-            // 1c. Show payment method selection modal BEFORE Stripe
-            $('btnSubmit').disabled = false;
-            $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(order.totalCents)}`;
+            // 1c. Lock the form — order is already in Firestore.
+            //     Setting orderCompleted=true prevents any re-submission if the
+            //     user hits back or the page lingers while the modal is open.
+            //     The button stays disabled so they cannot submit again.
+            orderCompleted = true;
+            sessionStorage.removeItem('autoInxCart');
+            $('btnSubmit').disabled = true;
+            $('btnSubmit').innerHTML = `✅ ${t('complete')}`;
+            try {
+                if (db && userId && userId !== 'guest') {
+                    await deleteDoc(doc(db, 'abandoned_carts', userId));
+                }
+            } catch {}
+
+            // Show payment method selection modal — page will be fully replaced
             await showPaymentMethodModal(docRef.id, order);
-            return; // modal takes over from here
+            return;
 
             // 2. Generate Stripe Payment Link (reached via continueWithCard below)
             let paymentUrl = null;
