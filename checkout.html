@@ -899,67 +899,106 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
     }
 
     // ✅ Calculate shipping and tax - NOW UPDATES WITHOUT FULL RE-RENDER
-    function buildParcelsFromCart() {
+    // Builds parcel data by calling the AI-powered packItems function.
+    // Falls back to a local algorithm if the function is unavailable.
+    async function buildParcelsFromCart() {
         const cart = Object.values(cartData);
-        
+
         if (cart.length === 0) {
             console.warn('Cart is empty');
             return null;
         }
-    
-        // Check if all items have dimensions
-        const missingDimensions = cart.filter(entry => 
-            !entry.item.dimensions || 
-            !entry.item.dimensions.length || 
-            !entry.item.dimensions.width || 
-            !entry.item.dimensions.height || 
+
+        const totalItems = cart.reduce((sum, e) => sum + e.quantity, 0);
+
+        // Check for missing dimensions
+        const missingDimensions = cart.filter(entry =>
+            !entry.item.dimensions ||
+            !entry.item.dimensions.length ||
+            !entry.item.dimensions.width  ||
+            !entry.item.dimensions.height ||
             !entry.item.dimensions.weight
         );
-    
+
         if (missingDimensions.length > 0) {
-            console.warn('Some items missing dimensions:', missingDimensions.map(e => e.item.name));
-            
-            // Use default dimensions as fallback
-            const totalItems = cart.reduce((sum, e) => sum + e.quantity, 0);
+            console.warn('Some items missing dimensions — using default box');
+            const totalWeight = cart.reduce((s, e) => s + e.quantity * (e.item.dimensions?.weight || 1), 0);
             return [{
-                length: "12",
-                width: "9",
-                height: "6",
+                length: "12", width: "9", height: "6",
                 distance_unit: "in",
-                weight: Math.max(1, totalItems).toString(),
+                weight: Math.max(1, totalWeight).toFixed(1),
                 mass_unit: "lb"
             }];
         }
-    
-        // Strategy: Single box approach (combine weights, use largest dimensions)
-        const totalWeight = cart.reduce((sum, entry) => {
-            const itemWeight = entry.item.dimensions.weight * entry.quantity;
-            return sum + itemWeight;
-        }, 0);
-    
-        // Find largest dimensions across all items
-        const maxLength = Math.max(...cart.map(e => e.item.dimensions.length));
-        const maxWidth = Math.max(...cart.map(e => e.item.dimensions.width));
-        const maxHeight = Math.max(...cart.map(e => e.item.dimensions.height));
-    
-        // Add 2 inches padding for packaging material
-        const paddedLength = maxLength + 2;
-        const paddedWidth = maxWidth + 2;
-        const paddedHeight = maxHeight + 2;
-    
-        console.log('📦 Parcel built from cart:', {
-            dimensions: `${paddedLength}"×${paddedWidth}"×${paddedHeight}"`,
-            weight: `${totalWeight.toFixed(1)} lbs`,
-            items: cart.length
-        });
-    
+
+        // Build item payload for AI packer
+        const itemPayload = cart.map(entry => ({
+            name:     entry.item.name,
+            length:   entry.item.dimensions.length,
+            width:    entry.item.dimensions.width,
+            height:   entry.item.dimensions.height,
+            weight:   entry.item.dimensions.weight,
+            quantity: entry.quantity,
+        }));
+
+        const totalWeight = itemPayload.reduce((s, i) => s + i.weight * i.quantity, 0);
+
+        // ── Try AI-powered optimal packing ────────────────────────────────────
+        try {
+            const res = await fetch('/.netlify/functions/packItems', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: itemPayload }),
+            });
+
+            if (res.ok) {
+                const pack = await res.json();
+                console.log(`📦 Pack result (${pack.source}): ${pack.length}"×${pack.width}"×${pack.height}" | ${pack.weight.toFixed(1)} lbs | ${pack.reasoning}`);
+                return [{
+                    length:        String(pack.length),
+                    width:         String(pack.width),
+                    height:        String(pack.height),
+                    distance_unit: "in",
+                    weight:        Math.max(0.5, pack.weight).toFixed(1),
+                    mass_unit:     "lb",
+                }];
+            }
+        } catch (err) {
+            console.warn('⚠️ packItems function unavailable, using local algorithm:', err.message);
+        }
+
+        // ── Local algorithmic fallback ─────────────────────────────────────────
+        // Expand items by quantity, sort by volume desc, stack greedily
+        const units = [];
+        for (const item of itemPayload) {
+            const dims = [item.length, item.width, item.height].sort((a, b) => b - a);
+            for (let q = 0; q < item.quantity; q++) {
+                units.push({ l: dims[0], w: dims[1], h: dims[2], wt: item.weight });
+            }
+        }
+        units.sort((a, b) => (b.l * b.w * b.h) - (a.l * a.w * a.h));
+
+        let boxL = units[0].l, boxW = units[0].w, boxH = units[0].h;
+        for (let i = 1; i < units.length; i++) {
+            const u = units[i];
+            if (u.l <= boxL && u.w <= boxW && u.h <= boxH) continue; // fits inside
+            const volA = boxL * (boxW + u.w) * Math.max(boxH, u.h);
+            const volB = boxL * Math.max(boxW, u.w) * (boxH + u.h);
+            if (volA <= volB) { boxW += u.w; boxH = Math.max(boxH, u.h); }
+            else              { boxW = Math.max(boxW, u.w); boxH += u.h; }
+            boxL = Math.max(boxL, u.l);
+        }
+
+        const pL = Math.ceil(boxL) + 2;
+        const pW = Math.ceil(boxW) + 2;
+        const pH = Math.ceil(boxH) + 2;
+        console.log(`📦 Local algorithm: ${pL}"×${pW}"×${pH}" | ${totalWeight.toFixed(1)} lbs | dim wt ${(pL*pW*pH/139).toFixed(1)} lbs`);
+
         return [{
-            length: paddedLength.toString(),
-            width: paddedWidth.toString(),
-            height: paddedHeight.toString(),
+            length: String(pL), width: String(pW), height: String(pH),
             distance_unit: "in",
-            weight: totalWeight.toFixed(1),
-            mass_unit: "lb"
+            weight: Math.max(0.5, totalWeight).toFixed(1),
+            mass_unit: "lb",
         }];
     }
 
@@ -1010,7 +1049,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                         zip: zipCode,
                         country: country
                     },
-                    parcels: buildParcelsFromCart() || [{
+                    parcels: (await buildParcelsFromCart()) || [{
                         length: "12",
                         width: "8",
                         height: "6",
