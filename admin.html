@@ -8581,6 +8581,10 @@ ${printScript}
                                             class="w-full text-xs px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-semibold transition">
                                         📄 Receipt PDF
                                     </button>
+                                    <button onclick="window.module.openOrderEmailModal('${order.id}')"
+                                            class="w-full text-xs px-3 py-2 bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 font-semibold transition">
+                                        ✉️ Custom Email
+                                    </button>
                                     ${!isPaid && !isRefunded ? `
                                     <button onclick="window.module.sendPaymentLink('${order.id}')"
                                             class="w-full text-xs px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-semibold transition">
@@ -15941,6 +15945,467 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             } catch { return '<p class="text-xs text-red-400">Error loading history.</p>'; }
         }
 
+
+        // ══════════════════════════════════════════════════════════════════════
+        //  CUSTOM ORDER EMAIL COMPOSER
+        // ══════════════════════════════════════════════════════════════════════
+
+        function openOrderEmailModal(orderId) {
+            const existing = document.getElementById('orderEmailModal');
+            if (existing) existing.remove();
+
+            const order     = state.orders.find(o => o.id === orderId);
+            if (!order) { showMessage('error', 'Order not found.', 3000); return; }
+
+            const brand     = globalConfig?.branding || {};
+            const colors    = brand.colors || {};
+            const accent    = colors.addToCart || '#4f46e5';
+            const accent2   = colors.checkout  || '#7c3aed';
+            const storeName = brand.headerText?.en || brand.headerText || 'AutoInx';
+
+            // Coupon options
+            const couponOpts = (state.discounts || [])
+                .filter(d => d.enabled !== false)
+                .map(d => {
+                    const label = d.type === 'percentage' ? `${d.value}% OFF`
+                                : d.type === 'fixed'      ? `$${d.value} OFF`
+                                : 'Free Shipping';
+                    return `<option value="${escapeAttribute(d.code)}|${escapeAttribute(label)}">${escapeHtml(d.code)} — ${label}</option>`;
+                }).join('');
+
+            const fmt = (c) => `$${((c||0)/100).toFixed(2)}`;
+            const orderNum = order.orderNumber || orderId.slice(0,8).toUpperCase();
+            const items = order.items || [];
+
+            const modal = document.createElement('div');
+            modal.id = 'orderEmailModal';
+            modal.innerHTML = `
+            <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3" style="backdrop-filter:blur(2px)">
+                <div class="bg-white rounded-2xl shadow-2xl w-full flex flex-col" style="max-width:1100px;max-height:95vh;">
+
+                    <!-- Header -->
+                    <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800">✉️ Custom Email — Order #${escapeHtml(orderNum)}</h3>
+                            <p class="text-xs text-gray-400 mt-0.5">to <strong>${escapeHtml(order.buyerEmail || '—')}</strong> · Preview updates live as you type</p>
+                        </div>
+                        <button onclick="document.getElementById('orderEmailModal').remove()"
+                                class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+                    </div>
+
+                    <!-- Body -->
+                    <div class="flex flex-1 overflow-hidden">
+
+                        <!-- LEFT: Controls -->
+                        <div class="w-80 flex-shrink-0 border-r overflow-y-auto p-5 space-y-5 bg-gray-50">
+
+                            <!-- Recipient (read-only, from order) -->
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">📬 Recipient</p>
+                                <div class="bg-white border border-gray-200 rounded-xl p-3 space-y-1 text-sm">
+                                    <p class="font-semibold text-gray-800">${escapeHtml(order.buyerName || '—')}</p>
+                                    <p class="text-gray-500 text-xs">${escapeHtml(order.buyerEmail || '—')}</p>
+                                </div>
+                                <p class="text-xs text-gray-400 mt-1">Recipient pulled from order. Edit order to change.</p>
+                            </div>
+
+                            <!-- Subject -->
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">📌 Subject Line</p>
+                                <input type="text" id="oemail_subject"
+                                       placeholder="Auto-generated if blank"
+                                       oninput="window.module.refreshOrderEmailPreview('${orderId}')"
+                                       class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-400 focus:outline-none">
+                                <p class="text-xs text-gray-400 mt-1">Leave blank to use the default for the selected type.</p>
+                            </div>
+
+                            <!-- Email type -->
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">📋 Email Type</p>
+                                <select id="oemail_type"
+                                        onchange="window.module.applyOrderEmailTemplate('${orderId}')"
+                                        class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-400">
+                                    <option value="custom">✏️ Custom message</option>
+                                    <option value="order_received">✅ Order received</option>
+                                    <option value="processing">🔧 Order is being processed</option>
+                                    <option value="shipped">🚚 Order shipped</option>
+                                    <option value="delivered">📦 Order delivered</option>
+                                    <option value="follow_up">💬 Follow-up / check-in</option>
+                                    <option value="parts_available">🔔 Parts now available</option>
+                                    <option value="delay">⏳ Delay notification</option>
+                                </select>
+                            </div>
+
+                            <!-- Personal message -->
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">✏️ Message</p>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Greeting line</label>
+                                        <input type="text" id="oemail_greeting"
+                                               placeholder="e.g. Great news about your order!"
+                                               oninput="window.module.refreshOrderEmailPreview('${orderId}')"
+                                               class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-400">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Body</label>
+                                        <textarea id="oemail_body" rows="5"
+                                                  oninput="window.module.refreshOrderEmailPreview('${orderId}')"
+                                                  placeholder="Your message to the customer…"
+                                                  class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-400 resize-none"></textarea>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">CTA Button Text</label>
+                                        <input type="text" id="oemail_cta"
+                                               placeholder="Track Your Order →"
+                                               oninput="window.module.refreshOrderEmailPreview('${orderId}')"
+                                               class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-400">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">CTA Link</label>
+                                        <input type="text" id="oemail_cta_url"
+                                               value="https://autoinx.com/track-order.html"
+                                               oninput="window.module.refreshOrderEmailPreview('${orderId}')"
+                                               class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-400 font-mono text-xs">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Coupon -->
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">🏷️ Coupon (optional)</p>
+                                <select id="oemail_coupon"
+                                        onchange="window.module.refreshOrderEmailPreview('${orderId}')"
+                                        class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-400">
+                                    <option value="">— No coupon —</option>
+                                    ${couponOpts}
+                                </select>
+                            </div>
+
+                            <!-- Options -->
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">⚙️ Options</p>
+                                <div class="space-y-2">
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" id="oemail_show_order" checked
+                                               onchange="window.module.refreshOrderEmailPreview('${orderId}')"
+                                               class="w-4 h-4 rounded text-teal-600">
+                                        <span class="text-sm text-gray-700">Include order summary</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" id="oemail_show_items" checked
+                                               onchange="window.module.refreshOrderEmailPreview('${orderId}')"
+                                               class="w-4 h-4 rounded text-teal-600">
+                                        <span class="text-sm text-gray-700">Include item list</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Appearance -->
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">🎨 Appearance</p>
+                                <div class="flex gap-2 items-center">
+                                    <input type="color" id="oemail_color1" value="${accent}"
+                                           oninput="document.getElementById('oemail_color1_txt').value=this.value;window.module.refreshOrderEmailPreview('${orderId}')"
+                                           class="w-9 h-9 rounded border cursor-pointer p-0.5">
+                                    <input type="text" id="oemail_color1_txt" value="${accent}"
+                                           oninput="document.getElementById('oemail_color1').value=this.value;window.module.refreshOrderEmailPreview('${orderId}')"
+                                           class="flex-1 p-2 border rounded-lg text-xs font-mono">
+                                    <input type="color" id="oemail_color2" value="${accent2}"
+                                           oninput="document.getElementById('oemail_color2_txt').value=this.value;window.module.refreshOrderEmailPreview('${orderId}')"
+                                           class="w-9 h-9 rounded border cursor-pointer p-0.5">
+                                    <input type="text" id="oemail_color2_txt" value="${accent2}"
+                                           oninput="document.getElementById('oemail_color2').value=this.value;window.module.refreshOrderEmailPreview('${orderId}')"
+                                           class="flex-1 p-2 border rounded-lg text-xs font-mono">
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- RIGHT: Preview -->
+                        <div class="flex-1 overflow-y-auto bg-gray-100 p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wide">📧 Email Preview</p>
+                                <span id="oemail_subject_preview" class="text-xs text-gray-400 italic"></span>
+                            </div>
+                            <div id="oemail_preview_container" class="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-200">
+                                <div class="text-center p-8 text-gray-400 text-sm">Loading preview…</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="flex items-center justify-between px-6 py-4 border-t bg-gray-50 flex-shrink-0">
+                        <div id="oemail_status" class="text-sm"></div>
+                        <div class="flex gap-3">
+                            <button onclick="document.getElementById('orderEmailModal').remove()"
+                                    class="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition">
+                                Cancel
+                            </button>
+                            <button onclick="window.module.sendCustomOrderEmail('${orderId}')"
+                                    id="oemail_send_btn"
+                                    class="px-6 py-2 bg-teal-600 text-white text-sm font-bold rounded-lg hover:bg-teal-700 transition shadow-sm flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                </svg>
+                                Send Email
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+            setTimeout(() => window.module.refreshOrderEmailPreview(orderId), 50);
+        }
+
+        // Pre-fill body + subject when type changes
+        function applyOrderEmailTemplate(orderId) {
+            const order    = state.orders.find(o => o.id === orderId);
+            if (!order) return;
+            const type     = document.getElementById('oemail_type')?.value;
+            const name     = order.buyerName?.split(' ')[0] || 'there';
+            const orderNum = order.orderNumber || orderId.slice(0,8).toUpperCase();
+
+            const templates = {
+                order_received: {
+                    subject: `Order #${orderNum} Confirmed — Thank You!`,
+                    greeting: 'Great news!',
+                    body: `We've received your order and it's now in our queue. We'll reach out as soon as it's ready to ship.\n\nThank you for choosing AutoInx, ${name}! Don't hesitate to reply to this email if you have any questions.`,
+                },
+                processing: {
+                    subject: `Your Order #${orderNum} Is Being Processed`,
+                    greeting: 'We're working on it!',
+                    body: `Your order is currently being processed and we're sourcing your parts. We'll send you a shipping update as soon as it's on its way.`,
+                },
+                shipped: {
+                    subject: `Your Order #${orderNum} Has Shipped 🚚`,
+                    greeting: 'Your order is on its way!',
+                    body: `Great news — your order has been shipped and is heading your way. You can track your shipment using the button below.\n\nExpected delivery is in 3–7 business days.`,
+                },
+                delivered: {
+                    subject: `Your Order #${orderNum} Has Been Delivered 📦`,
+                    greeting: 'Your order has arrived!',
+                    body: `Your order has been marked as delivered. We hope everything arrived in perfect condition.\n\nIf you have any issues with your order, please reply to this email and we'll make it right.`,
+                },
+                follow_up: {
+                    subject: `How's Your Order? — AutoInx Check-In`,
+                    greeting: 'Just checking in!',
+                    body: `We wanted to follow up on your recent order and make sure everything is working perfectly. Your satisfaction is our priority.\n\nFeel free to reach out if you need anything at all — we're here to help.`,
+                },
+                parts_available: {
+                    subject: `Great News — Your Parts Are Now Available!`,
+                    greeting: 'The parts you need are in stock!',
+                    body: `We're excited to let you know that the parts you inquired about are now available. Place your order today to secure yours.`,
+                },
+                delay: {
+                    subject: `Update on Your Order #${orderNum}`,
+                    greeting: 'Important update on your order.',
+                    body: `We want to keep you informed about your order. There has been a slight delay due to shipping timelines, but your order is on its way and remains a top priority.\n\nWe sincerely apologize for any inconvenience and appreciate your patience. Please don't hesitate to reach out with any questions.`,
+                },
+                custom: { subject: '', greeting: '', body: '' },
+            };
+
+            const tpl = templates[type] || templates.custom;
+            const greetingEl = document.getElementById('oemail_greeting');
+            const bodyEl     = document.getElementById('oemail_body');
+            const subjectEl  = document.getElementById('oemail_subject');
+            if (greetingEl) greetingEl.value = tpl.greeting;
+            if (bodyEl)     bodyEl.value     = tpl.body;
+            if (subjectEl && tpl.subject) subjectEl.value = tpl.subject;
+            refreshOrderEmailPreview(orderId);
+        }
+
+        function getOrderEmailFields(orderId) {
+            return {
+                type:       document.getElementById('oemail_type')?.value       || 'custom',
+                subject:    document.getElementById('oemail_subject')?.value?.trim() || '',
+                greeting:   document.getElementById('oemail_greeting')?.value?.trim() || '',
+                body:       document.getElementById('oemail_body')?.value?.trim() || '',
+                ctaText:    document.getElementById('oemail_cta')?.value?.trim() || '',
+                ctaUrl:     document.getElementById('oemail_cta_url')?.value?.trim() || 'https://autoinx.com/track-order.html',
+                couponRaw:  document.getElementById('oemail_coupon')?.value || '',
+                color1:     document.getElementById('oemail_color1')?.value || '#4f46e5',
+                color2:     document.getElementById('oemail_color2')?.value || '#7c3aed',
+                showOrder:  document.getElementById('oemail_show_order')?.checked ?? true,
+                showItems:  document.getElementById('oemail_show_items')?.checked ?? true,
+            };
+        }
+
+        function buildOrderEmailHtml(order, fields) {
+            const brand     = globalConfig?.branding || {};
+            const storeName = brand.headerText?.en || brand.headerText || 'AutoInx';
+            const rawLogo   = brand.logoUrl || '';
+            const logoUrl   = rawLogo.startsWith('http') ? rawLogo
+                            : rawLogo ? `https://autoinx.com${rawLogo.startsWith('/') ? '' : '/'}${rawLogo}` : '';
+
+            const { color1, color2, greeting, body, ctaText, ctaUrl, couponRaw, showOrder, showItems } = fields;
+            const fmt       = (c) => `$${((c||0)/100).toFixed(2)}`;
+            const orderNum  = order.orderNumber || order.id.slice(0,8).toUpperCase();
+            const firstName = order.buyerName?.split(' ')[0] || 'there';
+            const [couponCode, couponLabel] = couponRaw ? couponRaw.split('|') : ['', ''];
+
+            const greetingHtml = greeting
+                ? `<p style="font-size:17px;font-weight:700;color:#111827;margin:0 0 10px;">${escapeHtml(greeting)}</p>` : '';
+
+            const bodyHtml = body
+                ? body.split('\n').map(l => l.trim()
+                    ? `<p style="font-size:15px;color:#374151;margin:0 0 10px;line-height:1.6;">${escapeHtml(l)}</p>`
+                    : '<br>').join('')
+                : '';
+
+            const ctaHtml = ctaText ? `
+            <div style="text-align:center;margin:24px 0;">
+                <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;padding:13px 32px;background:linear-gradient(135deg,${escapeHtml(color1)},${escapeHtml(color2)});color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px;">
+                    ${escapeHtml(ctaText)}
+                </a>
+            </div>` : '';
+
+            const couponHtml = couponCode ? `
+            <div style="margin:20px 0;background:#eff6ff;border-radius:10px;border:1px solid #bfdbfe;padding:18px 20px;text-align:center;">
+                <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:2px;">Your Exclusive Coupon</p>
+                <p style="margin:0 0 4px;font-size:24px;font-weight:900;font-family:monospace;color:#1e40af;background:#fff;display:inline-block;padding:6px 20px;border-radius:6px;border:2px dashed #93c5fd;">${escapeHtml(couponCode)}</p>
+                <p style="margin:6px 0 0;font-size:13px;color:#1d4ed8;font-weight:600;">${escapeHtml(couponLabel || 'Special discount for you')}</p>
+            </div>` : '';
+
+            const items = order.items || [];
+            const itemsHtml = showItems && items.length ? `
+            <div style="margin:20px 0;">
+                <p style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px;">Items</p>
+                ${items.map(item => {
+                    const img = item.imageUrl || item.imageUrls?.[0] || '';
+                    return `
+                <div style="display:flex;gap:12px;margin-bottom:8px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px;">
+                    ${img ? `<img src="${img}" width="48" height="48" style="object-fit:contain;border-radius:6px;flex-shrink:0;" onerror="this.style.display='none'">` : ''}
+                    <div style="flex:1;min-width:0;">
+                        <p style="margin:0 0 2px;font-size:14px;font-weight:600;color:#111827;">${escapeHtml(item.name || '')}</p>
+                        ${item.sku ? `<p style="margin:0;font-size:11px;color:#9ca3af;">SKU: ${escapeHtml(item.sku)}</p>` : ''}
+                    </div>
+                    <div style="text-align:right;flex-shrink:0;">
+                        <p style="margin:0;font-size:13px;font-weight:700;color:#4f46e5;">${fmt((item.price||0)*item.quantity)}</p>
+                        <p style="margin:0;font-size:11px;color:#9ca3af;">×${item.quantity}</p>
+                    </div>
+                </div>`; }).join('')}
+            </div>` : '';
+
+            const orderSummary = showOrder ? `
+            <div style="margin:20px 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;">
+                <p style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px;">Order Summary</p>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <tr><td style="padding:3px 0;color:#6b7280;">Order #</td><td style="text-align:right;font-weight:600;color:#111;">${escapeHtml(orderNum)}</td></tr>
+                    <tr><td style="padding:3px 0;color:#6b7280;">Status</td><td style="text-align:right;font-weight:700;color:#4f46e5;">${escapeHtml(order.status||'—')}</td></tr>
+                    ${order.subtotalCents ? `<tr><td style="padding:3px 0;color:#6b7280;">Subtotal</td><td style="text-align:right;">${fmt(order.subtotalCents)}</td></tr>` : ''}
+                    ${order.shippingCents > 0 ? `<tr><td style="padding:3px 0;color:#6b7280;">Shipping</td><td style="text-align:right;">${fmt(order.shippingCents)}</td></tr>` : ''}
+                    ${order.taxCents > 0 ? `<tr><td style="padding:3px 0;color:#6b7280;">Tax</td><td style="text-align:right;">${fmt(order.taxCents)}</td></tr>` : ''}
+                    <tr style="border-top:1px solid #e2e8f0;">
+                        <td style="padding:6px 0 0;font-weight:700;color:#111;">Total</td>
+                        <td style="text-align:right;padding-top:6px;font-weight:900;font-size:15px;color:#4f46e5;">${fmt(order.totalCents)}</td>
+                    </tr>
+                </table>
+            </div>` : '';
+
+            return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+            <div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+                <div style="background:linear-gradient(135deg,${escapeHtml(color1)},${escapeHtml(color2)});border-radius:16px 16px 0 0;padding:28px 32px;text-align:center;">
+                    ${logoUrl ? `<img src="${logoUrl}" height="40" style="margin-bottom:12px;border-radius:8px;" onerror="this.style.display='none'">` : ''}
+                    <h1 style="margin:0;font-size:22px;font-weight:900;color:#fff;">${escapeHtml(storeName)}</h1>
+                </div>
+                <div style="background:#fff;border-radius:0 0 16px 16px;padding:32px;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+                    <p style="font-size:16px;color:#374151;margin:0 0 16px;">Hi ${escapeHtml(firstName)},</p>
+                    ${greetingHtml}
+                    ${bodyHtml}
+                    ${ctaHtml}
+                    ${couponHtml}
+                    ${itemsHtml}
+                    ${orderSummary}
+                    <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
+                    <p style="font-size:12px;color:#9ca3af;margin:0;text-align:center;">
+                        Questions? Reply to this email or visit <a href="https://autoinx.com" style="color:${escapeHtml(color1)};">autoinx.com</a>
+                    </p>
+                </div>
+            </div></body></html>`;
+        }
+
+        function refreshOrderEmailPreview(orderId) {
+            const order  = state.orders.find(o => o.id === orderId);
+            const fields = getOrderEmailFields(orderId);
+            if (!order) return;
+
+            const subjectEl = document.getElementById('oemail_subject_preview');
+            const orderNum  = order.orderNumber || orderId.slice(0,8).toUpperCase();
+            const autoSub   = `Update on Your Order #${orderNum}`;
+            if (subjectEl) subjectEl.textContent = `Subject: ${fields.subject || autoSub}`;
+
+            const container = document.getElementById('oemail_preview_container');
+            if (!container) return;
+            const html = buildOrderEmailHtml(order, fields);
+            container.innerHTML = `<iframe style="width:100%;height:600px;border:none;" srcdoc="${html.replace(/"/g, '&quot;')}"></iframe>`;
+        }
+
+        async function sendCustomOrderEmail(orderId) {
+            const order  = state.orders.find(o => o.id === orderId);
+            if (!order) return;
+            const fields = getOrderEmailFields(orderId);
+
+            if (!order.buyerEmail) {
+                showMessage('error', 'This order has no email address.', 3000); return;
+            }
+
+            const btn    = document.getElementById('oemail_send_btn');
+            const msgEl  = document.getElementById('oemail_status');
+            const orderNum = order.orderNumber || orderId.slice(0,8).toUpperCase();
+
+            if (btn)   { btn.disabled = true; btn.innerHTML = '⏳ Sending…'; }
+            if (msgEl) msgEl.innerHTML = '<p class="text-blue-600 text-sm">Sending…</p>';
+
+            try {
+                const brand     = globalConfig?.branding || {};
+                const storeName = brand.headerText?.en || brand.headerText || 'AutoInx';
+                const rawLogo   = brand.logoUrl || '';
+                const logoUrl   = rawLogo.startsWith('http') ? rawLogo
+                                : rawLogo ? `https://autoinx.com${rawLogo.startsWith('/') ? '' : '/'}${rawLogo}` : '';
+
+                const [couponCode, couponLabel] = fields.couponRaw ? fields.couponRaw.split('|') : [null, null];
+                const autoSubject = `Update on Your Order #${orderNum}`;
+                const htmlBody    = buildOrderEmailHtml(order, fields);
+                const idToken     = await auth.currentUser.getIdToken();
+
+                const res = await fetch('/.netlify/functions/sendCustomOrderEmail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({
+                        toEmail:    order.buyerEmail,
+                        toName:     order.buyerName || '',
+                        subject:    fields.subject || autoSubject,
+                        htmlBody,
+                        orderId,
+                        orderNum,
+                        emailType:  fields.type,
+                        couponCode, couponLabel,
+                        adminEmail: auth.currentUser?.email || 'admin',
+                        storeName,  logoUrl,
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Send failed');
+
+                if (msgEl) msgEl.innerHTML = `<p class="text-green-600 font-semibold">✅ Sent to ${escapeHtml(order.buyerEmail)}.</p>`;
+                logAdminAction('CUSTOM_ORDER_EMAIL_SENT', { orderId, toEmail: order.buyerEmail, emailType: fields.type, subject: fields.subject || autoSubject }, orderId);
+                logEmailNotification('custom_order_email', orderId, order.buyerEmail, order.buyerName,
+                    { orderNumber: orderNum, emailType: fields.type });
+
+                setTimeout(() => document.getElementById('orderEmailModal')?.remove(), 2000);
+
+            } catch (err) {
+                if (msgEl) msgEl.innerHTML = `<p class="text-red-600">❌ ${escapeHtml(err.message)}</p>`;
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg> Send Email`;
+                }
+            }
+        }
+
         // ── Catalog Email Composer Modal ──────────────────────────────────────────
 
         function openCatalogEmailModal(prefillEmail = '', prefillName = '') {
@@ -19732,6 +20197,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             closeEditModal,
             renderOrderEditModal,
             sendPaymentLink,
+            openOrderEmailModal,
+            refreshOrderEmailPreview,
+            applyOrderEmailTemplate,
+            sendCustomOrderEmail,
             initializeDraftCart,
             handleResendReceipt,
             syncColorInputs,
