@@ -174,9 +174,23 @@ function formatRefundReasonForEmail(reason, languageCode) {
     return languageCode === 'es' ? entry.es : entry.en;
 }
 
-// Zelle/Cash contact details — keep in sync with checkout.html
-const ZELLE_EMAIL = 'payments@autoinx.com';
-const ZELLE_NAME  = 'AutoInx';
+// Zelle/Cash contact details — loaded from Firestore site config at runtime
+// (Admin → Config → Payment Settings). Falls back to env var or hardcoded default.
+async function getZelleConfig(db) {
+    try {
+        const snap = await db.collection('config').doc('site').get();
+        const payment = snap.data()?.payment || {};
+        return {
+            zelleEmail: payment.zelleEmail || process.env.ZELLE_EMAIL || 'payments@autoinx.com',
+            zelleName:  payment.zelleName  || process.env.ZELLE_NAME  || 'AutoInx',
+        };
+    } catch {
+        return {
+            zelleEmail: process.env.ZELLE_EMAIL || 'payments@autoinx.com',
+            zelleName:  process.env.ZELLE_NAME  || 'AutoInx',
+        };
+    }
+}
 
 // --- 5. Main Handler ---
 exports.handler = async function (event) {
@@ -318,8 +332,9 @@ exports.handler = async function (event) {
         // ── Payment method params (NEW) ───────────────────────────────────────
         const isAltPayment = paymentMethod === 'zelle' || paymentMethod === 'cash';
         const isZelle      = paymentMethod === 'zelle';
-        const resolvedZelleEmail = zelleEmailOverride || ZELLE_EMAIL;
-        const resolvedZelleName  = zelleNameOverride  || ZELLE_NAME;
+        const zelleDefaults = await getZelleConfig(getDb());
+        const resolvedZelleEmail = zelleEmailOverride || zelleDefaults.zelleEmail;
+        const resolvedZelleName  = zelleNameOverride  || zelleDefaults.zelleName;
 
         const paymentBannerColor = isZelle ? '#7c3aed' : '#16a34a';
 
