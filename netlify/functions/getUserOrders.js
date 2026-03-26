@@ -15,7 +15,7 @@
 
 const admin = require('firebase-admin');
 
-function getDb() {
+function initAdmin() {
     if (admin.apps.length === 0) {
         admin.initializeApp({
             credential: admin.credential.cert({
@@ -25,6 +25,10 @@ function getDb() {
             }),
         });
     }
+}
+
+function getDb() {
+    initAdmin();
     return admin.firestore();
 }
 
@@ -70,6 +74,9 @@ exports.handler = async function(event) {
             body: JSON.stringify({ error: 'Missing Authorization header' }),
         };
     }
+
+    // Ensure Admin SDK is initialized before any admin.auth() or admin.firestore() call
+    initAdmin();
 
     let decodedToken;
     try {
