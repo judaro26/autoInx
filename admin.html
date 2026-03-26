@@ -597,6 +597,7 @@
             adminCart: {},
             vendorOrders: [],
             investors: [],
+            paymentConfirmations: [],
             vendorOrderFilters: { searchTerm: '', supplier: 'all', status: 'all', sortBy: 'date-desc' },
 
             discounts: [],                      // All discount/coupon records from Firestore
@@ -693,6 +694,7 @@
         const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection;
         const VENDOR_ORDERS_COLLECTION = `vendor_orders`;
         const INVESTORS_COLLECTION = 'investors';
+        const PAYMENT_CONFIRMATIONS_COLL = 'payment_confirmations';
         const SHIPPING_LABELS_COLLECTION = 'shippingLabels';
         const EMAIL_NOTIFICATIONS_COLLECTION = 'email_notifications';
         const REVIEWS_COLLECTION = 'product_reviews';
@@ -5539,6 +5541,12 @@ ${printScript}
                 showMessage('error', 'Failed to fetch vendor orders.', 5000, 'vendorOrder');
             });
 
+            // Payment confirmations listener
+            onSnapshot(collection(db, PAYMENT_CONFIRMATIONS_COLL), snap => {
+                state.paymentConfirmations = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                    .sort((a, b) => (b.submittedAt?.toDate?.()?.getTime() || 0) - (a.submittedAt?.toDate?.()?.getTime() || 0));
+            }, err => console.error('Payment confirmations listener error:', err));
+
             // Investors listener
             onSnapshot(collection(db, INVESTORS_COLLECTION), snap => {
                 state.investors = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -8616,6 +8624,15 @@ ${printScript}
                                             class="w-full text-xs px-3 py-2 bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 font-semibold transition">
                                         ✉️ Custom Email
                                     </button>
+                                    ${(() => {
+                                        const confs = (state.paymentConfirmations || []).filter(p => p.orderId === order.id);
+                                        if (!confs.length) return '';
+                                        const pending = confs.filter(p => p.status === 'pending_review').length;
+                                        return `<button onclick="window.module.showPaymentConfirmationsModal('${order.id}')"
+                                                class="w-full text-xs px-3 py-2 rounded-lg font-semibold transition ${pending ? 'bg-amber-500 text-white animate-pulse hover:bg-amber-600' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}">
+                                            💰 ${pending ? `${pending} Pending Confirmation${pending>1?'s':''}` : `${confs.length} Payment Confirmation${confs.length>1?'s':''}`}
+                                        </button>`;
+                                    })()}
                                     ${!isPaid && !isRefunded ? `
                                     <button onclick="window.module.sendPaymentLink('${order.id}')"
                                             class="w-full text-xs px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-semibold transition">
@@ -16570,6 +16587,120 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             }
         }
 
+
+        // ══════════════════════════════════════════════════════════════════════
+        //  PAYMENT CONFIRMATIONS MODAL
+        // ══════════════════════════════════════════════════════════════════════
+
+        async function showPaymentConfirmationsModal(orderId) {
+            const existing = document.getElementById('payConfirmAdminModal');
+            if (existing) existing.remove();
+
+            const confs  = (state.paymentConfirmations || []).filter(p => p.orderId === orderId);
+            const order  = state.orders.find(o => o.id === orderId);
+            const fmtDate = v => v?.toDate ? v.toDate().toLocaleString() : (v ? new Date(v).toLocaleString() : '—');
+            const fmt = c => `$${((c||0)/100).toFixed(2)}`;
+
+            const modal = document.createElement('div');
+            modal.id = 'payConfirmAdminModal';
+            modal.innerHTML = `
+            <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)document.getElementById('payConfirmAdminModal').remove()">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] overflow-y-auto">
+                    <div class="flex items-center justify-between px-6 py-4 border-b">
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800">💰 Payment Confirmations</h3>
+                            <p class="text-xs text-gray-400 mt-0.5">Order #${escapeHtml(order?.orderNumber || orderId.slice(0,8).toUpperCase())} · ${escapeHtml(order?.buyerEmail || '')}</p>
+                        </div>
+                        <button onclick="document.getElementById('payConfirmAdminModal').remove()" class="text-gray-400 hover:text-gray-600 text-2xl">✕</button>
+                    </div>
+
+                    <div class="p-5 space-y-4">
+                        ${confs.length === 0 ? `
+                        <div class="text-center py-8 text-gray-400">
+                            <p class="text-3xl mb-2">📭</p>
+                            <p class="font-semibold">No payment confirmations yet</p>
+                        </div>` : confs.map(conf => {
+                            const isPending  = conf.status === 'pending_review';
+                            const isApproved = conf.status === 'approved';
+                            const badgeCls   = isPending  ? 'bg-amber-100 text-amber-800'
+                                             : isApproved ? 'bg-green-100 text-green-700'
+                                             :              'bg-red-100 text-red-700';
+                            const badgeTxt   = isPending ? '⏳ Pending Review' : isApproved ? '✅ Approved' : '❌ Rejected';
+                            return `
+                            <div class="border border-gray-200 rounded-xl overflow-hidden">
+                                <div class="flex items-center justify-between px-4 py-3 bg-gray-50 border-b">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-sm font-bold text-gray-800">${conf.paymentMethod === 'zelle' ? '🏦 Zelle' : '💵 Cash'}</span>
+                                        <span class="text-xs px-2 py-0.5 rounded-full font-bold ${badgeCls}">${badgeTxt}</span>
+                                    </div>
+                                    <span class="text-xs text-gray-400">${fmtDate(conf.submittedAt)}</span>
+                                </div>
+                                <div class="p-4 space-y-3">
+                                    ${conf.amountPaid ? `<p class="text-sm"><span class="text-gray-500">Amount paid:</span> <strong class="text-green-700">$${parseFloat(conf.amountPaid).toFixed(2)}</strong></p>` : ''}
+                                    ${conf.notes ? `<p class="text-sm text-gray-600 bg-gray-50 rounded-lg p-3">${escapeHtml(conf.notes)}</p>` : ''}
+                                    ${conf.screenshotUrl ? `
+                                    <div>
+                                        <p class="text-xs font-semibold text-gray-500 mb-2">Screenshot:</p>
+                                        <a href="${escapeHtml(conf.screenshotUrl)}" target="_blank">
+                                            <img src="${escapeHtml(conf.screenshotUrl)}" class="max-h-48 rounded-lg border border-gray-200 hover:opacity-90 transition cursor-pointer"
+                                                 onerror="this.style.display='none'">
+                                        </a>
+                                        <a href="${escapeHtml(conf.screenshotUrl)}" target="_blank"
+                                           class="text-xs text-blue-600 hover:underline mt-1 block">Open full size ↗</a>
+                                    </div>` : '<p class="text-xs text-gray-400 italic">No screenshot uploaded</p>'}
+
+                                    ${isPending ? `
+                                    <div class="flex gap-2 pt-2 border-t border-gray-100">
+                                        <button onclick="window.module.reviewPaymentConfirmation('${conf.id}', '${orderId}', 'approved')"
+                                                class="flex-1 px-3 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition">
+                                            ✅ Approve — Mark Order Paid
+                                        </button>
+                                        <button onclick="window.module.reviewPaymentConfirmation('${conf.id}', '${orderId}', 'rejected')"
+                                                class="px-3 py-2 bg-red-50 text-red-600 border border-red-200 text-xs font-bold rounded-lg hover:bg-red-100 transition">
+                                            ❌ Reject
+                                        </button>
+                                    </div>` : ''}
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+        }
+
+        async function reviewPaymentConfirmation(confirmationId, orderId, decision) {
+            try {
+                await updateDoc(doc(db, PAYMENT_CONFIRMATIONS_COLL, confirmationId), {
+                    status:     decision,
+                    reviewedAt: serverTimestamp(),
+                    reviewedBy: auth.currentUser?.email || 'admin',
+                });
+
+                if (decision === 'approved') {
+                    await updateDoc(doc(db, ORDERS_COLLECTION, orderId), {
+                        isPaid:        true,
+                        paymentStatus: 'Paid',
+                        paidAt:        new Date().toISOString(),
+                        updatedAt:     serverTimestamp(),
+                    });
+                    showMessage('success', 'Payment approved — order marked as Paid.', 3000);
+                    await logAdminAction('PAYMENT_CONFIRMATION_APPROVED', { orderId, confirmationId }, orderId);
+                } else {
+                    await updateDoc(doc(db, ORDERS_COLLECTION, orderId), {
+                        paymentConfirmationSubmitted: false,
+                        paymentStatus: 'Unpaid',
+                        updatedAt: serverTimestamp(),
+                    });
+                    showMessage('info', 'Payment confirmation rejected.', 3000);
+                    await logAdminAction('PAYMENT_CONFIRMATION_REJECTED', { orderId, confirmationId }, orderId);
+                }
+                document.getElementById('payConfirmAdminModal')?.remove();
+            } catch (err) {
+                showMessage('error', `Failed: ${err.message}`, 4000);
+            }
+        }
+
         // ── Catalog Email Composer Modal ──────────────────────────────────────────
 
         function openCatalogEmailModal(prefillEmail = '', prefillName = '') {
@@ -20362,6 +20493,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             renderOrderEditModal,
             sendPaymentLink,
             openOrderEmailModal,
+            showPaymentConfirmationsModal,
+            reviewPaymentConfirmation,
             refreshOrderEmailPreview,
             applyOrderEmailTemplate,
             sendCustomOrderEmail,
