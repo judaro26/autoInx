@@ -3189,53 +3189,41 @@
 
         async function loadUserOrdersForReturn() {
             try {
-                const uid   = auth.currentUser?.uid;
-                const email = auth.currentUser?.email;
-                if (!uid) throw new Error('Not logged in');
-        
-                let docs = [];
-        
-                // Try each field — skip orderBy to avoid missing-index errors
-                const tryQuery = async (field, value) => {
-                    try {
-                        const s = await getDocs(
-                            query(collection(db, ORDERS_COLLECTION), where(field, '==', value))
-                        );
-                        return s.docs;
-                    } catch { return []; }
-                };
-        
-                const [byUid, byUserId, byEmail] = await Promise.all([
-                    tryQuery('uid',        uid),
-                    tryQuery('userId',     uid),
-                    email ? tryQuery('buyerEmail', email) : Promise.resolve([]),
-                ]);
-        
-                // Merge & deduplicate by doc id
-                const seen = new Set();
-                for (const d of [...byUid, ...byUserId, ...byEmail]) {
-                    if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); }
+                const user = auth.currentUser;
+                if (!user) throw new Error('Not logged in');
+
+                // Use the server-side function instead of querying Firestore directly —
+                // client-side security rules block where() queries for regular users.
+                const idToken = await user.getIdToken(false);
+                const res     = await fetch('/.netlify/functions/getUserOrders', {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${idToken}` },
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || `Server error ${res.status}`);
                 }
-        
-                const ELIGIBLE_STATUSES = new Set(['Delivered', 'Shipped', 'In Transit', 'Processing', 'Pending']);
+
+                const data = await res.json();
+                const allOrders = data.orders || [];
+
+                const ELIGIBLE_STATUSES  = new Set(['Delivered', 'Shipped', 'In Transit', 'Processing', 'Pending']);
                 const CANCELLED_STATUSES = new Set(['Cancelled', 'Cancelled - Refunded', 'Refunded']);
 
-                state.returnModal.orders = docs
-                    .map(d => ({ id: d.id, ...d.data() }))
+                state.returnModal.orders = allOrders
                     .filter(o => {
                         const status = (o.status || '').trim();
                         if (CANCELLED_STATUSES.has(status)) return false;
-                        // Accept any explicit paid flag, case-insensitive paymentStatus,
-                        // or a positive totalCents (order was placed = money collected)
                         const paid = o.isPaid === true
                             || (typeof o.paymentStatus === 'string' && o.paymentStatus.toLowerCase() === 'paid')
-                            || ELIGIBLE_STATUSES.has(status)   // delivered/shipped => implicitly paid
+                            || ELIGIBLE_STATUSES.has(status)
                             || (o.totalCents > 0 && !CANCELLED_STATUSES.has(status));
                         return paid;
                     })
                     .sort((a, b) => {
-                        const ta = a.createdAt?.toDate?.()?.getTime() || a.timestamp || 0;
-                        const tb = b.createdAt?.toDate?.()?.getTime() || b.timestamp || 0;
+                        const ta = new Date(a.createdAt || a.timestamp || 0).getTime();
+                        const tb = new Date(b.createdAt || b.timestamp || 0).getTime();
                         return tb - ta;
                     });
         
