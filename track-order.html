@@ -891,10 +891,178 @@
                 <span class="badge ${statusLc}">${status}</span>
             </div>`;
 
-        $('guestOrderCard').innerHTML = headerHtml + buildOrderDetailHtml(order);
+        // Add payment confirmation CTA for Zelle/Cash orders
+        const pendingMethod = new URLSearchParams(location.search).get('pending');
+        const isAltPay = order.paymentMethod === 'zelle' || order.paymentMethod === 'cash' || pendingMethod;
+        const isPaid   = order.isPaid || order.paymentStatus === 'Paid';
+        const alreadySubmitted = order.paymentConfirmationSubmitted;
+        const isSp = lang === 'es';
+
+        const paymentCta = (isAltPay && !isPaid) ? `
+        <div style="margin-top:16px;background:${alreadySubmitted ? '#f0fdf4' : '#fefce8'};border:2px solid ${alreadySubmitted ? '#bbf7d0' : '#fde68a'};border-radius:12px;padding:16px;">
+            ${alreadySubmitted
+                ? `<p style="font-weight:700;color:#16a34a;margin:0 0 4px;">✅ ${isSp ? 'Comprobante enviado' : 'Confirmation submitted'}</p>
+                   <p style="font-size:13px;color:#6b7280;margin:0;">${isSp ? 'Estamos revisando tu pago.' : 'We are reviewing your payment.'}</p>`
+                : `<p style="font-weight:700;color:#92400e;margin:0 0 8px;">💳 ${isSp ? '¿Ya pagaste? Sube tu comprobante' : 'Already paid? Upload your confirmation'}</p>
+                   <button onclick="showGuestPaymentConfirmation('${order.id}', '${pendingMethod || order.paymentMethod || 'zelle'}')"
+                           style="background:#d97706;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;">
+                       📎 ${isSp ? 'Subir Comprobante' : 'Upload Confirmation'}
+                   </button>`
+            }
+        </div>` : '';
+
+        $('guestOrderCard').innerHTML = headerHtml + buildOrderDetailHtml(order) + paymentCta;
         $('guestResult').style.display = 'block';
         $('guestResult').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        // Auto-show panel if ?pending= is in URL and not yet submitted
+        if (pendingMethod && !alreadySubmitted && !isPaid) {
+            setTimeout(() => showGuestPaymentConfirmation(order.id, pendingMethod), 400);
+        }
     }
+
+    // Guest payment confirmation — order number + email verified, no account needed
+    window.showGuestPaymentConfirmation = function(orderId, method) {
+        const existing = document.getElementById('guestPayConfirmPanel');
+        if (existing) existing.remove();
+
+        const isZelle = method === 'zelle';
+        const isSp    = lang === 'es';
+        const ZELLE_EMAIL = window._zelleEmail || 'payments@autoinx.com';
+
+        const panel = document.createElement('div');
+        panel.id = 'guestPayConfirmPanel';
+        panel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;';
+        panel.innerHTML = `
+        <div style="background:#fff;border-radius:20px;box-shadow:0 25px 50px rgba(0,0,0,.2);width:100%;max-width:460px;max-height:90vh;overflow-y:auto;">
+            <div style="background:linear-gradient(135deg,${isZelle?'#7c3aed,#a855f7':'#16a34a,#22c55e'});padding:20px 24px;border-radius:20px 20px 0 0;">
+                <h2 style="color:#fff;font-size:1.15rem;font-weight:900;margin:0;">${isZelle ? '🏦' : '💵'} ${isSp ? 'Confirmar Pago' : 'Confirm Payment'}</h2>
+                <p style="color:rgba(255,255,255,.8);font-size:.8rem;margin:4px 0 0;">${isSp ? 'Pedido' : 'Order'} #${orderId.slice(0,8).toUpperCase()}</p>
+            </div>
+            <div style="padding:20px 24px;space-y:12px;">
+                ${isZelle ? `<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:14px;margin-bottom:14px;">
+                    <p style="font-size:.75rem;color:#6b7280;margin:0 0 4px;">${isSp ? 'Envía a:' : 'Send to:'}</p>
+                    <p style="font-size:1rem;font-weight:900;color:#7c3aed;margin:0;">${ZELLE_EMAIL}</p>
+                </div>` : ''}
+
+                <div style="margin-bottom:12px;">
+                    <label style="font-size:.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">
+                        ${isSp ? 'Adjuntar comprobante (foto/captura)' : 'Attach confirmation (photo/screenshot)'}
+                    </label>
+                    <label style="display:block;border:2px dashed #d1d5db;border-radius:10px;padding:16px;text-align:center;cursor:pointer;background:#fafafa;" id="gpcDropzone">
+                        <div id="gpcPreview"></div>
+                        <p style="font-size:.8rem;color:#6b7280;margin:0;">📎 ${isSp ? 'Toca para adjuntar' : 'Tap to attach'}</p>
+                        <input type="file" id="gpcFile" accept="image/*,application/pdf" style="display:none">
+                    </label>
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <label style="font-size:.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">${isSp ? 'Monto pagado ($)' : 'Amount paid ($)'}</label>
+                    <input type="number" id="gpcAmount" step="0.01" placeholder="0.00"
+                           style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:.9rem;box-sizing:border-box;">
+                </div>
+
+                <div style="margin-bottom:12px;">
+                    <label style="font-size:.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">${isSp ? 'Notas (opcional)' : 'Notes (optional)'}</label>
+                    <textarea id="gpcNotes" rows="2" placeholder="${isSp ? 'Número de confirmación, fecha, etc.' : 'Confirmation number, date, etc.'}"
+                              style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:.8rem;resize:none;box-sizing:border-box;"></textarea>
+                </div>
+
+                <div id="gpcError" style="display:none;background:#fee2e2;border-radius:8px;padding:10px;font-size:.8rem;color:#dc2626;font-weight:600;margin-bottom:10px;"></div>
+
+                <div style="display:flex;gap:10px;">
+                    <button id="gpcSubmit"
+                            style="flex:1;padding:11px;background:${isZelle?'#7c3aed':'#16a34a'};color:#fff;border:none;border-radius:10px;font-size:.9rem;font-weight:700;cursor:pointer;">
+                        ✅ ${isSp ? 'Enviar' : 'Submit'}
+                    </button>
+                    <button onclick="document.getElementById('guestPayConfirmPanel').remove()"
+                            style="padding:11px 16px;background:#f3f4f6;color:#6b7280;border:none;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;">
+                        ${isSp ? 'Cancelar' : 'Cancel'}
+                    </button>
+                </div>
+            </div>
+        </div>`;
+        document.body.appendChild(panel);
+
+        const fileInput = document.getElementById('gpcFile');
+        document.getElementById('gpcDropzone').onclick = e => { if (e.target !== fileInput) fileInput.click(); };
+        fileInput.onchange = () => {
+            const file = fileInput.files[0];
+            if (!file) return;
+            const preview = document.getElementById('gpcPreview');
+            if (file.type.startsWith('image/')) {
+                const url = URL.createObjectURL(file);
+                preview.innerHTML = `<img src="${url}" style="max-height:100px;border-radius:6px;margin-bottom:4px;">`;
+            } else {
+                preview.innerHTML = `<p style="font-size:.75rem;color:#374151;font-weight:600;margin-bottom:4px;">📄 ${file.name}</p>`;
+            }
+        };
+
+        document.getElementById('gpcSubmit').onclick = async () => {
+            const file   = fileInput.files[0];
+            const amount = parseFloat(document.getElementById('gpcAmount').value) || 0;
+            const notes  = document.getElementById('gpcNotes').value.trim();
+            const errEl  = document.getElementById('gpcError');
+            const btn    = document.getElementById('gpcSubmit');
+            errEl.style.display = 'none';
+
+            if (!file && !notes) {
+                errEl.textContent = isSp ? 'Adjunta un comprobante o añade una nota.' : 'Please attach a screenshot or add a note.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true; btn.textContent = '⏳';
+
+            try {
+                // Upload via a server-side function (guest has no Firebase auth)
+                let screenshotUrl = null;
+                if (file) {
+                    const formData = new FormData();
+                    formData.append('file',    file);
+                    formData.append('orderId', orderId);
+                    const uploadRes = await fetch('/.netlify/functions/uploadPaymentProof', {
+                        method: 'POST', body: formData
+                    });
+                    if (uploadRes.ok) {
+                        const uploadData = await uploadRes.json();
+                        screenshotUrl = uploadData.url || null;
+                    }
+                }
+
+                // Save confirmation via server-side function (no auth required for guest)
+                const res = await fetch('/.netlify/functions/submitPaymentConfirmation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderId, method, amountPaid: amount || null,
+                        screenshotUrl, notes: notes || null,
+                        customerEmail: $('emailInput')?.value?.trim() || null,
+                        isGuest: true,
+                    })
+                });
+
+                if (!res.ok) throw new Error('Submission failed');
+
+                panel.innerHTML = `
+                <div style="background:#fff;border-radius:20px;padding:36px;text-align:center;max-width:460px;width:100%;">
+                    <div style="font-size:2.5rem;margin-bottom:10px;">✅</div>
+                    <h2 style="font-size:1.15rem;font-weight:900;color:#16a34a;margin:0 0 8px;">${isSp ? '¡Enviado!' : 'Submitted!'}</h2>
+                    <p style="font-size:.875rem;color:#6b7280;margin:0 0 18px;">${isSp ? 'Revisaremos tu pago pronto.' : 'We will review your payment shortly.'}</p>
+                    <button onclick="document.getElementById('guestPayConfirmPanel').remove()"
+                            style="padding:10px 24px;background:#4f46e5;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">
+                        OK
+                    </button>
+                </div>`;
+                panel.style.alignItems = 'center';
+            } catch (err) {
+                errEl.textContent = isSp ? 'Error al enviar. Intenta de nuevo.' : 'Submission failed. Please try again.';
+                errEl.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = isSp ? '✅ Enviar' : '✅ Submit';
+            }
+        };
+    };
 
     function showErr(msg) {
         const el = $('searchError');
