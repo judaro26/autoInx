@@ -6048,12 +6048,41 @@ ${printScript}
 
         function showEditForm(item) {
             state.editingItem = item;
-            _refreshCatalogSection();
+
+            if (state.catalogFilters?.fullscreen) {
+                // Fullscreen mode: inject directly into #editModalContainer which already
+                // has z-index:10100 via catalog-fs-style — the page-flow form is hidden
+                // behind the fullscreen wrapper so we bypass it entirely.
+                const container = document.getElementById('editModalContainer');
+                if (container) {
+                    // Wrap in a modal overlay so it floats above the fullscreen table
+                    container.innerHTML = `
+                        <div class="fixed inset-0 bg-black/50 z-[10099] flex items-center justify-center p-4"
+                             onclick="if(event.target===this)window.module.cancelEdit()">
+                            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative">
+                                <button onclick="window.module.cancelEdit()"
+                                        class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-2xl leading-none z-10">✕</button>
+                                ${renderEditProductForm()}
+                            </div>
+                        </div>`;
+                    // Ensure the container itself is above the fullscreen wrapper
+                    container.style.zIndex = '10100';
+                }
+            } else {
+                // Normal mode: standard page-flow re-render
+                _refreshCatalogSection();
+            }
             resetTimer();
         }
 
         function cancelEdit() {
             state.editingItem = null;
+            // Clear any modal-mode edit form
+            const container = document.getElementById('editModalContainer');
+            if (container && container.innerHTML.includes('handleEditProduct')) {
+                container.innerHTML = '';
+                container.style.zIndex = '';
+            }
             _refreshCatalogSection();
             resetTimer();
         }
