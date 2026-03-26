@@ -596,6 +596,7 @@
             previewMode: false,
             adminCart: {},
             vendorOrders: [],
+            investors: [],
             vendorOrderFilters: { searchTerm: '', supplier: 'all', status: 'all', sortBy: 'date-desc' },
 
             discounts: [],                      // All discount/coupon records from Firestore
@@ -690,6 +691,7 @@
         const RECEIPT_EMAIL_CONFIRMATION_FUNCTION = '/.netlify/functions/sendReceiptConfirmation';
         const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection;
         const VENDOR_ORDERS_COLLECTION = `vendor_orders`;
+        const INVESTORS_COLLECTION = 'investors';
         const SHIPPING_LABELS_COLLECTION = 'shippingLabels';
         const EMAIL_NOTIFICATIONS_COLLECTION = 'email_notifications';
         const REVIEWS_COLLECTION = 'product_reviews';
@@ -1592,6 +1594,8 @@
                 return renderShippingLabelsSection();
             } else if (state.activeTab === 'financials') {
                 return window.module.renderFinancialsSection();
+            } else if (state.activeTab === 'investors') {
+                return renderInvestorsSection();
             } else if (state.activeTab === 'vendorOrders') {
                 return renderVendorOrdersSection();
             } else if (state.activeTab === 'externalOrders') {
@@ -5489,6 +5493,17 @@ ${printScript}
                 console.error("Error listening to vendor orders:", err);
                 showMessage('error', 'Failed to fetch vendor orders.', 5000, 'vendorOrder');
             });
+
+            // Investors listener
+            onSnapshot(collection(db, INVESTORS_COLLECTION), snap => {
+                state.investors = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                if (state.activeTab === 'investors' && !state.previewMode) {
+                    renderAdminPage();
+                }
+            }, err => {
+                console.error("Error listening to investors:", err);
+            });
             // Promotions listener
             onSnapshot(collection(db, getDiscountsCollectionPath()), snap => {
                 state.discounts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -5875,6 +5890,9 @@ ${printScript}
                     window.module.displayStaticIps();
                     previewSeasonalBanner();
                 }, 150);
+            } else if (tab === 'investors') {
+                state.activeTab = 'investors';
+                renderAdminPage();
             } else if (tab === 'vendorOrders') {
                 // Vendor orders are already loaded via realtime listener
                 // Just render the section
@@ -9643,6 +9661,7 @@ ${printScript}
                     <div class="bg-gray-50/60 pb-1">
                         ${tabBtn('financials',    '💳', t('tabFinancials'))}
                         ${tabBtn('vendorOrders',  '🏭', 'Vendor Orders')}
+                        ${tabBtn('investors',     '💼', 'Investors')}
                         ${tabBtn('profitAnalysis','📊', 'Profit Analysis')}
                         ${tabBtn('returns',       '↩️', 'Returns & Refunds')}
                     </div>` : ''}
@@ -9814,6 +9833,278 @@ ${printScript}
                 showMessage('error', `Failed to add payment: ${error.message}`, 5000, 'orders');
             }
         }
+
+        // ═══════════════════════════════════════════════════════════════════
+        //  INVESTORS SECTION
+        // ═══════════════════════════════════════════════════════════════════
+
+        function renderInvestorsSection() {
+            const investors = state.investors || [];
+            const vendorOrders = state.vendorOrders || [];
+
+            // Per-investor stats
+            const statsForInvestor = (inv) => {
+                const orders = vendorOrders.filter(o => o.investorId === inv.id);
+                const activeOrders = orders.filter(o => o.status !== 'Cancelled - Refunded');
+                const totalInvestedCents = activeOrders.reduce((sum, o) => {
+                    if (o.investmentType === 'percentage') {
+                        return sum + Math.round((o.investmentPercentage || 0) / 100 * (o.totalCostCents || 0));
+                    }
+                    return sum + (o.investmentAmountCents || 0);
+                }, 0);
+                return { orders: activeOrders.length, totalInvestedCents };
+            };
+
+            const totalDeployedCents = investors.reduce((sum, inv) => sum + statsForInvestor(inv).totalInvestedCents, 0);
+            const totalOrders = vendorOrders.filter(o => o.investorId).length;
+
+            return `
+            <div class="space-y-6 p-4">
+
+                <!-- Header bar -->
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <h2 class="text-2xl font-black text-gray-800">💼 Investors</h2>
+                        <p class="text-sm text-gray-500 mt-0.5">Track investor allocations across vendor orders</p>
+                    </div>
+                    <button onclick="window.module.showAddInvestorModal()"
+                            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow transition">
+                        + Add Investor
+                    </button>
+                </div>
+
+                <!-- Summary cards -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Investors</p>
+                        <p class="text-3xl font-black text-emerald-700 mt-1">${investors.length}</p>
+                    </div>
+                    <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Capital Deployed</p>
+                        <p class="text-3xl font-black text-indigo-700 mt-1">${formatPriceDisplay(totalDeployedCents)}</p>
+                    </div>
+                    <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+                        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Backed Orders</p>
+                        <p class="text-3xl font-black text-blue-700 mt-1">${totalOrders}</p>
+                    </div>
+                </div>
+
+                ${investors.length === 0 ? `
+                <div class="bg-white border border-dashed border-gray-300 rounded-2xl p-12 text-center text-gray-400">
+                    <div class="text-5xl mb-3">💼</div>
+                    <p class="font-semibold text-lg">No investors yet</p>
+                    <p class="text-sm mt-1">Click "Add Investor" to register your first investor and start allocating vendor orders.</p>
+                </div>` : `
+
+                <!-- Investor cards -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    ${investors.map(inv => {
+                        const { orders, totalInvestedCents } = statsForInvestor(inv);
+                        const invOrders = vendorOrders.filter(o => o.investorId === inv.id && o.status !== 'Cancelled - Refunded');
+                        return `
+                        <div class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                            <div class="flex items-start justify-between p-4 border-b border-gray-100">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-11 h-11 rounded-full bg-emerald-100 flex items-center justify-center text-xl font-black text-emerald-700 flex-shrink-0">
+                                        ${escapeHtml((inv.name || '?').charAt(0).toUpperCase())}
+                                    </div>
+                                    <div>
+                                        <p class="font-bold text-gray-800">${escapeHtml(inv.name || '—')}</p>
+                                        ${inv.email ? `<p class="text-xs text-gray-500">${escapeHtml(inv.email)}</p>` : ''}
+                                        ${inv.phone ? `<p class="text-xs text-gray-400">${escapeHtml(inv.phone)}</p>` : ''}
+                                    </div>
+                                </div>
+                                <div class="flex gap-2 flex-shrink-0">
+                                    <button onclick="window.module.showEditInvestorModal('${inv.id}')"
+                                            class="px-2.5 py-1 text-xs font-semibold text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition">✏️ Edit</button>
+                                    <button onclick="window.module.deleteInvestor('${inv.id}')"
+                                            class="px-2.5 py-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition">🗑️</button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 divide-x divide-gray-100 border-b border-gray-100">
+                                <div class="p-3 text-center">
+                                    <p class="text-xs text-gray-400 font-medium">Capital Deployed</p>
+                                    <p class="text-lg font-black text-indigo-700">${formatPriceDisplay(totalInvestedCents)}</p>
+                                </div>
+                                <div class="p-3 text-center">
+                                    <p class="text-xs text-gray-400 font-medium">Backed Orders</p>
+                                    <p class="text-lg font-black text-blue-700">${orders}</p>
+                                </div>
+                            </div>
+
+                            ${invOrders.length > 0 ? `
+                            <div class="p-3 space-y-1.5 max-h-48 overflow-y-auto">
+                                ${invOrders.map(o => {
+                                    const allocCents = o.investmentType === 'percentage'
+                                        ? Math.round((o.investmentPercentage || 0) / 100 * (o.totalCostCents || 0))
+                                        : (o.investmentAmountCents || 0);
+                                    const alloc = o.investmentType === 'percentage'
+                                        ? `${o.investmentPercentage}% = ${formatPriceDisplay(allocCents)}`
+                                        : formatPriceDisplay(allocCents);
+                                    const statusClass = {
+                                        'Delivered': 'bg-green-100 text-green-700',
+                                        'Shipped': 'bg-purple-100 text-purple-700',
+                                        'In Transit': 'bg-indigo-100 text-indigo-700',
+                                        'Paid': 'bg-blue-100 text-blue-700',
+                                        'Ordered': 'bg-yellow-100 text-yellow-700',
+                                    }[o.status] || 'bg-gray-100 text-gray-600';
+                                    return `
+                                    <div class="flex items-center justify-between text-xs bg-gray-50 rounded-lg px-3 py-1.5">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span class="font-mono text-gray-500 flex-shrink-0">${escapeHtml(o.orderId || o.id.slice(0,8))}</span>
+                                            <span class="truncate text-gray-600">${escapeHtml(o.supplier || '')}</span>
+                                        </div>
+                                        <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+                                            <span class="font-bold text-emerald-700">${alloc}</span>
+                                            <span class="px-1.5 py-0.5 rounded-full font-bold ${statusClass}">${o.status}</span>
+                                        </div>
+                                    </div>`;
+                                }).join('')}
+                            </div>` : `
+                            <div class="p-4 text-center text-xs text-gray-400">No vendor orders allocated yet</div>`}
+
+                            ${inv.notes ? `
+                            <div class="px-4 pb-3 pt-1">
+                                <p class="text-xs text-gray-400 italic">${escapeHtml(inv.notes)}</p>
+                            </div>` : ''}
+                        </div>`;
+                    }).join('')}
+                </div>`}
+
+                <div id="investorModalContainer"></div>
+            </div>`;
+        }
+
+        function showAddInvestorModal() {
+            _renderInvestorModal(null);
+        }
+
+        function showEditInvestorModal(investorId) {
+            const inv = (state.investors || []).find(i => i.id === investorId);
+            if (!inv) return;
+            _renderInvestorModal(inv);
+        }
+
+        function _renderInvestorModal(inv) {
+            const isEdit = !!inv;
+            const existing = document.getElementById('investorModal');
+            if (existing) existing.remove();
+
+            const html = `
+            <div id="investorModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+                 onclick="if(event.target.id==='investorModal')window.module.closeInvestorModal()">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                    <div class="flex items-center justify-between p-5 border-b">
+                        <h3 class="text-lg font-bold text-gray-800">${isEdit ? '✏️ Edit Investor' : '+ New Investor'}</h3>
+                        <button onclick="window.module.closeInvestorModal()" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+                    </div>
+                    <form id="investorForm" class="p-5 space-y-4" onsubmit="return false;">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Full Name *</label>
+                            <input type="text" name="name" required value="${escapeAttribute(inv?.name || '')}"
+                                   placeholder="e.g. Maria García"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-400">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Email</label>
+                                <input type="email" name="email" value="${escapeAttribute(inv?.email || '')}"
+                                       placeholder="investor@email.com"
+                                       class="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Phone</label>
+                                <input type="text" name="phone" value="${escapeAttribute(inv?.phone || '')}"
+                                       placeholder="+1 555 000 0000"
+                                       class="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-400">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
+                            <textarea name="notes" rows="2" placeholder="Any notes about this investor…"
+                                      class="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-400 resize-none">${escapeHtml(inv?.notes || '')}</textarea>
+                        </div>
+                    </form>
+                    <div class="flex justify-end gap-3 px-5 pb-5 pt-2 border-t">
+                        <button onclick="window.module.saveInvestor(${isEdit ? `'${inv.id}'` : 'null'})"
+                                class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition">
+                            💾 ${isEdit ? 'Save Changes' : 'Add Investor'}
+                        </button>
+                        <button onclick="window.module.closeInvestorModal()"
+                                class="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition">Cancel</button>
+                    </div>
+                </div>
+            </div>`;
+
+            document.body.insertAdjacentHTML('beforeend', html);
+        }
+
+        async function saveInvestor(editId) {
+            const form = document.getElementById('investorForm');
+            if (!form) return;
+            const name = form.querySelector('[name="name"]')?.value?.trim();
+            if (!name) { showMessage('error', 'Name is required.', 3000); return; }
+
+            const data = {
+                name,
+                email: form.querySelector('[name="email"]')?.value?.trim() || null,
+                phone: form.querySelector('[name="phone"]')?.value?.trim() || null,
+                notes: form.querySelector('[name="notes"]')?.value?.trim() || null,
+                updatedAt: serverTimestamp(),
+            };
+
+            try {
+                if (editId) {
+                    await updateDoc(doc(db, INVESTORS_COLLECTION, editId), data);
+                    showMessage('success', 'Investor updated.', 2500);
+                    await logAdminAction('INVESTOR_UPDATED', { name }, editId);
+                } else {
+                    data.createdAt = serverTimestamp();
+                    const ref = await addDoc(collection(db, INVESTORS_COLLECTION), data);
+                    showMessage('success', 'Investor added.', 2500);
+                    await logAdminAction('INVESTOR_CREATED', { name }, ref.id);
+                }
+                closeInvestorModal();
+            } catch (err) {
+                showMessage('error', `Failed to save: ${err.message}`, 4000);
+            }
+        }
+
+        async function deleteInvestor(investorId) {
+            const inv = (state.investors || []).find(i => i.id === investorId);
+            const linked = (state.vendorOrders || []).filter(o => o.investorId === investorId).length;
+            const msg = linked > 0
+                ? `Delete ${inv?.name || 'this investor'}? They are linked to ${linked} vendor order(s). The orders will remain but lose the investor link.`
+                : `Delete ${inv?.name || 'this investor'}?`;
+            if (!confirm(msg)) return;
+            try {
+                await deleteDoc(doc(db, INVESTORS_COLLECTION, investorId));
+                showMessage('success', 'Investor deleted.', 2500);
+                await logAdminAction('INVESTOR_DELETED', { name: inv?.name }, investorId);
+            } catch (err) {
+                showMessage('error', `Failed to delete: ${err.message}`, 4000);
+            }
+        }
+
+        function closeInvestorModal() {
+            document.getElementById('investorModal')?.remove();
+        }
+
+        // Toggle investor allocation fields in vendor order form
+        function toggleInvestorAllocation(show) {
+            const section = document.getElementById('investorAllocationFields');
+            if (section) section.classList.toggle('hidden', !show);
+        }
+
+        // Swap between amount and percentage input in vendor order form
+        function toggleInvestmentType(type) {
+            const amtRow = document.getElementById('investAmountRow');
+            const pctRow = document.getElementById('investPercentRow');
+            if (amtRow) amtRow.classList.toggle('hidden', type !== 'amount');
+            if (pctRow) pctRow.classList.toggle('hidden', type !== 'percentage');
+        }
+
         function renderVendorOrdersSection() {
             const vendorOrders = state.vendorOrders || [];
 
@@ -10057,6 +10348,19 @@ ${printScript}
                         ? `<div class="text-indigo-700 font-bold">${formatPriceDisplay(costPerUnitCents)}</div><div class="text-xs text-gray-400">landed / unit</div>`
                         : '<span class="text-gray-400">—</span>'}
                 </td>
+                <td class="p-3 min-w-[130px]">
+                    ${order.investorId ? `
+                    <div class="inline-flex flex-col gap-0.5">
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 whitespace-nowrap">
+                            💼 ${escapeHtml(order.investorName || 'Investor')}
+                        </span>
+                        <span class="text-xs text-gray-500 pl-1">
+                            ${order.investmentType === 'percentage'
+                                ? `${order.investmentPercentage || 0}%`
+                                : formatPriceDisplay(order.investmentAmountCents || 0)}
+                        </span>
+                    </div>` : '<span class="text-gray-300 text-xs">—</span>'}
+                </td>
                 <td class="p-3 min-w-[110px]">
                     <div class="flex flex-col gap-1">
                         <button onclick="event.stopPropagation(); window.module.showVendorOrderDetailsModal('${order.id}')"
@@ -10137,6 +10441,7 @@ ${printScript}
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Fees & Tax</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Total Cost</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Cost / Unit</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Investor</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Actions</th>
                     </tr>
                 </thead>
@@ -10775,6 +11080,57 @@ ${printScript}
                             <label class="block text-xs font-semibold text-gray-700 mb-1">Refund Reference / ID</label>
                             <input type="text" name="refundReference" placeholder="Supplier refund ID or transaction #"
                                    class="w-full px-3 py-2 border border-orange-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400">
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Investor Allocation -->
+                <div class="border border-gray-200 rounded-xl overflow-hidden">
+                    <label class="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer select-none">
+                        <input type="checkbox" name="hasInvestor" id="hasInvestorCheck"
+                               onchange="window.module.toggleInvestorAllocation(this.checked)"
+                               class="w-4 h-4 text-emerald-600 rounded">
+                        <span class="text-sm font-semibold text-gray-700">💼 Allocate to an Investor</span>
+                    </label>
+                    <div id="investorAllocationFields" class="hidden p-4 space-y-3 border-t border-gray-200 bg-emerald-50">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Investor *</label>
+                            <select name="investorId" id="investorSelect"
+                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 bg-white">
+                                <option value="">— Select Investor —</option>
+                                ${(state.investors || []).map(inv =>
+                                    `<option value="${escapeAttribute(inv.id)}">${escapeHtml(inv.name)}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Investment Type</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+                                    <input type="radio" name="investmentType" value="amount" checked
+                                           onchange="window.module.toggleInvestmentType('amount')"
+                                           class="text-emerald-600"> Fixed Amount ($)
+                                </label>
+                                <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+                                    <input type="radio" name="investmentType" value="percentage"
+                                           onchange="window.module.toggleInvestmentType('percentage')"
+                                           class="text-emerald-600"> Percentage (%)
+                                </label>
+                            </div>
+                        </div>
+                        <div id="investAmountRow">
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Investment Amount ($)</label>
+                            <input type="number" name="investmentAmount" step="0.01" min="0" placeholder="0.00"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 bg-white">
+                        </div>
+                        <div id="investPercentRow" class="hidden">
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Ownership Percentage (%)</label>
+                            <div class="relative">
+                                <input type="number" name="investmentPercentage" step="0.1" min="0" max="100" placeholder="e.g. 50"
+                                       class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 bg-white pr-8">
+                                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">%</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -18251,6 +18607,64 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     </div>
                 </div>
 
+
+                <!-- Investor Allocation -->
+                <div class="border border-gray-200 rounded-xl overflow-hidden">
+                    <label class="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer select-none">
+                        <input type="checkbox" name="hasInvestor" id="hasInvestorCheck"
+                               ${order.investorId ? 'checked' : ''}
+                               onchange="window.module.toggleInvestorAllocation(this.checked)"
+                               class="w-4 h-4 text-emerald-600 rounded">
+                        <span class="text-sm font-semibold text-gray-700">💼 Allocate to an Investor</span>
+                    </label>
+                    <div id="investorAllocationFields" class="${order.investorId ? '' : 'hidden'} p-4 space-y-3 border-t border-gray-200 bg-emerald-50">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Investor *</label>
+                            <select name="investorId" id="investorSelect"
+                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 bg-white">
+                                <option value="">— Select Investor —</option>
+                                ${(state.investors || []).map(inv =>
+                                    `<option value="${escapeAttribute(inv.id)}" ${inv.id === order.investorId ? 'selected' : ''}>${escapeHtml(inv.name)}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Investment Type</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+                                    <input type="radio" name="investmentType" value="amount"
+                                           ${!order.investmentType || order.investmentType === 'amount' ? 'checked' : ''}
+                                           onchange="window.module.toggleInvestmentType('amount')"
+                                           class="text-emerald-600"> Fixed Amount ($)
+                                </label>
+                                <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+                                    <input type="radio" name="investmentType" value="percentage"
+                                           ${order.investmentType === 'percentage' ? 'checked' : ''}
+                                           onchange="window.module.toggleInvestmentType('percentage')"
+                                           class="text-emerald-600"> Percentage (%)
+                                </label>
+                            </div>
+                        </div>
+                        <div id="investAmountRow" class="${order.investmentType === 'percentage' ? 'hidden' : ''}">
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Investment Amount ($)</label>
+                            <input type="number" name="investmentAmount" step="0.01" min="0"
+                                   value="${order.investmentAmountCents ? (order.investmentAmountCents / 100).toFixed(2) : ''}"
+                                   placeholder="0.00"
+                                   class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 bg-white">
+                        </div>
+                        <div id="investPercentRow" class="${order.investmentType === 'percentage' ? '' : 'hidden'}">
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">Ownership Percentage (%)</label>
+                            <div class="relative">
+                                <input type="number" name="investmentPercentage" step="0.1" min="0" max="100"
+                                       value="${order.investmentPercentage || ''}"
+                                       placeholder="e.g. 50"
+                                       class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-400 bg-white pr-8">
+                                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Notes -->
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
@@ -18658,6 +19072,26 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     : totalCostCents,  // default = full order cost
                 refundReference: getValue('refundReference') || null,
 
+                // Investor allocation
+                ...(() => {
+                    const hasInvestor = form.querySelector('[name="hasInvestor"]')?.checked;
+                    if (!hasInvestor) {
+                        return { investorId: null, investorName: null, investmentType: null,
+                                 investmentAmountCents: null, investmentPercentage: null };
+                    }
+                    const investorId = getValue('investorId') || null;
+                    const investor = (state.investors || []).find(i => i.id === investorId);
+                    const investmentType = form.querySelector('[name="investmentType"]:checked')?.value || 'amount';
+                    const investmentAmountCents = investmentType === 'amount'
+                        ? Math.round(parseFloat(form.querySelector('[name="investmentAmount"]')?.value || 0) * 100)
+                        : null;
+                    const investmentPercentage = investmentType === 'percentage'
+                        ? parseFloat(form.querySelector('[name="investmentPercentage"]')?.value || 0)
+                        : null;
+                    return { investorId, investorName: investor?.name || null,
+                             investmentType, investmentAmountCents, investmentPercentage };
+                })(),
+
                 updatedAt: serverTimestamp(),
             };
 
@@ -19006,6 +19440,14 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             removeDuplicateVendorOrders,            // NEW
             saveVendorOrder,              // (replaces existing)
             closeVendorOrderModal,        // (replaces existing)
+            // Investor management
+            showAddInvestorModal,
+            showEditInvestorModal,
+            saveInvestor,
+            deleteInvestor,
+            closeInvestorModal,
+            toggleInvestorAllocation,
+            toggleInvestmentType,
             isVendorOrderOverdue,         // NEW (for use in templates)
             autoCalcUnitCost,
             autoCalcSubtotal,
