@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secure Checkout | AutoInx</title>
+    <!-- GA4 — replace G-XXXXXXXXXX with your Measurement ID -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){ dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', 'G-XXXXXXXXXX');
+        window._gtag = function() { try { gtag.apply(null, arguments); } catch(e) {} };
+    </script>
     <meta name="description" content="Complete your AutoInx order securely. Fast shipping across the US, free East Bay local delivery.">
     <meta name="robots" content="noindex, nofollow">
     <link rel="canonical" href="https://autoinx.com/checkout.html">
@@ -762,6 +771,17 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
         const form = $('checkoutForm');
         if (form && !form.dataset.listenerAttached) {
             form.onsubmit = handleSubmit;
+
+        // GA4: begin_checkout — fired once when checkout page renders with items
+        if (!window._checkoutEventFired && Object.keys(cartData).length > 0) {
+            window._checkoutEventFired = true;
+            const cartItems = Object.values(cartData).map(e => ({
+                item_id: e.item.id, item_name: e.item.name,
+                price: (e.item.price || 0) / 100, quantity: e.quantity
+            }));
+            const cartValue = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
+            window._gtag('event', 'begin_checkout', { currency: 'USD', value: cartValue, items: cartItems });
+        }
             form.dataset.listenerAttached = 'true';
         }
     }
@@ -1273,20 +1293,23 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             }).join('');
 
             const modalHtml = `
-                <div id="shipping-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-                    <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-                        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-2xl">
-                            <h3 class="text-2xl font-black">${isSp ? '📦 Selecciona Método de Envío' : '📦 Choose Delivery Method'}</h3>
-                            <p class="text-sm opacity-90 mt-1">
-                                ${isSp ? 'Selecciona la opción que mejor se ajuste a tus necesidades' : 'Select the option that best fits your needs'}
-                            </p>
+                <div id="shipping-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-end sm:items-center justify-center z-50" style="padding:0;">
+                    <div class="bg-white w-full sm:rounded-2xl sm:max-w-xl shadow-2xl flex flex-col" style="max-height:92dvh;max-height:92vh;border-radius:20px 20px 0 0;">
+                        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-4 flex-shrink-0" style="border-radius:20px 20px 0 0;">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h3 class="text-lg font-black">${isSp ? '📦 Método de Envío' : '📦 Choose Delivery'}</h3>
+                                    <p class="text-xs opacity-80 mt-0.5">${isSp ? 'Selecciona una opción' : 'Select an option'}</p>
+                                </div>
+                                <button onclick="closeShippingModal()" class="text-white/70 hover:text-white text-2xl leading-none">✕</button>
+                            </div>
                         </div>
-                        <div class="p-6 space-y-4">
+                        <div class="overflow-y-auto flex-1 p-4 space-y-3">
                             ${pickupCard}
                             ${shippingCards}
                         </div>
-                        <div class="bg-gray-100 p-6 rounded-b-2xl">
-                            <button onclick="closeShippingModal()" class="w-full py-3 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600 transition">
+                        <div class="px-4 pb-5 pt-3 border-t border-gray-100 flex-shrink-0" style="padding-bottom:max(20px,env(safe-area-inset-bottom));">
+                            <button onclick="closeShippingModal()" class="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition text-sm">
                                 ${isSp ? 'Cancelar' : 'Cancel'}
                             </button>
                         </div>
@@ -1361,8 +1384,19 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
     // ══════════════════════════════════════════════════════════════════════
 
     // Zelle/Cash contact info — update these to match your details
-    const ZELLE_EMAIL   = 'payments@autoinx.com';  // or phone number
-    const ZELLE_NAME    = 'AutoInx';
+    // Zelle details pulled from site config (set in Admin → Config → Payment Settings)
+    let ZELLE_EMAIL = 'payments@autoinx.com';
+    let ZELLE_NAME  = 'AutoInx';
+    (async () => {
+        try {
+            const res = await fetch('/.netlify/functions/getPublicConfig');
+            if (res.ok) {
+                const cfg = await res.json();
+                if (cfg?.payment?.zelleEmail) ZELLE_EMAIL = cfg.payment.zelleEmail;
+                if (cfg?.payment?.zelleName)  ZELLE_NAME  = cfg.payment.zelleName;
+            }
+        } catch {}
+    })();
 
     function showPaymentMethodModal(orderId, order) {
         return new Promise(resolve => {
@@ -1900,7 +1934,20 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                  }
              }
 
-            // 1b. Show payment method selection modal BEFORE Stripe
+            // 1b. GA4: purchase event (fires for all payment methods)
+            window._gtag('event', 'purchase', {
+                transaction_id: docRef.id,
+                currency: 'USD',
+                value: (order.totalCents || 0) / 100,
+                shipping: (order.shippingCents || 0) / 100,
+                tax: (order.taxCents || 0) / 100,
+                items: (order.items || []).map(i => ({
+                    item_id: i.id, item_name: i.name,
+                    price: (i.price || 0) / 100, quantity: i.quantity
+                }))
+            });
+
+            // 1c. Show payment method selection modal BEFORE Stripe
             $('btnSubmit').disabled = false;
             $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(order.totalCents)}`;
             await showPaymentMethodModal(docRef.id, order);
