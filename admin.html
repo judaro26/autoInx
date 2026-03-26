@@ -6035,14 +6035,47 @@ ${printScript}
 
         function showEditForm(item) {
             state.editingItem = item;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
+            _refreshCatalogSection();
             resetTimer();
         }
 
         function cancelEdit() {
             state.editingItem = null;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
+            _refreshCatalogSection();
             resetTimer();
+        }
+
+        // Targeted catalog re-render that preserves fullscreen state.
+        // Uses renderProductListSection() when already in catalog view/fullscreen
+        // (avoids the full renderAdminPage() DOM wipe that kills the fullscreen wrapper).
+        function _refreshCatalogSection() {
+            if (renderProductListSection()) {
+                // renderProductListSection rendered successfully — fullscreen intact
+                _restoreFullscreenIfNeeded();
+            } else {
+                // Fallback: full re-render, then re-apply fullscreen
+                renderAdminPage(auth.currentUser?.email || 'Admin');
+                _restoreFullscreenIfNeeded();
+            }
+        }
+
+        // Re-applies fullscreen styles if state says we should be in fullscreen.
+        // Called after any render that might have reset the DOM.
+        function _restoreFullscreenIfNeeded() {
+            if (!state.catalogFilters?.fullscreen) return;
+            const wrapper = document.getElementById('catalogTableWrapper') ||
+                            document.getElementById('catalogWrapper');
+            if (wrapper) {
+                wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;overflow-y:auto;border-radius:0;margin:0;padding:24px;background:#f1f5f9;';
+            }
+            document.body.style.overflow = 'hidden';
+            let st = document.getElementById('catalog-fs-style');
+            if (!st) {
+                st = document.createElement('style');
+                st.id = 'catalog-fs-style';
+                st.textContent = '#editModalContainer,.fixed.inset-0.z-50{z-index:10100!important}';
+                document.head.appendChild(st);
+            }
         }
 
         // --- CATEGORY & PRODUCT CRUD ---
@@ -6241,7 +6274,7 @@ ${printScript}
 
                 // Exit edit mode
                 state.editingCategoryId = null;
-                renderAdminPage(auth.currentUser?.email || 'Admin');
+                _refreshCatalogSection();
 
             } catch (error) {
                 console.error('Error updating category:', error);
@@ -6252,13 +6285,13 @@ ${printScript}
         // ✅ NEW: Enter Edit Mode
         function startEditingCategory(catalogId, currentName) {
             state.editingCategoryId = catalogId;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
+            _refreshCatalogSection();
         }
 
         // ✅ NEW: Cancel Edit
         function cancelCategoryEdit() {
             state.editingCategoryId = null;
-            renderAdminPage(auth.currentUser?.email || 'Admin');
+            _refreshCatalogSection();
         }
 
 
