@@ -14,6 +14,20 @@
     <link rel="canonical" href="https://autoinx.com/">
     <link rel="sitemap" type="application/xml" href="/sitemap.xml">
 
+    <!-- Google Analytics 4 — replace G-XXXXXXXXXX with your Measurement ID -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){ dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', 'G-XXXXXXXXXX', { send_page_view: true });
+
+        // Helper — safe wrapper so events never throw if gtag hasn't loaded
+        window._gtag = function() {
+            try { gtag.apply(null, arguments); } catch(e) {}
+        };
+    </script>
+
     <!-- Google Search Console verification — replace content value after claiming in GSC -->
     <!-- <meta name="google-site-verification" content="REPLACE_WITH_YOUR_GSC_VERIFICATION_CODE"> -->
 
@@ -2072,6 +2086,12 @@
             sessionStorage.setItem('autoInxCart', JSON.stringify(state.cart));
             scheduleCartPersist();
             showMessage('info', `Added 1x ${item.name} to cart.`, 2000);
+            // GA4: add_to_cart
+            window._gtag('event', 'add_to_cart', {
+                currency: 'USD',
+                value: (item.price || 0) / 100,
+                items: [{ item_id: item.id, item_name: item.name, price: (item.price || 0) / 100, quantity: 1 }]
+            });
             render();
         }
         function updateCartQuantity(itemId, change) {
@@ -2761,6 +2781,12 @@
             const slug = _slugify(item.name);
             const url  = `/?product=${encodeURIComponent(slug)}&id=${encodeURIComponent(item.id)}`;
             window.history.pushState({ productId: item.id }, item.name, url);
+            // GA4: view_item
+            window._gtag('event', 'view_item', {
+                currency: 'USD',
+                value: (item.price || 0) / 100,
+                items: [{ item_id: item.id, item_name: item.name, item_category: item.catalogId || '', price: (item.price || 0) / 100 }]
+            });
 
             // Update meta tags for this product
             const desc  = (item.description || '').replace(/<[^>]*>/g, '').slice(0, 155).trim();
