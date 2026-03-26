@@ -7494,8 +7494,8 @@ ${printScript}
                     Querying across all fields for <strong>${escapeHtml(email)}</strong>…
                 </div>`;
 
-            // Same three-field parallel query used by index.html loadUserOrdersForReturn
             const tryQ = async (field, value) => {
+                if (!value) return [];
                 try {
                     const snap = await getDocs(
                         query(collection(db, ORDERS_COLLECTION), where(field, '==', value))
@@ -7512,18 +7512,19 @@ ${printScript}
             );
             const uid = knownUser?.uid || null;
 
-            const [byEmail, byUid, byUserId, byBuyerName] = await Promise.all([
+            // Query ALL possible email/uid fields including 'email' as a fallback
+            const [byBuyerEmail, byEmail, byUid, byUserId] = await Promise.all([
                 tryQ('buyerEmail', email),
+                tryQ('email',      email),   // some manually-created orders use 'email' not 'buyerEmail'
                 uid ? tryQ('uid',    uid) : Promise.resolve([]),
                 uid ? tryQ('userId', uid) : Promise.resolve([]),
-                tryQ('buyerName', email),   // unlikely but covers edge cases
             ]);
 
             // Deduplicate by doc id
             const seen = new Set();
             const allDocs = [];
             const errorRows = [];
-            for (const d of [...byEmail, ...byUid, ...byUserId, ...byBuyerName]) {
+            for (const d of [...byBuyerEmail, ...byEmail, ...byUid, ...byUserId]) {
                 if (d._error) { errorRows.push(d); continue; }
                 if (!seen.has(d.id)) { seen.add(d.id); allDocs.push(d); }
             }
@@ -7534,9 +7535,9 @@ ${printScript}
                 return tb - ta;
             });
 
-            // Build field-hit summary
             const hitSummary = [
-                { label: 'buyerEmail', docs: byEmail.filter(d => !d._error) },
+                { label: 'buyerEmail', docs: byBuyerEmail.filter(d => !d._error) },
+                { label: 'email',      docs: byEmail.filter(d => !d._error) },
                 { label: 'uid',        docs: byUid.filter(d => !d._error) },
                 { label: 'userId',     docs: byUserId.filter(d => !d._error) },
             ].map(h => {
@@ -7546,19 +7547,33 @@ ${printScript}
 
             const uidInfo = uid
                 ? `<span class="text-xs text-indigo-600 font-mono">UID: ${escapeHtml(uid)}</span>`
-                : `<span class="text-xs text-orange-500">⚠ UID not found in loaded user list — uid/userId queries skipped. Load users first.</span>`;
+                : `<span class="text-xs text-orange-500">⚠ UID not found in loaded user list — uid/userId queries skipped. Load users first or go to Users tab.</span>`;
 
             if (allDocs.length === 0) {
                 resultsEl.innerHTML = `
-                    <div class="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-2">
-                        <p class="text-sm font-bold text-orange-700">No orders found for <span class="font-mono">${escapeHtml(email)}</span></p>
+                    <div class="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-3">
+                        <p class="text-sm font-bold text-orange-700">No orders found via any field for <span class="font-mono">${escapeHtml(email)}</span></p>
                         <div class="flex flex-wrap gap-1.5">${hitSummary}</div>
                         <div>${uidInfo}</div>
-                        ${errorRows.length ? `<p class="text-xs text-red-600 mt-1">Query errors: ${errorRows.map(e => `${e._matchedField}: ${e._msg}`).join(' | ')}</p>` : ''}
-                        <p class="text-xs text-gray-500 mt-2">
-                            This means the storefront would also return no orders for this user.
-                            Check that the order's <code class="bg-white px-1 rounded">buyerEmail</code> field matches exactly (case-sensitive in Firestore).
-                        </p>
+                        ${errorRows.length ? `<p class="text-xs text-red-600">Query errors: ${errorRows.map(e => `${e._matchedField}: ${e._msg}`).join(' | ')}</p>` : ''}
+                        <div class="border-t border-orange-200 pt-3 space-y-2">
+                            <p class="text-xs font-bold text-orange-800">🔧 Repair: patch an order by ID</p>
+                            <p class="text-xs text-gray-600">
+                                If the order exists in admin but was created without <code class="bg-white px-1 rounded">buyerEmail</code>,
+                                enter its full Firestore document ID below to patch it.
+                            </p>
+                            <div class="flex gap-2 flex-wrap">
+                                <input type="text" id="debugPatchOrderId" placeholder="Full order document ID (e.g. AosLawjFxyz...)"
+                                       class="flex-1 min-w-[240px] px-3 py-1.5 border border-orange-200 rounded-lg text-xs font-mono bg-white focus:ring-2 focus:ring-orange-400 focus:outline-none">
+                                <button onclick="window.module.debugPatchOrderEmail('${escapeHtml(email)}')"
+                                        class="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-lg transition whitespace-nowrap">
+                                    ✏️ Set buyerEmail on this order
+                                </button>
+                            </div>
+                            <p class="text-[10px] text-gray-400">
+                                This writes <code>buyerEmail: "${escapeHtml(email)}"</code> to that document so the storefront can find it.
+                            </p>
+                        </div>
                     </div>`;
                 return;
             }
@@ -7594,7 +7609,6 @@ ${printScript}
                     ? `<span class="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">✓ Visible to user</span>`
                     : `<span class="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">✗ Hidden from user</span>`;
 
-                // Diagnose WHY it would be hidden
                 let whyHidden = '';
                 if (!visibleToUser) {
                     const reasons = [];
@@ -7603,13 +7617,24 @@ ${printScript}
                     whyHidden = `<p class="text-xs text-red-500 mt-1">Hidden because: ${reasons.join(', ')}</p>`;
                 }
 
+                // Raw email fields stored on the document
+                const rawEmailFields = [
+                    order.buyerEmail && `buyerEmail: <strong>${escapeHtml(order.buyerEmail)}</strong>`,
+                    order.email      && `email: <strong>${escapeHtml(order.email)}</strong>`,
+                    order.userEmail  && `userEmail: <strong>${escapeHtml(order.userEmail)}</strong>`,
+                ].filter(Boolean).join('<br>') || '<span class="text-red-500">no email fields found</span>';
+
                 return `
                 <tr class="border-b border-gray-100 hover:bg-gray-50">
                     <td class="px-3 py-2.5">
                         <div class="font-mono text-xs text-indigo-700 font-bold">#${escapeHtml(order.id.slice(0,8))}</div>
                         <div class="text-[10px] text-gray-400 mt-0.5">${date}</div>
+                        <button onclick="window.module.debugPatchOrderEmail('${escapeHtml(email)}', '${escapeHtml(order.id)}')"
+                                class="mt-1 text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition font-bold">
+                            ✏️ Patch buyerEmail
+                        </button>
                     </td>
-                    <td class="px-3 py-2.5 text-xs text-gray-600">${escapeHtml(order.buyerEmail || '—')}</td>
+                    <td class="px-3 py-2.5 text-xs text-gray-600">${rawEmailFields}</td>
                     <td class="px-3 py-2.5">
                         <span class="text-xs font-bold px-2 py-0.5 rounded-full ${statusCls}">${escapeHtml(status)}</span>
                     </td>
@@ -7620,9 +7645,7 @@ ${printScript}
                     <td class="px-3 py-2.5 text-sm font-bold text-gray-700">
                         $${((order.totalCents || 0) / 100).toFixed(2)}
                     </td>
-                    <td class="px-3 py-2.5">
-                        ${matchBadge}
-                    </td>
+                    <td class="px-3 py-2.5">${matchBadge}</td>
                     <td class="px-3 py-2.5">
                         ${visibilityBadge}
                         ${whyHidden}
@@ -7651,12 +7674,12 @@ ${printScript}
                         ${allDocs.length - visibleCount > 0 ? `<span class="text-red-600 font-semibold">✗ ${allDocs.length - visibleCount} hidden</span>` : ''}
                         ${errorRows.length ? `<span class="text-orange-600 text-xs">⚠ ${errorRows.length} query error(s)</span>` : ''}
                     </div>
-                    <div class="rounded-xl border border-gray-200 overflow-hidden">
-                        <table class="w-full text-left min-w-[700px]">
+                    <div class="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
+                        <table class="w-full text-left min-w-[750px]">
                             <thead class="bg-gray-50 border-b border-gray-200">
                                 <tr>
                                     <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Order</th>
-                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Email on Order</th>
+                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Email fields on doc</th>
                                     <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Status</th>
                                     <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Payment Fields</th>
                                     <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Total</th>
@@ -7668,10 +7691,34 @@ ${printScript}
                         </table>
                     </div>
                     <p class="text-xs text-gray-400">
-                        "Visible to user" uses the same logic as the storefront return modal filter.
-                        If an order is hidden, the raw field values above show exactly why.
+                        "Visible to user" mirrors the storefront filter exactly. Click "✏️ Patch buyerEmail" on any row to fix a missing field.
                     </p>
                 </div>`;
+        }
+
+        async function debugPatchOrderEmail(email, orderId) {
+            // orderId may come from a row button (passed directly) or from the manual input
+            const resolvedId = orderId || document.getElementById('debugPatchOrderId')?.value?.trim();
+            if (!resolvedId) {
+                alert('Please enter the full order document ID.');
+                return;
+            }
+            if (!email) return;
+            if (!confirm(`Write buyerEmail: "${email}" to order ${resolvedId.slice(0,12)}…?\n\nThis is reversible — you can run the lookup again to verify.`)) return;
+
+            try {
+                await updateDoc(doc(db, ORDERS_COLLECTION, resolvedId), {
+                    buyerEmail: email,
+                    updatedAt: serverTimestamp(),
+                });
+                await logAdminAction('DEBUG_PATCH_BUYER_EMAIL', { orderId: resolvedId, buyerEmail: email }, resolvedId);
+                showMessage('success', `buyerEmail patched on order ${resolvedId.slice(0,8)}. Re-run the lookup to verify.`, 5000);
+                // Re-run lookup so the result refreshes
+                document.getElementById('debugEmailInput').value = email;
+                await debugLookupOrdersByEmail();
+            } catch (err) {
+                showMessage('error', `Patch failed: ${err.message}`, 5000);
+            }
         }
 
         function debugClearLookup() {
@@ -19485,6 +19532,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             fetchUsers,
             debugLookupOrdersByEmail,
             debugClearLookup,
+            debugPatchOrderEmail,
             renderUserList,
             handleUserSearchInput,
             handleBulkUserAction,
