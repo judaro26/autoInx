@@ -39,6 +39,16 @@
 [functions.autoSeasonalBanner]
   schedule = "0 6 * * *"
 
+# Post-purchase follow-up: 7-day review request + 30-day discount code
+[functions.postPurchaseFollowUp]
+  schedule = "0 9 * * *"
+  timeout = 60
+
+# Low-stock alert: daily digest of items at or below 10 units
+[functions.lowStockAlert]
+  schedule = "0 8 * * *"
+  timeout = 30
+
 # ebayFetchFunction is intentionally NOT listed here — adding a schedule entry
 # breaks it due to esbuild/scheduled-function conflict. It runs via HTTP trigger
 # from the admin panel, and is polled every 30 min by ebayCronTrigger below.
@@ -56,24 +66,28 @@
   timeout = 20
 
 # ─── Order Status & Tracking ──────────────────────────────────────────────────
-# getOrderStatus: server-side guest order lookup with rate limiting.
 [functions.getOrderStatus]
   timeout = 10
 
-# getUserOrders: returns all orders for an authenticated user (bypasses Firestore rules).
 [functions.getUserOrders]
   timeout = 15
 
-# linkUserOrders: backfills uid onto guest orders when a user signs in.
 [functions.linkUserOrders]
   timeout = 15
 
-# getExternalOrders: reads eBay/manual orders from Firestore for admin panel.
 [functions.getExternalOrders]
   timeout = 15
 
+# ─── Payment Confirmations ────────────────────────────────────────────────────
+# Server-side approval — requires admin token, never trusts client writes
+[functions.approvePaymentConfirmation]
+  timeout = 10
+
+# Guest payment confirmation submission — email-verified, no Firebase account needed
+[functions.submitPaymentConfirmation]
+  timeout = 10
+
 # ─── SEO ──────────────────────────────────────────────────────────────────────
-# sitemap: generates live sitemap.xml from Firestore catalog items.
 [functions.sitemap]
   timeout = 10
 
@@ -88,14 +102,12 @@
   access = "public"
 
 # ─── Redirects ────────────────────────────────────────────────────────────────
-# Sitemap served from Netlify function
 [[redirects]]
   from   = "/sitemap.xml"
   to     = "/.netlify/functions/sitemap"
   status = 200
   force  = true
 
-# Legacy URLs → new track-order page
 [[redirects]]
   from   = "/track"
   to     = "/track-order.html"
