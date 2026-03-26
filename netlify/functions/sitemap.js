@@ -51,9 +51,11 @@ exports.handler = async function(event) {
         initAdmin();
         const db = admin.firestore();
 
+        // Fetch ALL items — filter in memory.
+        // Firestore's != operator silently excludes docs where the field is absent,
+        // which drops products created before the field existed.
         const snap = await db
             .collection('artifacts/default-app-id/public/data/items')
-            .where('temporarilyUnavailable', '!=', true)
             .get();
 
         const today = new Date().toISOString().slice(0, 10);
@@ -62,8 +64,8 @@ exports.handler = async function(event) {
         const productUrls = snap.docs
             .map(doc => {
                 const item = doc.data();
-                // Skip hidden / out of stock items — no value indexing them
-                if (item.temporarilyUnavailable) return null;
+                // Skip items explicitly marked as unavailable
+                if (item.temporarilyUnavailable === true) return null;
 
                 const slug = slugify(item.name);
                 if (!slug) return null;
