@@ -1528,6 +1528,35 @@
                     <section class="space-y-8">
                         <h2 class="text-2xl font-bold text-indigo-700">Registered Users Management</h2>
                         <div id="usersMessage"></div>
+
+                        <!-- ── Order Lookup Debug Tool ── -->
+                        <div class="bg-white border border-indigo-200 rounded-2xl shadow-sm overflow-hidden">
+                            <div class="flex items-center gap-2 px-5 py-3 bg-indigo-50 border-b border-indigo-100">
+                                <span class="text-base">🔍</span>
+                                <span class="text-sm font-bold text-indigo-800">Order Lookup by Email</span>
+                                <span class="ml-1 text-xs text-indigo-400 font-normal">— debug tool: finds all orders linked to a user across every field</span>
+                            </div>
+                            <div class="p-4">
+                                <div class="flex gap-3 flex-wrap items-end">
+                                    <div class="flex-1 min-w-[240px]">
+                                        <label class="block text-xs font-semibold text-gray-600 mb-1">Email address to look up</label>
+                                        <input type="email" id="debugEmailInput"
+                                               placeholder="e.g. customer@gmail.com"
+                                               onkeydown="if(event.key==='Enter')window.module.debugLookupOrdersByEmail()"
+                                               class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+                                    </div>
+                                    <button onclick="window.module.debugLookupOrdersByEmail()"
+                                            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition whitespace-nowrap">
+                                        🔎 Lookup Orders
+                                    </button>
+                                    <button onclick="window.module.debugClearLookup()"
+                                            class="px-3 py-2 text-sm text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                                        Clear
+                                    </button>
+                                </div>
+                                <div id="debugOrderResults" class="mt-4"></div>
+                            </div>
+                        </div>
         
                         <div class="flex justify-between items-center mb-4">
                             <input type="text" oninput="window.module.handleUserSearchInput(event)" 
@@ -7438,6 +7467,219 @@ ${printScript}
         }
 
         // --- SHIPPING MODAL FUNCTIONS (Standalone) ---
+
+
+        // ══════════════════════════════════════════════════════════════
+        //  ADMIN DEBUG: Order Lookup by Email
+        //  Mirrors the exact same multi-field query used on index.html
+        //  so admins can see exactly what the storefront would return.
+        // ══════════════════════════════════════════════════════════════
+        async function debugLookupOrdersByEmail() {
+            const input = document.getElementById('debugEmailInput');
+            const resultsEl = document.getElementById('debugOrderResults');
+            if (!input || !resultsEl) return;
+
+            const email = input.value.trim().toLowerCase();
+            if (!email) {
+                resultsEl.innerHTML = `<p class="text-sm text-red-500 font-medium">Please enter an email address.</p>`;
+                return;
+            }
+
+            resultsEl.innerHTML = `
+                <div class="flex items-center gap-2 text-sm text-gray-400 py-3">
+                    <svg class="animate-spin w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    Querying across all fields for <strong>${escapeHtml(email)}</strong>…
+                </div>`;
+
+            // Same three-field parallel query used by index.html loadUserOrdersForReturn
+            const tryQ = async (field, value) => {
+                try {
+                    const snap = await getDocs(
+                        query(collection(db, ORDERS_COLLECTION), where(field, '==', value))
+                    );
+                    return snap.docs.map(d => ({ id: d.id, _matchedField: field, ...d.data() }));
+                } catch (err) {
+                    return [{ _error: true, _matchedField: field, _msg: err.message }];
+                }
+            };
+
+            // Also try to resolve UID from the loaded user list (best-effort)
+            const knownUser = (state.allUsers || []).find(u =>
+                (u.email || '').toLowerCase() === email
+            );
+            const uid = knownUser?.uid || null;
+
+            const [byEmail, byUid, byUserId, byBuyerName] = await Promise.all([
+                tryQ('buyerEmail', email),
+                uid ? tryQ('uid',    uid) : Promise.resolve([]),
+                uid ? tryQ('userId', uid) : Promise.resolve([]),
+                tryQ('buyerName', email),   // unlikely but covers edge cases
+            ]);
+
+            // Deduplicate by doc id
+            const seen = new Set();
+            const allDocs = [];
+            const errorRows = [];
+            for (const d of [...byEmail, ...byUid, ...byUserId, ...byBuyerName]) {
+                if (d._error) { errorRows.push(d); continue; }
+                if (!seen.has(d.id)) { seen.add(d.id); allDocs.push(d); }
+            }
+
+            allDocs.sort((a, b) => {
+                const ta = a.createdAt?.toDate?.()?.getTime() || a.timestamp || 0;
+                const tb = b.createdAt?.toDate?.()?.getTime() || b.timestamp || 0;
+                return tb - ta;
+            });
+
+            // Build field-hit summary
+            const hitSummary = [
+                { label: 'buyerEmail', docs: byEmail.filter(d => !d._error) },
+                { label: 'uid',        docs: byUid.filter(d => !d._error) },
+                { label: 'userId',     docs: byUserId.filter(d => !d._error) },
+            ].map(h => {
+                const cls = h.docs.length > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500';
+                return `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${cls}">${h.label}: ${h.docs.length}</span>`;
+            }).join('');
+
+            const uidInfo = uid
+                ? `<span class="text-xs text-indigo-600 font-mono">UID: ${escapeHtml(uid)}</span>`
+                : `<span class="text-xs text-orange-500">⚠ UID not found in loaded user list — uid/userId queries skipped. Load users first.</span>`;
+
+            if (allDocs.length === 0) {
+                resultsEl.innerHTML = `
+                    <div class="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-2">
+                        <p class="text-sm font-bold text-orange-700">No orders found for <span class="font-mono">${escapeHtml(email)}</span></p>
+                        <div class="flex flex-wrap gap-1.5">${hitSummary}</div>
+                        <div>${uidInfo}</div>
+                        ${errorRows.length ? `<p class="text-xs text-red-600 mt-1">Query errors: ${errorRows.map(e => `${e._matchedField}: ${e._msg}`).join(' | ')}</p>` : ''}
+                        <p class="text-xs text-gray-500 mt-2">
+                            This means the storefront would also return no orders for this user.
+                            Check that the order's <code class="bg-white px-1 rounded">buyerEmail</code> field matches exactly (case-sensitive in Firestore).
+                        </p>
+                    </div>`;
+                return;
+            }
+
+            const PAID_STATUSES = new Set(['Delivered', 'Shipped', 'In Transit', 'Processing', 'Pending']);
+            const CANCELLED = new Set(['Cancelled', 'Cancelled - Refunded', 'Refunded']);
+
+            const rows = allDocs.map(order => {
+                const status   = order.status || 'Unknown';
+                const isPaid   = order.isPaid === true
+                    || (typeof order.paymentStatus === 'string' && order.paymentStatus.toLowerCase() === 'paid')
+                    || PAID_STATUSES.has(status)
+                    || (order.totalCents > 0 && !CANCELLED.has(status));
+                const isCancelled = CANCELLED.has(status);
+                const visibleToUser = isPaid && !isCancelled;
+
+                const statusCls = {
+                    'Delivered':  'bg-green-100 text-green-700',
+                    'Shipped':    'bg-purple-100 text-purple-700',
+                    'In Transit': 'bg-indigo-100 text-indigo-700',
+                    'Processing': 'bg-blue-100 text-blue-700',
+                    'Cancelled':  'bg-red-100 text-red-600',
+                    'Cancelled - Refunded': 'bg-orange-100 text-orange-700',
+                    'Pending':    'bg-yellow-100 text-yellow-700',
+                }[status] || 'bg-gray-100 text-gray-600';
+
+                const date = order.createdAt?.toDate?.()?.toLocaleString()
+                    || (order.timestamp ? new Date(order.timestamp).toLocaleString() : '—');
+
+                const matchBadge = `<span class="text-[10px] font-bold text-indigo-400 bg-indigo-50 px-1.5 py-0.5 rounded">${escapeHtml(order._matchedField)}</span>`;
+
+                const visibilityBadge = visibleToUser
+                    ? `<span class="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">✓ Visible to user</span>`
+                    : `<span class="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">✗ Hidden from user</span>`;
+
+                // Diagnose WHY it would be hidden
+                let whyHidden = '';
+                if (!visibleToUser) {
+                    const reasons = [];
+                    if (isCancelled) reasons.push(`status is "${status}"`);
+                    if (!isPaid)     reasons.push(`not paid (isPaid=${order.isPaid}, paymentStatus="${order.paymentStatus}")`);
+                    whyHidden = `<p class="text-xs text-red-500 mt-1">Hidden because: ${reasons.join(', ')}</p>`;
+                }
+
+                return `
+                <tr class="border-b border-gray-100 hover:bg-gray-50">
+                    <td class="px-3 py-2.5">
+                        <div class="font-mono text-xs text-indigo-700 font-bold">#${escapeHtml(order.id.slice(0,8))}</div>
+                        <div class="text-[10px] text-gray-400 mt-0.5">${date}</div>
+                    </td>
+                    <td class="px-3 py-2.5 text-xs text-gray-600">${escapeHtml(order.buyerEmail || '—')}</td>
+                    <td class="px-3 py-2.5">
+                        <span class="text-xs font-bold px-2 py-0.5 rounded-full ${statusCls}">${escapeHtml(status)}</span>
+                    </td>
+                    <td class="px-3 py-2.5 text-xs font-mono text-gray-500">
+                        isPaid: <strong>${String(order.isPaid)}</strong><br>
+                        payStatus: <strong>${escapeHtml(String(order.paymentStatus || '—'))}</strong>
+                    </td>
+                    <td class="px-3 py-2.5 text-sm font-bold text-gray-700">
+                        $${((order.totalCents || 0) / 100).toFixed(2)}
+                    </td>
+                    <td class="px-3 py-2.5">
+                        ${matchBadge}
+                    </td>
+                    <td class="px-3 py-2.5">
+                        ${visibilityBadge}
+                        ${whyHidden}
+                    </td>
+                </tr>`;
+            }).join('');
+
+            const visibleCount = allDocs.filter(o => {
+                const s = o.status || '';
+                const ip = o.isPaid === true
+                    || (typeof o.paymentStatus === 'string' && o.paymentStatus.toLowerCase() === 'paid')
+                    || PAID_STATUSES.has(s)
+                    || (o.totalCents > 0 && !CANCELLED.has(s));
+                return ip && !CANCELLED.has(s);
+            }).length;
+
+            resultsEl.innerHTML = `
+                <div class="space-y-3">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div class="flex flex-wrap gap-1.5">${hitSummary}</div>
+                        <div>${uidInfo}</div>
+                    </div>
+                    <div class="flex items-center gap-3 text-sm">
+                        <span class="font-bold text-gray-700">${allDocs.length} order${allDocs.length !== 1 ? 's' : ''} found</span>
+                        <span class="text-green-700 font-semibold">✓ ${visibleCount} visible to user</span>
+                        ${allDocs.length - visibleCount > 0 ? `<span class="text-red-600 font-semibold">✗ ${allDocs.length - visibleCount} hidden</span>` : ''}
+                        ${errorRows.length ? `<span class="text-orange-600 text-xs">⚠ ${errorRows.length} query error(s)</span>` : ''}
+                    </div>
+                    <div class="rounded-xl border border-gray-200 overflow-hidden">
+                        <table class="w-full text-left min-w-[700px]">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Order</th>
+                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Email on Order</th>
+                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Status</th>
+                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Payment Fields</th>
+                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Total</th>
+                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Matched By</th>
+                                    <th class="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Storefront</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                    <p class="text-xs text-gray-400">
+                        "Visible to user" uses the same logic as the storefront return modal filter.
+                        If an order is hidden, the raw field values above show exactly why.
+                    </p>
+                </div>`;
+        }
+
+        function debugClearLookup() {
+            const input = document.getElementById('debugEmailInput');
+            const results = document.getElementById('debugOrderResults');
+            if (input)   input.value = '';
+            if (results) results.innerHTML = '';
+        }
 
         async function fetchUsers(pageToken = null) {
             resetTimer();
@@ -19241,6 +19483,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             // ========================================================================
             globalNextPageToken,
             fetchUsers,
+            debugLookupOrdersByEmail,
+            debugClearLookup,
             renderUserList,
             handleUserSearchInput,
             handleBulkUserAction,
