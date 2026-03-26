@@ -622,7 +622,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
         cartTotalCents = Object.values(cartData).reduce((s, e) => s + (e.item.price * e.quantity), 0);
 
         if (Object.keys(cartData).length === 0) {
-            $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<p class="mt-10 text-xl font-bold">Tu carrito está vacío</p></div>`;
+            $('app').innerHTML = `<div class="text-center py-20">${renderHeader()}<p class="mt-10 text-xl font-bold">${currentLang === 'es' ? 'Tu carrito está vacío' : 'Your cart is empty'}</p><a href="/" class="inline-block mt-4 text-indigo-600 font-semibold hover:underline">${currentLang === 'es' ? '← Volver a la tienda' : '← Back to store'}</a></div>`;
             return;
         }
 
@@ -668,20 +668,10 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                                 </p>
                                 
                                 <div class="space-y-3">
-                                    <div class="flex items-center gap-3 bg-white p-3 rounded-lg border border-green-100">
-                                        <input type="checkbox" id="whatsapp-opt" checked class="w-5 h-5 text-green-600 rounded">
-                                        <label for="whatsapp-opt" class="text-sm font-semibold text-green-800 cursor-pointer">
-                                            <span class="mr-1">💬</span>
-                                            ${currentLang === 'es' 
-                                                ? 'Sí, deseo recibir notificaciones por WhatsApp' 
-                                                : 'Yes, I want WhatsApp notifications'}
-                                        </label>
-                                    </div>
-                                    
                                     <div class="flex items-center gap-3 bg-white p-3 rounded-lg border border-blue-100">
-                                        <input type="checkbox" id="sms-opt" class="w-5 h-5 text-blue-600 rounded">
+                                        <input type="checkbox" id="sms-opt" checked class="w-5 h-5 text-blue-600 rounded">
                                         <label for="sms-opt" class="text-sm font-semibold text-blue-800 cursor-pointer">
-                                            <span class="mr-1">💬</span>
+                                            <span class="mr-1">📱</span>
                                             ${currentLang === 'es' 
                                                 ? 'Sí, deseo recibir notificaciones por SMS/Texto' 
                                                 : 'Yes, I want SMS/Text notifications'}
@@ -1884,17 +1874,42 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
         }
     
         $('btnSubmit').disabled = true;
-        $('btnSubmit').innerText = "...";
+        $('btnSubmit').innerHTML = `
+            <span class="inline-flex items-center gap-2">
+                <svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                </svg>
+                ${currentLang === 'es' ? 'Procesando tu pedido…' : 'Processing your order…'}
+            </span>`;
+
+        // Full-screen overlay — prevents any interaction while order saves
+        const _processingOverlay = document.createElement('div');
+        _processingOverlay.id = 'processingOverlay';
+        _processingOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,0.85);z-index:9998;display:flex;flex-direction:column;align-items:center;justify-content:center;backdrop-filter:blur(3px);';
+        _processingOverlay.innerHTML = `
+            <div style="text-align:center;padding:32px;">
+                <svg style="width:56px;height:56px;animation:spin 1s linear infinite;margin:0 auto 20px;" fill="none" viewBox="0 0 24 24">
+                    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+                    <circle style="opacity:.25" cx="12" cy="12" r="10" stroke="#4f46e5" stroke-width="4"></circle>
+                    <path style="opacity:.9" fill="#4f46e5" d="M4 12a8 8 0 018-8v8z"></path>
+                </svg>
+                <p style="font-size:1.25rem;font-weight:800;color:#1e293b;margin:0 0 8px;">
+                    ${currentLang === 'es' ? '⏳ Creando tu pedido…' : '⏳ Creating your order…'}
+                </p>
+                <p style="font-size:.875rem;color:#64748b;margin:0;">
+                    ${currentLang === 'es' ? 'Por favor no cierres esta página.' : 'Please do not close this page.'}
+                </p>
+            </div>`;
+        document.body.appendChild(_processingOverlay);
     
         const order = {
             userId: userId || 'guest',
             buyerEmail: email,
             buyerName: $('buyer-name').value,
             buyerPhone: $('country-code').value + phone,
-            whatsappConsent: $('whatsapp-opt').checked,
             smsConsent: $('sms-opt').checked,
             notificationPreferences: {
-                whatsapp: $('whatsapp-opt').checked,
                 sms: $('sms-opt').checked,
                 email: true
             },
@@ -2053,7 +2068,6 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                         paymentUrl: paymentUrl, // Include payment link
                         language: currentLang,
                         communicationLang: currentLang,
-                        whatsappConsent: order.whatsappConsent,
                         smsConsent: order.smsConsent
                     })
                 });
@@ -2118,8 +2132,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                                 Hemos enviado un email de confirmación${paymentUrl ? ' con el enlace de pago' : ''} a:
                             </p>
                             <p class="text-sm font-bold text-blue-900 mt-1">${order.buyerEmail}</p>
-                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2 flex items-center gap-1"><span>💬</span> También recibirás actualizaciones por WhatsApp</p>' : ''}
-                            ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2 flex items-center gap-1"><span>📱</span> También recibirás actualizaciones por SMS</p>' : ''}
+                            ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2 flex items-center gap-1"><span>📱</span> ${currentLang === 'es' ? 'También recibirás actualizaciones por SMS' : 'You will also receive SMS updates'}</p>' : ''}
                         </div>
                         
                         <div class="bg-gray-50 rounded-xl p-5 mb-6 border-2 border-gray-200">
@@ -2213,7 +2226,6 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                                 We've sent a confirmation email${paymentUrl ? ' with payment link' : ''} to:
                             </p>
                             <p class="text-sm font-bold text-blue-900 mt-1">${order.buyerEmail}</p>
-                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2 flex items-center gap-1"><span>💬</span> You\'ll also receive updates via WhatsApp</p>' : ''}
                             ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2 flex items-center gap-1"><span>📱</span> You\'ll also receive updates via SMS</p>' : ''}
                         </div>
                         
@@ -2277,6 +2289,8 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             
         } catch (error) { 
             console.error("❌ Order submission error:", error);
+            // Remove processing overlay so the user can interact again
+            document.getElementById('processingOverlay')?.remove();
             alert(`Error creating order: ${error.message}\n\nPlease try again or contact support.`); 
             $('btnSubmit').disabled = false; 
             const grandTotal = Math.max(0, cartTotalCents - discountCents) + shippingCents + taxCents;
