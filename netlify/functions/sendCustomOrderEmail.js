@@ -26,14 +26,14 @@ function initAdmin() {
 }
 
 function getTransporter() {
-    // Reuses the same SMTP credentials as other order emails
+    // Matches the exact env vars used by sendOrderConfirmation.js (Brevo SMTP)
     return nodemailer.createTransport({
-        host:   process.env.SMTP_HOST   || 'smtp.gmail.com',
-        port:   parseInt(process.env.SMTP_PORT || '587'),
-        secure: process.env.SMTP_SECURE === 'true',
+        host:   process.env.BREVO_SMTP_HOST,
+        port:   parseInt(process.env.BREVO_SMTP_PORT || '587'),
+        secure: false,
         auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
+            user: process.env.BREVO_SMTP_USER,
+            pass: process.env.BREVO_SMTP_PASSWORD,
         },
     });
 }
@@ -96,14 +96,13 @@ exports.handler = async function(event) {
     try {
         const transporter = getTransporter();
         const fromName    = storeName || 'AutoInx';
-        const fromEmail   = process.env.SMTP_FROM || process.env.SMTP_USER;
 
         await transporter.sendMail({
-            from:    `"${fromName}" <${fromEmail}>`,
+            from:    `"${fromName}" <noreply@autoinx.com>`,
             to:      toName ? `"${toName}" <${toEmail}>` : toEmail,
             subject,
             html:    htmlBody,
-            replyTo: fromEmail,
+            replyTo: `support@autoinx.com`,
         });
 
         // Log to Firestore for the Email Log tab
