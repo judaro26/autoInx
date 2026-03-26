@@ -631,36 +631,25 @@
         $('ordersEmptyEl').style.display   = 'none';
 
         try {
-            const uid   = user.uid;
-            const email = user.email;
+            // Get a fresh ID token to send to the server-side function.
+            // This bypasses Firestore client-side security rules entirely —
+            // the function uses the Admin SDK which has full read access.
+            const idToken = await user.getIdToken(/* forceRefresh= */ false);
 
-            const tryQ = async (field, value) => {
-                if (!value) return [];
-                try {
-                    const s = await getDocs(query(collection(db, ORDERS_COLL), where(field, '==', value)));
-                    return s.docs;
-                } catch { return []; }
-            };
+            const res = await fetch('/.netlify/functions/getUserOrders', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${idToken}`,
+                },
+            });
 
-            const [byUid, byUserId, byEmail] = await Promise.all([
-                tryQ('uid',        uid),
-                tryQ('userId',     uid),
-                tryQ('buyerEmail', email),
-            ]);
-
-            const seen = new Set();
-            const docs = [];
-            for (const d of [...byUid, ...byUserId, ...byEmail]) {
-                if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); }
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `Server error ${res.status}`);
             }
 
-            const orders = docs
-                .map(d => ({ id: d.id, ...d.data() }))
-                .sort((a, b) => {
-                    const ta = a.createdAt?.toDate?.()?.getTime() || a.timestamp || 0;
-                    const tb = b.createdAt?.toDate?.()?.getTime() || b.timestamp || 0;
-                    return tb - ta;
-                });
+            const data   = await res.json();
+            const orders = data.orders || [];
 
             window._orders = orders;
             $('ordersLoadingEl').style.display = 'none';
