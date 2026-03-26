@@ -586,7 +586,7 @@
             catalogs: [],
             items: [],
             searchTerm: '',
-            catalogFilters: { sortBy: 'name-asc', categoryId: 'all', fullscreen: false },
+            catalogFilters: { sortBy: 'category-asc', categoryId: 'all', fullscreen: false },
             orderSearchTerm: '',
             userSearchTerm: '',
             allUsers: [],
@@ -2608,7 +2608,8 @@
                         </select>
                         <select onchange="window.module.handleCatalogSort(event)"
                                 class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
-                            <option value="name-asc"   ${(f.sortBy||'name-asc')==='name-asc'   ? 'selected':''}>Name A–Z</option>
+                            <option value="category-asc" ${(f.sortBy||'category-asc')==='category-asc' ? 'selected':''}>Category</option>
+                            <option value="name-asc"   ${f.sortBy==='name-asc'   ? 'selected':''}>Name A–Z</option>
                             <option value="name-desc"  ${f.sortBy==='name-desc'  ? 'selected':''}>Name Z–A</option>
                             <option value="price-asc"  ${f.sortBy==='price-asc'  ? 'selected':''}>Price ↑</option>
                             <option value="price-desc" ${f.sortBy==='price-desc' ? 'selected':''}>Price ↓</option>
@@ -5719,7 +5720,14 @@ ${printScript}
 
             // Sort
             const sorted = [...items];
-            switch (f.sortBy || 'name-asc') {
+            switch (f.sortBy || 'category-asc') {
+                case 'category-asc':
+                    sorted.sort((a, b) => {
+                        const catA = state.catalogs.find(c => c.id === a.catalogId)?.name || 'Uncategorized';
+                        const catB = state.catalogs.find(c => c.id === b.catalogId)?.name || 'Uncategorized';
+                        const cmp = catA.localeCompare(catB);
+                        return cmp !== 0 ? cmp : (a.name || '').localeCompare(b.name || '');
+                    }); break;
                 case 'name-asc':   sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '')); break;
                 case 'name-desc':  sorted.sort((a, b) => (b.name || '').localeCompare(a.name || '')); break;
                 case 'price-asc':  sorted.sort((a, b) => (a.price || 0) - (b.price || 0)); break;
