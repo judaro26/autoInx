@@ -771,8 +771,10 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
         const form = $('checkoutForm');
         if (form && !form.dataset.listenerAttached) {
             form.onsubmit = handleSubmit;
+            form.dataset.listenerAttached = 'true';
+        }
 
-        // GA4: begin_checkout — fired once when checkout page renders with items
+        // GA4: begin_checkout — fired once via its own flag, independent of form guard
         if (!window._checkoutEventFired && Object.keys(cartData).length > 0) {
             window._checkoutEventFired = true;
             const cartItems = Object.values(cartData).map(e => ({
@@ -781,8 +783,6 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             }));
             const cartValue = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
             window._gtag('event', 'begin_checkout', { currency: 'USD', value: cartValue, items: cartItems });
-        }
-            form.dataset.listenerAttached = 'true';
         }
     }
 
