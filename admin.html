@@ -606,6 +606,7 @@
             isAdmin: false,                    // Set true once admin token claim is verified
             emailNotifications: [],            // Email notification log
             emailNotifFilters: { searchTerm: '', type: 'all', sortBy: 'newest' },
+            emailNotifPage: 0,
             navGroups: { catalog: false, orders: false, finance: false, marketing: false, users: false },
             appliedDiscount: null,              // Currently applied discount on the order create form
             editingOrderDiscount: null,         // Discount applied inside the edit-order modal
@@ -3235,6 +3236,7 @@
         // State for audit log filters
         if (!state.auditLog) state.auditLog = { category: 'all', search: '', page: 0, entries: [], loading: false };
         const AUDIT_PAGE_SIZE = 50;
+        const EMAIL_NOTIF_PAGE_SIZE = 20;
 
         // ─────────────────────────────────────────────────────────────────────────
         // ABOUT PAGE EDITOR
@@ -14889,14 +14891,20 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
         }
 
         function renderEmailNotificationsTable() {
-            const items = getFilteredEmailNotifications();
-            const all   = state.emailNotifications || [];
+            const allFiltered = getFilteredEmailNotifications();
+            const all         = state.emailNotifications || [];
+            const page        = state.emailNotifPage || 0;
+            const totalPages  = Math.max(1, Math.ceil(allFiltered.length / EMAIL_NOTIF_PAGE_SIZE));
+            const safePage    = Math.min(page, totalPages - 1);
+            if (safePage !== page) state.emailNotifPage = safePage;
+            const items = allFiltered.slice(safePage * EMAIL_NOTIF_PAGE_SIZE, (safePage + 1) * EMAIL_NOTIF_PAGE_SIZE);
 
             const typeConfig = {
                 order_confirmation: { label: 'Order Confirmation', icon: '📦', bg: 'bg-blue-100',   text: 'text-blue-800'   },
                 payment_link:       { label: 'Payment Link',       icon: '💳', bg: 'bg-orange-100', text: 'text-orange-800' },
                 receipt_resent:     { label: 'Receipt Resent',     icon: '🧾', bg: 'bg-purple-100', text: 'text-purple-800' },
                 status_update:      { label: 'Status Update',      icon: '🔄', bg: 'bg-green-100',  text: 'text-green-800'  },
+                custom_order_email: { label: 'Custom Email',       icon: '✉️', bg: 'bg-teal-100',   text: 'text-teal-800'   },
             };
 
             const fmtDate = (v) => {
@@ -14943,6 +14951,34 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 </tr>`;
             }).join('');
 
+            // ── Pagination controls ──────────────────────────────────────────
+            const start   = safePage * EMAIL_NOTIF_PAGE_SIZE + 1;
+            const end     = Math.min((safePage + 1) * EMAIL_NOTIF_PAGE_SIZE, allFiltered.length);
+
+            const pageBtn = (pg, label, disabled = false, active = false) =>
+                `<button onclick="window.module.goToEmailNotifPage(${pg})"
+                         ${disabled ? 'disabled' : ''}
+                         class="px-3 py-1.5 text-xs font-semibold rounded-lg border transition
+                                ${active   ? 'bg-indigo-600 text-white border-indigo-600' :
+                                  disabled ? 'text-gray-300 border-gray-200 cursor-not-allowed' :
+                                             'text-gray-600 border-gray-300 hover:bg-gray-100'}">
+                    ${label}
+                </button>`;
+
+            const pageButtons = () => {
+                const btns = [];
+                const maxVisible = 5;
+                let startPg = Math.max(0, safePage - Math.floor(maxVisible / 2));
+                let endPg   = Math.min(totalPages - 1, startPg + maxVisible - 1);
+                if (endPg - startPg < maxVisible - 1) startPg = Math.max(0, endPg - maxVisible + 1);
+                if (startPg > 0)              btns.push(pageBtn(0, '«'));
+                if (startPg > 1)              btns.push('<span class="text-gray-400 text-xs px-1">…</span>');
+                for (let i = startPg; i <= endPg; i++) btns.push(pageBtn(i, i + 1, false, i === safePage));
+                if (endPg < totalPages - 2)   btns.push('<span class="text-gray-400 text-xs px-1">…</span>');
+                if (endPg < totalPages - 1)   btns.push(pageBtn(totalPages - 1, '»'));
+                return btns.join('');
+            };
+
             return `
             <table class="w-full border-collapse text-sm">
                 <thead>
@@ -14957,14 +14993,24 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 </thead>
                 <tbody class="divide-y divide-gray-100 bg-white">${rows}</tbody>
             </table>
-            <div class="px-4 py-3 bg-gray-50 border-t text-xs text-gray-400">
-                Showing ${items.length} of ${all.length} notifications
+            <div class="px-4 py-3 bg-gray-50 border-t flex items-center justify-between flex-wrap gap-3">
+                <span class="text-xs text-gray-400">
+                    ${allFiltered.length === 0 ? '0 results' : `${start}–${end} of ${allFiltered.length}`}
+                    ${allFiltered.length !== all.filter(n=>n.type!=='catalog_sent').length ? ` (filtered from ${all.filter(n=>n.type!=='catalog_sent').length} total)` : ''}
+                </span>
+                ${totalPages > 1 ? `
+                <div class="flex items-center gap-1.5 flex-wrap">
+                    ${pageBtn(safePage - 1, '← Prev', safePage === 0)}
+                    ${pageButtons()}
+                    ${pageBtn(safePage + 1, 'Next →', safePage >= totalPages - 1)}
+                </div>` : ''}
             </div>`;
         }
 
         function handleEmailNotifSearch(e) {
             if (!state.emailNotifFilters) state.emailNotifFilters = {};
             state.emailNotifFilters.searchTerm = e.target.value;
+            state.emailNotifPage = 0;
             const el = document.getElementById('emailNotificationsContainer');
             if (el) el.innerHTML = renderEmailNotificationsTable();
         }
@@ -14972,6 +15018,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
         function handleEmailNotifTypeFilter(e) {
             if (!state.emailNotifFilters) state.emailNotifFilters = {};
             state.emailNotifFilters.type = e.target.value;
+            state.emailNotifPage = 0;
             const el = document.getElementById('emailNotificationsContainer');
             if (el) el.innerHTML = renderEmailNotificationsTable();
         }
@@ -14979,6 +15026,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
         function handleEmailNotifSortFilter(e) {
             if (!state.emailNotifFilters) state.emailNotifFilters = {};
             state.emailNotifFilters.sortBy = e.target.value;
+            state.emailNotifPage = 0;
             const el = document.getElementById('emailNotificationsContainer');
             if (el) el.innerHTML = renderEmailNotificationsTable();
         }
@@ -14986,7 +15034,15 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
         function setEmailNotifTypeFilter(type) {
             if (!state.emailNotifFilters) state.emailNotifFilters = {};
             state.emailNotifFilters.type = type;
+            state.emailNotifPage = 0;
             renderEmailNotificationsSection();
+        }
+
+        function goToEmailNotifPage(page) {
+            state.emailNotifPage = page;
+            const el = document.getElementById('emailNotificationsContainer');
+            if (el) el.innerHTML = renderEmailNotificationsTable();
+            el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         async function purgeOldEmailNotifications() {
@@ -20392,6 +20448,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handleEmailNotifTypeFilter,
             handleEmailNotifSortFilter,
             setEmailNotifTypeFilter,
+            goToEmailNotifPage,
             purgeOldEmailNotifications,
             renderAbandonedCartsSection,
             viewAbandonedCart,
