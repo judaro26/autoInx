@@ -3069,6 +3069,15 @@
                         if (!user.isAnonymous) {
                             state.userName = user.email || user.displayName || 'User';
                             if (state.isModalOpen) state.isModalOpen = false;
+
+                            // Fire-and-forget: backfill uid onto any guest orders
+                            // placed with this email before the account existed.
+                            user.getIdToken(false).then(token =>
+                                fetch('/.netlify/functions/linkUserOrders', {
+                                    method: 'POST',
+                                    headers: { 'Authorization': `Bearer ${token}` },
+                                }).catch(() => {}) // non-blocking — never surface errors to user
+                            ).catch(() => {});
                         } else {
                             state.userName = null;
                         }
