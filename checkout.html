@@ -72,8 +72,8 @@
     const TEXT = {
         es: {
             title: 'Finalizar Compra', return: 'Volver', email: 'Correo Electrónico', name: 'Nombre Completo',
-            phone: 'Teléfono', phoneHelp: 'Te enviaremos actualizaciones sobre tu pedido',
-
+            phone: 'Teléfono (WhatsApp)', phoneHelp: 'Te enviaremos actualizaciones por WhatsApp',
+            whatsappOpt: 'Sí, deseo recibir notificaciones por WhatsApp.',
             address: 'DIRECCIÓN DE ENTREGA', addressHelp: 'Busca tu dirección y selecciónala de la lista.',
             statusDefault: 'Escribe para buscar...', valid: '✅ UBICACIÓN VERIFICADA',
             complete: 'COMPLETAR PEDIDO', summary: 'Resumen', total: 'Total',
@@ -86,6 +86,12 @@
             calculatingTax: 'Calculando impuestos...',
             shippingError: 'No se pudo calcular el envío. Estimado: $10.00',
             shippingNote: 'El costo final de envío puede ser menor según el transportista seleccionado',
+            pickupLabel: 'Recoger en tienda — Gratis',
+            pickupSub: 'Hayward, CA · Coordinaremos el lugar exacto contigo',
+            pickupBadge: '📍 RECOLECCIÓN LOCAL',
+            contactShipping: 'Te contactaremos para coordinar el envío',
+            contactShippingSub: 'No pudimos calcular el costo automáticamente. Tu pedido será procesado y te contactaremos.',
+            contactShippingBadge: '📞 COTIZACIÓN PERSONALIZADA',
             maxShipping: 'Costo máximo de envío',
              discountCode: 'Código de Descuento',
              discountPlaceholder: 'Ingresa tu código de cupón',
@@ -110,8 +116,8 @@
         },
         en: {
             title: 'Checkout', return: 'Back', email: 'Email Address', name: 'Full Name',
-            phone: 'Phone', phoneHelp: 'We will send you order updates',
-
+            phone: 'Phone (WhatsApp)', phoneHelp: 'We will send updates via WhatsApp',
+            whatsappOpt: 'Yes, I want to receive WhatsApp notifications.',
             address: 'DELIVERY ADDRESS', addressHelp: 'Search for your address and select it from the list.',
             statusDefault: 'Type to search...', valid: '✅ LOCATION VERIFIED',
             complete: 'COMPLETE ORDER', summary: 'Summary', total: 'Total',
@@ -124,6 +130,12 @@
             calculatingTax: 'Calculating tax...',
             shippingError: 'Could not calculate shipping. Estimated: $10.00',
             shippingNote: 'Final shipping cost may be higher based on selected carrier',
+            pickupLabel: 'Local Pickup — Free',
+            pickupSub: 'Hayward, CA · We will coordinate the exact location with you',
+            pickupBadge: '📍 LOCAL PICKUP',
+            contactShipping: 'We will contact you to arrange shipping',
+            contactShippingSub: "We couldn't calculate shipping automatically. Your order will be processed and we'll reach out to discuss options.",
+            contactShippingBadge: '📞 CUSTOM QUOTE',
             maxShipping: 'Maximum shipping cost',
              discountCode: 'Discount Code',
              discountPlaceholder: 'Enter your coupon code',
@@ -616,6 +628,16 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                                 </p>
                                 
                                 <div class="space-y-3">
+                                    <div class="flex items-center gap-3 bg-white p-3 rounded-lg border border-green-100">
+                                        <input type="checkbox" id="whatsapp-opt" checked class="w-5 h-5 text-green-600 rounded">
+                                        <label for="whatsapp-opt" class="text-sm font-semibold text-green-800 cursor-pointer">
+                                            <span class="mr-1">💬</span>
+                                            ${currentLang === 'es' 
+                                                ? 'Sí, deseo recibir notificaciones por WhatsApp' 
+                                                : 'Yes, I want WhatsApp notifications'}
+                                        </label>
+                                    </div>
+                                    
                                     <div class="flex items-center gap-3 bg-white p-3 rounded-lg border border-blue-100">
                                         <input type="checkbox" id="sms-opt" class="w-5 h-5 text-blue-600 rounded">
                                         <label for="sms-opt" class="text-sm font-semibold text-blue-800 cursor-pointer">
@@ -848,6 +870,34 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
         return components;
     }
     
+    // ── Distance helper — checks if a Google Place is within 50 miles of 94541 ──
+    const STORE_LAT  = 37.6688;   // Hayward, CA 94541
+    const STORE_LNG  = -122.0808;
+    const PICKUP_RADIUS_MILES = 50;
+
+    function haversineDistance(lat1, lng1, lat2, lng2) {
+        const R    = 3958.8; // Earth radius in miles
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a    = Math.sin(dLat/2) * Math.sin(dLat/2)
+                   + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180)
+                   * Math.sin(dLng/2) * Math.sin(dLng/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function isWithinPickupRange(place) {
+        if (!place?.geometry?.location) return false;
+        const lat  = typeof place.geometry.location.lat === 'function'
+            ? place.geometry.location.lat()
+            : place.geometry.location.lat;
+        const lng  = typeof place.geometry.location.lng === 'function'
+            ? place.geometry.location.lng()
+            : place.geometry.location.lng;
+        const dist = haversineDistance(STORE_LAT, STORE_LNG, lat, lng);
+        console.log(`📍 Distance from store: ${dist.toFixed(1)} miles`);
+        return dist <= PICKUP_RADIUS_MILES;
+    }
+
     // ✅ Calculate shipping and tax - NOW UPDATES WITHOUT FULL RE-RENDER
     function buildParcelsFromCart() {
         const cart = Object.values(cartData);
@@ -978,17 +1028,19 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                     body: JSON.stringify(shippingPayload)
                 });
     
+                // Check if customer is within local pickup range before showing rates
+                const nearStore = isWithinPickupRange(selectedPlace);
+
                 if (shippingRes.ok) {
                     const shippingData = await shippingRes.json();
                     console.log('📦 Shipping response:', shippingData);
-                    
-                    // Show customer shipping options if available
+
                     if (shippingData.allRates && shippingData.allRates.length > 0) {
-                        await displayShippingOptions(shippingData.allRates);
+                        // Prepend local pickup option for nearby customers
+                        await displayShippingOptions(shippingData.allRates, nearStore);
                         return; // Wait for customer selection
                     }
-                    
-                    // Use displayRate (highest cost shown to customer)
+
                     if (shippingData.displayRate) {
                         shippingCents = Math.round(shippingData.displayRate.amount * 100);
                         shippingDetails = {
@@ -1004,18 +1056,39 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                             amount: shippingData.bestRate.amount
                         };
                     }
-                    
+
+                    // If near store and no rate modal shown, still offer pickup
+                    if (nearStore) {
+                        await displayShippingOptions([], true);
+                        return;
+                    }
+
                     console.log('✅ Shipping calculated:', formatPrice(shippingCents));
                 } else {
-                    const errorData = await shippingRes.json();
+                    const errorData = await shippingRes.json().catch(() => ({}));
                     console.warn('⚠️ Shipping API failed:', errorData);
-                    shippingCents = 1000;
-                    shippingDetails = { provider: 'Standard', amount: 10 };
+                    if (nearStore) {
+                        // Near store + API failed → offer pickup only, no blocking
+                        await displayShippingOptions([], true);
+                        return;
+                    }
+                    // Not near store → contact-us fallback (never block the order)
+                    shippingCents = 0;
+                    shippingDetails = { provider: 'Contact for quote', amount: 0, needsQuote: true };
+                    await displayContactShippingNotice();
+                    return;
                 }
             } catch (shippingError) {
                 console.error('❌ Shipping error:', shippingError);
-                shippingCents = 1000;
-                shippingDetails = { provider: 'Standard', amount: 10 };
+                const nearStore = isWithinPickupRange(selectedPlace);
+                if (nearStore) {
+                    await displayShippingOptions([], true);
+                    return;
+                }
+                shippingCents = 0;
+                shippingDetails = { provider: 'Contact for quote', amount: 0, needsQuote: true };
+                await displayContactShippingNotice();
+                return;
             }
     
             // 2. Calculate Tax
@@ -1075,77 +1148,164 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
         }
     }
         // ✅ NEW: Display shipping options for customer to choose
-        async function displayShippingOptions(rates) {
-            if (!rates || rates.length === 0) return;
-        
-            // Sort by price
+        async function displayShippingOptions(rates, nearStore = false) {
+            rates = rates || [];
             rates.sort((a, b) => a.amount - b.amount);
-        
+
+            const isSp = currentLang === 'es';
+
+            // Local pickup card — injected at index -1, handled separately
+            const pickupCard = nearStore ? `
+                <div class="relative border-2 border-green-500 bg-green-50 rounded-xl p-5 cursor-pointer hover:shadow-lg transition"
+                     onclick="selectPickup()">
+                    <div class="absolute -top-3 -right-3 bg-green-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+                        ${isSp ? t('pickupBadge') : t('pickupBadge')}
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-3 mb-2">
+                                <span class="font-black text-xl">🏠 ${isSp ? t('pickupLabel') : t('pickupLabel')}</span>
+                            </div>
+                            <div class="text-sm text-gray-600">${isSp ? t('pickupSub') : t('pickupSub')}</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-3xl font-black text-green-700">$0.00</div>
+                            <div class="text-xs text-green-600 font-semibold">${isSp ? 'Gratis' : 'Free'}</div>
+                        </div>
+                    </div>
+                </div>` : '';
+
+            const shippingCards = rates.map((rate, index) => {
+                const isCheapest = index === 0 && !nearStore;
+                const isFastest  = rate.estimated_days === Math.min(...rates.map(r => r.estimated_days || 999));
+                return `
+                <div class="relative border-2 rounded-xl p-5 cursor-pointer hover:border-indigo-500 hover:shadow-lg transition ${isCheapest ? 'border-green-500 bg-green-50' : 'border-gray-200'}"
+                     onclick="selectShipping(${index})">
+                    ${isCheapest ? '<div class="absolute -top-3 -right-3 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">💰 BEST VALUE</div>' : ''}
+                    ${isFastest && !isCheapest ? '<div class="absolute -top-3 -right-3 bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">⚡ FASTEST</div>' : ''}
+                    <div class="flex justify-between items-center">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-3 mb-2">
+                                <span class="font-black text-xl">${rate.provider.toUpperCase()}</span>
+                                <span class="text-sm text-gray-600">${rate.servicelevel}</span>
+                            </div>
+                            <div class="flex items-center gap-4 text-sm text-gray-600">
+                                <span>📦 ${rate.estimated_days} ${isSp ? 'días' : 'days'}</span>
+                                ${rate.duration_terms ? `<span class="text-xs">• ${rate.duration_terms}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-3xl font-black text-indigo-700">$${rate.amount.toFixed(2)}</div>
+                            <div class="text-xs text-gray-500">${rate.currency}</div>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
             const modalHtml = `
                 <div id="shipping-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
                     <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
                         <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 rounded-t-2xl">
-                            <h3 class="text-2xl font-black">${currentLang === 'es' ? '📦 Selecciona Método de Envío' : '📦 Choose Shipping Method'}</h3>
+                            <h3 class="text-2xl font-black">${isSp ? '📦 Selecciona Método de Envío' : '📦 Choose Delivery Method'}</h3>
                             <p class="text-sm opacity-90 mt-1">
-                                ${currentLang === 'es' 
-                                    ? 'Selecciona la opción que mejor se ajuste a tus necesidades' 
-                                    : 'Select the option that best fits your needs'}
+                                ${isSp ? 'Selecciona la opción que mejor se ajuste a tus necesidades' : 'Select the option that best fits your needs'}
                             </p>
                         </div>
-                        
                         <div class="p-6 space-y-4">
-                            ${rates.map((rate, index) => {
-                                const isCheapest = index === 0;
-                                const isFastest = rate.estimated_days === Math.min(...rates.map(r => r.estimated_days || 999));
-                                
-                                return `
-                                    <div class="relative border-2 rounded-xl p-5 cursor-pointer hover:border-indigo-500 hover:shadow-lg transition ${isCheapest ? 'border-green-500 bg-green-50' : 'border-gray-200'}"
-                                         onclick="selectShipping(${index})">
-                                        
-                                        ${isCheapest ? '<div class="absolute -top-3 -right-3 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">💰 BEST VALUE</div>' : ''}
-                                        ${isFastest && !isCheapest ? '<div class="absolute -top-3 -right-3 bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">⚡ FASTEST</div>' : ''}
-                                        
-                                        <div class="flex justify-between items-center">
-                                            <div class="flex-1">
-                                                <div class="flex items-center gap-3 mb-2">
-                                                    <span class="font-black text-xl">${rate.provider.toUpperCase()}</span>
-                                                    <span class="text-sm text-gray-600">${rate.servicelevel}</span>
-                                                </div>
-                                                <div class="flex items-center gap-4 text-sm text-gray-600">
-                                                    <span>📦 ${rate.estimated_days} ${currentLang === 'es' ? 'días' : 'days'}</span>
-                                                    ${rate.duration_terms ? `<span class="text-xs">• ${rate.duration_terms}</span>` : ''}
-                                                </div>
-                                            </div>
-                                            <div class="text-right">
-                                                <div class="text-3xl font-black text-indigo-700">$${rate.amount.toFixed(2)}</div>
-                                                <div class="text-xs text-gray-500">${rate.currency}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                `;
-                            }).join('')}
+                            ${pickupCard}
+                            ${shippingCards}
                         </div>
-                        
                         <div class="bg-gray-100 p-6 rounded-b-2xl">
                             <button onclick="closeShippingModal()" class="w-full py-3 bg-gray-500 text-white rounded-lg font-bold hover:bg-gray-600 transition">
-                                ${currentLang === 'es' ? 'Cancelar' : 'Cancel'}
+                                ${isSp ? 'Cancelar' : 'Cancel'}
                             </button>
                         </div>
                     </div>
-                </div>
-            `;
-        
-            // Store rates for selection
+                </div>`;
+
             window.availableRates = rates;
-        
-            // Add to page
             document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+
+        // ── Contact-for-shipping notice (non-blocking) ────────────────────────
+        async function displayContactShippingNotice() {
+            const isSp = currentLang === 'es';
+            // Set $0 shipping and flag order for follow-up
+            shippingCents = 0;
+            shippingDetails = { provider: 'Contact for quote', amount: 0, needsQuote: true };
+
+            const noticeHtml = `
+                <div id="shipping-modal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+                        <div class="bg-gradient-to-r from-orange-500 to-amber-500 text-white p-6 rounded-t-2xl">
+                            <h3 class="text-xl font-black">📞 ${isSp ? t('contactShipping') : t('contactShipping')}</h3>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <p class="text-gray-700 text-sm leading-relaxed">
+                                ${isSp ? t('contactShippingSub') : t('contactShippingSub')}
+                            </p>
+                            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+                                ${isSp
+                                    ? '✅ Puedes completar tu pedido ahora. El envío se coordinará por separado y el monto total final puede ajustarse.'
+                                    : '✅ You can complete your order now. Shipping will be coordinated separately and the final total may be adjusted.'}
+                            </div>
+                        </div>
+                        <div class="p-6 pt-0 flex gap-3">
+                            <button onclick="closeShippingModal(); updateCartSummary(); document.getElementById('btnSubmit').disabled=false; document.getElementById('btnSubmit').innerHTML=document.getElementById('btnSubmit').innerHTML;"
+                                    class="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition">
+                                ${isSp ? 'Entendido, continuar →' : 'Got it, continue →'}
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+
+            document.body.insertAdjacentHTML('beforeend', noticeHtml);
+            // Re-enable submit after showing notice
+            const grandTotal = Math.max(0, cartTotalCents - discountCents) + shippingCents + taxCents;
+            await calculateTaxOnly();
+        }
+
+        async function calculateTaxOnly() {
+            try {
+                const { street, city, state, zipCode, country } = selectedAddressComponents;
+                const taxRes = await fetch('/.netlify/functions/calculateTax', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subtotalCents: cartTotalCents, shippingCents: 0, state, zipCode, street, city, country })
+                });
+                if (taxRes.ok) {
+                    const taxData = await taxRes.json();
+                    taxCents = taxData.taxCents || 0;
+                    taxCalculationId = taxData.calculationId || null;
+                    taxDetails = { rate: taxData.taxRate, ratePercent: taxData.taxRatePercent };
+                }
+            } catch {}
+            updateCartSummary();
+            const grandTotal = Math.max(0, cartTotalCents - discountCents) + shippingCents + taxCents;
+            $('btnSubmit').disabled = false;
+            $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
         }
         window.applyCheckoutDiscount = applyCheckoutDiscount;
         window.removeCheckoutDiscount = removeCheckoutDiscount;
         window.toggleDiscountInput = toggleDiscountInput;
     
         // ✅ Define both functions at window scope
+        window.selectPickup = async function() {
+            shippingCents = 0;
+            shippingDetails = {
+                provider: 'Local Pickup',
+                servicelevel: 'In-person',
+                amount: 0,
+                isPickup: true
+            };
+            console.log('✅ Customer selected local pickup');
+            closeShippingModal();
+
+            // Recalculate tax with $0 shipping
+            $('btnSubmit').innerHTML = `${t('calculatingTax')} <span class="calculating-spinner"></span>`;
+            await calculateTaxOnly();
+        };
+
         window.selectShipping = async function(index) {
             const rate = window.availableRates[index];
             
@@ -1272,10 +1432,10 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             buyerEmail: email,
             buyerName: $('buyer-name').value,
             buyerPhone: $('country-code').value + phone,
-            whatsappConsent: false,
+            whatsappConsent: $('whatsapp-opt').checked,
             smsConsent: $('sms-opt').checked,
             notificationPreferences: {
-                whatsapp: false,
+                whatsapp: $('whatsapp-opt').checked,
                 sms: $('sms-opt').checked,
                 email: true
             },
@@ -1295,6 +1455,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             discountCents: discountCents, discount: appliedDiscount ? {code: appliedDiscount.code, type: appliedDiscount.type, value: appliedDiscount.value,savedCents: discountCents,discountId: appliedDiscount.id} : null,
             totalCents: Math.max(0, cartTotalCents - discountCents) + shippingCents + taxCents,        
             shippingDetails: shippingDetails,
+            needsShippingQuote: !!(shippingDetails?.needsQuote),
             taxDetails: taxDetails,
             status: "Pending",
             paymentStatus: "Unpaid",
@@ -1467,7 +1628,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                                 Hemos enviado un email de confirmación${paymentUrl ? ' con el enlace de pago' : ''} a:
                             </p>
                             <p class="text-sm font-bold text-blue-900 mt-1">${order.buyerEmail}</p>
-
+                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2 flex items-center gap-1"><span>💬</span> También recibirás actualizaciones por WhatsApp</p>' : ''}
                             ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2 flex items-center gap-1"><span>📱</span> También recibirás actualizaciones por SMS</p>' : ''}
                         </div>
                         
@@ -1562,7 +1723,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                                 We've sent a confirmation email${paymentUrl ? ' with payment link' : ''} to:
                             </p>
                             <p class="text-sm font-bold text-blue-900 mt-1">${order.buyerEmail}</p>
-
+                            ${order.whatsappConsent ? '<p class="text-xs text-green-700 mt-2 flex items-center gap-1"><span>💬</span> You\'ll also receive updates via WhatsApp</p>' : ''}
                             ${order.smsConsent ? '<p class="text-xs text-blue-700 mt-2 flex items-center gap-1"><span>📱</span> You\'ll also receive updates via SMS</p>' : ''}
                         </div>
                         
