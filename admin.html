@@ -2531,6 +2531,10 @@
 
         function toggleOrdersFullscreen() {
             state.ordersFullscreen = !state.ordersFullscreen;
+            _applyOrdersFullscreenStyles();
+        }
+
+        function _applyOrdersFullscreenStyles() {
             const section = document.getElementById('ordersListSection');
             const btn     = document.getElementById('ordersFullscreenBtn');
             if (!section) return;
@@ -2538,10 +2542,19 @@
                 section.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f1f5f9;overflow-y:auto;padding:24px;';
                 document.body.style.overflow = 'hidden';
                 if (btn) btn.innerHTML = '✕ Exit Full Screen';
+                // Ensure edit modal and any fixed overlay renders above the fullscreen section
+                let st = document.getElementById('orders-fs-style');
+                if (!st) {
+                    st = document.createElement('style');
+                    st.id = 'orders-fs-style';
+                    st.textContent = '#editModalContainer{z-index:10100!important} #editModalContainer .fixed{z-index:10100!important}';
+                    document.head.appendChild(st);
+                }
             } else {
                 section.style.cssText = '';
                 document.body.style.overflow = '';
                 if (btn) btn.innerHTML = '⛶ Full Screen';
+                document.getElementById('orders-fs-style')?.remove();
             }
         }
 
@@ -2653,7 +2666,7 @@
                     </div>
                 </div>
                 <!-- Product list -->
-                ${isFS ? renderProductsGrouped(items) : renderProductGrid(items)}`;
+                ${(isFS || (f.sortBy || 'category-asc') === 'category-asc') ? renderProductsGrouped(items) : renderProductGrid(items)}`;
 
             // Translate newly rendered content
             translatePage();
@@ -8891,6 +8904,10 @@ ${printScript}
             state.editingOrderDraftCart = {};
             const modalContainer = document.getElementById('editModalContainer');
             if (modalContainer) modalContainer.innerHTML = '';
+            // If orders fullscreen was active, re-apply styles (re-render may have cleared them)
+            if (state.ordersFullscreen) {
+                _applyOrdersFullscreenStyles();
+            }
         }
 
         async function sendPaymentLink(orderId) {
