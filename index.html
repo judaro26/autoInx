@@ -3217,13 +3217,25 @@
                     if (!seen.has(d.id)) { seen.add(d.id); docs.push(d); }
                 }
         
+                const ELIGIBLE_STATUSES = new Set(['Delivered', 'Shipped', 'In Transit', 'Processing', 'Pending']);
+                const CANCELLED_STATUSES = new Set(['Cancelled', 'Cancelled - Refunded', 'Refunded']);
+
                 state.returnModal.orders = docs
                     .map(d => ({ id: d.id, ...d.data() }))
-                    // Accept isPaid:true OR paymentStatus:'Paid'
-                    .filter(o => o.status !== 'Cancelled' && (o.isPaid || o.paymentStatus === 'Paid'))
+                    .filter(o => {
+                        const status = (o.status || '').trim();
+                        if (CANCELLED_STATUSES.has(status)) return false;
+                        // Accept any explicit paid flag, case-insensitive paymentStatus,
+                        // or a positive totalCents (order was placed = money collected)
+                        const paid = o.isPaid === true
+                            || (typeof o.paymentStatus === 'string' && o.paymentStatus.toLowerCase() === 'paid')
+                            || ELIGIBLE_STATUSES.has(status)   // delivered/shipped => implicitly paid
+                            || (o.totalCents > 0 && !CANCELLED_STATUSES.has(status));
+                        return paid;
+                    })
                     .sort((a, b) => {
-                        const ta = a.createdAt?.toDate?.()?.getTime() || 0;
-                        const tb = b.createdAt?.toDate?.()?.getTime() || 0;
+                        const ta = a.createdAt?.toDate?.()?.getTime() || a.timestamp || 0;
+                        const tb = b.createdAt?.toDate?.()?.getTime() || b.timestamp || 0;
                         return tb - ta;
                     });
         
@@ -3303,10 +3315,28 @@
                     </div>`;
 
                 if (rm.orders.length === 0) return `
-                    <div class="text-center py-10">
-                        <div class="text-4xl mb-3">📦</div>
-                        <p class="text-gray-500 font-semibold">${isSp ? 'No hay pedidos elegibles' : 'No eligible orders found'}</p>
-                        <p class="text-gray-400 text-sm mt-1">${isSp ? 'Solo se pueden devolver pedidos pagados.' : 'Only paid orders are eligible for returns.'}</p>
+                    <div class="text-center py-8 space-y-4">
+                        <div class="text-4xl">📦</div>
+                        <div>
+                            <p class="text-gray-600 font-semibold">${isSp ? 'No encontramos pedidos elegibles' : 'No eligible orders found'}</p>
+                            <p class="text-gray-400 text-sm mt-1">
+                                ${isSp
+                                    ? 'Puede que tu pedido haya sido registrado con otro correo o antes de crear tu cuenta.'
+                                    : 'Your order may have been placed with a different email or before creating your account.'}
+                            </p>
+                        </div>
+                        <div class="pt-1 border-t border-gray-100">
+                            <p class="text-xs text-gray-400 mb-2">
+                                ${isSp ? '¿Tienes el número de pedido?' : 'Have your order number handy?'}
+                            </p>
+                            <button onclick="window.module.switchReturnToManual()"
+                                    class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-xl hover:bg-indigo-700 transition">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                ${isSp ? 'Ingresar pedido manualmente' : 'Enter order manually'}
+                            </button>
+                        </div>
                     </div>`;
 
                 return `
@@ -3556,6 +3586,15 @@
         }
 
         // ── Guest return helpers ──────────────────────────────────────────────────
+        // Switches a logged-in user who got zero results to the manual lookup form
+        function switchReturnToManual() {
+            state.returnModal.guestMode = true;
+            // Pre-fill their email so they just need the order number
+            state.returnModal.guestEmail = auth.currentUser?.email || '';
+            state.returnModal.error = null;
+            renderReturnModal();
+        }
+
         function setGuestReturnField(field, val) {
             state.returnModal[field] = val;
             // No re-render — let the user type freely
@@ -3774,6 +3813,7 @@
             submitReturnRequest,
             guestReturnLookup,
             setGuestReturnField,
+            switchReturnToManual,
         };
         document.addEventListener('DOMContentLoaded', () => {
             setupFirebase();
