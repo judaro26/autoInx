@@ -584,9 +584,19 @@
         if (!ok) { showGuestView(); return; }
 
         onAuthStateChanged(auth, async (user) => {
-            if (user) {
+            if (user && !user.isAnonymous) {
+                // Fire-and-forget: backfill uid onto any guest orders for this email
+                user.getIdToken(false).then(token =>
+                    fetch('/.netlify/functions/linkUserOrders', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` },
+                    }).catch(() => {})
+                ).catch(() => {});
+
                 showLoggedInView(user);
                 await loadUserOrders(user);
+            } else if (user && user.isAnonymous) {
+                showGuestView();
             } else {
                 showGuestView();
             }
