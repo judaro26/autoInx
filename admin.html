@@ -1522,6 +1522,28 @@
                             <pre id="staticIpListDisplay" class="bg-white p-3 rounded-lg border font-mono text-sm text-gray-800"></pre>
                         </div>
                         
+                        <!-- Payment Settings -->
+                        <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
+                            <h3 class="text-xl font-bold mb-4 text-green-700">💰 Payment Settings</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-1">Zelle Email / Phone</label>
+                                    <input type="text" id="zelleEmail"
+                                           value="${escapeHtml(globalConfig?.payment?.zelleEmail || 'payments@autoinx.com')}"
+                                           class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-green-400"
+                                           placeholder="payments@autoinx.com">
+                                    <p class="text-xs text-gray-400 mt-1">Customers send Zelle payments here. Updates checkout instructions + confirmation emails on save.</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-gray-700 mb-1">Zelle Account Name</label>
+                                    <input type="text" id="zelleName"
+                                           value="${escapeHtml(globalConfig?.payment?.zelleName || 'AutoInx')}"
+                                           class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-green-400"
+                                           placeholder="AutoInx">
+                                </div>
+                            </div>
+                        </div>
+
                         <button type="submit" class="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150">Save Configuration</button>
                     </form>
                 </section>
@@ -8292,6 +8314,10 @@ ${printScript}
                         theme:   document.getElementById('seasonalBannerTheme')?.value || 'stpatricks',
                         message: document.getElementById('seasonalBannerMessage')?.value?.trim() || '',
                         autoManaged: false,
+                    },
+                    payment: {
+                        zelleEmail: document.getElementById('zelleEmail')?.value?.trim() || 'payments@autoinx.com',
+                        zelleName:  document.getElementById('zelleName')?.value?.trim()  || 'AutoInx',
                     }
                 };
 
@@ -16670,34 +16696,30 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
         }
 
         async function reviewPaymentConfirmation(confirmationId, orderId, decision) {
+            const btns = document.querySelectorAll(`[onclick*="reviewPaymentConfirmation('${confirmationId}"]`);
+            btns.forEach(b => { b.disabled = true; b.textContent = '⏳'; });
             try {
-                await updateDoc(doc(db, PAYMENT_CONFIRMATIONS_COLL, confirmationId), {
-                    status:     decision,
-                    reviewedAt: serverTimestamp(),
-                    reviewedBy: auth.currentUser?.email || 'admin',
+                const idToken = await auth.currentUser.getIdToken();
+                const res = await fetch('/.netlify/functions/approvePaymentConfirmation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({ confirmationId, orderId, decision })
                 });
-
-                if (decision === 'approved') {
-                    await updateDoc(doc(db, ORDERS_COLLECTION, orderId), {
-                        isPaid:        true,
-                        paymentStatus: 'Paid',
-                        paidAt:        new Date().toISOString(),
-                        updatedAt:     serverTimestamp(),
-                    });
-                    showMessage('success', 'Payment approved — order marked as Paid.', 3000);
-                    await logAdminAction('PAYMENT_CONFIRMATION_APPROVED', { orderId, confirmationId }, orderId);
-                } else {
-                    await updateDoc(doc(db, ORDERS_COLLECTION, orderId), {
-                        paymentConfirmationSubmitted: false,
-                        paymentStatus: 'Unpaid',
-                        updatedAt: serverTimestamp(),
-                    });
-                    showMessage('info', 'Payment confirmation rejected.', 3000);
-                    await logAdminAction('PAYMENT_CONFIRMATION_REJECTED', { orderId, confirmationId }, orderId);
-                }
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Request failed');
+                showMessage(decision === 'approved' ? 'success' : 'info',
+                    decision === 'approved'
+                        ? '✅ Payment approved — order marked as Paid.'
+                        : 'Confirmation rejected.',
+                    3000);
+                await logAdminAction(
+                    decision === 'approved' ? 'PAYMENT_CONFIRMATION_APPROVED' : 'PAYMENT_CONFIRMATION_REJECTED',
+                    { orderId, confirmationId }, orderId
+                );
                 document.getElementById('payConfirmAdminModal')?.remove();
             } catch (err) {
                 showMessage('error', `Failed: ${err.message}`, 4000);
+                btns.forEach(b => { b.disabled = false; b.textContent = decision === 'approved' ? '✅ Approve — Mark Order Paid' : '❌ Reject'; });
             }
         }
 
