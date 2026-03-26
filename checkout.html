@@ -86,6 +86,18 @@
             complete: 'COMPLETAR PEDIDO', summary: 'Resumen', total: 'Total',
             errorEmail: 'Correo inválido', errorPhone: 'Número inválido', errorAddress: 'Selecciona una dirección',
             subtotal: 'Subtotal',
+            choosePayment: 'Elige tu método de pago',
+            payCard: 'Pagar con Tarjeta',
+            payCardSub: 'Visa, Mastercard, Amex — pago seguro con Stripe',
+            payZelle: 'Pagar con Zelle',
+            payZelleSub: 'Transferencia bancaria instantánea — sin comisiones',
+            payCash: 'Pagar en Efectivo',
+            payCashSub: 'Entrega local en el East Bay · Coordinaremos contigo',
+            zelleInfo: 'Envía tu pago a:',
+            zelleNote: 'Incluye tu número de pedido en el memo.',
+            cashNote: 'Coordinaremos el pago al momento de la entrega o recogida.',
+            registerToTrack: 'Crea una cuenta para rastrear tu pago',
+            registerToTrackSub: 'Necesitarás una cuenta para subir tu comprobante de pago y rastrear tu pedido.',
             shipping: 'Envío',
             tax: 'Impuesto',
             calculatedAtCheckout: 'Calculado al finalizar',
@@ -130,6 +142,18 @@
             complete: 'COMPLETE ORDER', summary: 'Summary', total: 'Total',
             errorEmail: 'Invalid email', errorPhone: 'Invalid phone', errorAddress: 'Select an address',
             subtotal: 'Subtotal',
+            choosePayment: 'Choose your payment method',
+            payCard: 'Pay by Card',
+            payCardSub: 'Visa, Mastercard, Amex — secure payment via Stripe',
+            payZelle: 'Pay by Zelle',
+            payZelleSub: 'Instant bank transfer — no fees',
+            payCash: 'Pay by Cash',
+            payCashSub: 'Local East Bay delivery/pickup · We will coordinate with you',
+            zelleInfo: 'Send your payment to:',
+            zelleNote: 'Include your order number in the memo.',
+            cashNote: 'We will coordinate payment at the time of delivery or pickup.',
+            registerToTrack: 'Create an account to track your payment',
+            registerToTrackSub: 'You will need an account to upload your payment confirmation and track your order.',
             shipping: 'Shipping',
             tax: 'Tax',
             calculatedAtCheckout: 'Calculated at checkout',
@@ -1331,7 +1355,362 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             $('btnSubmit').disabled = false;
             $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(grandTotal)}`;
         }
-        window.applyCheckoutDiscount = applyCheckoutDiscount;
+    
+    // ══════════════════════════════════════════════════════════════════════
+    //  PAYMENT METHOD SELECTION
+    // ══════════════════════════════════════════════════════════════════════
+
+    // Zelle/Cash contact info — update these to match your details
+    const ZELLE_EMAIL   = 'payments@autoinx.com';  // or phone number
+    const ZELLE_NAME    = 'AutoInx';
+
+    function showPaymentMethodModal(orderId, order) {
+        return new Promise(resolve => {
+            const isSp = currentLang === 'es';
+            const fmt  = c => `$${((c||0)/100).toFixed(2)}`;
+
+            const existing = document.getElementById('paymentMethodModal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.id = 'paymentMethodModal';
+            modal.innerHTML = `
+            <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" style="backdrop-filter:blur(3px)">
+                <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                    <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-5 text-white">
+                        <h2 class="text-xl font-black">${isSp ? t('choosePayment') : t('choosePayment')}</h2>
+                        <p class="text-indigo-200 text-sm mt-0.5">${isSp ? 'Pedido' : 'Order'} #${orderId.slice(0,8).toUpperCase()} — <strong>${fmt(order.totalCents)}</strong></p>
+                    </div>
+                    <div class="p-5 space-y-3">
+
+                        <!-- Card -->
+                        <button id="pmCard"
+                                class="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-indigo-200 bg-indigo-50 hover:border-indigo-500 hover:shadow-md transition text-left group">
+                            <span class="text-3xl flex-shrink-0">💳</span>
+                            <div>
+                                <p class="font-bold text-gray-800 group-hover:text-indigo-700">${t('payCard')}</p>
+                                <p class="text-xs text-gray-500 mt-0.5">${t('payCardSub')}</p>
+                            </div>
+                            <svg class="w-5 h-5 text-gray-400 group-hover:text-indigo-600 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+
+                        <!-- Zelle -->
+                        <button id="pmZelle"
+                                class="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-purple-200 bg-purple-50 hover:border-purple-500 hover:shadow-md transition text-left group">
+                            <span class="text-3xl flex-shrink-0">🏦</span>
+                            <div>
+                                <p class="font-bold text-gray-800 group-hover:text-purple-700">${t('payZelle')}</p>
+                                <p class="text-xs text-gray-500 mt-0.5">${t('payZelleSub')}</p>
+                            </div>
+                            <svg class="w-5 h-5 text-gray-400 group-hover:text-purple-600 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+
+                        <!-- Cash -->
+                        <button id="pmCash"
+                                class="w-full flex items-center gap-4 p-4 rounded-2xl border-2 border-green-200 bg-green-50 hover:border-green-500 hover:shadow-md transition text-left group">
+                            <span class="text-3xl flex-shrink-0">💵</span>
+                            <div>
+                                <p class="font-bold text-gray-800 group-hover:text-green-700">${t('payCash')}</p>
+                                <p class="text-xs text-gray-500 mt-0.5">${t('payCashSub')}</p>
+                            </div>
+                            <svg class="w-5 h-5 text-gray-400 group-hover:text-green-600 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.appendChild(modal);
+
+            modal.querySelector('#pmCard').onclick = async () => {
+                modal.remove();
+                await continueWithCard(orderId, order);
+                resolve();
+            };
+            modal.querySelector('#pmZelle').onclick = async () => {
+                modal.remove();
+                await continueWithAlternativePayment(orderId, order, 'zelle');
+                resolve();
+            };
+            modal.querySelector('#pmCash').onclick = async () => {
+                modal.remove();
+                await continueWithAlternativePayment(orderId, order, 'cash');
+                resolve();
+            };
+        });
+    }
+
+    // ── Card path — resumes existing Stripe flow ──────────────────────────────
+    async function continueWithCard(orderId, order) {
+        const isSp = currentLang === 'es';
+        document.body.innerHTML = `<div class="flex items-center justify-center min-h-screen"><div class="text-center"><div class="animate-spin w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full mx-auto mb-4"></div><p class="text-gray-500">${isSp ? 'Preparando tu pago seguro…' : 'Preparing your secure payment…'}</p></div></div>`;
+
+        try {
+            // Update order payment method
+            await updateDoc(doc(db, "artifacts", "default-app-id", "public", "data", "orders", orderId), {
+                paymentMethod: 'card'
+            });
+
+            // Generate Stripe payment link
+            const paymentResponse = await fetch('/.netlify/functions/createStripePaymentLink', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId,
+                    userId: userId || null,
+                    buyerEmail: order.buyerEmail,
+                    buyerName: order.buyerName,
+                    items: order.items,
+                    totalCents: order.totalCents,
+                    subtotalCents: order.subtotalCents,
+                    shippingCents: order.shippingCents,
+                    taxCents: order.taxCents,
+                    taxCalculationId,
+                    language: currentLang
+                })
+            });
+
+            let paymentUrl = null;
+            if (paymentResponse.ok) {
+                const paymentData = await paymentResponse.json();
+                paymentUrl = paymentData.paymentUrl;
+                await updateDoc(doc(db, "artifacts", "default-app-id", "public", "data", "orders", orderId), {
+                    stripePaymentUrl: paymentUrl,
+                    stripePaymentLinkId: paymentData.paymentLinkId
+                });
+            }
+
+            // Adjust inventory
+            for (const item of order.items) {
+                try {
+                    const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
+                    const itemSnap = await getDoc(itemRef);
+                    if (itemSnap.exists()) {
+                        const newStock = Math.max(0, (itemSnap.data().stock || 0) - item.quantity);
+                        await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
+                    }
+                } catch {}
+            }
+
+            // Send confirmation email
+            try {
+                await fetch('/.netlify/functions/sendOrderConfirmation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
+                        items: order.items, subtotalCents: order.subtotalCents,
+                        shippingCents: order.shippingCents, taxCents: order.taxCents,
+                        totalCents: order.totalCents, paymentUrl,
+                        communicationLang: currentLang, paymentMethod: 'card'
+                    })
+                });
+            } catch {}
+
+            // Clear cart
+            sessionStorage.removeItem('autoInxCart');
+            if (db && userId && userId !== 'guest') {
+                await deleteDoc(doc(db, 'abandoned_carts', userId)).catch(() => {});
+            }
+
+            // Redirect to Stripe
+            if (paymentUrl) {
+                window.location.href = paymentUrl;
+            } else {
+                window.location.href = `/track-order.html?order=${orderId}`;
+            }
+        } catch (err) {
+            console.error('Card payment error:', err);
+            window.location.href = `/track-order.html?order=${orderId}`;
+        }
+    }
+
+    // ── Zelle / Cash path ─────────────────────────────────────────────────────
+    async function continueWithAlternativePayment(orderId, order, method) {
+        const isSp = currentLang === 'es';
+        const fmt  = c => `$${((c||0)/100).toFixed(2)}`;
+        const isZelle = method === 'zelle';
+
+        // Update order with payment method
+        try {
+            await updateDoc(doc(db, "artifacts", "default-app-id", "public", "data", "orders", orderId), {
+                paymentMethod: method,
+                paymentStatus: 'Pending - ' + (isZelle ? 'Zelle' : 'Cash')
+            });
+        } catch {}
+
+        // Adjust inventory
+        for (const item of order.items) {
+            try {
+                const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
+                const itemSnap = await getDoc(itemRef);
+                if (itemSnap.exists()) {
+                    const newStock = Math.max(0, (itemSnap.data().stock || 0) - item.quantity);
+                    await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
+                }
+            } catch {}
+        }
+
+        // Send confirmation email with payment instructions
+        try {
+            await fetch('/.netlify/functions/sendOrderConfirmation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
+                    items: order.items, subtotalCents: order.subtotalCents,
+                    shippingCents: order.shippingCents, taxCents: order.taxCents,
+                    totalCents: order.totalCents, communicationLang: currentLang,
+                    paymentMethod: method,
+                    zelleEmail: ZELLE_EMAIL, zelleName: ZELLE_NAME
+                })
+            });
+        } catch {}
+
+        // Clear cart
+        sessionStorage.removeItem('autoInxCart');
+        if (db && userId && userId !== 'guest') {
+            await deleteDoc(doc(db, 'abandoned_carts', userId)).catch(() => {});
+        }
+
+        // Show instructions + registration prompt
+        document.body.innerHTML = `
+        <div class="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+            <div class="max-w-lg w-full space-y-4">
+
+                <!-- Success header -->
+                <div class="bg-white rounded-3xl shadow-xl p-7 text-center">
+                    <div class="text-5xl mb-3">${isZelle ? '🏦' : '💵'}</div>
+                    <h1 class="text-2xl font-black text-gray-800 mb-1">${isSp ? '¡Pedido Recibido!' : 'Order Received!'}</h1>
+                    <p class="text-gray-500 text-sm">${isSp ? 'Pedido' : 'Order'} <span class="font-mono font-bold text-indigo-600">#${orderId.slice(0,8).toUpperCase()}</span></p>
+                </div>
+
+                <!-- Payment instructions -->
+                <div class="bg-white rounded-3xl shadow-xl p-7 border-l-4 ${isZelle ? 'border-purple-500' : 'border-green-500'}">
+                    <h2 class="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        ${isZelle ? '🏦 ' : '💵 '}${isSp ? 'Instrucciones de Pago' : 'Payment Instructions'}
+                    </h2>
+                    ${isZelle ? `
+                    <div class="bg-purple-50 rounded-xl p-4 space-y-2 text-sm">
+                        <p class="text-gray-600">${isSp ? t('zelleInfo') : t('zelleInfo')}</p>
+                        <p class="font-black text-purple-800 text-lg">${ZELLE_EMAIL}</p>
+                        <p class="font-bold text-gray-700">${ZELLE_NAME}</p>
+                        <p class="font-bold text-purple-700 text-xl mt-2">${fmt(order.totalCents)}</p>
+                        <div class="bg-white rounded-lg p-3 border border-purple-200 mt-2">
+                            <p class="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">${isSp ? 'Memo / Nota:' : 'Memo / Note:'}</p>
+                            <p class="font-mono font-bold text-gray-800">AutoInx #${orderId.slice(0,8).toUpperCase()}</p>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2">${t('zelleNote')}</p>
+                    </div>` : `
+                    <div class="bg-green-50 rounded-xl p-4 text-sm">
+                        <p class="text-gray-700">${t('cashNote')}</p>
+                        <p class="font-bold text-green-700 text-xl mt-2">${fmt(order.totalCents)}</p>
+                        <p class="text-xs text-gray-400 mt-2">${isSp ? 'Te contactaremos para coordinar.' : 'We will contact you to coordinate.'}</p>
+                    </div>`}
+                </div>
+
+                <!-- Register / login prompt -->
+                <div class="bg-white rounded-3xl shadow-xl p-7">
+                    <h2 class="font-bold text-gray-800 mb-1">${t('registerToTrack')}</h2>
+                    <p class="text-sm text-gray-500 mb-5">${t('registerToTrackSub')}</p>
+
+                    <div class="space-y-3" id="altPayAuthForm">
+                        <input type="email" id="altEmail" value="${order.buyerEmail}"
+                               placeholder="Email" readonly
+                               class="w-full p-3 border-2 border-gray-200 rounded-xl text-sm bg-gray-50 text-gray-500">
+                        <input type="password" id="altPassword"
+                               placeholder="${isSp ? 'Crea una contraseña' : 'Create a password'}"
+                               class="w-full p-3 border-2 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none">
+                        <div id="altAuthError" class="hidden text-red-600 text-xs font-semibold"></div>
+                        <button id="altRegisterBtn"
+                                class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition">
+                            ${isSp ? 'Crear cuenta y rastrear pedido →' : 'Create account & track order →'}
+                        </button>
+                        <p class="text-center text-xs text-gray-400">
+                            ${isSp ? '¿Ya tienes cuenta?' : 'Already have an account?'}
+                            <button id="altSwitchToLogin" class="text-indigo-600 font-semibold hover:underline ml-1">
+                                ${isSp ? 'Inicia sesión' : 'Sign in'}
+                            </button>
+                        </p>
+                        <a href="/track-order.html?order=${orderId}&pending=${method}"
+                           class="block text-center text-xs text-gray-400 hover:text-gray-600 mt-2">
+                            ${isSp ? 'Omitir por ahora →' : 'Skip for now →'}
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+        // Wire up auth form
+        let isLoginMode = false;
+        const registerBtn = document.getElementById('altRegisterBtn');
+        const switchBtn   = document.getElementById('altSwitchToLogin');
+        const errEl       = document.getElementById('altAuthError');
+        const isSp2 = currentLang === 'es';
+
+        switchBtn.onclick = () => {
+            isLoginMode = !isLoginMode;
+            registerBtn.textContent = isLoginMode
+                ? (isSp2 ? 'Iniciar sesión y rastrear →' : 'Sign in & track order →')
+                : (isSp2 ? 'Crear cuenta y rastrear pedido →' : 'Create account & track order →');
+            document.getElementById('altPassword').placeholder = isLoginMode
+                ? (isSp2 ? 'Tu contraseña' : 'Your password')
+                : (isSp2 ? 'Crea una contraseña' : 'Create a password');
+            switchBtn.textContent = isLoginMode
+                ? (isSp2 ? 'Crear cuenta' : 'Create account')
+                : (isSp2 ? 'Inicia sesión' : 'Sign in');
+        };
+
+        registerBtn.onclick = async () => {
+            const email    = document.getElementById('altEmail').value.trim();
+            const password = document.getElementById('altPassword').value;
+            errEl.classList.add('hidden');
+
+            if (password.length < 6) {
+                errEl.textContent = isSp2 ? 'La contraseña debe tener al menos 6 caracteres.' : 'Password must be at least 6 characters.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            registerBtn.disabled = true;
+            registerBtn.textContent = '⏳';
+
+            try {
+                const { createUserWithEmailAndPassword, signInWithEmailAndPassword } =
+                    await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js');
+
+                if (isLoginMode) {
+                    await signInWithEmailAndPassword(auth, email, password);
+                } else {
+                    await createUserWithEmailAndPassword(auth, email, password);
+                }
+                // Link order to new uid
+                const newUid = auth.currentUser?.uid;
+                if (newUid) {
+                    await updateDoc(doc(db, "artifacts", "default-app-id", "public", "data", "orders", orderId), {
+                        uid: newUid, userId: newUid, buyerEmail: email
+                    }).catch(() => {});
+                    // Also run linkUserOrders to catch any prior guest orders
+                    const token = await auth.currentUser.getIdToken();
+                    fetch('/.netlify/functions/linkUserOrders', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    }).catch(() => {});
+                }
+                window.location.href = `/track-order.html?order=${orderId}&pending=${method}`;
+            } catch (err) {
+                const msg = err.code === 'auth/email-already-in-use'
+                    ? (isSp2 ? 'Este correo ya tiene una cuenta. Inicia sesión.' : 'This email already has an account. Sign in instead.')
+                    : err.message;
+                errEl.textContent = msg;
+                errEl.classList.remove('hidden');
+                registerBtn.disabled = false;
+                registerBtn.textContent = isLoginMode
+                    ? (isSp2 ? 'Iniciar sesión y rastrear →' : 'Sign in & track order →')
+                    : (isSp2 ? 'Crear cuenta y rastrear pedido →' : 'Create account & track order →');
+            }
+        };
+    }
+
+    window.applyCheckoutDiscount = applyCheckoutDiscount;
         window.removeCheckoutDiscount = removeCheckoutDiscount;
         window.toggleDiscountInput = toggleDiscountInput;
     
@@ -1520,8 +1899,14 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                      console.error('❌ Discount usage recording failed:', discountError);
                  }
              }
-                
-            // 2. Generate Stripe Payment Link
+
+            // 1b. Show payment method selection modal BEFORE Stripe
+            $('btnSubmit').disabled = false;
+            $('btnSubmit').innerHTML = `${t('complete')} — ${formatPrice(order.totalCents)}`;
+            await showPaymentMethodModal(docRef.id, order);
+            return; // modal takes over from here
+
+            // 2. Generate Stripe Payment Link (reached via continueWithCard below)
             let paymentUrl = null;
             try {
                 console.log('💳 Creating Stripe payment link...');
