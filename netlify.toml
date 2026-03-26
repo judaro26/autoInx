@@ -1,4 +1,7 @@
 # netlify.toml
+[build]
+  publish = "."
+
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
@@ -7,21 +10,32 @@
 [functions.sendOrderConfirmation]
   included_files = ["netlify/functions/sendOrderConfirmation/emailTemplates/*.html"]
   timeout = 25
+
 [functions.sendReceiptConfirmation]
   included_files = ["netlify/functions/sendReceiptConfirmation/emailTemplates/*.html"]
   timeout = 25
+
 [functions.sendContactEmail]
   included_files = ["netlify/functions/sendContactEmail/emailTemplates/*.html"]
   timeout = 10
 
+[functions.sendCustomOrderEmail]
+  timeout = 15
+
+[functions.sendCatalogEmail]
+  timeout = 30
+
 # ─── Scheduled / Cron Functions ───────────────────────────────────────────────
 [functions.anonymousUserCron]
   schedule = "0 3 * * *"
+
 [functions.toggleChatWidget]
   function = "toggleChatWidget"
   schedule = "0 * * * *"
+
 [functions.abandonedCartReminder]
   schedule = "0 10 * * *"
+
 [functions.autoSeasonalBanner]
   schedule = "0 6 * * *"
 
@@ -34,26 +48,53 @@
 # ─── Shipping ─────────────────────────────────────────────────────────────────
 [functions.getShippingRates]
   timeout = 30
+
 [functions.generateShippingLabel]
   timeout = 30
 
+[functions.packItems]
+  timeout = 20
+
 # ─── Order Status & Tracking ──────────────────────────────────────────────────
 # getOrderStatus: server-side guest order lookup with rate limiting.
-# Higher timeout because it queries Firestore + does email verification.
 [functions.getOrderStatus]
   timeout = 10
+
+# getUserOrders: returns all orders for an authenticated user (bypasses Firestore rules).
+[functions.getUserOrders]
+  timeout = 15
+
+# linkUserOrders: backfills uid onto guest orders when a user signs in.
+[functions.linkUserOrders]
+  timeout = 15
 
 # getExternalOrders: reads eBay/manual orders from Firestore for admin panel.
 [functions.getExternalOrders]
   timeout = 15
 
+# ─── SEO ──────────────────────────────────────────────────────────────────────
+# sitemap: generates live sitemap.xml from Firestore catalog items.
+[functions.sitemap]
+  timeout = 10
+
 # ─── Other Functions ──────────────────────────────────────────────────────────
 [functions.deleteOrder]
   included_files = ["./netlify/functions/ip-data.json"]
+
 [functions.getGoogleMapsKey]
   access = "public"
 
+[functions.getClientFirebaseConfig]
+  access = "public"
+
 # ─── Redirects ────────────────────────────────────────────────────────────────
+# Sitemap served from Netlify function
+[[redirects]]
+  from   = "/sitemap.xml"
+  to     = "/.netlify/functions/sitemap"
+  status = 200
+  force  = true
+
 # Legacy URLs → new track-order page
 [[redirects]]
   from   = "/track"
@@ -69,3 +110,26 @@
   from   = "/payment-success"
   to     = "/track-order.html"
   status = 301
+
+# ─── Headers ──────────────────────────────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options        = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy        = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/sitemap.xml"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, s-maxage=3600"
