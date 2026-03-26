@@ -3,6 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- ── Primary SEO ─────────────────────────────────────────────────── -->
+    <title>AutoInx — Quality Auto Parts &amp; Accessories | Hayward, CA</title>
+    <meta name="description"
+          content="AutoInx offers quality automotive parts and accessories — wiperblades, filters, and more. Fast shipping across the US, free local delivery in the East Bay Area, CA.">
+    <meta name="keywords"
+          content="auto parts, automotive accessories, wiperblades, car parts, Hayward CA, East Bay auto parts, car accessories">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://autoinx.com/">
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml">
+
+    <!-- ── Open Graph (Facebook / WhatsApp previews) ────────────────────── -->
+    <meta property="og:type"        content="website">
+    <meta property="og:url"         content="https://autoinx.com/">
+    <meta property="og:site_name"   content="AutoInx">
+    <meta property="og:title"       content="AutoInx — Quality Auto Parts &amp; Accessories">
+    <meta property="og:description" content="Quality automotive parts and accessories. Fast US shipping, free East Bay local delivery.">
+    <meta property="og:image"       content="https://autoinx.com/images/AutoInx logo.png">
+    <meta property="og:locale"      content="en_US">
+    <meta property="og:locale:alternate" content="es_CO">
+
+    <!-- ── Twitter Card ─────────────────────────────────────────────────── -->
+    <meta name="twitter:card"        content="summary">
+    <meta name="twitter:title"       content="AutoInx — Quality Auto Parts">
+    <meta name="twitter:description" content="Quality automotive parts and accessories with fast US shipping.">
+    <meta name="twitter:image"       content="https://autoinx.com/images/AutoInx logo.png">
+
+    <!-- ── Local Business structured data (JSON-LD) ─────────────────────── -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "AutoPartsStore",
+      "name": "AutoInx",
+      "url": "https://autoinx.com",
+      "logo": "https://autoinx.com/images/AutoInx logo.png",
+      "description": "Quality automotive parts and accessories. Fast US shipping, free local delivery in the East Bay Area, CA.",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Hayward",
+        "addressRegion": "CA",
+        "postalCode": "94541",
+        "addressCountry": "US"
+      },
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "email": "support@autoinx.com",
+        "contactType": "customer service"
+      },
+      "sameAs": []
+    }
+    </script>
     <style>
         :root {
             --color-add-to-cart: #ec4899;
@@ -92,9 +143,7 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoInx Bringing the world closer</title>
+    <title>AutoInx — Quality Auto Parts &amp; Accessories | Hayward, CA</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -1953,6 +2002,24 @@
                 state.items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 console.log("Items updated:", state.items.length);
                 render();
+
+                // Auto-open product if URL contains ?id= or ?product= (shareable links + Googlebot)
+                if (!state._productUrlHandled) {
+                    state._productUrlHandled = true;
+                    const params = new URLSearchParams(window.location.search);
+                    const itemId = params.get('id');
+                    const slug   = params.get('product');
+                    if (itemId) {
+                        const item = state.items.find(i => i.id === itemId);
+                        if (item) setTimeout(() => openItemDetailModal(item), 100);
+                    } else if (slug) {
+                        const decoded = decodeURIComponent(slug).toLowerCase();
+                        const item = state.items.find(i =>
+                            _slugify(i.name) === decoded
+                        );
+                        if (item) setTimeout(() => openItemDetailModal(item), 100);
+                    }
+                }
             }, (error) => {
                 console.error("Error listening to items:", error);
                 state.message = { type: 'error', text: 'Failed to fetch items.' };
@@ -2673,15 +2740,73 @@
             }
         }
 
+        function _slugify(str) {
+            return (str || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        }
+
         function openItemDetailModal(item) {
             state.selectedItem = item;
             window._modalIdx = 0;
+
+            // Update URL so the product page is linkable and crawlable
+            const slug = _slugify(item.name);
+            const url  = `/?product=${encodeURIComponent(slug)}&id=${encodeURIComponent(item.id)}`;
+            window.history.pushState({ productId: item.id }, item.name, url);
+
+            // Update meta tags for this product
+            const desc  = (item.description || '').replace(/<[^>]*>/g, '').slice(0, 155).trim();
+            const price = item.price ? `$${(item.price / 100).toFixed(2)}` : '';
+            const img   = item.imageUrls?.[0] || item.imageUrl || 'https://autoinx.com/images/AutoInx logo.png';
+            const title = `${item.name}${price ? ' — ' + price : ''} | AutoInx`;
+            document.title = title;
+            document.querySelector('meta[name="description"]')?.setAttribute('content', desc || `Shop ${item.name} at AutoInx — quality auto parts.`);
+            document.querySelector('meta[property="og:title"]')?.setAttribute('content', title);
+            document.querySelector('meta[property="og:description"]')?.setAttribute('content', desc || `Shop ${item.name} at AutoInx.`);
+            document.querySelector('meta[property="og:image"]')?.setAttribute('content', img);
+            document.querySelector('meta[property="og:url"]')?.setAttribute('content', `https://autoinx.com${url}`);
+            document.querySelector('link[rel="canonical"]')?.setAttribute('href', `https://autoinx.com${url}`);
+
+            // Product structured data for Google Shopping
+            const ld = document.getElementById('product-ld') || (() => {
+                const s = document.createElement('script');
+                s.type = 'application/ld+json';
+                s.id   = 'product-ld';
+                document.head.appendChild(s);
+                return s;
+            })();
+            ld.textContent = JSON.stringify({
+                '@context': 'https://schema.org',
+                '@type': 'Product',
+                name: item.name,
+                description: desc || undefined,
+                sku: item.sku || undefined,
+                image: img,
+                offers: {
+                    '@type': 'Offer',
+                    price: item.price ? (item.price / 100).toFixed(2) : '0',
+                    priceCurrency: 'USD',
+                    availability: (item.stock || 0) > 0
+                        ? 'https://schema.org/InStock'
+                        : 'https://schema.org/OutOfStock',
+                    url: `https://autoinx.com${url}`,
+                    seller: { '@type': 'Organization', name: 'AutoInx' }
+                }
+            });
+
             render();
-            // Load reviews after DOM paints
             setTimeout(() => loadReviews(item.id), 50);
         }
+
         function closeItemDetailModal() {
             state.selectedItem = null;
+            // Restore canonical meta tags
+            document.title = 'AutoInx — Quality Auto Parts & Accessories | Hayward, CA';
+            document.querySelector('meta[name="description"]')?.setAttribute('content', 'AutoInx offers quality automotive parts and accessories — wiperblades, filters, and more. Fast shipping across the US, free local delivery in the East Bay Area, CA.');
+            document.querySelector('meta[property="og:title"]')?.setAttribute('content', 'AutoInx — Quality Auto Parts & Accessories');
+            document.querySelector('meta[property="og:url"]')?.setAttribute('content', 'https://autoinx.com/');
+            document.querySelector('link[rel="canonical"]')?.setAttribute('href', 'https://autoinx.com/');
+            document.getElementById('product-ld')?.remove();
+            window.history.pushState({}, document.title, '/');
             render();
         }
 
