@@ -564,6 +564,7 @@
 
     // ── Firebase init ────────────────────────────────────────────────────────
     let db, auth, ORDERS_COLL;
+    const PAYMENT_CONFIRMATIONS_COLL = 'payment_confirmations';
 
     async function initFirebase() {
         try {
@@ -590,6 +591,11 @@
         const ok = await initFirebase();
         if (!ok) { showGuestView(); return; }
 
+        // Check for ?pending= payment confirmation on load
+        const _pendingParams = new URLSearchParams(location.search);
+        const _pendingMethod = _pendingParams.get('pending');  // 'zelle' | 'cash'
+        const _pendingOrderId = _pendingParams.get('order');
+
         onAuthStateChanged(auth, async (user) => {
             if (user && !user.isAnonymous) {
                 // Fire-and-forget: backfill uid onto any guest orders for this email
@@ -602,6 +608,11 @@
 
                 showLoggedInView(user);
                 await loadUserOrders(user);
+
+                // Show payment confirmation panel if redirected from checkout
+                if (_pendingMethod && _pendingOrderId) {
+                    setTimeout(() => showPaymentConfirmationPanel(_pendingOrderId, _pendingMethod, user), 300);
+                }
             } else if (user && user.isAnonymous) {
                 showGuestView();
             } else {
@@ -903,6 +914,184 @@
         const params  = new URLSearchParams(location.search);
         const orderId = params.get('order') || params.get('orderId') || '';
         if (orderId) $('orderInput').value = orderId.substring(0, 20);
+    }
+
+    // ── Payment Confirmation Panel ───────────────────────────────────────────────
+    async function showPaymentConfirmationPanel(orderId, method, user) {
+        const existing = document.getElementById('payConfirmPanel');
+        if (existing) return; // already shown
+
+        const isZelle = method === 'zelle';
+        const isSp    = lang === 'es';
+        const ZELLE_EMAIL = 'payments@autoinx.com';
+        const ZELLE_NAME  = 'AutoInx';
+
+        const panel = document.createElement('div');
+        panel.id = 'payConfirmPanel';
+        panel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;';
+        panel.innerHTML = `
+        <div style="background:#fff;border-radius:24px;box-shadow:0 25px 50px rgba(0,0,0,.2);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;">
+            <div style="background:linear-gradient(135deg,${isZelle?'#7c3aed,#a855f7':'#16a34a,#22c55e'});padding:24px 28px;border-radius:24px 24px 0 0;">
+                <h2 style="color:#fff;font-size:1.25rem;font-weight:900;margin:0;">${isZelle ? '🏦' : '💵'} ${isSp ? 'Confirmar Pago' : 'Confirm Your Payment'}</h2>
+                <p style="color:rgba(255,255,255,.8);font-size:.85rem;margin:4px 0 0;">
+                    ${isSp ? 'Pedido' : 'Order'} #${orderId.slice(0,8).toUpperCase()}
+                </p>
+            </div>
+            <div style="padding:24px 28px;space-y:16px;">
+
+                ${isZelle ? `
+                <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:12px;padding:16px;margin-bottom:16px;">
+                    <p style="font-size:.8rem;color:#6b7280;margin:0 0 4px;">${isSp ? 'Envía tu pago Zelle a:' : 'Send your Zelle payment to:'}</p>
+                    <p style="font-size:1.1rem;font-weight:900;color:#7c3aed;margin:0;">${ZELLE_EMAIL}</p>
+                    <p style="font-size:.85rem;font-weight:600;color:#374151;margin:2px 0 0;">${ZELLE_NAME}</p>
+                </div>` : `
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;margin-bottom:16px;">
+                    <p style="font-size:.85rem;color:#374151;margin:0;">${isSp ? 'Coordinaremos el pago en efectivo al momento de la entrega.' : 'We will coordinate cash payment at the time of delivery or pickup.'}</p>
+                </div>`}
+
+                <p style="font-size:.85rem;font-weight:700;color:#374151;margin:0 0 8px;">
+                    ${isSp ? 'Sube tu comprobante de pago:' : 'Upload your payment confirmation:'}
+                </p>
+
+                <label style="display:block;border:2px dashed #d1d5db;border-radius:12px;padding:20px;text-align:center;cursor:pointer;background:#fafafa;" id="pcDropzone">
+                    <div id="pcPreview" style="margin-bottom:8px;"></div>
+                    <p style="font-size:.85rem;color:#6b7280;margin:0;">📎 ${isSp ? 'Toca para adjuntar captura de pantalla' : 'Tap to attach screenshot or photo'}</p>
+                    <p style="font-size:.72rem;color:#9ca3af;margin:4px 0 0;">JPG, PNG, PDF — max 5MB</p>
+                    <input type="file" id="pcFile" accept="image/*,application/pdf" style="display:none">
+                </label>
+
+                <div style="margin-top:12px;">
+                    <label style="font-size:.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">
+                        ${isSp ? 'Monto pagado ($)' : 'Amount paid ($)'}
+                    </label>
+                    <input type="number" id="pcAmount" step="0.01" min="0" placeholder="0.00"
+                           style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:10px;font-size:.95rem;box-sizing:border-box;">
+                </div>
+
+                <div style="margin-top:12px;">
+                    <label style="font-size:.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">
+                        ${isSp ? 'Notas adicionales (opcional)' : 'Additional notes (optional)'}
+                    </label>
+                    <textarea id="pcNotes" rows="2" placeholder="${isSp ? 'Número de confirmación, fecha, etc.' : 'Confirmation number, date, etc.'}"
+                              style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:10px;font-size:.85rem;resize:none;box-sizing:border-box;"></textarea>
+                </div>
+
+                <div id="pcError" style="display:none;background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 12px;font-size:.8rem;color:#dc2626;font-weight:500;margin-top:8px;"></div>
+
+                <div style="display:flex;gap:10px;margin-top:16px;">
+                    <button id="pcSubmitBtn"
+                            style="flex:1;padding:12px;background:${isZelle?'#7c3aed':'#16a34a'};color:#fff;border:none;border-radius:12px;font-size:.95rem;font-weight:700;cursor:pointer;">
+                        ✅ ${isSp ? 'Enviar Confirmación' : 'Submit Confirmation'}
+                    </button>
+                    <button id="pcSkipBtn"
+                            style="padding:12px 16px;background:#f3f4f6;color:#6b7280;border:none;border-radius:12px;font-size:.875rem;font-weight:600;cursor:pointer;">
+                        ${isSp ? 'Ahora no' : 'Not now'}
+                    </button>
+                </div>
+                <p style="font-size:.72rem;color:#9ca3af;text-align:center;margin:8px 0 0;">
+                    ${isSp ? 'También puedes enviar tu comprobante más tarde desde esta página.' : 'You can also submit your confirmation later from this page.'}
+                </p>
+            </div>
+        </div>`;
+
+        document.body.appendChild(panel);
+
+        // File preview
+        const fileInput = document.getElementById('pcFile');
+        document.getElementById('pcDropzone').onclick = (e) => {
+            if (e.target !== fileInput) fileInput.click();
+        };
+        fileInput.onchange = () => {
+            const file = fileInput.files[0];
+            if (!file) return;
+            const preview = document.getElementById('pcPreview');
+            if (file.type.startsWith('image/')) {
+                const url = URL.createObjectURL(file);
+                preview.innerHTML = `<img src="${url}" style="max-height:120px;border-radius:8px;margin-bottom:4px;">`;
+            } else {
+                preview.innerHTML = `<p style="font-size:.8rem;color:#374151;font-weight:600;">📄 ${file.name}</p>`;
+            }
+        };
+
+        document.getElementById('pcSkipBtn').onclick = () => panel.remove();
+
+        document.getElementById('pcSubmitBtn').onclick = async () => {
+            const file    = fileInput.files[0];
+            const amount  = parseFloat(document.getElementById('pcAmount').value) || 0;
+            const notes   = document.getElementById('pcNotes').value.trim();
+            const errEl   = document.getElementById('pcError');
+            const btn     = document.getElementById('pcSubmitBtn');
+            errEl.style.display = 'none';
+
+            if (!file && !notes) {
+                errEl.textContent = isSp ? 'Por favor adjunta un comprobante o añade una nota.' : 'Please attach a screenshot or add a note.';
+                errEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '⏳';
+
+            try {
+                let screenshotUrl = null;
+
+                // Upload screenshot to Firebase Storage if provided
+                if (file) {
+                    const { getStorage, ref: sRef, uploadBytes, getDownloadURL } =
+                        await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js');
+                    const storage  = getStorage();
+                    const filePath = `payment_confirmations/${user.uid}/${orderId}_${Date.now()}_${file.name}`;
+                    const fileRef  = sRef(storage, filePath);
+                    await uploadBytes(fileRef, file);
+                    screenshotUrl  = await getDownloadURL(fileRef);
+                }
+
+                // Save confirmation to Firestore
+                const { addDoc: addDocument, collection: col, serverTimestamp: sTs } =
+                    await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+
+                await addDocument(col(db, PAYMENT_CONFIRMATIONS_COLL), {
+                    orderId,
+                    orderIdShort:   orderId.slice(0,8),
+                    userId:         user.uid,
+                    customerEmail:  user.email,
+                    paymentMethod:  method,
+                    amountPaid:     amount || null,
+                    screenshotUrl:  screenshotUrl || null,
+                    notes:          notes || null,
+                    status:         'pending_review',
+                    submittedAt:    sTs(),
+                });
+
+                // Mark order as payment submitted
+                const { doc: docRef, updateDoc: updDoc } =
+                    await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+                await updDoc(docRef(db, ORDERS_COLL, orderId), {
+                    paymentConfirmationSubmitted: true,
+                    paymentStatus: 'Confirmation Submitted',
+                    updatedAt: sTs(),
+                }).catch(() => {});
+
+                panel.innerHTML = `
+                <div style="background:#fff;border-radius:24px;padding:40px;text-align:center;max-width:480px;width:100%;">
+                    <div style="font-size:3rem;margin-bottom:12px;">✅</div>
+                    <h2 style="font-size:1.25rem;font-weight:900;color:#16a34a;margin:0 0 8px;">${isSp ? '¡Confirmación enviada!' : 'Confirmation submitted!'}</h2>
+                    <p style="font-size:.875rem;color:#6b7280;margin:0 0 20px;">${isSp ? 'Revisaremos tu pago y actualizaremos el estado de tu pedido.' : 'We will review your payment and update your order status.'}</p>
+                    <button onclick="document.getElementById('payConfirmPanel').remove()"
+                            style="padding:10px 24px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;">
+                        ${isSp ? 'Ver mis pedidos' : 'View my orders'}
+                    </button>
+                </div>`;
+                panel.style.alignItems = 'center';
+
+            } catch (err) {
+                console.error('Payment confirmation error:', err);
+                errEl.textContent = isSp ? 'Error al enviar. Intenta de nuevo.' : 'Submission failed. Please try again.';
+                errEl.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = isSp ? '✅ Enviar Confirmación' : '✅ Submit Confirmation';
+            }
+        };
     }
 
     // ── Boot ──────────────────────────────────────────────────────────────────
