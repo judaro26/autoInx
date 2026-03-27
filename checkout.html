@@ -764,6 +764,18 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             form.dataset.listenerAttached = 'true';
         }
 
+        // Capture guest email as soon as they type it — used by abandoned cart recovery
+        const _emailInput = $('buyer-email');
+        if (_emailInput && !_emailInput.dataset.cartEmailListenerAttached) {
+            _emailInput.dataset.cartEmailListenerAttached = 'true';
+            _emailInput.addEventListener('blur', () => {
+                const val = _emailInput.value.trim();
+                if (val && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+                    try { sessionStorage.setItem('autoinx_guest_email', val); } catch {}
+                }
+            });
+        }
+
         // GA4: begin_checkout — fired once via its own flag, independent of form guard
         if (!window._checkoutEventFired && Object.keys(cartData).length > 0) {
             window._checkoutEventFired = true;
