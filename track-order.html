@@ -636,6 +636,7 @@
                     }).catch(() => {})
                 ).catch(() => {});
 
+                window._currentUser = user;
                 showLoggedInView(user);
                 await loadUserOrders(user);
 
@@ -907,7 +908,32 @@
                 <div class="address-text">${order.deliveryAddress}</div>
             </div>` : '';
 
-        return timelineHtml + trackingHtml + paymentHtml + itemsHtml + totalsHtml + addressHtml;
+        // ── Persistent payment confirmation CTA ──────────────────────────────
+        // Shows for any Zelle/Cash order that isn't paid yet, regardless of whether
+        // ?pending= is in the URL (handles return visits after the URL was cleaned).
+        const isAltPayment = order.paymentMethod === 'zelle' || order.paymentMethod === 'cash';
+        const isAlreadyPaid = isPaid;
+        const alreadySubmitted = order.paymentConfirmationSubmitted;
+        const isSp = lang === 'es';
+
+        const uploadCtaHtml = (isAltPayment && !isAlreadyPaid) ? `
+        <div style="margin:16px 0;background:${alreadySubmitted ? '#f0fdf4' : '#fefce8'};border:2px solid ${alreadySubmitted ? '#bbf7d0' : '#fde68a'};border-radius:12px;padding:16px;">
+            ${alreadySubmitted ? `
+                <p style="font-weight:700;color:#16a34a;margin:0 0 4px;">✅ ${isSp ? 'Comprobante enviado' : 'Confirmation submitted'}</p>
+                <p style="font-size:.8rem;color:#6b7280;margin:0;">${isSp ? 'Estamos revisando tu pago. Te notificaremos.' : 'We are reviewing your payment. We will notify you.'}</p>
+            ` : `
+                <p style="font-weight:700;color:#92400e;margin:0 0 8px;">${order.paymentMethod === 'zelle' ? '🏦' : '💵'} ${isSp ? '¿Ya enviaste tu pago?' : 'Already sent your payment?'}</p>
+                <p style="font-size:.8rem;color:#78350f;margin:0 0 10px;">${isSp ? 'Sube tu comprobante para que podamos confirmar tu pedido.' : 'Upload your confirmation so we can verify your order.'}</p>
+                <button onclick="window._currentMode === 'loggedin'
+                        ? showPaymentConfirmationPanel('${order.id}', '${order.paymentMethod}', window._currentUser)
+                        : showGuestPaymentConfirmation('${order.id}', '${order.paymentMethod}')"
+                        style="background:#d97706;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:.875rem;cursor:pointer;">
+                    📎 ${isSp ? 'Subir Comprobante' : 'Upload Confirmation'}
+                </button>
+            `}
+        </div>` : '';
+
+        return timelineHtml + trackingHtml + paymentHtml + uploadCtaHtml + itemsHtml + totalsHtml + addressHtml;
     }
 
     // ── Guest order lookup (server-side, no PII exposed) ─────────────────────
