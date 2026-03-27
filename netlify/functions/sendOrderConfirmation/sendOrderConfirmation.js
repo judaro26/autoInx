@@ -190,7 +190,7 @@ function formatRefundReasonForEmail(reason, languageCode) {
 // (Admin → Config → Payment Settings). Falls back to env var or hardcoded default.
 async function getZelleConfig(db) {
     try {
-        const snap = await db.collection('config').doc('site').get();
+        const snap = await db.collection('admin').doc('config').get();
         const payment = snap.data()?.payment || {};
         return {
             zelleEmail: payment.zelleEmail || process.env.ZELLE_EMAIL || 'payments@autoinx.com',
