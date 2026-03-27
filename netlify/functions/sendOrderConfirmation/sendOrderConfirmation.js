@@ -1,7 +1,19 @@
-const admin = require("firebase-admin");
+const admin    = require("firebase-admin");
 const nodemailer = require("nodemailer");
-const fs = require("fs").promises;
-const path = require("path");
+const crypto   = require("crypto");
+const fs       = require("fs").promises;
+const path     = require("path");
+
+// ── HMAC request signature verification ──────────────────────────────────────
+function verifySignature(orderId, signature) {
+    const secret = process.env.ORDER_EMAIL_SECRET;
+    if (!secret) return true; // skip if not configured
+    if (!signature) return false;
+    try {
+        const expected = crypto.createHmac('sha256', secret).update(orderId).digest('hex');
+        return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'));
+    } catch { return false; }
+}
 
 // --- 1. Global Rate Limiting ---
 const rateLimitStore = {}; 
@@ -210,6 +222,13 @@ exports.handler = async function (event) {
 
     try {
         const orderData = JSON.parse(event.body);
+
+        // Verify HMAC signature — protects endpoint from abuse
+        if (!verifySignature(orderData.orderId, orderData._sig)) {
+            console.warn('⚠️ Invalid signature for order email:', orderData.orderId?.substring(0, 8));
+            return { statusCode: 403, body: JSON.stringify({ error: 'Invalid request signature' }) };
+        }
+
         const {
             orderId,
             buyerEmail,
@@ -374,6 +393,8 @@ exports.handler = async function (event) {
             .replace(/{{params\.orderStatus}}/g, statusText)
             .replace(/{{params\.orderId}}/g, orderId)
             .replace(/{{params\.orderDate}}/g, new Date().toLocaleDateString())
+            .replace(/{{params\.trackingUrl}}/g,
+                `https://autoinx.com/track-order.html?order=${orderId}&email=${encodeURIComponent(buyerEmail)}&token=${generateOrderToken(orderId, buyerEmail)}`)
             .replace(/{{params\.orderTableRows}}/g, generateTableRows(items))
             .replace(/{{params\.costBreakdown}}/g, costBreakdown)
             .replace(/{{params\.totalPrice}}/g, formatPrice(totalCents))
