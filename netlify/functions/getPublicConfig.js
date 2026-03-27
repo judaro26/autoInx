@@ -3,9 +3,9 @@ const admin = require('firebase-admin');
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
+      projectId:   process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+      privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
     })
   });
 }
@@ -19,33 +19,43 @@ const STATIC_IP_WHITELIST = [
 
 const DEFAULT_SEASONAL_BANNER = {
   enabled: false,
-  theme: 'stpatricks',
+  theme:   'stpatricks',
   message: ''
 };
 
 const DEFAULT_BRANDING = {
-  logoUrl: '/images/AutoInx logo.png',
+  logoUrl:    '/images/AutoInx logo.png',
   headerText: { en: 'Catalog', es: 'Catálogo' },
   colors: {
     backgroundStart: '#f0f9ff',
-    backgroundEnd: '#e0e7ff',
-    addToCart: '#ec4899',
-    checkout: '#ec4899'
+    backgroundEnd:   '#e0e7ff',
+    addToCart:       '#ec4899',
+    checkout:        '#ec4899'
   }
 };
 
 const DEFAULT_CHAT_SCHEDULE = {
-  enableTime: '08:00',
+  enableTime:  '08:00',
   disableTime: '20:00',
-  activeDays: [1, 2, 3, 4, 5]
+  activeDays:  [1, 2, 3, 4, 5]
 };
+
+// ── Payment field sanitizer ────────────────────────────────────────────────────
+// Only expose Zelle contact details to the public — never internal config keys.
+function sanitizePayment(payment) {
+  if (!payment) return { zelleEmail: null, zelleName: null };
+  return {
+    zelleEmail: payment.zelleEmail || null,
+    zelleName:  payment.zelleName  || null,
+  };
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
       headers: {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin':  '*',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Allow-Methods': 'GET, OPTIONS'
       },
@@ -66,24 +76,23 @@ exports.handler = async (event) => {
       event.headers['x-admin-override'] === 'true';
 
     console.log('📥 Fetching admin config from Firestore...');
+
     const configDoc = await db.collection('admin').doc('config').get();
 
     if (!configDoc.exists) {
       console.warn('⚠️ Config document does not exist, returning defaults');
       return {
         statusCode: 200,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          maintenanceMode: false,
+          maintenanceMode:   false,
           chatWidgetEnabled: false,
-          ipWhitelist: [],
+          ipWhitelist:       [],
           staticIpWhitelist: STATIC_IP_WHITELIST,
-          chatSchedule: DEFAULT_CHAT_SCHEDULE,
-          branding: DEFAULT_BRANDING,
-          seasonalBanner: DEFAULT_SEASONAL_BANNER,
+          chatSchedule:      DEFAULT_CHAT_SCHEDULE,
+          branding:          DEFAULT_BRANDING,
+          seasonalBanner:    DEFAULT_SEASONAL_BANNER,
+          payment:           { zelleEmail: null, zelleName: null },
           isRequesterAdmin,
           clientIp
         })
@@ -91,10 +100,9 @@ exports.handler = async (event) => {
     }
 
     const configData = configDoc.data();
-    console.log('✅ Config data retrieved:', JSON.stringify(configData, null, 2));
+    console.log('✅ Config data retrieved');
 
-    // Also check dynamic IP whitelist from Firestore
-    const dynamicWhitelist = configData.ipWhitelist || [];
+    const dynamicWhitelist  = configData.ipWhitelist || [];
     const isAdminByDynamicIp = dynamicWhitelist.includes(clientIp);
 
     const response = {
@@ -107,18 +115,17 @@ exports.handler = async (event) => {
       seasonalBanner:    configData.seasonalBanner    || DEFAULT_SEASONAL_BANNER,
       footer:            configData.footer            || null,
       lastUpdated:       configData.lastUpdated       || null,
+      // ── Sanitized payment config — only Zelle contact details ──────────────
+      payment:           sanitizePayment(configData.payment),
       isRequesterAdmin:  isRequesterAdmin || isAdminByDynamicIp,
       clientIp
     };
 
-    console.log('📤 Returning response with seasonalBanner:', JSON.stringify(response.seasonalBanner));
+    console.log('📤 Returning config with seasonalBanner:', JSON.stringify(response.seasonalBanner));
 
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
       body: JSON.stringify(response)
     };
 
@@ -126,14 +133,8 @@ exports.handler = async (event) => {
     console.error('❌ Error fetching config:', error);
     return {
       statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        error: 'Failed to fetch configuration',
-        details: error.message
-      })
+      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Failed to fetch configuration', details: error.message })
     };
   }
 };
