@@ -1938,6 +1938,18 @@
         let _globalConfigCache   = null;
         let _globalConfigFetching = null;
 
+        // Check if the admin panel signalled a config change in this browser session
+        // If so, clear the in-memory cache so the next fetchAndApplyGlobalConfig hits
+        // the network with ?nocache=1 instead of returning stale data.
+        try {
+            const bust = sessionStorage.getItem('autoinx_config_bust');
+            if (bust && Date.now() - parseInt(bust) < 30000) {
+                // Admin saved within the last 30 seconds — skip cache this cycle
+                _globalConfigCache = null;
+                sessionStorage.removeItem('autoinx_config_bust');
+            }
+        } catch {}
+
         async function fetchAndApplyGlobalConfig() {
             // If already cached, apply it immediately without any network call
             if (_globalConfigCache) {
@@ -1951,7 +1963,10 @@
             }
             _globalConfigFetching = (async () => {
                 try {
-                    const response = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
+                    // Use ?nocache=1 if this is a post-save refresh (bust signal was set)
+                    const bust = (() => { try { return !!sessionStorage.getItem('autoinx_config_bust_active'); } catch { return false; } })();
+                    const url  = bust ? GET_PUBLIC_CONFIG_FUNCTION + '?nocache=1' : GET_PUBLIC_CONFIG_FUNCTION;
+                    const response = await fetch(url);
                     if (!response.ok) throw new Error('Failed to fetch global config.');
                     const config = await response.json();
                     _globalConfigCache = config;
