@@ -15,6 +15,19 @@ function verifySignature(orderId, signature) {
     } catch { return false; }
 }
 
+// ── Guest order view token ───────────────────────────────────────────────────
+// Generates a short-lived HMAC token embedded in confirmation email links.
+// Lets guests view their order on track-order.html without re-entering email.
+function generateOrderToken(orderId, buyerEmail) {
+    const secret  = process.env.ORDER_EMAIL_SECRET || 'autoinx-email-secret';
+    const payload = `${orderId}:${(buyerEmail || '').toLowerCase()}`;
+    return crypto
+        .createHmac('sha256', secret)
+        .update(payload)
+        .digest('hex')
+        .slice(0, 32); // 128-bit token — sufficient for read-only guest order views
+}
+
 // --- 1. Global Rate Limiting ---
 const rateLimitStore = {}; 
 const MAX_REQUESTS_PER_HOUR = 30;
