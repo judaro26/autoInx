@@ -216,6 +216,7 @@ exports.handler = async function (event) {
             return { statusCode: 400, body: JSON.stringify({ error: 'cartId required' }) };
         }
 
+        // Always read cart data from Firestore — never trust client-supplied email
         const snap = await db.collection('abandoned_carts').doc(cartId).get();
         if (!snap.exists) {
             return { statusCode: 404, body: JSON.stringify({ error: 'Cart not found' }) };
@@ -223,7 +224,7 @@ exports.handler = async function (event) {
 
         const cart = snap.data();
         if (!cart.userEmail) {
-            return { statusCode: 400, body: JSON.stringify({ error: 'Cart has no email address' }) };
+            return { statusCode: 400, body: JSON.stringify({ error: 'Cart has no email address on file' }) };
         }
 
         try {
