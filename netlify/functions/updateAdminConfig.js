@@ -104,6 +104,15 @@ exports.handler = async function (event) {
 
         await db.collection('admin').doc('config').set(sanitized, { merge: true });
 
+        // Bust the sibling module cache if running in the same Lambda instance
+        try {
+            const getPublicConfig = require('./getPublicConfig');
+            if (typeof getPublicConfig.clearCache === 'function') {
+                getPublicConfig.clearCache();
+                console.log('✅ Config cache cleared');
+            }
+        } catch { /* different instances — cache will expire naturally */ }
+
         console.log(`✅ Config updated by ${decoded.email || decoded.uid}:`, Object.keys(sanitized).join(', '));
 
         return {
