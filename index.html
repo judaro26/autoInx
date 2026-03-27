@@ -1932,44 +1932,52 @@
         }
 
         // --- FETCH GLOBAL CONFIG AFTER FIREBASE IS READY ---
-        async function fetchAndApplyGlobalConfig() {
-            try {
-                const response = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
-                if (!response.ok) throw new Error('Failed to fetch global config.');
-        
-                const config = await response.json();
-        
-                // ✅ CRITICAL FIX: Update isAdminIP from the response
-                state.isAdminIP = config.isRequesterAdmin === true;
-                state.isMaintenanceMode = config.maintenanceMode === true;
-        
-                // Existing maintenance/chat logic
-                state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && (state.isMaintenanceMode === false);
-                state.chatSchedule = config.chatSchedule || null;
-        
-                // Apply branding
-                if (config.branding) {
-                    applyBranding(config.branding);
-                }
+        // ── Single-fetch config cache ────────────────────────────────────────────
+        // getPublicConfig is fetched exactly once per page load and the result
+        // is reused everywhere. Eliminates 4-6 duplicate calls on auth changes.
+        let _globalConfigCache   = null;
+        let _globalConfigFetching = null;
 
-                // Seasonal banner
-                state.seasonalBanner = config.seasonalBanner || null;
-                console.log('🎉 Seasonal banner config:', JSON.stringify(state.seasonalBanner));
-        
-                // Store footer config for later use
-                if (config.footer) {
-                    state.footerConfig = config.footer;
+        async function fetchAndApplyGlobalConfig() {
+            // If already cached, apply it immediately without any network call
+            if (_globalConfigCache) {
+                _applyGlobalConfig(_globalConfigCache);
+                return;
+            }
+            // If a fetch is already in flight, wait for it instead of starting another
+            if (_globalConfigFetching) {
+                await _globalConfigFetching;
+                return;
+            }
+            _globalConfigFetching = (async () => {
+                try {
+                    const response = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
+                    if (!response.ok) throw new Error('Failed to fetch global config.');
+                    const config = await response.json();
+                    _globalConfigCache = config;
+                    _applyGlobalConfig(config);
+                } catch (error) {
+                    console.error("Error fetching global config:", error);
+                    state.chatWidgetEnabled = false;
+                } finally {
+                    _globalConfigFetching = null;
                 }
-        
-                // ✅ ADD: Log for debugging
-                console.log('Admin IP Check:', {
-                    clientIp: config.clientIp,
-                    isAdmin: config.isRequesterAdmin
-                });
-        
-            } catch (error) {
-                console.error("Error fetching global config:", error);
-                state.chatWidgetEnabled = false;
+            })();
+            await _globalConfigFetching;
+        }
+
+        function _applyGlobalConfig(config) {
+            state.isAdminIP         = config.isRequesterAdmin === true;
+            state.isMaintenanceMode = config.maintenanceMode  === true;
+            state.chatWidgetEnabled = (config.chatWidgetEnabled === true) && !state.isMaintenanceMode;
+            state.chatSchedule      = config.chatSchedule  || null;
+            state.seasonalBanner    = config.seasonalBanner || null;
+            state.clientIp          = config.clientIp       || null;
+            if (config.branding)    applyBranding(config.branding);
+            if (config.footer)      state.footerConfig = config.footer;
+            if (config.payment) {
+                window._zelleEmail = config.payment.zelleEmail || 'payments@autoinx.com';
+                window._zelleName  = config.payment.zelleName  || 'AutoInx';
             }
         }
         
@@ -3236,27 +3244,9 @@
                     currentLang = storedLang;
                 }
         
-                // 2. Fetch public configuration (Maintenance mode, IP, etc.)
-                const configResponse = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
-                if (!configResponse.ok) throw new Error("Failed to load site config.");
-                
-                const globalConfig = await configResponse.json();
-        
-                // 3. Update global state
-                state.isAdminIP = globalConfig.isRequesterAdmin === true;
-                state.isMaintenanceMode = globalConfig.maintenanceMode === true;
-                state.clientIp = globalConfig.clientIp;
-                state.chatSchedule = globalConfig.chatSchedule || null;
-
-                // Apply branding and seasonal banner from this first fetch
-                if (globalConfig.branding) {
-                    state.branding = globalConfig.branding;
-                    applyBranding(globalConfig.branding);
-                }
-                if (globalConfig.seasonalBanner) {
-                    state.seasonalBanner = globalConfig.seasonalBanner;
-                }
-                console.log('🎉 Seasonal banner (setupFirebase):', JSON.stringify(state.seasonalBanner));
+                // 2. Fetch public configuration once — result is cached for all
+                //    subsequent calls from onAuthStateChanged
+                await fetchAndApplyGlobalConfig();
         
                 console.log("Connected from IP:", state.clientIp);
         
@@ -3333,8 +3323,8 @@
                     isAuthReady = true;
                     await fetchAndApplyGlobalConfig();
         
-                    // Apply chat widget logic
-                    state.chatWidgetEnabled = globalConfig.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
+                    // Chat widget visibility — state already set by _applyGlobalConfig
+                    state.chatWidgetEnabled = state.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
                     
                     // Start live data sync and render
                     setupRealtimeListeners();
