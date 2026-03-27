@@ -1,135 +1,122 @@
+/**
+ * Netlify Function: updateAdminConfig.js
+ *
+ * Saves site configuration to Firestore (admin/config).
+ * Requires a valid Firebase ID token with admin custom claim.
+ * Never trusts Firestore client-side rules alone — always verifies server-side.
+ */
+
 const admin = require('firebase-admin');
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-    })
-  });
+function initAdmin() {
+    if (admin.apps.length === 0) {
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId:   process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+            }),
+        });
+    }
+    return admin.firestore();
 }
 
-const db = admin.firestore();
+const HEADERS = {
+    'Content-Type':                 'application/json',
+    'Access-Control-Allow-Origin':  process.env.URL || 'https://autoinx.com',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
 
-exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
+// Whitelist of top-level config keys the admin panel is allowed to write.
+// Prevents injection of arbitrary keys into the config document.
+const ALLOWED_KEYS = [
+    'maintenanceMode',
+    'chatWidgetEnabled',
+    'ipWhitelist',
+    'chatSchedule',
+    'branding',
+    'seasonalBanner',
+    'payment',
+    'footer',
+];
+
+// Within 'payment', only allow Zelle contact details — not arbitrary sub-keys
+function sanitizePaymentWrite(payment) {
+    if (!payment || typeof payment !== 'object') return {};
     return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
-      },
-      body: ''
+        zelleEmail: typeof payment.zelleEmail === 'string' ? payment.zelleEmail.trim() : null,
+        zelleName:  typeof payment.zelleName  === 'string' ? payment.zelleName.trim()  : null,
     };
-  }
+}
 
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: 'Method not allowed' })
-    };
-  }
+exports.handler = async function (event) {
+    if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: HEADERS, body: '' };
+    if (event.httpMethod !== 'POST')    return { statusCode: 405, headers: HEADERS, body: JSON.stringify({ error: 'Method not allowed' }) };
 
-  try {
-    const authHeader = event.headers.authorization || event.headers.Authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return {
-        statusCode: 401,
-        headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: 'Authorization token required.' })
-      };
+    // ── Verify admin token ────────────────────────────────────────────────────
+    const db         = initAdmin();
+    const authHeader = event.headers['authorization'] || event.headers['Authorization'] || '';
+    const idToken    = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    if (!idToken) {
+        return { statusCode: 401, headers: HEADERS, body: JSON.stringify({ error: 'Missing Authorization header' }) };
     }
 
-    const idToken = authHeader.split('Bearer ')[1];
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
-
-    if (!decodedToken.admin) {
-      return {
-        statusCode: 403,
-        headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: 'Admin access required.' })
-      };
+    let decoded;
+    try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+    } catch (e) {
+        return { statusCode: 401, headers: HEADERS, body: JSON.stringify({ error: 'Invalid or expired token' }) };
     }
 
-    const updates = JSON.parse(event.body);
+    if (!decoded.admin) {
+        console.warn(`⚠️ Non-admin user ${decoded.uid} attempted to update config`);
+        return { statusCode: 403, headers: HEADERS, body: JSON.stringify({ error: 'Admin access required' }) };
+    }
 
-    console.log('📝 UPDATE REQUEST RECEIVED');
-    console.log('📝 Full payload:', JSON.stringify(updates, null, 2));
+    // ── Parse and sanitize payload ────────────────────────────────────────────
+    let updates;
+    try {
+        updates = JSON.parse(event.body);
+    } catch {
+        return { statusCode: 400, headers: HEADERS, body: JSON.stringify({ error: 'Invalid JSON' }) };
+    }
 
-    const updateData = {
-      maintenanceMode:   updates.maintenanceMode   || false,
-      chatWidgetEnabled: updates.chatWidgetEnabled || false,
-      ipWhitelist:       updates.ipWhitelist       || [],
-      chatSchedule: {
-        enableTime:  updates.chatSchedule?.enableTime  || '08:00',
-        disableTime: updates.chatSchedule?.disableTime || '20:00',
-        activeDays:  updates.chatSchedule?.activeDays  || [1, 2, 3, 4, 5]
-      },
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-    };
-
-    // Branding — includes all six color fields
-    if (updates.branding) {
-      updateData.branding = {
-        logoUrl: updates.branding.logoUrl || '/images/AutoInx logo.png',
-        headerText: {
-          en: updates.branding.headerText?.en || 'Catalog',
-          es: updates.branding.headerText?.es || 'Catálogo'
-        },
-        colors: {
-          backgroundStart: updates.branding.colors?.backgroundStart || '#f0f9ff',
-          backgroundEnd:   updates.branding.colors?.backgroundEnd   || '#e0e7ff',
-          addToCart:       updates.branding.colors?.addToCart       || '#ec4899',
-          checkout:        updates.branding.colors?.checkout        || '#ec4899',
-          categoryActive:  updates.branding.colors?.categoryActive  || '#4f46e5',
-          productBtn:      updates.branding.colors?.productBtn      || '#4f46e5',
+    // Strip any keys not in the whitelist
+    const sanitized = {};
+    for (const key of ALLOWED_KEYS) {
+        if (updates[key] !== undefined) {
+            sanitized[key] = key === 'payment'
+                ? sanitizePaymentWrite(updates[key])
+                : updates[key];
         }
-      };
-      console.log('✅ Branding prepared:', JSON.stringify(updateData.branding, null, 2));
     }
 
-    // Seasonal banner
-    if (updates.seasonalBanner !== undefined) {
-      updateData.seasonalBanner = {
-        enabled: updates.seasonalBanner.enabled === true,
-        theme:   updates.seasonalBanner.theme   || 'stpatricks',
-        message: updates.seasonalBanner.message || ''
-      };
-      console.log('✅ Seasonal banner prepared:', JSON.stringify(updateData.seasonalBanner));
+    if (Object.keys(sanitized).length === 0) {
+        return { statusCode: 400, headers: HEADERS, body: JSON.stringify({ error: 'No valid fields to update' }) };
     }
 
-    await db.collection('admin').doc('config').set(updateData, { merge: true });
-    console.log('✅✅✅ CONFIG UPDATED IN FIRESTORE ✅✅✅');
+    // ── Write to Firestore ────────────────────────────────────────────────────
+    try {
+        sanitized.lastUpdated  = admin.firestore.FieldValue.serverTimestamp();
+        sanitized.lastUpdatedBy = decoded.email || decoded.uid;
 
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        success: true,
-        message: 'Configuration updated successfully',
-        brandingSaved: !!updates.branding,
-        seasonalBannerSaved: updates.seasonalBanner !== undefined
-      })
-    };
+        await db.collection('admin').doc('config').set(sanitized, { merge: true });
 
-  } catch (error) {
-    console.error('❌ ERROR in updateAdminConfig:', error);
-    return {
-      statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        error: 'Failed to update configuration',
-        details: error.message
-      })
-    };
-  }
+        console.log(`✅ Config updated by ${decoded.email || decoded.uid}:`, Object.keys(sanitized).join(', '));
+
+        return {
+            statusCode: 200,
+            headers: HEADERS,
+            body: JSON.stringify({ success: true, updatedKeys: Object.keys(sanitized) }),
+        };
+    } catch (err) {
+        console.error('❌ Config update error:', err);
+        return {
+            statusCode: 500,
+            headers: HEADERS,
+            body: JSON.stringify({ error: 'Failed to update config', details: err.message }),
+        };
+    }
 };
