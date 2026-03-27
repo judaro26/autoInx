@@ -37,6 +37,8 @@ function escapeXml(str) {
 const STATIC_PAGES = [
     { url: 'https://autoinx.com/',                   changefreq: 'weekly',  priority: '1.0' },
     { url: 'https://autoinx.com/track-order.html',   changefreq: 'monthly', priority: '0.5' },
+    { url: 'https://autoinx.com/about.html',         changefreq: 'monthly', priority: '0.4' },
+    { url: 'https://autoinx.com/contact.html',       changefreq: 'monthly', priority: '0.4' },
 ];
 
 exports.handler = async function(event) {
