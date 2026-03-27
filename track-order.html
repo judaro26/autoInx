@@ -802,7 +802,32 @@
                     </div>
                 </div>
                 <div class="order-detail-panel" id="detail-${order.id}">
-                    ${buildOrderDetailHtml(order)}
+                    ${(() => {
+                        const _oPaid    = order.isPaid || (order.paymentStatus || '').toLowerCase() === 'paid';
+                        const _oMethod  = order.paymentMethod || '';
+                        const _oPsLower = (order.paymentStatus || '').toLowerCase();
+                        const _oIsAlt   = !_oPaid && _oMethod !== 'card';
+                        const _oSubmitted = order.paymentConfirmationSubmitted;
+                        const _oCtaMethod = (_oMethod === 'zelle' || _oMethod === 'cash') ? _oMethod
+                                          : _oPsLower.includes('zelle') ? 'zelle' : 'zelle';
+                        const _isSp = lang === 'es';
+
+                        if (!_oIsAlt) return buildOrderDetailHtml(order);
+
+                        const _icon = _oCtaMethod === 'zelle' ? '🏦' : '💵';
+                        const ctaBanner = _oSubmitted
+                            ? '<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px;"><span style="font-size:1.3rem;">✅</span><div>'
+                              + '<p style="font-weight:700;color:#16a34a;margin:0 0 2px;font-size:.9rem;">' + (_isSp ? 'Comprobante enviado' : 'Confirmation submitted') + '</p>'
+                              + '<p style="font-size:.78rem;color:#6b7280;margin:0;">' + (_isSp ? 'Estamos revisando tu pago.' : 'We are reviewing your payment.') + '</p>'
+                              + '</div></div>'
+                            : '<div style="background:#fefce8;border:2px solid #fde68a;border-radius:12px;padding:14px 16px;margin-bottom:12px;">'
+                              + '<p style="font-weight:700;color:#92400e;margin:0 0 6px;font-size:.875rem;">' + _icon + ' ' + (_isSp ? 'Envia tu pago y sube el comprobante' : 'Send payment &amp; upload your proof') + '</p>'
+                              + '<p style="font-size:.8rem;color:#78350f;margin:0 0 10px;">' + (_isSp ? 'Sube tu comprobante para confirmar tu pedido.' : 'Upload your proof of payment to confirm your order.') + '</p>'
+                              + '<button onclick="window.showPaymentConfirmationPanel(\'' + order.id + '\', \'' + _oCtaMethod + '\', window._currentUser)" style="background:#d97706;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-weight:700;font-size:.875rem;cursor:pointer;">Submit Payment Proof</button>'
+                              + '</div>';
+
+                        return ctaBanner + buildOrderDetailHtml(order);
+                    })()}
                 </div>`;
 
             container.appendChild(card);
@@ -914,10 +939,14 @@
         // Also checks paymentStatus in case paymentMethod is still 'pending'.
         const _psLower     = (order.paymentStatus || '').toLowerCase();
         const _pm          = order.paymentMethod || '';
-        const isAltPayment = _pm === 'zelle' || _pm === 'cash'
-                          || _psLower.includes('zelle') || _psLower.includes('cash');
+        // Show CTA for any unpaid non-card order — paymentMethod may still be
+        // 'pending' if the updateDoc after method selection hasn't completed yet
+        const isCardPaid   = _pm === 'card' && isPaid;
+        const isAltPayment = !isCardPaid && !isPaid && _pm !== 'card';
         const _ctaMethod   = (_pm === 'zelle' || _pm === 'cash') ? _pm
-                           : _psLower.includes('zelle') ? 'zelle' : 'cash';
+                           : _psLower.includes('zelle') ? 'zelle'
+                           : _psLower.includes('cash')  ? 'cash'
+                           : 'zelle'; // default to zelle for 'pending' method orders
         const isAlreadyPaid = isPaid;
         const alreadySubmitted = order.paymentConfirmationSubmitted;
         const isSp = lang === 'es';
