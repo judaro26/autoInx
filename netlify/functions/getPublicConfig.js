@@ -23,6 +23,11 @@ const DEFAULT_SEASONAL_BANNER = {
   message: ''
 };
 
+// ── Module-level cache (shared across warm invocations, 60s TTL) ─────────────
+let _cachedConfig   = null;
+let _cacheExpiresAt = 0;
+const CACHE_TTL_MS  = 60 * 1000;
+
 const DEFAULT_BRANDING = {
   logoUrl:    '/images/AutoInx logo.png',
   headerText: { en: 'Catalog', es: 'Catálogo' },
@@ -60,6 +65,25 @@ exports.handler = async (event) => {
         'Access-Control-Allow-Methods': 'GET, OPTIONS'
       },
       body: ''
+    };
+  }
+
+  // Serve from module-level cache if fresh
+  const now = Date.now();
+  if (_cachedConfig && now < _cacheExpiresAt) {
+    const clientIp =
+        event.headers['x-forwarded-for']?.split(',')[0].trim() ||
+        event.headers['client-ip'] ||
+        event.requestContext?.identity?.sourceIp || null;
+    const isRequesterAdmin =
+        STATIC_IP_WHITELIST.includes(clientIp) ||
+        event.headers['x-admin-override'] === 'true' ||
+        (_cachedConfig.ipWhitelist || []).includes(clientIp);
+    return {
+      statusCode: 200,
+      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json',
+                 'Cache-Control': 'public, max-age=60, s-maxage=60', 'X-Cache': 'HIT' },
+      body: JSON.stringify({ ..._cachedConfig, isRequesterAdmin, clientIp }),
     };
   }
 
@@ -123,9 +147,14 @@ exports.handler = async (event) => {
 
     console.log('📤 Returning config with seasonalBanner:', JSON.stringify(response.seasonalBanner));
 
+    // Cache for next warm invocation
+    _cachedConfig   = { ...response };
+    _cacheExpiresAt = Date.now() + CACHE_TTL_MS;
+
     return {
       statusCode: 200,
-      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json',
+                 'Cache-Control': 'public, max-age=60, s-maxage=60', 'X-Cache': 'MISS' },
       body: JSON.stringify(response)
     };
 
