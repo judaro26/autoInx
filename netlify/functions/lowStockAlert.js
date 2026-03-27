@@ -40,7 +40,25 @@ function getTransporter() {
     });
 }
 
+
+// ── Dead-letter alert helper ─────────────────────────────────────────────────
+async function alertCronFailure(functionName, error, transporter) {
+    try {
+        await transporter.sendMail({
+            from:    '"autoInx Alerts" <noreply@autoinx.com>',
+            to:      process.env.ADMIN_EMAIL || 'orders@autoinx.com',
+            subject: `🚨 Cron failure: ${functionName}`,
+            html: `<p>The scheduled function <strong>${functionName}</strong> failed at ${new Date().toUTCString()}.</p>
+                   <pre style="background:#f3f4f6;padding:12px;border-radius:8px;">${error?.stack || error?.message || String(error)}</pre>
+                   <p>Check Netlify function logs for details.</p>`,
+        });
+    } catch (mailErr) {
+        console.error('Dead-letter alert failed:', mailErr.message);
+    }
+}
+
 exports.handler = async function () {
+    try {
     const db          = initAdmin();
     const transporter = getTransporter();
 
@@ -207,5 +225,12 @@ exports.handler = async function () {
     await batch.commit();
 
     console.log(`✅ Low-stock alert sent: ${itemsToAlert.length} items (${outOfStock.length} OOS, ${critical.length} critical, ${warning.length} warning)`);
-    return { statusCode: 200, body: JSON.stringify({ alerted: itemsToAlert.length, outOfStock: outOfStock.length }) };
+    return { statusCode: 200, body: JSON.stringify({ alerted: itemsToAlert.length, outOfStock: outOfStock.le
+    } catch (err) {
+        console.error(`❌ ${__filename.split('/').pop()} fatal error:`, err);
+        const t = getTransporter();
+        await alertCronFailure(__filename.split('/').pop(), err, t).catch(() => {});
+        return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    }
+ngth }) };
 };
