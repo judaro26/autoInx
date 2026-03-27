@@ -1324,87 +1324,140 @@
             if (!state.chatWidgetEnabled || state.view === 'admin') return '';
 
             return `
+                <style>
+                    /* ── Chat button animations ─────────────────────────────── */
+                    @keyframes chatPulse {
+                        0%,100% { box-shadow: 0 0 0 0 rgba(99,102,241,.6), 0 0 0 0 rgba(124,58,237,.4); }
+                        50%      { box-shadow: 0 0 0 14px rgba(99,102,241,0), 0 0 0 28px rgba(124,58,237,0); }
+                    }
+                    @keyframes chatBounce {
+                        0%,100% { transform: translateY(0) scale(1); }
+                        30%     { transform: translateY(-6px) scale(1.04); }
+                        60%     { transform: translateY(-2px) scale(1.01); }
+                    }
+                    @keyframes chatGlow {
+                        0%,100% { filter: drop-shadow(0 0 6px rgba(99,102,241,.5)); }
+                        50%     { filter: drop-shadow(0 0 16px rgba(124,58,237,.8)); }
+                    }
+                    @keyframes labelSlide {
+                        0%   { opacity:0; transform:translateY(8px); }
+                        15%  { opacity:1; transform:translateY(0); }
+                        80%  { opacity:1; transform:translateY(0); }
+                        100% { opacity:0; transform:translateY(-8px); }
+                    }
+                    @keyframes chatPanelIn {
+                        from { opacity:0; transform:scale(.95) translateY(12px); }
+                        to   { opacity:1; transform:scale(1)   translateY(0); }
+                    }
+                    #aiChatToggleBtn          { animation: chatBounce 3s ease-in-out infinite, chatPulse 3s ease-in-out infinite; }
+                    #aiChatToggleBtn:hover    { animation: none; transform:scale(1.07); }
+                    #aiChatToggleBtn .chat-icon { animation: chatGlow 3s ease-in-out infinite; }
+                    #aiChatPanel:not(.hidden) { animation: chatPanelIn .25s ease-out; }
+                    .chat-label-wrap          { position:relative; height:1.25rem; overflow:hidden; min-width:170px; }
+                    .chat-label-en, .chat-label-es {
+                        position:absolute; left:0; right:0;
+                        white-space:nowrap; font-weight:700; font-size:.9rem;
+                    }
+                    .chat-label-en { animation: labelSlide 6s ease-in-out infinite; }
+                    .chat-label-es { animation: labelSlide 6s ease-in-out infinite 3s; }
+                </style>
+
                 <div id="chatWidgetRoot" class="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
 
-                    <!-- AI Chat Panel -->
-                    <div id="aiChatPanel" class="hidden flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden" style="width:340px;max-height:520px;">
+                    <!-- ── AI Chat Panel (larger) ───────────────────────────── -->
+                    <div id="aiChatPanel" class="hidden flex flex-col bg-white rounded-2xl border border-gray-100 overflow-hidden"
+                         style="width:400px;max-height:600px;box-shadow:0 25px 60px rgba(79,70,229,.18),0 8px 24px rgba(0,0,0,.12);">
 
                         <!-- Header -->
-                        <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);" class="px-4 py-3 flex items-center justify-between flex-shrink-0">
+                        <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);" class="px-5 py-4 flex items-center justify-between flex-shrink-0">
                             <div class="flex items-center gap-3">
-                                <div class="w-9 h-9 bg-white/20 rounded-full flex items-center justify-center text-lg">🔧</div>
+                                <div class="w-11 h-11 bg-white/20 rounded-full flex items-center justify-center text-2xl shadow-inner">🔧</div>
                                 <div>
-                                    <p class="text-white text-sm font-bold leading-tight">AutoInx Parts Advisor</p>
-                                    <div class="flex items-center gap-1 mt-0.5">
-                                        <span class="w-1.5 h-1.5 bg-green-400 rounded-full inline-block"></span>
-                                        <p class="text-indigo-200 text-xs">Online · Powered by AI</p>
+                                    <p class="text-white font-black text-base leading-tight">AutoInx Parts Advisor</p>
+                                    <div class="flex items-center gap-1.5 mt-0.5">
+                                        <span class="w-2 h-2 bg-green-400 rounded-full inline-block animate-pulse"></span>
+                                        <p class="text-indigo-200 text-xs font-medium">Online · AI-Powered · EN / ES</p>
                                     </div>
                                 </div>
                             </div>
                             <button onclick="window.module.toggleAiChat()"
-                                    class="text-white/60 hover:text-white transition text-xl leading-none w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/10">✕</button>
+                                    class="text-white/60 hover:text-white transition text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15">✕</button>
                         </div>
 
-                    <!-- Messages -->
-                    <div id="aiChatMessages" class="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50" style="min-height:220px;max-height:280px;">
-                        <div class="flex gap-2 items-start">
-                            <div class="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center text-xs flex-shrink-0">🔧</div>
-                            <div class="bg-white rounded-xl rounded-tl-none px-3 py-2 text-sm text-gray-700 shadow-sm" style="max-width:85%;">
-                                Hi! I'm your AutoInx parts advisor — <strong>English or Spanish</strong>, your choice! 🇺🇸🇪🇸<br>
-                                Tell me your vehicle's <strong>year, make, and model</strong> and I'll find the right parts for you.
-                                <br><span class="text-xs text-gray-400 mt-1 block">¡Hablo español también!</span>
+                        <!-- Bilingual welcome banner -->
+                        <div style="background:linear-gradient(90deg,#eef2ff,#f5f3ff);border-bottom:1px solid #e0e7ff;" class="px-5 py-2.5 flex-shrink-0">
+                            <p class="text-xs text-indigo-700 font-semibold">
+                                🇺🇸 Ask in English &nbsp;·&nbsp; 🇪🇸 Pregunta en Español
+                            </p>
+                            <p class="text-xs text-indigo-400 mt-0.5">Tell me your vehicle's <strong>year, make &amp; model</strong> — Dime el <strong>año, marca y modelo</strong> de tu vehículo</p>
+                        </div>
+
+                        <!-- Messages -->
+                        <div id="aiChatMessages" class="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50" style="min-height:260px;max-height:340px;">
+                            <div class="flex gap-3 items-start">
+                                <div class="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-sm flex-shrink-0 shadow-sm">🔧</div>
+                                <div class="bg-white rounded-2xl rounded-tl-none px-4 py-3 text-sm text-gray-700 shadow-sm leading-relaxed" style="max-width:87%;">
+                                    <p class="font-semibold text-indigo-700 mb-1">Hi! I'm your AutoInx Parts Advisor 👋</p>
+                                    <p>Tell me your vehicle's <strong>year, make, and model</strong> and I'll help you find the right part fast.</p>
+                                    <p class="mt-2 text-gray-500 text-xs border-t border-gray-100 pt-2">
+                                        🇪🇸 <em>¡Hola! Soy tu asesor de refacciones AutoInx. Dime el <strong>año, marca y modelo</strong> de tu vehículo y te ayudo a encontrar la pieza correcta.</em>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Input -->
+                        <div class="px-4 py-3 border-t bg-white flex-shrink-0">
+                            <div class="flex gap-2 items-center">
+                                <input type="text" id="aiChatInput"
+                                       placeholder="Air filter 2018 Civic · Filtro Civic 2018"
+                                       maxlength="300"
+                                       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window.module.sendAiChatMessage();}"
+                                       class="flex-1 text-sm p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:outline-none bg-gray-50">
+                                <button onclick="window.module.sendAiChatMessage()"
+                                        id="aiChatSendBtn"
+                                        style="background:linear-gradient(135deg,#4f46e5,#7c3aed);"
+                                        class="w-10 h-10 text-white rounded-xl flex items-center justify-center flex-shrink-0 transition hover:opacity-90 shadow-md">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <!-- Contact strip -->
+                            <div class="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+                                <span class="text-xs text-gray-400">Still need help? / ¿Más ayuda?</span>
+                                ${isWhatsAppHours() ? `
+                                <button onclick="if(window.Tawk_API){window.Tawk_API.showWidget();window.Tawk_API.maximize();}else{window.open('mailto:support@autoinx.com');}"
+                                        class="flex items-center gap-1 text-xs text-indigo-600 font-semibold hover:text-indigo-700 transition">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+                                    Live chat / Chat en vivo
+                                </button>` : `
+                                <a href="mailto:support@autoinx.com"
+                                   class="flex items-center gap-1 text-xs text-indigo-500 font-semibold hover:text-indigo-700 transition">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                    Email us / Escríbenos
+                                </a>`}
                             </div>
                         </div>
                     </div>
 
-                    <!-- Input -->
-                    <div class="px-3 py-2.5 border-t bg-white flex-shrink-0">
-                        <div class="flex gap-2 items-center">
-                            <input type="text" id="aiChatInput"
-                                   placeholder="e.g. Air filter for 2018 Civic / Filtro para Civic 2018"
-                                   maxlength="300"
-                                   onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window.module.sendAiChatMessage();}"
-                                   class="flex-1 text-sm p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none bg-gray-50">
-                            <button onclick="window.module.sendAiChatMessage()"
-                                    id="aiChatSendBtn"
-                                    style="background:linear-gradient(135deg,#4f46e5,#7c3aed);"
-                                    class="w-9 h-9 text-white rounded-lg flex items-center justify-center flex-shrink-0 transition hover:opacity-90 shadow-sm">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-                                </svg>
-                            </button>
-                        </div>
-
-                        <!-- Persistent contact strip — Live chat during hours, email after hours -->
-                        <div class="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
-                            <span class="text-xs text-gray-400">Still need help?</span>
-                            ${isWhatsAppHours() ? `
-                            <button onclick="if(window.Tawk_API){window.Tawk_API.showWidget();window.Tawk_API.maximize();}else{window.open('mailto:support@autoinx.com');}"
-                                    class="flex items-center gap-1 text-xs text-indigo-600 font-semibold hover:text-indigo-700 transition">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-                                Chat with an agent
-                            </button>` : `
-                            <a href="mailto:support@autoinx.com"
-                               class="flex items-center gap-1 text-xs text-indigo-500 font-semibold hover:text-indigo-700 transition">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                                Email us
-                            </a>`}
-                        </div>
-                    </div>
-                    </div>
-
-                    <!-- Main toggle button — prominent, animated -->
+                    <!-- ── Main toggle button — bigger, animated, bilingual ── -->
                     <button onclick="window.module.toggleAiChat()"
                             id="aiChatToggleBtn"
-                            title="Ask our AI Parts Advisor"
-                            class="relative flex items-center gap-3 pl-4 pr-5 py-3 text-white font-bold text-sm rounded-full shadow-2xl transition-all duration-300 hover:scale-105 hover:shadow-indigo-400/50"
-                            style="background:linear-gradient(135deg,#4f46e5,#7c3aed);">
-                        <!-- Pulse ring -->
-                        <span class="absolute inset-0 rounded-full animate-ping opacity-20" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);"></span>
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
-                        </svg>
-                        <span id="aiChatBtnLabel">Find My Part 🔧</span>
+                            title="Find Your Auto Part · Encuentra tu Refacción"
+                            class="relative flex items-center gap-3 pl-5 pr-6 py-3.5 text-white rounded-full transition-all duration-300"
+                            style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);min-width:220px;">
+
+                        <!-- Wrench icon with glow -->
+                        <span class="chat-icon text-2xl flex-shrink-0">🔧</span>
+
+                        <!-- Bilingual rotating label -->
+                        <div class="chat-label-wrap flex-1">
+                            <span class="chat-label-en">Find My Part 🇺🇸</span>
+                            <span class="chat-label-es">Encuentra tu Pieza 🇪🇸</span>
+                        </div>
+
                     </button>
 
                 </div>
