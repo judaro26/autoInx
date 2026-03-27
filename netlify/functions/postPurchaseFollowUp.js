@@ -161,7 +161,25 @@ function buildDiscountEmail(order, discountCode, discountLabel) {
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
+
+// ── Dead-letter alert helper ─────────────────────────────────────────────────
+async function alertCronFailure(functionName, error, transporter) {
+    try {
+        await transporter.sendMail({
+            from:    '"autoInx Alerts" <noreply@autoinx.com>',
+            to:      process.env.ADMIN_EMAIL || 'orders@autoinx.com',
+            subject: `🚨 Cron failure: ${functionName}`,
+            html: `<p>The scheduled function <strong>${functionName}</strong> failed at ${new Date().toUTCString()}.</p>
+                   <pre style="background:#f3f4f6;padding:12px;border-radius:8px;">${error?.stack || error?.message || String(error)}</pre>
+                   <p>Check Netlify function logs for details.</p>`,
+        });
+    } catch (mailErr) {
+        console.error('Dead-letter alert failed:', mailErr.message);
+    }
+}
+
 exports.handler = async function () {
+    try {
     const db          = initAdmin();
     const transporter = getTransporter();
     const now         = new Date();
@@ -255,5 +273,12 @@ exports.handler = async function () {
     }
 
     console.log(`📬 Post-purchase follow-up: ${sent7} review emails, ${sent30} discount emails, ${errors} errors`);
-    return { statusCode: 200, body: JSON.stringify({ sent7, sent30, errors }) };
+    return { statusCode: 200, body: JSON.stringify({ sent7, sent30, er
+    } catch (err) {
+        console.error(`❌ ${__filename.split('/').pop()} fatal error:`, err);
+        const t = getTransporter();
+        await alertCronFailure(__filename.split('/').pop(), err, t).catch(() => {});
+        return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    }
+rors }) };
 };
