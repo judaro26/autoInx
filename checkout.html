@@ -1374,6 +1374,19 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
     // ══════════════════════════════════════════════════════════════════════
 
     // Zelle/Cash contact info — update these to match your details
+    // ── HMAC signing for email endpoint calls ──────────────────────────────────
+    async function _signOrderId(orderId) {
+        try {
+            const secret = 'autoinx-email-secret'; // same as ORDER_EMAIL_SECRET env var
+            const enc    = new TextEncoder();
+            const key    = await crypto.subtle.importKey(
+                'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+            );
+            const sig = await crypto.subtle.sign('HMAC', key, enc.encode(orderId));
+            return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch { return null; }
+    }
+
     // Zelle details pulled from site config (set in Admin → Config → Payment Settings)
     let ZELLE_EMAIL = 'payments@autoinx.com';
     let ZELLE_NAME  = 'AutoInx';
@@ -1543,17 +1556,20 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 }
             })();
 
-            fetch('/.netlify/functions/sendOrderConfirmation', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
-                    items: order.items, subtotalCents: order.subtotalCents,
-                    shippingCents: order.shippingCents, taxCents: order.taxCents,
-                    totalCents: order.totalCents, paymentUrl,
-                    communicationLang: currentLang, paymentMethod: 'card'
-                })
-            }).catch(() => {});
+            _signOrderId(orderId).then(sig => {
+                fetch('/.netlify/functions/sendOrderConfirmation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
+                        items: order.items, subtotalCents: order.subtotalCents,
+                        shippingCents: order.shippingCents, taxCents: order.taxCents,
+                        totalCents: order.totalCents, paymentUrl,
+                        communicationLang: currentLang, paymentMethod: 'card',
+                        _sig: sig
+                    })
+                }).catch(() => {});
+            });
 
             sessionStorage.removeItem('autoInxCart');
             if (db && userId && userId !== 'guest') {
@@ -1596,18 +1612,21 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             }
         })();
 
-        fetch('/.netlify/functions/sendOrderConfirmation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
-                items: order.items, subtotalCents: order.subtotalCents,
-                shippingCents: order.shippingCents, taxCents: order.taxCents,
-                totalCents: order.totalCents, communicationLang: currentLang,
-                paymentMethod: method,
-                zelleEmail: ZELLE_EMAIL, zelleName: ZELLE_NAME
-            })
-        }).catch(() => {});
+        _signOrderId(orderId).then(sig => {
+            fetch('/.netlify/functions/sendOrderConfirmation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
+                    items: order.items, subtotalCents: order.subtotalCents,
+                    shippingCents: order.shippingCents, taxCents: order.taxCents,
+                    totalCents: order.totalCents, communicationLang: currentLang,
+                    paymentMethod: method,
+                    zelleEmail: ZELLE_EMAIL, zelleName: ZELLE_NAME,
+                    _sig: sig
+                })
+            }).catch(() => {});
+        });
 
         // Clear cart
         sessionStorage.removeItem('autoInxCart');
@@ -1953,6 +1972,7 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             taxDetails: taxDetails,
             status: "Pending",
             paymentStatus: "Unpaid",
+            paymentMethod: 'pending',   // updated atomically when customer selects method
             createdAt: serverTimestamp(),
             timestamp: new Date().toISOString()
         };
