@@ -1529,45 +1529,39 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 });
             }
 
-            // Adjust inventory
-            for (const item of order.items) {
-                try {
-                    const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
-                    const itemSnap = await getDoc(itemRef);
-                    if (itemSnap.exists()) {
-                        const newStock = Math.max(0, (itemSnap.data().stock || 0) - item.quantity);
-                        await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
-                    }
-                } catch {}
-            }
+            // Fire-and-forget: inventory + email don't need to finish before redirect
+            (async () => {
+                for (const item of order.items) {
+                    try {
+                        const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
+                        const itemSnap = await getDoc(itemRef);
+                        if (itemSnap.exists()) {
+                            const newStock = Math.max(0, (itemSnap.data().stock || 0) - item.quantity);
+                            await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
+                        }
+                    } catch {}
+                }
+            })();
 
-            // Send confirmation email
-            try {
-                await fetch('/.netlify/functions/sendOrderConfirmation', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
-                        items: order.items, subtotalCents: order.subtotalCents,
-                        shippingCents: order.shippingCents, taxCents: order.taxCents,
-                        totalCents: order.totalCents, paymentUrl,
-                        communicationLang: currentLang, paymentMethod: 'card'
-                    })
-                });
-            } catch {}
+            fetch('/.netlify/functions/sendOrderConfirmation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
+                    items: order.items, subtotalCents: order.subtotalCents,
+                    shippingCents: order.shippingCents, taxCents: order.taxCents,
+                    totalCents: order.totalCents, paymentUrl,
+                    communicationLang: currentLang, paymentMethod: 'card'
+                })
+            }).catch(() => {});
 
-            // Clear cart
             sessionStorage.removeItem('autoInxCart');
             if (db && userId && userId !== 'guest') {
-                await deleteDoc(doc(db, 'abandoned_carts', userId)).catch(() => {});
+                deleteDoc(doc(db, 'abandoned_carts', userId)).catch(() => {});
             }
 
-            // Redirect to Stripe
-            if (paymentUrl) {
-                window.location.href = paymentUrl;
-            } else {
-                window.location.href = `/track-order.html?order=${orderId}`;
-            }
+            // Redirect immediately — background tasks continue in parallel
+            window.location.href = paymentUrl || `/track-order.html?order=${orderId}`;
         } catch (err) {
             console.error('Card payment error:', err);
             window.location.href = `/track-order.html?order=${orderId}`;
@@ -1588,33 +1582,32 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             });
         } catch {}
 
-        // Adjust inventory
-        for (const item of order.items) {
-            try {
-                const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
-                const itemSnap = await getDoc(itemRef);
-                if (itemSnap.exists()) {
-                    const newStock = Math.max(0, (itemSnap.data().stock || 0) - item.quantity);
-                    await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
-                }
-            } catch {}
-        }
+        // Fire-and-forget: inventory + email — don't block showing the confirmation
+        (async () => {
+            for (const item of order.items) {
+                try {
+                    const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
+                    const itemSnap = await getDoc(itemRef);
+                    if (itemSnap.exists()) {
+                        const newStock = Math.max(0, (itemSnap.data().stock || 0) - item.quantity);
+                        await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
+                    }
+                } catch {}
+            }
+        })();
 
-        // Send confirmation email with payment instructions
-        try {
-            await fetch('/.netlify/functions/sendOrderConfirmation', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
-                    items: order.items, subtotalCents: order.subtotalCents,
-                    shippingCents: order.shippingCents, taxCents: order.taxCents,
-                    totalCents: order.totalCents, communicationLang: currentLang,
-                    paymentMethod: method,
-                    zelleEmail: ZELLE_EMAIL, zelleName: ZELLE_NAME
-                })
-            });
-        } catch {}
+        fetch('/.netlify/functions/sendOrderConfirmation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                orderId, buyerEmail: order.buyerEmail, buyerName: order.buyerName,
+                items: order.items, subtotalCents: order.subtotalCents,
+                shippingCents: order.shippingCents, taxCents: order.taxCents,
+                totalCents: order.totalCents, communicationLang: currentLang,
+                paymentMethod: method,
+                zelleEmail: ZELLE_EMAIL, zelleName: ZELLE_NAME
+            })
+        }).catch(() => {});
 
         // Clear cart
         sessionStorage.removeItem('autoInxCart');
