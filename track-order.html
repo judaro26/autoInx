@@ -614,7 +614,7 @@
                         showGuestView();
                         if ($('orderInput')) $('orderInput').value = _pendingOrderId.slice(0, 20);
                         if ($('emailInput')) $('emailInput').value = _urlEmail;
-                        renderGuestOrder(data.order);
+                        renderGuestOrder(data.order, _pendingMethod);
                         // Save to localStorage for future visits
                         try { localStorage.setItem('autoinx_last_order', JSON.stringify({ orderId: _pendingOrderId, email: _urlEmail, savedAt: Date.now() })); } catch {}
                         // Clean the URL so the token isn't visible after load
@@ -911,7 +911,13 @@
         // ── Persistent payment confirmation CTA ──────────────────────────────
         // Shows for any Zelle/Cash order that isn't paid yet, regardless of whether
         // ?pending= is in the URL (handles return visits after the URL was cleaned).
-        const isAltPayment = order.paymentMethod === 'zelle' || order.paymentMethod === 'cash';
+        // Also checks paymentStatus in case paymentMethod is still 'pending'.
+        const _psLower     = (order.paymentStatus || '').toLowerCase();
+        const _pm          = order.paymentMethod || '';
+        const isAltPayment = _pm === 'zelle' || _pm === 'cash'
+                          || _psLower.includes('zelle') || _psLower.includes('cash');
+        const _ctaMethod   = (_pm === 'zelle' || _pm === 'cash') ? _pm
+                           : _psLower.includes('zelle') ? 'zelle' : 'cash';
         const isAlreadyPaid = isPaid;
         const alreadySubmitted = order.paymentConfirmationSubmitted;
         const isSp = lang === 'es';
@@ -925,8 +931,8 @@
                 <p style="font-weight:700;color:#92400e;margin:0 0 8px;">${order.paymentMethod === 'zelle' ? '🏦' : '💵'} ${isSp ? '¿Ya enviaste tu pago?' : 'Already sent your payment?'}</p>
                 <p style="font-size:.8rem;color:#78350f;margin:0 0 10px;">${isSp ? 'Sube tu comprobante para que podamos confirmar tu pedido.' : 'Upload your confirmation so we can verify your order.'}</p>
                 <button onclick="window._currentMode === 'loggedin'
-                        ? showPaymentConfirmationPanel('${order.id}', '${order.paymentMethod}', window._currentUser)
-                        : showGuestPaymentConfirmation('${order.id}', '${order.paymentMethod}')"
+                        ? showPaymentConfirmationPanel('${order.id}', '${_ctaMethod}', window._currentUser)
+                        : showGuestPaymentConfirmation('${order.id}', '${_ctaMethod}')"
                         style="background:#d97706;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:.875rem;cursor:pointer;">
                     📎 ${isSp ? 'Subir Comprobante' : 'Upload Confirmation'}
                 </button>
@@ -964,7 +970,7 @@
                 }));
             } catch {}
 
-            renderGuestOrder(data.order);
+            renderGuestOrder(data.order, new URLSearchParams(location.search).get('pending'));
         } catch {
             showErr(t('notFound'));
         } finally {
@@ -972,7 +978,7 @@
         }
     };
 
-    function renderGuestOrder(order) {
+    function renderGuestOrder(order, explicitPendingMethod) {
         const placedDate = order.timestamp
             ? new Date(order.timestamp).toLocaleDateString(lang === 'es' ? 'es-CO' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })
             : '';
@@ -989,8 +995,23 @@
             </div>`;
 
         // Add payment confirmation CTA for Zelle/Cash orders
-        const pendingMethod = new URLSearchParams(location.search).get('pending');
-        const isAltPay = order.paymentMethod === 'zelle' || order.paymentMethod === 'cash' || pendingMethod;
+        // Use explicitly passed method first, fall back to URL param, then order data
+        const pendingMethod = explicitPendingMethod
+            || new URLSearchParams(location.search).get('pending')
+            || null;
+        // Also treat "Pending - Zelle" / "Pending - Cash" paymentStatus as alt pay
+        const paymentStatusLower = (order.paymentStatus || '').toLowerCase();
+        const isAltPay = order.paymentMethod === 'zelle'
+            || order.paymentMethod === 'cash'
+            || pendingMethod
+            || paymentStatusLower.includes('zelle')
+            || paymentStatusLower.includes('cash');
+        const resolvedMethod = order.paymentMethod === 'zelle' || order.paymentMethod === 'cash'
+            ? order.paymentMethod
+            : pendingMethod
+            || (paymentStatusLower.includes('zelle') ? 'zelle' : null)
+            || (paymentStatusLower.includes('cash')  ? 'cash'  : null)
+            || 'zelle';
         const isPaid   = order.isPaid || order.paymentStatus === 'Paid';
         const alreadySubmitted = order.paymentConfirmationSubmitted;
         const isSp = lang === 'es';
@@ -1001,7 +1022,7 @@
                 ? `<p style="font-weight:700;color:#16a34a;margin:0 0 4px;">✅ ${isSp ? 'Comprobante enviado' : 'Confirmation submitted'}</p>
                    <p style="font-size:13px;color:#6b7280;margin:0;">${isSp ? 'Estamos revisando tu pago.' : 'We are reviewing your payment.'}</p>`
                 : `<p style="font-weight:700;color:#92400e;margin:0 0 8px;">💳 ${isSp ? '¿Ya pagaste? Sube tu comprobante' : 'Already paid? Upload your confirmation'}</p>
-                   <button onclick="showGuestPaymentConfirmation('${order.id}', '${pendingMethod || order.paymentMethod || 'zelle'}')"
+                   <button onclick="showGuestPaymentConfirmation('${order.id}', '${resolvedMethod}')"
                            style="background:#d97706;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;">
                        📎 ${isSp ? 'Subir Comprobante' : 'Upload Confirmation'}
                    </button>`
@@ -1013,8 +1034,8 @@
         $('guestResult').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         // Auto-show panel if ?pending= is in URL and not yet submitted
-        if (pendingMethod && !alreadySubmitted && !isPaid) {
-            setTimeout(() => showGuestPaymentConfirmation(order.id, pendingMethod), 400);
+        if (isAltPay && !alreadySubmitted && !isPaid && (pendingMethod || resolvedMethod)) {
+            setTimeout(() => showGuestPaymentConfirmation(order.id, resolvedMethod), 400);
         }
     }
 
