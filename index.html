@@ -1731,7 +1731,13 @@
                                         </div>
                                     </div>
                                 `).join('')
-                    : `<p class="text-xs text-gray-400 italic">${t('cartEmpty')}</p>`
+                    : `<div class="text-center py-2">
+                        <p class="text-xs text-gray-400 italic mb-2">${t('cartEmpty')}</p>
+                        ${!state.userName ? `<button onclick="window.module.openLoginModal()"
+                            class="text-xs text-indigo-600 font-semibold hover:underline">
+                            ${currentLang === 'es' ? '¿Ya tienes cuenta? Inicia sesión →' : 'Have an account? Sign in →'}
+                        </button>` : ''}
+                    </div>`
                 }
                         </div>
                         <div class="pt-3 mt-3 border-t border-gray-200">
@@ -1951,7 +1957,6 @@
             if (!db || !userId) return;
             const cartEntries = Object.values(state.cart);
             if (cartEntries.length === 0) {
-                // Cart is empty — remove any existing record
                 try { await deleteDoc(doc(db, ABANDONED_CARTS_COLLECTION, userId)); } catch (_) {}
                 return;
             }
@@ -1966,10 +1971,28 @@
             }));
             const totalCents = items.reduce((s, i) => s + i.price * i.quantity, 0);
 
+            // ── Guest email recovery ───────────────────────────────────────────
+            // For anonymous users, state.userName is null. Try to recover an email
+            // from: (1) localStorage saved by a previous guest order lookup, or
+            // (2) any email the user typed that got persisted in sessionStorage.
+            let resolvedEmail = state.userName || null;
+            if (!resolvedEmail) {
+                try {
+                    const savedOrder = JSON.parse(localStorage.getItem('autoinx_last_order') || 'null');
+                    if (savedOrder?.email) resolvedEmail = savedOrder.email;
+                } catch {}
+            }
+            if (!resolvedEmail) {
+                try {
+                    resolvedEmail = sessionStorage.getItem('autoinx_guest_email') || null;
+                } catch {}
+            }
+
             try {
                 await setDoc(doc(db, ABANDONED_CARTS_COLLECTION, userId), {
                     userId,
-                    userEmail:    state.userName || null,
+                    userEmail:    resolvedEmail,
+                    isGuest:      !state.userName,   // flag for reminder function
                     items,
                     totalCents,
                     itemCount:    items.reduce((s, i) => s + i.quantity, 0),
