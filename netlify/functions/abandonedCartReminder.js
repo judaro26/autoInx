@@ -1,345 +1,297 @@
 /**
- * abandonedCartReminder.js
- * ─────────────────────────────────────────────────────────────────────────────
- * Netlify Scheduled Function — runs every day at 10:00 AM UTC
+ * Netlify Function: abandonedCartReminder.js
  *
- * What it does:
- *   1. Queries Firestore for orders that are Pending + Unpaid and were created
- *      between REMINDER_MIN_HOURS and REMINDER_MAX_HOURS ago.
- *   2. Skips orders that already received a reminder (reminderSentAt is set).
- *   3. Sends a bilingual (EN/ES) HTML reminder email via Nodemailer/Gmail SMTP
- *      with the original Stripe payment link embedded.
- *   4. Stamps `reminderSentAt` on the Firestore doc so it's never re-sent.
+ * Handles two modes:
  *
- * Required Netlify environment variables:
- *   FIREBASE_PROJECT_ID
- *   FIREBASE_CLIENT_EMAIL
- *   FIREBASE_PRIVATE_KEY          (newline-escaped as \n)
- *   EMAIL_USER                    (Gmail address, e.g. orders@autoinx.com)
- *   EMAIL_PASS                    (Gmail App Password — NOT your regular password)
- *   SITE_URL                      (https://autoinx.com)
+ * 1. MANUAL (POST from admin panel) — sends a reminder to a specific cart.
+ *    Requires a valid admin Firebase ID token in Authorization header.
+ *    Body: { cartId, userEmail, manual: true }
  *
- * Optional:
- *   REMINDER_MIN_HOURS            (default: 1  — don't remind before 1h)
- *   REMINDER_MAX_HOURS            (default: 48 — don't remind after 48h)
- * ─────────────────────────────────────────────────────────────────────────────
+ * 2. CRON (scheduled at "0 10 * * *") — scans all carts abandoned for
+ *    1–48 hours, skips any that already have reminderSent: true, and
+ *    sends a reminder to each.
+ *
+ * Cart document shape (in `abandoned_carts/{userId}`):
+ *   { userEmail, userName?, items: [{name, price, quantity, imageUrl?}],
+ *     totalCents, itemCount, updatedAt, reminderSent?, reminderSentAt? }
  */
 
 const admin      = require('firebase-admin');
 const nodemailer = require('nodemailer');
 
-// ── Config ──────────────────────────────────────────────────────────────────
-const REMINDER_MIN_HOURS = parseInt(process.env.REMINDER_MIN_HOURS || '1',  10);
-const REMINDER_MAX_HOURS = parseInt(process.env.REMINDER_MAX_HOURS || '48', 10);
-const SITE_URL           = (process.env.SITE_URL || 'https://autoinx.com').replace(/\/$/, '');
-const ORDERS_PATH        = 'artifacts/default-app-id/public/data/orders';
+const STORE_URL   = 'https://autoinx.com';
+const STORE_NAME  = 'AutoInx';
+const FROM_EMAIL  = 'noreply@autoinx.com';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'orders@autoinx.com';
 
-// ── Firebase Admin (lazy-init, same pattern as stripeWebhook.js) ─────────────
-function getDb() {
+// Carts abandoned for between 1 hour and 48 hours are eligible
+const MIN_ABANDON_MS = 1  * 60 * 60 * 1000;   // 1 hour
+const MAX_ABANDON_MS = 48 * 60 * 60 * 1000;   // 48 hours
+
+function initAdmin() {
     if (admin.apps.length === 0) {
         admin.initializeApp({
             credential: admin.credential.cert({
-                projectId  : process.env.FIREBASE_PROJECT_ID,
+                projectId:   process.env.FIREBASE_PROJECT_ID,
                 clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-                privateKey : process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+                privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
             }),
         });
     }
     return admin.firestore();
 }
 
-// ── Nodemailer transporter (Gmail SMTP) ──────────────────────────────────────
 function getTransporter() {
     return nodemailer.createTransport({
-        service: 'gmail',
+        host:   process.env.BREVO_SMTP_HOST,
+        port:   parseInt(process.env.BREVO_SMTP_PORT || '587'),
+        secure: false,
         auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS,   // Gmail App Password
+            user: process.env.BREVO_SMTP_USER,
+            pass: process.env.BREVO_SMTP_PASSWORD,
         },
     });
 }
 
-// ── Utility ──────────────────────────────────────────────────────────────────
 function formatPrice(cents) {
-    return '$' + (cents / 100).toFixed(2);
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency', currency: 'USD', minimumFractionDigits: 2
+    }).format((cents || 0) / 100);
 }
 
-function detectLang(order) {
-    // Prefer explicit communicationLang, then fall back to a heuristic
-    if (order.communicationLang === 'es') return 'es';
-    if (order.language           === 'es') return 'es';
-    return 'en';
-}
+function buildReminderEmail(cart, cartId) {
+    const firstName = cart.userName?.split(' ')[0] || 'there';
+    const items     = cart.items || [];
+    const total     = formatPrice(cart.totalCents);
 
-// ── Email HTML builder ───────────────────────────────────────────────────────
-function buildEmailHtml({ order, orderId, lang }) {
-    const isEs      = lang === 'es';
-    const firstName = (order.buyerName || order.buyerEmail || '').split(/\s|@/)[0];
-    const payUrl    = order.stripePaymentUrl || `${SITE_URL}/checkout.html`;
-    const logoUrl   = `${SITE_URL}/images/AutoInx%20logo.png`;
-
-    const itemRows = (order.items || []).map(item => `
+    // Item rows
+    const itemRows = items.map(item => {
+        const img   = item.imageUrl || item.imageUrls?.[0] || '';
+        const price = formatPrice((item.price || 0) * (item.quantity || 1));
+        return `
         <tr>
-            <td style="padding:8px 12px;font-size:13px;color:#374151;border-bottom:1px solid #f3f4f6;">
-                ${item.name}${item.sku ? ` <span style="color:#9ca3af;font-size:11px;">(${item.sku})</span>` : ''}
+            <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle;">
+                ${img ? `<img src="${img}" width="48" height="48" style="border-radius:6px;object-fit:contain;vertical-align:middle;margin-right:10px;" alt="">` : ''}
+                <span style="font-size:14px;color:#1e293b;font-weight:600;">${item.name || 'Item'}</span>
+                ${item.sku ? `<span style="font-size:11px;color:#94a3b8;display:block;margin-top:2px;">SKU: ${item.sku}</span>` : ''}
             </td>
-            <td style="padding:8px 12px;text-align:center;font-size:13px;color:#374151;border-bottom:1px solid #f3f4f6;">
-                ×${item.quantity}
-            </td>
-            <td style="padding:8px 12px;text-align:right;font-size:13px;font-weight:600;color:#374151;border-bottom:1px solid #f3f4f6;">
-                ${formatPrice(item.price * item.quantity)}
-            </td>
-        </tr>`).join('');
+            <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;text-align:center;font-size:13px;color:#64748b;">×${item.quantity || 1}</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-size:14px;font-weight:700;color:#4f46e5;white-space:nowrap;">${price}</td>
+        </tr>`;
+    }).join('');
 
-    const subtotal = formatPrice(order.subtotalCents  || 0);
-    const shipping = formatPrice(order.shippingCents  || 0);
-    const tax      = formatPrice(order.taxCents       || 0);
-    const total    = formatPrice(order.totalCents     || 0);
+    const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI',Roboto,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:40px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);max-width:600px;">
 
-    /* ── Copy ── */
-    const copy = {
-        subject  : isEs ? '🛒 Tienes artículos esperándote en AutoInx'
-                        : '🛒 You left something in your cart at AutoInx',
-        preheader: isEs ? 'Tu pedido está casi listo — completa tu pago ahora.'
-                        : 'Your order is almost ready — complete your payment now.',
-        greeting : isEs ? `Hola ${firstName},`
-                        : `Hi ${firstName},`,
-        body1    : isEs ? 'Notamos que dejaste artículos en tu carrito de AutoInx. Tu pedido está reservado y tu enlace de pago sigue activo — solo tienes que completar el pago.'
-                        : 'You left some items in your AutoInx cart. Your order is reserved and your payment link is still active — just complete your payment to confirm it.',
-        cartTitle: isEs ? 'Tu Carrito' : 'Your Cart',
-        itemCol  : isEs ? 'Producto'   : 'Product',
-        qtyCol   : isEs ? 'Cant.'      : 'Qty',
-        priceCol : isEs ? 'Precio'     : 'Price',
-        subtotalL: isEs ? 'Subtotal'   : 'Subtotal',
-        shippingL: isEs ? 'Envío'      : 'Shipping',
-        taxL     : isEs ? 'Impuesto'   : 'Tax',
-        totalL   : isEs ? 'Total'      : 'Total',
-        ctaBtn   : isEs ? 'Completar Pago →' : 'Complete My Order →',
-        helpTitle: isEs ? '¿Necesitas ayuda?' : 'Need help?',
-        helpBody : isEs ? 'Si tienes preguntas sobre compatibilidad o envío, escríbenos a '
-                        : "If you have questions about fitment or shipping, reach us at ",
-        expiry   : isEs ? 'Este enlace de pago es válido por tiempo limitado. Si expira, contáctanos y te enviaremos uno nuevo.'
-                        : 'This payment link is valid for a limited time. If it expires, contact us and we\'ll send a fresh one.',
-        footer   : isEs ? '© 2026 AutoInx · 587 Paradise Blvd, Hayward CA 94541 · Operación Familiar'
-                        : '© 2026 AutoInx · 587 Paradise Blvd, Hayward CA 94541 · Family-Owned Operation',
-        unsubL   : isEs ? 'Para dejar de recibir estos correos, responde con "cancelar".'
-                        : 'To stop receiving these reminders, reply with "unsubscribe".',
-    };
+  <!-- Header -->
+  <tr>
+    <td style="background:linear-gradient(135deg,#6366f1,#4f46e5);padding:32px 40px;text-align:center;">
+      <h1 style="color:#fff;margin:0 0 6px;font-size:26px;font-weight:700;">${STORE_NAME}</h1>
+      <p style="color:rgba(255,255,255,.85);margin:0;font-size:15px;">You left something behind!</p>
+    </td>
+  </tr>
 
-    return `<!DOCTYPE html>
-<html lang="${lang}">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${copy.subject}</title>
-</head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <!-- Body -->
+  <tr>
+    <td style="padding:36px 40px;">
 
-<!-- Preheader (hidden preview text) -->
-<span style="display:none;max-height:0;overflow:hidden;">${copy.preheader}</span>
+      <h2 style="font-size:22px;color:#1e293b;margin:0 0 12px;font-weight:700;">
+        🛒 Hi ${firstName}, your cart misses you!
+      </h2>
+      <p style="font-size:15px;color:#64748b;line-height:1.6;margin:0 0 24px;">
+        You left some great items in your cart. They're still waiting for you — 
+        but stock is limited so don't wait too long!
+      </p>
 
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;">
-  <tr><td align="center">
-    <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+      <!-- Items table -->
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:24px;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Item</th>
+            <th style="padding:10px 12px;text-align:center;font-size:12px;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Qty</th>
+            <th style="padding:10px 12px;text-align:right;font-size:12px;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Price</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+        <tfoot>
+          <tr style="background:#f8fafc;border-top:2px solid #e2e8f0;">
+            <td colspan="2" style="padding:12px;text-align:right;font-size:15px;font-weight:700;color:#1e293b;">Total:</td>
+            <td style="padding:12px;text-align:right;font-size:18px;font-weight:900;color:#4f46e5;">${total}</td>
+          </tr>
+        </tfoot>
+      </table>
 
-      <!-- ── Header ── -->
-      <tr>
-        <td style="background:linear-gradient(135deg,#4338ca 0%,#6366f1 100%);padding:28px 32px;text-align:center;">
-          <img src="${logoUrl}" alt="AutoInx" height="40"
-               style="height:40px;width:auto;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto;">
-          <p style="margin:0;color:#c7d2fe;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600;">
-            ${isEs ? 'Recordatorio de Carrito' : 'Cart Reminder'}
-          </p>
-        </td>
-      </tr>
+      <!-- CTA -->
+      <div style="text-align:center;margin:28px 0;">
+        <a href="${STORE_URL}"
+           style="display:inline-block;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#ffffff;padding:15px 40px;border-radius:12px;font-weight:700;font-size:16px;text-decoration:none;box-shadow:0 4px 15px rgba(99,102,241,.35);">
+          🛒 Complete My Order
+        </a>
+      </div>
 
-      <!-- ── Body ── -->
-      <tr>
-        <td style="padding:32px 32px 24px;">
-          <h1 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#1e1b4b;line-height:1.3;">
-            ${copy.greeting}
-          </h1>
-          <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.7;">
-            ${copy.body1}
-          </p>
+      <p style="font-size:13px;color:#94a3b8;text-align:center;margin:0;">
+        Questions? Reply to this email or visit <a href="${STORE_URL}" style="color:#6366f1;">${STORE_URL}</a>
+      </p>
+    </td>
+  </tr>
 
-          <!-- Cart table -->
-          <p style="margin:0 0 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;">
-            ${copy.cartTitle}
-          </p>
-          <table width="100%" cellpadding="0" cellspacing="0"
-                 style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-bottom:16px;">
-            <thead>
-              <tr style="background:#f9fafb;">
-                <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#9ca3af;">${copy.itemCol}</th>
-                <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:700;text-transform:uppercase;color:#9ca3af;">${copy.qtyCol}</th>
-                <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;color:#9ca3af;">${copy.priceCol}</th>
-              </tr>
-            </thead>
-            <tbody>${itemRows}</tbody>
-          </table>
+  <!-- Footer -->
+  <tr>
+    <td style="background:#1e293b;padding:20px 40px;text-align:center;">
+      <p style="color:#94a3b8;font-size:12px;margin:0;">
+        © ${new Date().getFullYear()} ${STORE_NAME} · 
+        You're receiving this because you added items to your cart.
+      </p>
+    </td>
+  </tr>
 
-          <!-- Totals -->
-          <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
-            <tr>
-              <td style="font-size:13px;color:#6b7280;padding:3px 0;">${copy.subtotalL}</td>
-              <td style="font-size:13px;color:#374151;text-align:right;padding:3px 0;">${subtotal}</td>
-            </tr>
-            ${(order.shippingCents || 0) > 0 ? `
-            <tr>
-              <td style="font-size:13px;color:#6b7280;padding:3px 0;">${copy.shippingL}</td>
-              <td style="font-size:13px;color:#374151;text-align:right;padding:3px 0;">${shipping}</td>
-            </tr>` : ''}
-            ${(order.taxCents || 0) > 0 ? `
-            <tr>
-              <td style="font-size:13px;color:#6b7280;padding:3px 0;">${copy.taxL}</td>
-              <td style="font-size:13px;color:#374151;text-align:right;padding:3px 0;">${tax}</td>
-            </tr>` : ''}
-            <tr style="border-top:2px solid #e5e7eb;">
-              <td style="font-size:15px;font-weight:800;color:#1e1b4b;padding:8px 0 0;">${copy.totalL}</td>
-              <td style="font-size:18px;font-weight:900;color:#ec4899;text-align:right;padding:8px 0 0;">${total}</td>
-            </tr>
-          </table>
-
-          <!-- CTA Button -->
-          <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-            <tr>
-              <td align="center">
-                <a href="${payUrl}"
-                   style="display:inline-block;background:linear-gradient(135deg,#ec4899,#f43f5e);color:#ffffff;font-size:16px;font-weight:800;padding:16px 40px;border-radius:12px;text-decoration:none;letter-spacing:0.02em;box-shadow:0 4px 14px rgba(236,72,153,0.35);">
-                  ${copy.ctaBtn}
-                </a>
-              </td>
-            </tr>
-          </table>
-
-          <!-- Expiry note -->
-          <p style="margin:0 0 20px;font-size:12px;color:#9ca3af;text-align:center;line-height:1.6;">
-            ⏱ ${copy.expiry}
-          </p>
-
-          <!-- Help section -->
-          <div style="background:#f8fafc;border-radius:10px;padding:16px 20px;border:1px solid #e2e8f0;">
-            <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#374151;">${copy.helpTitle}</p>
-            <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">
-              ${copy.helpBody}
-              <a href="mailto:orders@autoinx.com" style="color:#6366f1;font-weight:600;">orders@autoinx.com</a>
-            </p>
-          </div>
-        </td>
-      </tr>
-
-      <!-- ── Footer ── -->
-      <tr>
-        <td style="background:#f9fafb;padding:20px 32px;border-top:1px solid #f3f4f6;text-align:center;">
-          <p style="margin:0 0 6px;font-size:11px;color:#9ca3af;">${copy.footer}</p>
-          <p style="margin:0;font-size:11px;color:#d1d5db;">${copy.unsubL}</p>
-        </td>
-      </tr>
-
-    </table>
-  </td></tr>
+</table>
+</td></tr>
 </table>
 </body>
 </html>`;
-}
-
-// ── Main handler ─────────────────────────────────────────────────────────────
-exports.handler = async function(event) {
-    console.log('🛒 abandonedCartReminder: starting run at', new Date().toISOString());
-
-    const db          = getDb();
-    const transporter = getTransporter();
-
-    const now      = Date.now();
-    const minMs    = REMINDER_MIN_HOURS * 60 * 60 * 1000;
-    const maxMs    = REMINDER_MAX_HOURS * 60 * 60 * 1000;
-    const minCutoff = new Date(now - maxMs);   // oldest order we still care about
-    const maxCutoff = new Date(now - minMs);   // newest order eligible for reminder
-
-    let scanned = 0, sent = 0, skipped = 0, errors = 0;
-
-    try {
-        // ── 1. Query for Pending + Unpaid orders in the time window ──────────
-        const snapshot = await db
-            .collection(ORDERS_PATH)
-            .where('paymentStatus', '==', 'Unpaid')
-            .where('status',        '==', 'Pending')
-            .where('createdAt',     '>=', admin.firestore.Timestamp.fromDate(minCutoff))
-            .where('createdAt',     '<=', admin.firestore.Timestamp.fromDate(maxCutoff))
-            .get();
-
-        scanned = snapshot.size;
-        console.log(`📋 Found ${scanned} candidate order(s) in window.`);
-
-        // ── 2. Process each order ────────────────────────────────────────────
-        for (const docSnap of snapshot.docs) {
-            const order   = docSnap.data();
-            const orderId = docSnap.id;
-
-            // Skip if we already sent a reminder
-            if (order.reminderSentAt) {
-                console.log(`⏭  Skipping ${orderId} — reminder already sent.`);
-                skipped++;
-                continue;
-            }
-
-            // Skip if no email address
-            if (!order.buyerEmail) {
-                console.warn(`⚠️  Skipping ${orderId} — no buyerEmail.`);
-                skipped++;
-                continue;
-            }
-
-            const lang = detectLang(order);
-            const html = buildEmailHtml({ order, orderId, lang });
-            const subject = lang === 'es'
-                ? '🛒 Tienes artículos esperándote en AutoInx'
-                : '🛒 You left something in your cart at AutoInx';
-
-            try {
-                await transporter.sendMail({
-                    from   : `"AutoInx" <${process.env.EMAIL_USER}>`,
-                    to     : order.buyerEmail,
-                    subject,
-                    html,
-                    // Plain-text fallback
-                    text: lang === 'es'
-                        ? `Hola, tienes artículos pendientes de pago en AutoInx. Completa tu pedido aquí: ${order.stripePaymentUrl || SITE_URL + '/checkout.html'}`
-                        : `Hi, you have unpaid items at AutoInx. Complete your order here: ${order.stripePaymentUrl || SITE_URL + '/checkout.html'}`,
-                });
-
-                // ── 3. Stamp the order so we never re-send ────────────────
-                await docSnap.ref.update({
-                    reminderSentAt   : admin.firestore.FieldValue.serverTimestamp(),
-                    reminderSentEmail: order.buyerEmail,
-                });
-
-                console.log(`✅ Reminder sent → ${order.buyerEmail} (order: ${orderId})`);
-                sent++;
-
-            } catch (emailErr) {
-                console.error(`❌ Failed to send reminder for ${orderId}:`, emailErr.message);
-                errors++;
-            }
-
-            // Small delay between sends to avoid Gmail rate limits
-            await new Promise(r => setTimeout(r, 400));
-        }
-
-    } catch (queryErr) {
-        console.error('❌ Firestore query failed:', queryErr.message);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: queryErr.message }),
-        };
-    }
-
-    const summary = { scanned, sent, skipped, errors };
-    console.log('🏁 abandonedCartReminder done:', summary);
 
     return {
-        statusCode: 200,
-        body: JSON.stringify(summary),
+        subject: `🛒 ${firstName}, you left something in your cart!`,
+        html,
     };
+}
+
+async function sendReminderForCart(db, transporter, cartId, cart) {
+    const { subject, html } = buildReminderEmail(cart, cartId);
+
+    await transporter.sendMail({
+        from: `"${STORE_NAME}" <${FROM_EMAIL}>`,
+        to:   cart.userEmail,
+        subject,
+        html,
+    });
+
+    // Mark as reminded
+    await db.collection('abandoned_carts').doc(cartId).update({
+        reminderSent:   true,
+        reminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`✅ Reminder sent to ${cart.userEmail} (cart ${cartId.slice(0, 8)})`);
+}
+
+// ── Main handler ──────────────────────────────────────────────────────────────
+exports.handler = async function (event) {
+    const db          = initAdmin();
+    const transporter = getTransporter();
+
+    // ── MANUAL mode: triggered from admin panel ───────────────────────────────
+    if (event.httpMethod === 'POST') {
+        // Verify admin token
+        const authHeader = event.headers['authorization'] || event.headers['Authorization'] || '';
+        const idToken    = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+        if (!idToken) {
+            return { statusCode: 401, body: JSON.stringify({ error: 'Missing token' }) };
+        }
+
+        let decoded;
+        try {
+            decoded = await admin.auth().verifyIdToken(idToken);
+        } catch {
+            return { statusCode: 401, body: JSON.stringify({ error: 'Invalid token' }) };
+        }
+
+        if (!decoded.admin) {
+            return { statusCode: 403, body: JSON.stringify({ error: 'Admin access required' }) };
+        }
+
+        let payload;
+        try { payload = JSON.parse(event.body || '{}'); }
+        catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
+
+        const { cartId } = payload;
+        if (!cartId) {
+            return { statusCode: 400, body: JSON.stringify({ error: 'cartId required' }) };
+        }
+
+        const snap = await db.collection('abandoned_carts').doc(cartId).get();
+        if (!snap.exists) {
+            return { statusCode: 404, body: JSON.stringify({ error: 'Cart not found' }) };
+        }
+
+        const cart = snap.data();
+        if (!cart.userEmail) {
+            return { statusCode: 400, body: JSON.stringify({ error: 'Cart has no email address' }) };
+        }
+
+        try {
+            await sendReminderForCart(db, transporter, cartId, cart);
+            return {
+                statusCode: 200,
+                body: JSON.stringify({ success: true, sentTo: cart.userEmail }),
+            };
+        } catch (err) {
+            console.error('Manual reminder error:', err);
+            return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+        }
+    }
+
+    // ── CRON mode: scheduled daily scan ──────────────────────────────────────
+    // (Netlify scheduled functions call the handler with no httpMethod or GET)
+    const now    = Date.now();
+    let sent = 0, skipped = 0, errors = 0;
+
+    try {
+        const snap = await db
+            .collection('abandoned_carts')
+            .where('reminderSent', '!=', true)
+            .get();
+
+        // Also catch carts where reminderSent field doesn't exist
+        const allSnap = await db.collection('abandoned_carts').get();
+
+        const eligible = allSnap.docs.filter(doc => {
+            const cart = doc.data();
+            if (cart.reminderSent) return false;                  // already reminded
+            if (!cart.userEmail)   return false;                  // no email to send to
+            if (!cart.items?.length) return false;                // empty cart
+
+            const updatedAt = cart.updatedAt?.toDate?.()?.getTime?.() ||
+                              (cart.updatedAt?._seconds ? cart.updatedAt._seconds * 1000 : null);
+            if (!updatedAt) return false;
+
+            const age = now - updatedAt;
+            return age >= MIN_ABANDON_MS && age <= MAX_ABANDON_MS;
+        });
+
+        console.log(`📬 Abandoned cart cron: ${eligible.length} eligible carts`);
+
+        for (const doc of eligible) {
+            try {
+                await sendReminderForCart(db, transporter, doc.id, doc.data());
+                sent++;
+            } catch (err) {
+                console.error(`❌ Failed for cart ${doc.id.slice(0,8)}:`, err.message);
+                errors++;
+            }
+        }
+
+        console.log(`✅ Cron complete: ${sent} sent, ${skipped} skipped, ${errors} errors`);
+        return { statusCode: 200, body: JSON.stringify({ sent, skipped, errors }) };
+
+    } catch (err) {
+        console.error('❌ Abandoned cart cron fatal error:', err);
+        // Dead-letter alert
+        try {
+            await transporter.sendMail({
+                from:    `"${STORE_NAME} Alerts" <${FROM_EMAIL}>`,
+                to:      ADMIN_EMAIL,
+                subject: '🚨 Cron failure: abandonedCartReminder',
+                html:    `<p>Fatal error at ${new Date().toUTCString()}</p><pre>${err.stack || err.message}</pre>`,
+            });
+        } catch {}
+        return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    }
 };
