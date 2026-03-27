@@ -193,12 +193,26 @@ exports.handler = async function () {
     let sent7 = 0, sent30 = 0, errors = 0;
 
     // ── 7-day review requests ─────────────────────────────────────────────────
-    const snap7 = await db.collectionGroup ? db
-        .collection('artifacts/default-app-id/public/data/orders')
-        .where('status', '==', 'Delivered')
-        .where('updatedAt', '>=', admin.firestore.Timestamp.fromDate(new Date(day7start)))
-        .where('updatedAt', '<=', admin.firestore.Timestamp.fromDate(new Date(day7end)))
-        .get() : { docs: [] };
+    // IMPORTANT: Requires a Firestore composite index on:
+    //   Collection: artifacts/default-app-id/public/data/orders
+    //   Fields: status (Ascending), updatedAt (Ascending)
+    // Create it at: Firebase Console → Firestore → Indexes → Add composite index
+    // Without this index, the query returns 0 results silently.
+    let snap7 = { docs: [] };
+    try {
+        snap7 = await db
+            .collection('artifacts/default-app-id/public/data/orders')
+            .where('status', '==', 'Delivered')
+            .where('updatedAt', '>=', admin.firestore.Timestamp.fromDate(new Date(day7start)))
+            .where('updatedAt', '<=', admin.firestore.Timestamp.fromDate(new Date(day7end)))
+            .get();
+    } catch (indexErr) {
+        if (indexErr.code === 9 || indexErr.message?.includes('index')) {
+            console.error('⚠️ Missing Firestore composite index for (status, updatedAt). Create it in Firebase Console → Indexes.');
+        } else {
+            throw indexErr;
+        }
+    }
 
     for (const docSnap of snap7.docs) {
         const order = { id: docSnap.id, ...docSnap.data() };
@@ -241,12 +255,21 @@ exports.handler = async function () {
         }
     } catch {}
 
-    const snap30 = await db
-        .collection('artifacts/default-app-id/public/data/orders')
-        .where('status', '==', 'Delivered')
-        .where('updatedAt', '>=', admin.firestore.Timestamp.fromDate(new Date(day30start)))
-        .where('updatedAt', '<=', admin.firestore.Timestamp.fromDate(new Date(day30end)))
-        .get().catch(() => ({ docs: [] }));
+    let snap30 = { docs: [] };
+    try {
+        snap30 = await db
+            .collection('artifacts/default-app-id/public/data/orders')
+            .where('status', '==', 'Delivered')
+            .where('updatedAt', '>=', admin.firestore.Timestamp.fromDate(new Date(day30start)))
+            .where('updatedAt', '<=', admin.firestore.Timestamp.fromDate(new Date(day30end)))
+            .get();
+    } catch (indexErr) {
+        if (indexErr.code === 9 || indexErr.message?.includes('index')) {
+            console.error('⚠️ Missing Firestore composite index. Skipping 30-day query.');
+        } else {
+            snap30 = { docs: [] };
+        }
+    }
 
     for (const docSnap of snap30.docs) {
         const order = { id: docSnap.id, ...docSnap.data() };
