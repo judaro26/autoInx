@@ -644,6 +644,40 @@
         $('loggedInView').style.display = 'none';
         $('guestView').style.display    = 'block';
         readUrlParams();
+        _prefillFromLocalStorage();
+    }
+
+    function _prefillFromLocalStorage() {
+        // Only pre-fill if URL didn't already provide the order
+        const urlOrder = new URLSearchParams(location.search).get('order') || new URLSearchParams(location.search).get('orderId');
+        if (urlOrder) return;
+
+        try {
+            const saved = JSON.parse(localStorage.getItem('autoinx_last_order') || 'null');
+            if (!saved) return;
+
+            // Expire after 30 days
+            if (Date.now() - saved.savedAt > 30 * 24 * 3600 * 1000) {
+                localStorage.removeItem('autoinx_last_order');
+                return;
+            }
+
+            if (saved.orderId && $('orderInput') && !$('orderInput').value) {
+                $('orderInput').value = saved.orderId;
+            }
+            if (saved.email && $('emailInput') && !$('emailInput').value) {
+                $('emailInput').value = saved.email;
+            }
+
+            // Show a subtle "welcome back" hint
+            const hint = document.createElement('p');
+            hint.style.cssText = 'font-size:.75rem;color:#6366f1;margin:6px 0 0;text-align:center;';
+            hint.textContent = lang === 'es'
+                ? '↑ Tu último pedido fue precargado'
+                : '↑ Pre-filled from your last lookup';
+            $('trackBtn')?.insertAdjacentElement('afterend', hint);
+            setTimeout(() => hint.remove(), 4000);
+        } catch {}
     }
 
     window.handleSignOut = async () => {
@@ -867,6 +901,14 @@
             });
             const data = await res.json();
             if (!res.ok) { showErr(data.error || t('notFound')); return; }
+
+            // Save to localStorage so returning visitors don't have to re-enter
+            try {
+                localStorage.setItem('autoinx_last_order', JSON.stringify({
+                    orderId: rawId, email, savedAt: Date.now()
+                }));
+            } catch {}
+
             renderGuestOrder(data.order);
         } catch {
             showErr(t('notFound'));
@@ -1091,8 +1133,8 @@
 
         const isZelle = method === 'zelle';
         const isSp    = lang === 'es';
-        const ZELLE_EMAIL = 'payments@autoinx.com';
-        const ZELLE_NAME  = 'AutoInx';
+        const ZELLE_EMAIL = window._zelleEmail || 'payments@autoinx.com';
+        const ZELLE_NAME  = window._zelleName  || 'AutoInx';
 
         const panel = document.createElement('div');
         panel.id = 'payConfirmPanel';
