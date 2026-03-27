@@ -66,13 +66,20 @@ exports.handler = async function () {
     // Check which items have already been alerted at this stock level
     const alertsRef    = db.collection('low_stock_alerts');
     const itemsToAlert = [];
+    const WEEKLY_REMINDER_MS = 7 * 24 * 60 * 60 * 1000;
 
     for (const item of lowItems) {
-        const prevSnap = await alertsRef.doc(item.id).get();
-        const prevStock = prevSnap.exists ? prevSnap.data().lastAlertedStock : null;
+        const prevSnap  = await alertsRef.doc(item.id).get();
+        const prevData  = prevSnap.exists ? prevSnap.data() : null;
+        const prevStock = prevData ? prevData.lastAlertedStock : null;
+        const lastAlert = prevData?.lastAlertedAt?.toDate?.() || null;
+        const msSinceAlert = lastAlert ? Date.now() - lastAlert.getTime() : Infinity;
 
-        // Alert if: never alerted before, OR stock has gone down since last alert
-        if (prevStock === null || item.stock < prevStock) {
+        // Alert if:
+        //   • never alerted before
+        //   • stock has gone DOWN since last alert (getting worse)
+        //   • stock is still low and it's been 7+ days (weekly reminder)
+        if (prevStock === null || item.stock < prevStock || msSinceAlert >= WEEKLY_REMINDER_MS) {
             itemsToAlert.push(item);
         }
     }
