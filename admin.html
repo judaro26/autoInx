@@ -597,6 +597,7 @@
             adminCart: {},
             vendorOrders: [],
             investors: [],
+            expenses: [],
             paymentConfirmations: [],
             vendorOrderFilters: { searchTerm: '', supplier: 'all', status: 'all', sortBy: 'date-desc' },
 
@@ -694,6 +695,7 @@
         const ORDERS_COLLECTION = `artifacts/${appId}/public/data/orders`; // orders collection;
         const VENDOR_ORDERS_COLLECTION = `vendor_orders`;
         const INVESTORS_COLLECTION = 'investors';
+        const EXPENSES_COLLECTION = 'business_expenses';
         const PAYMENT_CONFIRMATIONS_COLL = 'payment_confirmations';
         const SHIPPING_LABELS_COLLECTION = 'shippingLabels';
         const EMAIL_NOTIFICATIONS_COLLECTION = 'email_notifications';
@@ -1043,6 +1045,9 @@
             }
             if (state.activeTab === 'profitAnalysis') {
                 return renderProfitAnalysisSection();
+            }
+            if (state.activeTab === 'expenses') {
+                return `<section id="expensesPage"><div class="text-center py-12 text-gray-400">Loading expenses…</div></section>`;
             }
             if (state.activeTab === 'returns') {
                 return `<section id="returnsPage"><div class="text-center py-12 text-gray-400">Loading returns…</div></section>`;
@@ -5604,6 +5609,13 @@ ${printScript}
                     .sort((a, b) => (b.submittedAt?.toDate?.()?.getTime() || 0) - (a.submittedAt?.toDate?.()?.getTime() || 0));
             }, err => console.error('Payment confirmations listener error:', err));
 
+            // Expenses listener
+            onSnapshot(
+                query(collection(db, EXPENSES_COLLECTION), orderBy('date', 'desc')),
+                snap => { state.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() })); },
+                err => console.error('Expenses listener error:', err)
+            );
+
             // Investors listener
             onSnapshot(collection(db, INVESTORS_COLLECTION), snap => {
                 state.investors = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -10105,6 +10117,7 @@ ${printScript}
                         vendorOrders:       'finance',
                         profitAnalysis:     'finance',
                         returns:            'finance',
+                        expenses:           'finance',
                         marketing:          'marketing',
                         contacts:           'marketing',
                         aboutPage:          'users',
@@ -10182,6 +10195,7 @@ ${printScript}
                         ${tabBtn('vendorOrders',  '🏭', 'Vendor Orders')}
                         ${tabBtn('investors',     '💼', 'Investors')}
                         ${tabBtn('profitAnalysis','📊', 'Profit Analysis')}
+                        ${tabBtn('expenses',      '🧾', 'Business Expenses')}
                         ${tabBtn('returns',       '↩️', 'Returns & Refunds')}
                     </div>` : ''}
 
@@ -10226,7 +10240,8 @@ ${printScript}
             if (state.activeTab === 'catalog' && !state.previewMode) renderProductListSection();
             if (state.activeTab === 'overview' && !state.previewMode) setTimeout(() => window.module.renderOverview(), 100);
             if (state.activeTab === 'abandonedCarts' && !state.previewMode) setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
-            if (state.activeTab === 'returns' && !state.previewMode) setTimeout(() => window.module.renderReturnsSection(), 100);
+            if (state.activeTab === 'returns'   && !state.previewMode) setTimeout(() => window.module.renderReturnsSection(), 100);
+            if (state.activeTab === 'expenses'  && !state.previewMode) setTimeout(() => window.module.renderExpensesSection(), 100);
             if (state.activeTab === 'reviews' && !state.previewMode) setTimeout(() => window.module.renderReviewsTab(), 100);
             if (state.activeTab === 'contacts' && !state.previewMode) setTimeout(() => window.module.renderContactsSection(), 100);
             if (state.activeTab === 'auditLog'  && !state.previewMode) setTimeout(() => window.module.renderAuditLog(), 100);
@@ -16759,6 +16774,436 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             }
         }
 
+
+        // ══════════════════════════════════════════════════════════════════════
+        //  BUSINESS EXPENSES
+        // ══════════════════════════════════════════════════════════════════════
+
+        const EXPENSE_CATEGORIES = [
+            { id: 'platform',     label: '🌐 Platform & Hosting',   color: 'blue'   },
+            { id: 'marketing',    label: '📣 Marketing & Ads',       color: 'purple' },
+            { id: 'shipping',     label: '📦 Shipping Supplies',     color: 'indigo' },
+            { id: 'software',     label: '💻 Software & Tools',      color: 'cyan'   },
+            { id: 'fees',         label: '💳 Payment & Bank Fees',   color: 'orange' },
+            { id: 'rent',         label: '🏢 Rent & Utilities',      color: 'teal'   },
+            { id: 'labor',        label: '👥 Labor & Contractors',   color: 'green'  },
+            { id: 'insurance',    label: '🛡️ Insurance',             color: 'yellow' },
+            { id: 'taxes',        label: '🧾 Taxes & Licenses',      color: 'red'    },
+            { id: 'other',        label: '📋 Other',                 color: 'gray'   },
+        ];
+
+        const EXPENSE_RECURRENCE = ['one-time', 'daily', 'weekly', 'monthly', 'quarterly', 'annual'];
+
+        function getCategoryConfig(id) {
+            return EXPENSE_CATEGORIES.find(c => c.id === id) || { label: id, color: 'gray' };
+        }
+
+        function renderExpensesSection() {
+            const el = document.getElementById('expensesPage');
+            if (!el) return;
+
+            const expenses  = state.expenses || [];
+            const now       = new Date();
+            const thisMonth = now.getMonth();
+            const thisYear  = now.getFullYear();
+
+            // ── Calculate totals ───────────────────────────────────────────────
+            const totalAllTime = expenses.reduce((s, e) => s + (e.amountCents || 0), 0);
+
+            const totalThisMonth = expenses.filter(e => {
+                const d = e.date?.toDate ? e.date.toDate() : new Date(e.date || 0);
+                return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+            }).reduce((s, e) => s + (e.amountCents || 0), 0);
+
+            // Revenue from paid orders this month
+            const revenueThisMonth = (state.orders || []).filter(o => {
+                if (o.status === 'Cancelled' || !o.isPaid) return false;
+                const d = o.createdAt?.toDate ? o.createdAt.toDate() : new Date(o.timestamp || 0);
+                return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+            }).reduce((s, o) => s + (o.totalCents || 0), 0);
+
+            // Product cost from vendor orders this month
+            const vendorCostThisMonth = (state.vendorOrders || []).filter(o => {
+                const d = o.orderDate ? new Date(o.orderDate) : null;
+                return d && d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+            }).reduce((s, o) => s + ((o.totalCost || 0) * 100), 0);
+
+            const grossProfit      = revenueThisMonth - vendorCostThisMonth;
+            const netProfit        = grossProfit - totalThisMonth;
+            const netProfitColor   = netProfit >= 0 ? 'green' : 'red';
+
+            // By category
+            const byCategory = {};
+            expenses.forEach(e => {
+                const cat = e.category || 'other';
+                byCategory[cat] = (byCategory[cat] || 0) + (e.amountCents || 0);
+            });
+
+            const catOptions = EXPENSE_CATEGORIES.map(cat =>
+                `<option value="${cat.id}">${cat.label}</option>`
+            ).join('');
+
+            el.innerHTML = `
+            <div class="space-y-6">
+
+                <!-- Header -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-3xl font-bold text-indigo-700">🧾 Business Expenses</h2>
+                        <p class="text-sm text-gray-500 mt-1">Track operating costs and see your true profit & loss</p>
+                    </div>
+                    <button onclick="window.module.openExpenseModal()"
+                            class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 shadow-md transition">
+                        + Add Expense
+                    </button>
+                </div>
+
+                <div id="expensesMessage"></div>
+
+                <!-- P&L Summary (this month) -->
+                <div class="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                    <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-4">
+                        <h3 class="text-white font-bold text-lg">📊 Profit & Loss — ${now.toLocaleString('default',{month:'long'})} ${thisYear}</h3>
+                        <p class="text-indigo-200 text-xs mt-0.5">Revenue minus product costs minus operating expenses</p>
+                    </div>
+                    <div class="p-6">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                            <div class="bg-green-50 rounded-xl p-4 border border-green-100">
+                                <p class="text-xs font-bold text-green-600 uppercase tracking-wide mb-1">💰 Revenue</p>
+                                <p class="text-2xl font-black text-green-800">${formatPriceDisplay(revenueThisMonth)}</p>
+                                <p class="text-xs text-green-500 mt-1">Paid orders this month</p>
+                            </div>
+                            <div class="bg-orange-50 rounded-xl p-4 border border-orange-100">
+                                <p class="text-xs font-bold text-orange-600 uppercase tracking-wide mb-1">📦 Product Costs</p>
+                                <p class="text-2xl font-black text-orange-800">${formatPriceDisplay(vendorCostThisMonth)}</p>
+                                <p class="text-xs text-orange-500 mt-1">Vendor orders this month</p>
+                            </div>
+                            <div class="bg-red-50 rounded-xl p-4 border border-red-100">
+                                <p class="text-xs font-bold text-red-600 uppercase tracking-wide mb-1">🧾 Operating Expenses</p>
+                                <p class="text-2xl font-black text-red-800">${formatPriceDisplay(totalThisMonth)}</p>
+                                <p class="text-xs text-red-500 mt-1">Business expenses this month</p>
+                            </div>
+                            <div class="bg-${netProfitColor}-50 rounded-xl p-4 border-2 border-${netProfitColor}-300">
+                                <p class="text-xs font-bold text-${netProfitColor}-600 uppercase tracking-wide mb-1">${netProfit >= 0 ? '✅' : '⚠️'} Net Profit</p>
+                                <p class="text-2xl font-black text-${netProfitColor}-800">${netProfit < 0 ? '-' : ''}${formatPriceDisplay(Math.abs(netProfit))}</p>
+                                <p class="text-xs text-${netProfitColor}-500 mt-1">${revenueThisMonth > 0 ? ((netProfit / revenueThisMonth) * 100).toFixed(1) + '% margin' : 'No revenue yet'}</p>
+                            </div>
+                        </div>
+
+                        <!-- P&L waterfall bar -->
+                        ${revenueThisMonth > 0 ? (() => {
+                            const rev  = revenueThisMonth;
+                            const cogs = Math.min(vendorCostThisMonth, rev);
+                            const ops  = Math.min(totalThisMonth, rev - cogs);
+                            const cogsW = Math.round((cogs / rev) * 100);
+                            const opsW  = Math.round((ops  / rev) * 100);
+                            const netW  = Math.max(0, 100 - cogsW - opsW);
+                            return `
+                            <div>
+                                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Revenue Breakdown</p>
+                                <div class="flex rounded-lg overflow-hidden h-7 w-full text-xs font-bold text-white">
+                                    ${cogsW > 0 ? `<div style="width:${cogsW}%" class="bg-orange-400 flex items-center justify-center overflow-hidden whitespace-nowrap px-1">${cogsW > 8 ? `COGS ${cogsW}%` : ''}</div>` : ''}
+                                    ${opsW  > 0 ? `<div style="width:${opsW}%"  class="bg-red-400 flex items-center justify-center overflow-hidden whitespace-nowrap px-1">${opsW > 8 ? `Ops ${opsW}%` : ''}</div>` : ''}
+                                    ${netW  > 0 ? `<div style="width:${netW}%"  class="bg-green-400 flex items-center justify-center overflow-hidden whitespace-nowrap px-1">${netW > 8 ? `Net ${netW}%` : ''}</div>` : ''}
+                                    ${netProfit < 0 ? `<div style="width:${Math.min(Math.abs(Math.round((netProfit/rev)*100)),100)}%" class="bg-red-700 flex items-center justify-center px-1">Loss</div>` : ''}
+                                </div>
+                                <div class="flex gap-4 mt-2 text-xs text-gray-500">
+                                    <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-orange-400 inline-block"></span> Product Costs</span>
+                                    <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-red-400 inline-block"></span> Operating</span>
+                                    <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-green-400 inline-block"></span> Net Profit</span>
+                                </div>
+                            </div>`;
+                        })() : ''}
+                    </div>
+                </div>
+
+                <!-- Filters + Add form -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                    <div class="flex flex-wrap gap-3 items-center">
+                        <select id="expenseCatFilter" onchange="window.module.renderExpensesSection()"
+                                class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            <option value="all">All Categories</option>
+                            ${catOptions}
+                        </select>
+                        <select id="expenseMonthFilter" onchange="window.module.renderExpensesSection()"
+                                class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            <option value="all">All Time</option>
+                            <option value="this_month" selected>This Month</option>
+                            <option value="last_month">Last Month</option>
+                            <option value="this_year">This Year</option>
+                        </select>
+                        <span class="text-sm text-gray-400 ml-auto">${expenses.length} expense${expenses.length !== 1 ? 's' : ''} · ${formatPriceDisplay(totalAllTime)} total</span>
+                    </div>
+                </div>
+
+                <!-- Expenses Table -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    ${renderExpensesTable()}
+                </div>
+
+                <!-- By Category breakdown -->
+                ${Object.keys(byCategory).length > 0 ? `
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="font-bold text-gray-700 mb-4">Spending by Category (All Time)</h3>
+                    <div class="space-y-3">
+                        ${Object.entries(byCategory)
+                            .sort(([,a],[,b]) => b - a)
+                            .map(([catId, cents]) => {
+                                const cat   = getCategoryConfig(catId);
+                                const pct   = totalAllTime > 0 ? (cents / totalAllTime * 100).toFixed(1) : 0;
+                                return `
+                                <div>
+                                    <div class="flex justify-between text-sm mb-1">
+                                        <span class="font-semibold text-gray-700">${cat.label}</span>
+                                        <span class="font-bold text-gray-800">${formatPriceDisplay(cents)} <span class="text-gray-400 font-normal">${pct}%</span></span>
+                                    </div>
+                                    <div class="w-full bg-gray-100 rounded-full h-2">
+                                        <div class="bg-${cat.color}-400 h-2 rounded-full" style="width:${pct}%"></div>
+                                    </div>
+                                </div>`;
+                            }).join('')}
+                    </div>
+                </div>` : ''}
+
+            </div>
+
+            <!-- Modal container -->
+            <div id="expenseModalContainer"></div>`;
+        }
+
+        function renderExpensesTable() {
+            const catFilter   = document.getElementById('expenseCatFilter')?.value   || 'all';
+            const monthFilter = document.getElementById('expenseMonthFilter')?.value || 'this_month';
+            const now         = new Date();
+
+            let expenses = [...(state.expenses || [])];
+
+            if (catFilter !== 'all') {
+                expenses = expenses.filter(e => e.category === catFilter);
+            }
+
+            if (monthFilter !== 'all') {
+                expenses = expenses.filter(e => {
+                    const d = e.date?.toDate ? e.date.toDate() : new Date(e.date || 0);
+                    if (monthFilter === 'this_month')  return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+                    if (monthFilter === 'last_month') {
+                        const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                        return d.getMonth() === lm.getMonth() && d.getFullYear() === lm.getFullYear();
+                    }
+                    if (monthFilter === 'this_year') return d.getFullYear() === now.getFullYear();
+                    return true;
+                });
+            }
+
+            if (expenses.length === 0) {
+                return `<div class="text-center py-12 text-gray-400">
+                    <p class="text-3xl mb-2">🧾</p>
+                    <p class="font-semibold">No expenses found</p>
+                    <p class="text-sm mt-1">Add your first business expense to start tracking P&L</p>
+                </div>`;
+            }
+
+            const filteredTotal = expenses.reduce((s, e) => s + (e.amountCents || 0), 0);
+            const fmtDate = v => {
+                const d = v?.toDate ? v.toDate() : new Date(v || 0);
+                return isNaN(d) ? '—' : d.toLocaleDateString();
+            };
+
+            const rows = expenses.map(e => {
+                const cat = getCategoryConfig(e.category || 'other');
+                return `
+                <tr class="hover:bg-gray-50 transition border-b border-gray-100">
+                    <td class="px-4 py-3 text-sm font-semibold text-gray-800">${escapeHtml(e.name || '—')}</td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-${cat.color}-100 text-${cat.color}-800">
+                            ${cat.label}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-sm font-bold text-red-700">${formatPriceDisplay(e.amountCents || 0)}</td>
+                    <td class="px-4 py-3 text-sm text-gray-500">${fmtDate(e.date)}</td>
+                    <td class="px-4 py-3 text-xs text-gray-400">${escapeHtml(e.recurrence || 'one-time')}</td>
+                    <td class="px-4 py-3 text-xs text-gray-500 max-w-[160px] truncate">${escapeHtml(e.notes || '')}</td>
+                    <td class="px-4 py-3">
+                        <div class="flex gap-2">
+                            <button onclick="window.module.openExpenseModal('${e.id}')"
+                                    class="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded transition">✏️</button>
+                            <button onclick="window.module.deleteExpense('${e.id}', '${escapeHtml(e.name || '')}')"
+                                    class="text-xs font-bold text-red-500 hover:bg-red-50 px-2 py-1 rounded transition">🗑</button>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            return `
+            <table class="w-full border-collapse text-sm">
+                <thead>
+                    <tr class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Expense</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Category</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Amount</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Date</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Recurrence</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wide">Notes</th>
+                        <th class="px-4 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 bg-white">${rows}</tbody>
+            </table>
+            <div class="px-4 py-3 bg-gray-50 border-t text-xs text-gray-500 font-semibold">
+                ${expenses.length} expense${expenses.length !== 1 ? 's' : ''} · Total: <span class="text-red-600">${formatPriceDisplay(filteredTotal)}</span>
+            </div>`;
+        }
+
+        function openExpenseModal(expenseId = null) {
+            const existing = document.getElementById('expenseModalContainer');
+            if (!existing) return;
+
+            const expense = expenseId ? state.expenses.find(e => e.id === expenseId) : null;
+            const isEdit  = !!expense;
+            const today   = new Date().toISOString().split('T')[0];
+
+            const catOptions = EXPENSE_CATEGORIES.map(cat =>
+                `<option value="${cat.id}" ${expense?.category === cat.id ? 'selected' : ''}>${cat.label}</option>`
+            ).join('');
+
+            const recOptions = EXPENSE_RECURRENCE.map(r =>
+                `<option value="${r}" ${(expense?.recurrence || 'one-time') === r ? 'selected' : ''}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`
+            ).join('');
+
+            const fmtDateInput = v => {
+                if (!v) return today;
+                const d = v?.toDate ? v.toDate() : new Date(v);
+                return isNaN(d) ? today : d.toISOString().split('T')[0];
+            };
+
+            existing.innerHTML = `
+            <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+                 onclick="if(event.target===this)document.getElementById('expenseModalContainer').innerHTML=''">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                    <div class="flex items-center justify-between px-6 py-4 border-b">
+                        <h3 class="text-lg font-bold text-gray-800">${isEdit ? '✏️ Edit Expense' : '+ Add Expense'}</h3>
+                        <button onclick="document.getElementById('expenseModalContainer').innerHTML=''"
+                                class="text-gray-400 hover:text-gray-600 text-2xl leading-none">✕</button>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Expense Name *</label>
+                            <input type="text" id="expName" value="${escapeHtml(expense?.name || '')}"
+                                   placeholder="e.g. Netlify Pro, Google Ads, Office Rent"
+                                   class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Amount (USD) *</label>
+                                <input type="number" id="expAmount" step="0.01" min="0"
+                                       value="${expense ? (expense.amountCents / 100).toFixed(2) : ''}"
+                                       placeholder="0.00"
+                                       class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Date *</label>
+                                <input type="date" id="expDate"
+                                       value="${fmtDateInput(expense?.date)}"
+                                       class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Category *</label>
+                                <select id="expCategory" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                    ${catOptions}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">Recurrence</label>
+                                <select id="expRecurrence" class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
+                                    ${recOptions}
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">Notes (optional)</label>
+                            <textarea id="expNotes" rows="2" placeholder="Vendor, account, invoice #, etc."
+                                      class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 resize-none">${escapeHtml(expense?.notes || '')}</textarea>
+                        </div>
+                        <div id="expError" class="hidden text-red-600 text-xs font-semibold bg-red-50 rounded-lg p-2"></div>
+                    </div>
+                    <div class="flex gap-3 px-6 py-4 border-t bg-gray-50">
+                        <button onclick="document.getElementById('expenseModalContainer').innerHTML=''"
+                                class="flex-1 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition">
+                            Cancel
+                        </button>
+                        <button onclick="window.module.saveExpense('${expenseId || ''}')"
+                                id="expSaveBtn"
+                                class="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 transition">
+                            ${isEdit ? 'Save Changes' : 'Add Expense'}
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        async function saveExpense(expenseId) {
+            const name       = document.getElementById('expName')?.value.trim();
+            const amountStr  = document.getElementById('expAmount')?.value;
+            const date       = document.getElementById('expDate')?.value;
+            const category   = document.getElementById('expCategory')?.value;
+            const recurrence = document.getElementById('expRecurrence')?.value || 'one-time';
+            const notes      = document.getElementById('expNotes')?.value.trim();
+            const errEl      = document.getElementById('expError');
+            const btn        = document.getElementById('expSaveBtn');
+
+            errEl.classList.add('hidden');
+
+            if (!name) { errEl.textContent = 'Expense name is required.'; errEl.classList.remove('hidden'); return; }
+            const amount = parseFloat(amountStr);
+            if (isNaN(amount) || amount <= 0) { errEl.textContent = 'Please enter a valid amount.'; errEl.classList.remove('hidden'); return; }
+            if (!date) { errEl.textContent = 'Please select a date.'; errEl.classList.remove('hidden'); return; }
+
+            btn.disabled = true; btn.textContent = '⏳';
+
+            try {
+                const data = {
+                    name,
+                    amountCents: Math.round(amount * 100),
+                    date:        Timestamp.fromDate(new Date(date + 'T12:00:00')),
+                    category:    category || 'other',
+                    recurrence,
+                    notes:       notes || null,
+                    updatedAt:   serverTimestamp(),
+                };
+
+                if (expenseId) {
+                    await updateDoc(doc(db, EXPENSES_COLLECTION, expenseId), data);
+                    await logAdminAction('EXPENSE_UPDATED', { name, amountCents: data.amountCents }, expenseId);
+                    showMessage('success', `Expense "${name}" updated.`, 3000, 'expenses');
+                } else {
+                    data.createdAt = serverTimestamp();
+                    const ref = await addDoc(collection(db, EXPENSES_COLLECTION), data);
+                    await logAdminAction('EXPENSE_ADDED', { name, amountCents: data.amountCents }, ref.id);
+                    showMessage('success', `Expense "${name}" added.`, 3000, 'expenses');
+                }
+
+                document.getElementById('expenseModalContainer').innerHTML = '';
+            } catch (err) {
+                errEl.textContent = `Failed: ${err.message}`;
+                errEl.classList.remove('hidden');
+                btn.disabled = false;
+                btn.textContent = expenseId ? 'Save Changes' : 'Add Expense';
+            }
+        }
+
+        async function deleteExpense(expenseId, name) {
+            if (!confirm(`Delete expense "${name}"?\n\nThis cannot be undone.`)) return;
+            try {
+                await deleteDoc(doc(db, EXPENSES_COLLECTION, expenseId));
+                await logAdminAction('EXPENSE_DELETED', { name }, expenseId);
+                showMessage('success', `Expense "${name}" deleted.`, 3000, 'expenses');
+            } catch (err) {
+                showMessage('error', `Failed: ${err.message}`, 4000, 'expenses');
+            }
+        }
+
         // ── Catalog Email Composer Modal ──────────────────────────────────────────
 
         function openCatalogEmailModal(prefillEmail = '', prefillName = '') {
@@ -20551,6 +20996,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             renderOrderEditModal,
             sendPaymentLink,
             openOrderEmailModal,
+            renderExpensesSection,
+            openExpenseModal,
+            saveExpense,
+            deleteExpense,
             showPaymentConfirmationsModal,
             reviewPaymentConfirmation,
             refreshOrderEmailPreview,
