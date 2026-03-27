@@ -591,14 +591,44 @@
         const ok = await initFirebase();
         if (!ok) { showGuestView(); return; }
 
-        // Check for ?pending= payment confirmation on load
-        const _pendingParams = new URLSearchParams(location.search);
-        const _pendingMethod = _pendingParams.get('pending');  // 'zelle' | 'cash'
+        const _pendingParams  = new URLSearchParams(location.search);
+        const _pendingMethod  = _pendingParams.get('pending');
         const _pendingOrderId = _pendingParams.get('order');
+        const _urlToken       = _pendingParams.get('token');
+        const _urlEmail       = _pendingParams.get('email');
+
+        // ── Token auto-auth: link from confirmation email ─────────────────────
+        // If URL has ?order=ID&email=X&token=T, verify the token server-side and
+        // show the order directly — no email re-entry needed.
+        if (_pendingOrderId && _urlToken && _urlEmail) {
+            try {
+                const res = await fetch('/.netlify/functions/verifyOrderToken', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId: _pendingOrderId, email: _urlEmail, token: _urlToken })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.valid && data.order) {
+                        // Pre-fill inputs and render order directly
+                        showGuestView();
+                        if ($('orderInput')) $('orderInput').value = _pendingOrderId.slice(0, 20);
+                        if ($('emailInput')) $('emailInput').value = _urlEmail;
+                        renderGuestOrder(data.order);
+                        // Save to localStorage for future visits
+                        try { localStorage.setItem('autoinx_last_order', JSON.stringify({ orderId: _pendingOrderId, email: _urlEmail, savedAt: Date.now() })); } catch {}
+                        // Clean the URL so the token isn't visible after load
+                        window.history.replaceState({}, '', `/track-order.html?order=${_pendingOrderId}`);
+                        return; // Skip normal auth flow
+                    }
+                }
+            } catch (e) {
+                console.warn('Token auto-auth failed, falling back to normal flow:', e.message);
+            }
+        }
 
         onAuthStateChanged(auth, async (user) => {
             if (user && !user.isAnonymous) {
-                // Fire-and-forget: backfill uid onto any guest orders for this email
                 user.getIdToken(false).then(token =>
                     fetch('/.netlify/functions/linkUserOrders', {
                         method: 'POST',
@@ -609,7 +639,6 @@
                 showLoggedInView(user);
                 await loadUserOrders(user);
 
-                // Show payment confirmation panel if redirected from checkout
                 if (_pendingMethod && _pendingOrderId) {
                     setTimeout(() => showPaymentConfirmationPanel(_pendingOrderId, _pendingMethod, user), 300);
                 }
