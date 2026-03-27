@@ -1444,21 +1444,48 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             </div>`;
             document.body.appendChild(modal);
 
-            modal.querySelector('#pmCard').onclick = async () => {
+            // Single-fire lock — once any method is chosen, all three buttons
+            // are disabled immediately so the user cannot trigger a second flow.
+            let _methodChosen = false;
+
+            const lockAndRun = (fn) => async () => {
+                if (_methodChosen) return;
+                _methodChosen = true;
+
+                // Visually disable all method buttons
+                ['pmCard', 'pmZelle', 'pmCash'].forEach(id => {
+                    const btn = modal.querySelector('#' + id);
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.style.opacity = '0.4';
+                        btn.style.cursor  = 'not-allowed';
+                        btn.style.pointerEvents = 'none';
+                    }
+                });
+
+                // Show a subtle "Processing…" state inside the modal
+                const body = modal.querySelector('.p-5');
+                if (body) {
+                    const loader = document.createElement('div');
+                    loader.style.cssText = 'text-align:center;padding:12px 0 0;';
+                    loader.innerHTML = `<div style="display:inline-flex;align-items:center;gap:8px;font-size:.875rem;color:#6366f1;font-weight:600;">
+                        <svg style="width:18px;height:18px;animation:spin 1s linear infinite;" fill="none" viewBox="0 0 24 24">
+                            <circle style="opacity:.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path style="opacity:.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                        </svg>
+                        ${currentLang === 'es' ? 'Procesando…' : 'Processing…'}
+                    </div>`;
+                    body.appendChild(loader);
+                }
+
                 modal.remove();
-                await continueWithCard(orderId, order);
+                await fn();
                 resolve();
             };
-            modal.querySelector('#pmZelle').onclick = async () => {
-                modal.remove();
-                await continueWithAlternativePayment(orderId, order, 'zelle');
-                resolve();
-            };
-            modal.querySelector('#pmCash').onclick = async () => {
-                modal.remove();
-                await continueWithAlternativePayment(orderId, order, 'cash');
-                resolve();
-            };
+
+            modal.querySelector('#pmCard').onclick  = lockAndRun(() => continueWithCard(orderId, order));
+            modal.querySelector('#pmZelle').onclick = lockAndRun(() => continueWithAlternativePayment(orderId, order, 'zelle'));
+            modal.querySelector('#pmCash').onclick  = lockAndRun(() => continueWithAlternativePayment(orderId, order, 'cash'));
         });
     }
 
