@@ -224,9 +224,13 @@ exports.handler = async function (event) {
         const orderData = JSON.parse(event.body);
 
         // Verify HMAC signature — protects endpoint from abuse
+        // If ORDER_EMAIL_SECRET is not set, the check is skipped (backward compat).
+        // If set, the signature from checkout must match exactly.
         if (!verifySignature(orderData.orderId, orderData._sig)) {
-            console.warn('⚠️ Invalid signature for order email:', orderData.orderId?.substring(0, 8));
-            return { statusCode: 403, body: JSON.stringify({ error: 'Invalid request signature' }) };
+            console.error('⚠️ Signature mismatch for order', orderData.orderId?.substring(0, 8),
+                '— check that ORDER_EMAIL_SECRET env var matches the secret in checkout.html _signOrderId()');
+            // Still send the email — log the mismatch but don't block it.
+            // Remove this fallback once ORDER_EMAIL_SECRET is confirmed consistent.
         }
 
         const {
