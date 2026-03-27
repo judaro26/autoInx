@@ -55,6 +55,12 @@ function sanitizePayment(payment) {
   };
 }
 
+// Called by updateAdminConfig after a successful write to bust the cache.
+exports.clearCache = function() {
+    _cachedConfig   = null;
+    _cacheExpiresAt = 0;
+};
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return {
@@ -68,9 +74,16 @@ exports.handler = async (event) => {
     };
   }
 
-  // Serve from module-level cache if fresh
+  // ?nocache=1 bypasses both module cache and CDN — used by admin panel after saving
+  const nocache = !!(
+      event.queryStringParameters?.nocache === '1' ||
+      event.rawUrl?.includes('nocache=1') ||
+      event.path?.includes('nocache=1')
+  );
+
+  // Serve from module-level cache if fresh (skipped when nocache=1)
   const now = Date.now();
-  if (_cachedConfig && now < _cacheExpiresAt) {
+  if (!nocache && _cachedConfig && now < _cacheExpiresAt) {
     const clientIp =
         event.headers['x-forwarded-for']?.split(',')[0].trim() ||
         event.headers['client-ip'] ||
@@ -153,8 +166,14 @@ exports.handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json',
-                 'Cache-Control': 'public, max-age=60, s-maxage=60', 'X-Cache': 'MISS' },
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+        'Cache-Control': nocache
+            ? 'no-store, no-cache, must-revalidate'
+            : 'public, max-age=60, s-maxage=60',
+        'X-Cache': 'MISS',
+      },
       body: JSON.stringify(response)
     };
 
