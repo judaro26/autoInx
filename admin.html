@@ -628,6 +628,7 @@
             deliveryStatusFilter: 'All',
             orderPaymentFilter: 'All',
             expandedOrders: new Set(),
+            selectedOrders: new Set(),
             ordersFullscreen: false,
             orderPage: 'list',
             editingOrderId: null,  // ✅ NEW: Track which order is being edited
@@ -8745,8 +8746,14 @@ ${printScript}
                 </tr>` : '';
 
                 return `
-                <tr class="border-b border-gray-100 hover:bg-indigo-50/30 transition cursor-pointer"
+                <tr class="border-b border-gray-100 hover:bg-indigo-50/30 transition cursor-pointer" id="row-${order.id}"
                     onclick="window.module.toggleOrderRow('${order.id}')">
+                    <td class="px-3 py-3" onclick="event.stopPropagation()">
+                        <input type="checkbox" class="order-check w-4 h-4 text-indigo-600 rounded cursor-pointer"
+                               data-id="${order.id}"
+                               ${state.selectedOrders.has(order.id) ? 'checked' : ''}
+                               onchange="window.module.toggleOrderSelection('${order.id}', this.checked)">
+                    </td>
                     <td class="px-4 py-3 whitespace-nowrap">
                         <div class="flex items-center gap-2">
                             <span class="text-indigo-400 text-xs">${isExpanded ? '▾' : '▸'}</span>
@@ -8789,12 +8796,32 @@ ${printScript}
             container.innerHTML = `
             <div class="px-4 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between text-xs text-gray-500">
                 <span>${filtered.length} order${filtered.length !== 1 ? 's' : ''}${filtered.length < state.orders.length ? ` (${state.orders.length} total)` : ''}</span>
-                <button onclick="window.module.collapseAllOrders()" class="text-indigo-500 hover:underline">Collapse all</button>
+                <div class="flex items-center gap-2">
+                    ${state.selectedOrders.size > 0 ? `
+                    <span class="font-semibold text-indigo-700">${state.selectedOrders.size} selected</span>
+                    <select onchange="window.module.handleBulkOrderAction(this.value); this.value=''"
+                            class="text-xs p-1.5 border border-indigo-300 rounded-lg bg-white text-indigo-700 font-semibold cursor-pointer">
+                        <option value="">⚡ Bulk Action</option>
+                        <optgroup label="Change Status">
+                            <option value="status:Processing">→ Mark Processing</option>
+                            <option value="status:Shipped">→ Mark Shipped</option>
+                            <option value="status:Delivered">→ Mark Delivered</option>
+                            <option value="status:Cancelled">→ Mark Cancelled</option>
+                        </optgroup>
+                        <option value="clear">✕ Clear selection</option>
+                    </select>` : ''}
+                    <button onclick="window.module.collapseAllOrders()" class="text-indigo-500 hover:underline">Collapse all</button>
+                </div>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full">
                     <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-100 sticky top-0">
                         <tr>
+                            <th class="px-3 py-3">
+                                <input type="checkbox" id="selectAllOrders" title="Select all"
+                                       onchange="window.module.toggleAllOrders(this.checked)"
+                                       class="w-4 h-4 text-indigo-600 rounded cursor-pointer">
+                            </th>
                             <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Order</th>
                             <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Customer</th>
                             <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Items</th>
@@ -8807,6 +8834,67 @@ ${printScript}
                     <tbody>${rows}</tbody>
                 </table>
             </div>`;
+        }
+
+        function toggleOrderSelection(orderId, checked) {
+            if (checked) state.selectedOrders.add(orderId);
+            else         state.selectedOrders.delete(orderId);
+            // Update select-all checkbox state
+            const allCheck = document.getElementById('selectAllOrders');
+            if (allCheck) {
+                const visible = Array.from(document.querySelectorAll('.order-check'));
+                allCheck.checked = visible.length > 0 && visible.every(cb => cb.checked);
+                allCheck.indeterminate = !allCheck.checked && visible.some(cb => cb.checked);
+            }
+            // Re-render just the bulk bar without full re-render
+            renderOrdersList();
+        }
+
+        function toggleAllOrders(checked) {
+            const checkboxes = document.querySelectorAll('.order-check');
+            checkboxes.forEach(cb => {
+                state.selectedOrders[checked ? 'add' : 'delete'](cb.dataset.id);
+            });
+            renderOrdersList();
+        }
+
+        async function handleBulkOrderAction(value) {
+            if (!value || value === 'clear') {
+                state.selectedOrders = new Set();
+                renderOrdersList();
+                return;
+            }
+
+            const ids = Array.from(state.selectedOrders);
+            if (ids.length === 0) return;
+
+            if (value.startsWith('status:')) {
+                const newStatus = value.split(':')[1];
+                if (!confirm(`Change ${ids.length} order${ids.length !== 1 ? 's' : ''} to "${newStatus}"?`)) return;
+
+                showMessage('info', `Updating ${ids.length} orders…`, 2000, 'orders');
+                let done = 0, failed = 0;
+
+                await Promise.all(ids.map(async id => {
+                    try {
+                        await updateDoc(doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'orders', id), {
+                            status: newStatus,
+                            updatedAt: serverTimestamp(),
+                        });
+                        done++;
+                    } catch (err) {
+                        console.error('Bulk update failed for', id, err.message);
+                        failed++;
+                    }
+                }));
+
+                state.selectedOrders = new Set();
+                const msg = failed > 0
+                    ? `Updated ${done} orders. ${failed} failed.`
+                    : `✅ ${done} order${done !== 1 ? 's' : ''} updated to "${newStatus}"`;
+                showMessage(failed > 0 ? 'error' : 'success', msg, 4000, 'orders');
+                logAdminAction('BULK_ORDER_STATUS_UPDATE', { count: done, newStatus });
+            }
         }
 
         function collapseAllOrders() {
@@ -20946,6 +21034,9 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             toggleOrderRow,
             toggleOrdersFullscreen,
             collapseAllOrders,
+            toggleOrderSelection,
+            toggleAllOrders,
+            handleBulkOrderAction,
             handleOrderStatusUpdate,
             handleDeleteOrder,
             handleRequestDelivery,
