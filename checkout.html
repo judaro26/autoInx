@@ -304,6 +304,65 @@ function toggleDiscountInput() {
  * Validates and applies a discount code.
  * Queries Firestore directly for the discount document.
  */
+// Auto-apply discounts — runs once on load, silently applies any enabled
+// discount with autoApply:true if the cart qualifies (min order, category, etc.)
+async function _checkAutoApplyDiscount() {
+    if (!db) return;
+    try {
+        const discountsPath = 'artifacts/default-app-id/public/data/discounts';
+        const q = query(
+            collection(db, discountsPath),
+            where('autoApply', '==', true),
+            where('enabled',   '==', true)
+        );
+        const snap = await getDocs(q);
+        if (snap.empty) return;
+
+        for (const discountDoc of snap.docs) {
+            const discount = { id: discountDoc.id, ...discountDoc.data() };
+
+            // Expiry check
+            if (discount.expiresAt && new Date(discount.expiresAt) < new Date()) continue;
+            // Usage limit check
+            if (discount.maxUses > 0 && (discount.currentUses || 0) >= discount.maxUses) continue;
+            // Minimum order check
+            if (discount.minOrderCents > 0 && cartTotalCents < discount.minOrderCents) continue;
+            // Category restriction check
+            if (discount.appliesToCategory && discount.appliesToCategory !== 'all') {
+                const hasMatch = Object.values(cartData).some(e => e.item.catalogId === discount.appliesToCategory);
+                if (!hasMatch) continue;
+            }
+
+            // This discount qualifies — apply it silently
+            appliedDiscount = discount;
+            if (discount.type === 'percentage') {
+                discountCents = Math.min(Math.round(cartTotalCents * (discount.value / 100)), cartTotalCents);
+            } else if (discount.type === 'fixed') {
+                discountCents = Math.min(Math.round(discount.value * 100), cartTotalCents);
+            } else if (discount.type === 'free_shipping') {
+                discountCents = 0; // handled at shipping level
+            }
+
+            // Show the applied discount in the UI
+            const wrapper = document.getElementById('discount-wrapper');
+            if (wrapper) wrapper.innerHTML = renderDiscountInput();
+
+            const msgEl = document.getElementById('discount-message');
+            if (msgEl) {
+                msgEl.innerHTML = `<p class="text-green-600 text-sm font-semibold">
+                    🎉 ${currentLang === 'es' ? 'Descuento automático aplicado' : 'Auto-discount applied'}:
+                    <strong>${discount.code}</strong> — ${currentLang === 'es' ? 'ahorrando' : 'saving'} ${formatPrice(discountCents)}
+                </p>`;
+            }
+
+            updateCartSummary();
+            break; // Only apply the first matching auto-apply discount
+        }
+    } catch (err) {
+        console.warn('Auto-apply discount check failed:', err.message);
+    }
+}
+
 async function applyCheckoutDiscount() {
     if (discountValidating) return;
 
@@ -787,6 +846,12 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                     try { sessionStorage.setItem('autoinx_guest_email', val); } catch {}
                 }
             });
+        }
+
+        // Auto-apply any discount marked autoApply:true if none applied yet
+        if (!appliedDiscount && Object.keys(cartData).length > 0 && !window._autoApplyChecked) {
+            window._autoApplyChecked = true;
+            _checkAutoApplyDiscount();
         }
 
         // GA4: begin_checkout — fired once via its own flag, independent of form guard
@@ -1567,19 +1632,14 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 });
             }
 
-            // Fire-and-forget: inventory + email don't need to finish before redirect
-            (async () => {
-                for (const item of order.items) {
-                    try {
-                        const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
-                        const itemSnap = await getDoc(itemRef);
-                        if (itemSnap.exists()) {
-                            const newStock = Math.max(0, (itemSnap.data().stock || 0) - item.quantity);
-                            await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
-                        }
-                    } catch {}
-                }
-            })();
+            // Deduct inventory server-side (fire-and-forget)
+            _signOrderId(orderId).then(sig => {
+                fetch('/.netlify/functions/deductInventory', {
+                    method: 'POST', keepalive: true,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, items: order.items, _sig: sig })
+                }).catch(() => {});
+            });
 
             _signOrderId(orderId).then(sig => {
                 fetch('/.netlify/functions/sendOrderConfirmation', {
@@ -1624,19 +1684,14 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             });
         } catch {}
 
-        // Fire-and-forget: inventory + email — don't block showing the confirmation
-        (async () => {
-            for (const item of order.items) {
-                try {
-                    const itemRef = doc(db, "artifacts/default-app-id/public/data/items", item.id);
-                    const itemSnap = await getDoc(itemRef);
-                    if (itemSnap.exists()) {
-                        const newStock = Math.max(0, (itemSnap.data().stock || 0) - item.quantity);
-                        await updateDoc(itemRef, { stock: newStock, updatedAt: serverTimestamp() });
-                    }
-                } catch {}
-            }
-        })();
+        // Deduct inventory server-side (fire-and-forget)
+        _signOrderId(orderId).then(sig => {
+            fetch('/.netlify/functions/deductInventory', {
+                method: 'POST', keepalive: true,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orderId, items: order.items, _sig: sig })
+            }).catch(() => {});
+        });
 
         _signOrderId(orderId).then(sig => {
             fetch('/.netlify/functions/sendOrderConfirmation', {
