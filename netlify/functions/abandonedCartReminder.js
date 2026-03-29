@@ -25,8 +25,10 @@ const FROM_EMAIL  = 'noreply@autoinx.com';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'orders@autoinx.com';
 
 // Carts abandoned for between 1 hour and 48 hours are eligible
-const MIN_ABANDON_MS = 1  * 60 * 60 * 1000;   // 1 hour
-const MAX_ABANDON_MS = 48 * 60 * 60 * 1000;   // 48 hours
+const MIN_ABANDON_MS      = 1  * 60 * 60 * 1000;   // 1 hour
+const MAX_ABANDON_MS      = 48 * 60 * 60 * 1000;   // 48 hours
+const SECOND_EMAIL_MIN_MS = 22 * 60 * 60 * 1000;   // 22 hours — second email window
+const SECOND_EMAIL_MAX_MS = 26 * 60 * 60 * 1000;   // 26 hours
 
 function initAdmin() {
     if (admin.apps.length === 0) {
@@ -59,7 +61,9 @@ function formatPrice(cents) {
     }).format((cents || 0) / 100);
 }
 
-function buildReminderEmail(cart, cartId) {
+const FOLLOWUP_DISCOUNT = process.env.CART_RECOVERY_DISCOUNT || 'COMEBACK10';
+
+function buildReminderEmail(cart, cartId, isSecond = false) {
     const firstName = cart.userName?.split(' ')[0] || 'there';
     const items     = cart.items || [];
     const total     = formatPrice(cart.totalCents);
@@ -156,14 +160,22 @@ function buildReminderEmail(cart, cartId) {
 </body>
 </html>`;
 
-    return {
-        subject: `🛒 ${firstName}, you left something in your cart!`,
-        html,
-    };
+    const subject = isSecond
+        ? `⏰ ${firstName}, last chance — here's 10% off your cart!`
+        : `🛒 ${firstName}, you left something in your cart!`;
+
+    return { subject, html: isSecond ? html.replace(
+        '🛒 Complete My Order',
+        `Use code <strong>${FOLLOWUP_DISCOUNT}</strong> at checkout for 10% off!<br><br>🛒 Claim My Discount`
+    ).replace(
+        '"Complete My Order"',
+        '"Claim My Discount"'
+    ) : html };
 }
 
 async function sendReminderForCart(db, transporter, cartId, cart) {
-    const { subject, html } = buildReminderEmail(cart, cartId);
+    const isSecond = cart.reminderSent && !cart.secondReminderSent;
+    const { subject, html } = buildReminderEmail(cart, cartId, isSecond);
 
     await transporter.sendMail({
         from: `"${STORE_NAME}" <${FROM_EMAIL}>`,
@@ -173,10 +185,10 @@ async function sendReminderForCart(db, transporter, cartId, cart) {
     });
 
     // Mark as reminded
-    await db.collection('abandoned_carts').doc(cartId).update({
-        reminderSent:   true,
-        reminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    const updateData = isSecond
+        ? { secondReminderSent: true, secondReminderSentAt: admin.firestore.FieldValue.serverTimestamp() }
+        : { reminderSent: true, reminderSentAt: admin.firestore.FieldValue.serverTimestamp() };
+    await db.collection('abandoned_carts').doc(cartId).update(updateData);
 
     console.log(`✅ Reminder sent to ${cart.userEmail} (cart ${cartId.slice(0, 8)})`);
 }
@@ -255,16 +267,26 @@ exports.handler = async function (event) {
 
         const eligible = allSnap.docs.filter(doc => {
             const cart = doc.data();
-            if (cart.reminderSent) return false;                  // already reminded
-            if (!cart.userEmail)   return false;                  // no email to send to
-            if (!cart.items?.length) return false;                // empty cart
+            if (!cart.userEmail)   return false;  // no email to send to
+            if (!cart.items?.length) return false; // empty cart
 
             const updatedAt = cart.updatedAt?.toDate?.()?.getTime?.() ||
                               (cart.updatedAt?._seconds ? cart.updatedAt._seconds * 1000 : null);
             if (!updatedAt) return false;
 
             const age = now - updatedAt;
-            return age >= MIN_ABANDON_MS && age <= MAX_ABANDON_MS;
+
+            // First email: 1-22h, not yet reminded
+            if (!cart.reminderSent && age >= MIN_ABANDON_MS && age < SECOND_EMAIL_MIN_MS) {
+                return true;
+            }
+            // Second email: 22-26h, first sent but not second
+            if (cart.reminderSent && !cart.secondReminderSent
+                && age >= SECOND_EMAIL_MIN_MS && age <= SECOND_EMAIL_MAX_MS) {
+                return true;
+            }
+
+            return false;
         });
 
         console.log(`📬 Abandoned cart cron: ${eligible.length} eligible carts`);
