@@ -286,7 +286,7 @@ exports.handler = async function () {
                 to:   order.buyerEmail,
                 subject, html,
             });
-            await db.doc(sentKey).set({ sentAt: admin.firestore.FieldValue.serverTimestamp(), orderId: order.id, type: 'discount', code: discountCode });
+            await db.doc(sentKey).set({ sentAt: admin.firestore.FieldValue.serverTimestamp(), orderId: order.id, type: 'discount', code: discountCode, source: 'postPurchaseFollowup' });
             sent30++;
             console.log(`✅ Discount email sent to ${order.buyerEmail} (order ${order.id.slice(0,8)})`);
         } catch (err) {
