@@ -1929,11 +1929,19 @@
                                     </div>
 
                                     <div>
-                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Shipping Cost (we pay)</label>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Shipping Label Cost (we pay)</label>
+                                        <input type="number" id="orderShippingLabelCost" step="0.01" placeholder="0.00" value="0"
+                                               oninput="window.module.recalcExternalProfit()"
+                                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                                        <p id="orderShippingNote" class="text-xs text-amber-600 mt-1 hidden">🔒 Synced from eBay Finances API</p>
+                                        <p class="text-xs text-gray-400 mt-1">What you paid to ship the item</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-semibold text-gray-700 mb-2">Shipping Charged to Buyer</label>
                                         <input type="number" id="orderShippingCharged" step="0.01" placeholder="0.00" value="0"
                                                oninput="window.module.recalcExternalProfit()"
                                                class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                                        <p id="orderShippingNote" class="text-xs text-amber-600 mt-1 hidden">🔒 Synced from eBay — read only</p>
+                                        <p class="text-xs text-gray-400 mt-1">What the buyer paid for shipping (often $0)</p>
                                     </div>
 
                                     <div>
@@ -21947,18 +21955,20 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         'Cancelled': 'bg-red-100 text-red-800'
                     };
 
-                    const qty              = Number(order.quantity)          || 0;
-                    const salePriceUnit    = Number(order.amount)            || 0;
-                    const shippingCharged  = Number(order.shippingCharged)   || 0; // buyer paid (usually $0 for free-ship)
-                    const shippingLabel    = Number(order.shippingLabelCost) || 0; // we paid for the label
+                    const qty              = Number(order.quantity)          || 1;
+                    // order.amount is the TOTAL sale amount (already includes all units)
+                    // Do NOT multiply by qty — eBay returns the order total, not unit price
+                    const totalRevenue     = Number(order.amount)            || 0;
+                    const salePriceUnit    = qty > 0 ? totalRevenue / qty : totalRevenue;
+                    const shippingCharged  = Number(order.shippingCharged)   || 0; // buyer paid
+                    const shippingLabel    = Number(order.shippingLabelCost) || 0; // we paid for label
                     const transactionCost  = Number(order.transactionCost)   || 0;
                     const vendorCostUnit   = Number(order.vendorCostPerUnit)  || 0;
 
-                    const totalRevenue     = salePriceUnit * (qty || 1);
-                    const totalVendorCost  = vendorCostUnit * (qty || 1);
-                    // Net profit: sale price − vendor cost − eBay fees − shipping label cost
+                    const totalVendorCost  = vendorCostUnit * qty;
+                    // Net profit: total sale − vendor cost − eBay fees − shipping label cost
                     const netProfit        = totalRevenue - totalVendorCost - transactionCost - shippingLabel;
-                    const profitPerUnit    = (qty || 1) > 0 ? netProfit / (qty || 1) : 0;
+                    const profitPerUnit    = qty > 0 ? netProfit / qty : netProfit;
 
                     // Pre-compute profit cell HTML outside nested template to avoid parsing issues
                     let profitCellHtml;
@@ -22151,6 +22161,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
                 const qty            = parseFloat(document.getElementById('orderQty')?.value || 1);
                 const salePriceUnit  = parseFloat(document.getElementById('orderAmount')?.value || 0);
+                const shippingLabelCostVal = parseFloat(document.getElementById('orderShippingLabelCost')?.value || 0);
                 const shippingCost   = parseFloat(document.getElementById('orderShippingCharged')?.value || 0);
                 const transactionCost= parseFloat(document.getElementById('orderTransactionCost')?.value || 0);
 
@@ -22161,9 +22172,9 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 }
                 panel.classList.remove('hidden');
 
-                const totalRevenue    = salePriceUnit * qty;                                   // shipping is our cost
+                const totalRevenue    = salePriceUnit;       // amount is already the full order total
                 const totalVendorCost = purchasePrice * qty;
-                const netProfit       = totalRevenue - totalVendorCost - transactionCost - shippingCost;
+                const netProfit       = totalRevenue - totalVendorCost - transactionCost - shippingLabelCostVal;
                 const profitPerUnit   = qty > 0 ? netProfit / qty : 0;
                 const margin          = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
@@ -22201,6 +22212,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 document.getElementById('orderStatus').value = order.status;
                 document.getElementById('orderQty').value = order.quantity || 1;
                 document.getElementById('orderAmount').value = order.amount || '';
+                document.getElementById('orderShippingLabelCost').value = order.shippingLabelCost || '';
                 document.getElementById('orderShippingCharged').value = order.shippingCharged || '';
                 document.getElementById('orderTransactionCost').value = order.transactionCost || '';
                 document.getElementById('orderTracking').value = order.trackingNumber || '';
@@ -22317,10 +22329,11 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 const productId      = (selectedOption?.value && selectedOption.value !== 'custom') ? selectedOption.value : null;
                 const purchasePrice  = parseFloat(selectedOption?.dataset?.purchasePrice || 0) || 0;
 
-                const qty             = parseInt(document.getElementById('orderQty')?.value || 1) || 1;
-                const salePriceUnit   = parseFloat(document.getElementById('orderAmount').value) || null;
-                const shippingCharged = parseFloat(document.getElementById('orderShippingCharged')?.value) || 0;
-                const transactionCost = parseFloat(document.getElementById('orderTransactionCost')?.value) || 0;
+                const qty              = parseInt(document.getElementById('orderQty')?.value || 1) || 1;
+                const salePriceUnit    = parseFloat(document.getElementById('orderAmount').value) || null;
+                const shippingLabelCost= parseFloat(document.getElementById('orderShippingLabelCost')?.value) || 0;
+                const shippingCharged  = parseFloat(document.getElementById('orderShippingCharged')?.value) || 0;
+                const transactionCost  = parseFloat(document.getElementById('orderTransactionCost')?.value) || 0;
 
                 // For edit, use stored vendorCostPerUnit if no product is freshly selected
                 const existingOrderId = document.getElementById('editOrderId').value;
@@ -22348,6 +22361,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     notes:           document.getElementById('orderNotes').value || null,
                     // pricing fields — server protects eBay-owned ones
                     quantity:          qty,
+                    shippingLabelCost: shippingLabelCost,
                     shippingCharged:   shippingCharged,
                     transactionCost:   transactionCost,
                     vendorCostPerUnit: vendorCostPerUnit,
@@ -22374,8 +22388,9 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     // Persist financial fields directly in Firestore (backend may not store these)
                     if (savedId) {
                         await setDoc(doc(db, EXTERNAL_ORDER_PRICING_COLLECTION, savedId), {
-                            quantity:        qty,
-                            shippingCharged: shippingCharged,
+                            quantity:          qty,
+                            shippingLabelCost: shippingLabelCost,
+                            shippingCharged:   shippingCharged,
                             transactionCost: transactionCost,
                             vendorCostPerUnit: vendorCostPerUnit,
                             productId:       productId || null,
