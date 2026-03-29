@@ -334,6 +334,7 @@
             footerConfig: null,
             seasonalBanner: null,
             reviewsBanner: [],
+            itemRatings: {},
             // ── Local pickup & delivery estimate ──────────────
             customerZip:        '',
             isLocalEligible:    false,
@@ -844,7 +845,17 @@
                                 onclick='window.module.openItemDetailModal(${itemJson})'>
                                 ${item.name}
                             </h4>
-                            <p class="text-lg text-indigo-600 font-extrabold mb-3">${formatPrice(item.price)}</p>
+                            <p class="text-lg text-indigo-600 font-extrabold mb-2">${formatPrice(item.price)}</p>
+                            ${(() => {
+                                const r = state.itemRatings?.[item.id];
+                                if (!r || r.count === 0) return '';
+                                const avg = r.total / r.count;
+                                const stars = '★'.repeat(Math.round(avg)) + '☆'.repeat(5 - Math.round(avg));
+                                return `<div class="flex items-center gap-1 mb-2">
+                                    <span class="text-yellow-400 text-xs leading-none">${stars}</span>
+                                    <span class="text-xs text-gray-400 font-medium">${avg.toFixed(1)} (${r.count})</span>
+                                </div>`;
+                            })()}
                         </div>
                         
                         <button onclick='window.module.addToCart(${itemJson})'
@@ -1698,8 +1709,48 @@
                             </div>
                         </div>
         
+                        <!-- Trust badges -->
+                        <div class="flex flex-wrap justify-center items-center gap-4 py-5 border-b border-gray-800 mb-5">
+                            <!-- Secure checkout -->
+                            <div class="flex items-center gap-2 text-gray-400 text-xs font-semibold">
+                                <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                </svg>
+                                <span>${currentLang === 'es' ? 'Pago 100% Seguro' : 'Secure Checkout'}</span>
+                            </div>
+                            <span class="text-gray-700">|</span>
+                            <!-- Stripe -->
+                            <div class="flex items-center gap-2 text-gray-400 text-xs font-semibold">
+                                <svg class="w-4 h-4" viewBox="0 0 28 12" fill="none"><rect width="28" height="12" rx="3" fill="#635BFF"/><text x="4" y="9" font-size="7" font-family="Arial" font-weight="700" fill="white">stripe</text></svg>
+                                <span>${currentLang === 'es' ? 'Pagos con Stripe' : 'Powered by Stripe'}</span>
+                            </div>
+                            <span class="text-gray-700">|</span>
+                            <!-- Carriers -->
+                            <div class="flex items-center gap-2 text-gray-400 text-xs font-semibold">
+                                <span>📦</span>
+                                <span>USPS · UPS · FedEx</span>
+                            </div>
+                            <span class="text-gray-700">|</span>
+                            <!-- Family owned -->
+                            <div class="flex items-center gap-2 text-gray-400 text-xs font-semibold">
+                                <span>🏠</span>
+                                <span>${currentLang === 'es' ? 'Negocio Familiar · Hayward, CA' : 'Family-Owned · Hayward, CA'}</span>
+                            </div>
+                            <span class="text-gray-700">|</span>
+                            <!-- 30-day returns -->
+                            <div class="flex items-center gap-2 text-gray-400 text-xs font-semibold">
+                                <span>↩️</span>
+                                <span>${currentLang === 'es' ? '30 días para devoluciones' : '30-Day Returns'}</span>
+                            </div>
+                        </div>
+
                         <div class="text-center text-sm">
-                            <p class="text-gray-500">&copy; 2025 ${companyName}. All rights reserved. | Family-Owned Operation</p>
+                            <div class="flex flex-wrap justify-center gap-x-4 gap-y-1 mb-2 text-xs">
+                                <a href="/terms.html" class="text-gray-500 hover:text-indigo-400 transition">${currentLang === 'es' ? 'Términos y Condiciones' : 'Terms & Conditions'}</a>
+                                <a href="/privacy.html" class="text-gray-500 hover:text-indigo-400 transition">${currentLang === 'es' ? 'Política de Privacidad' : 'Privacy Policy'}</a>
+                                <a href="/about.html" class="text-gray-500 hover:text-indigo-400 transition">${currentLang === 'es' ? 'Nosotros' : 'About Us'}</a>
+                            </div>
+                            <p class="text-gray-600">&copy; ${new Date().getFullYear()} ${companyName}. ${currentLang === 'es' ? 'Todos los derechos reservados.' : 'All rights reserved.'} | Family-Owned Operation</p>
                         </div>
                     </div>
                 </footer>
@@ -1742,9 +1793,23 @@
         function renderProductGrid() {
             const itemsToDisplay = getFilteredAndCategorizedItems();
             if (itemsToDisplay.length === 0) {
+                const hasActiveFilters = state.selectedCategoryId !== 'all'
+                    || (state.searchTerm && state.searchTerm.trim().length > 0);
                 return `
-                    <div class="p-8 text-center bg-white rounded-xl shadow-lg">
-                        <p class="text-gray-500 text-lg">${t('noProducts')}</p>
+                    <div class="p-10 text-center bg-white rounded-xl shadow-lg">
+                        <div class="text-5xl mb-4">🔍</div>
+                        <p class="text-gray-700 text-lg font-bold mb-2">${t('noProducts')}</p>
+                        ${hasActiveFilters ? `
+                        <p class="text-gray-400 text-sm mb-6">
+                            ${currentLang === 'es' ? 'Prueba con otros términos o limpia los filtros.' : 'Try different terms or clear your filters.'}
+                        </p>
+                        <button onclick="window.module.clearAllFilters()"
+                                class="px-6 py-2.5 bg-indigo-600 text-white rounded-full font-bold hover:bg-indigo-700 transition shadow-md">
+                            ${currentLang === 'es' ? '✕ Limpiar filtros' : '✕ Clear all filters'}
+                        </button>` : `
+                        <p class="text-gray-400 text-sm">
+                            ${currentLang === 'es' ? 'No hay productos disponibles.' : 'No products are available at this time.'}
+                        </p>`}
                     </div>
                 `;
             }
@@ -1905,6 +1970,14 @@
             }
         }
         
+        function clearAllFilters() {
+            state.selectedCategoryId = 'all';
+            state.searchTerm = '';
+            const searchInput = document.getElementById('mainSearchInput');
+            if (searchInput) searchInput.value = '';
+            render();
+        }
+
         function selectCategory(categoryId) {
             state.selectedCategoryId = categoryId;
             state.productSearchTerm = '';
@@ -2667,6 +2740,17 @@
                     return { ...r, productName: item?.name || null };
                 });
 
+                // Build per-item rating map for product cards
+                const ratingMap = {};
+                snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                    .filter(r => r.approved && r.rating >= 1 && r.rating <= 5)
+                    .forEach(r => {
+                        if (!ratingMap[r.productId]) ratingMap[r.productId] = { total: 0, count: 0 };
+                        ratingMap[r.productId].total += r.rating;
+                        ratingMap[r.productId].count++;
+                    });
+                state.itemRatings = ratingMap;
+
                 // Start rotation
                 _reviewBannerIdx = 0;
                 startReviewBannerRotation();
@@ -2856,6 +2940,34 @@
                     msgEl.className   = 'text-xs mt-2 text-green-600';
                     msgEl.classList.remove('hidden');
                 }
+
+                // Mark the most recent delivered order for this item as having a review
+                if (userId && userId !== 'anonymous') {
+                    try {
+                        const ORDERS_COLL = 'artifacts/default-app-id/public/data/orders';
+                        const ordSnap = await getDocs(query(
+                            collection(db, ORDERS_COLL),
+                            where('userId', '==', userId),
+                            where('status', '==', 'Delivered')
+                        ));
+                        const match = ordSnap.docs
+                            .map(d => ({ id: d.id, ...d.data() }))
+                            .filter(o => (o.items || []).some(i => i.id === itemId))
+                            .sort((a, b) => {
+                                const da = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.timestamp || 0);
+                                const db2 = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.timestamp || 0);
+                                return db2 - da;
+                            })[0];
+                        if (match) {
+                            await updateDoc(doc(db, ORDERS_COLL, match.id), {
+                                reviewLeft: true,
+                                reviewLeftAt: serverTimestamp(),
+                                reviewedProductId: itemId,
+                            });
+                        }
+                    } catch { /* non-critical */ }
+                }
+
                 // Reset form
                 _reviewRatings[itemId] = 0;
                 setReviewRating(itemId, 0);
@@ -4025,6 +4137,7 @@
             addToCartFromChat,
             handleProductSearchInput,
             selectCategory,
+            clearAllFilters,
             requestPasswordReset,
             registerUser,
             showLoginModal,
