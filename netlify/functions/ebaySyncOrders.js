@@ -199,11 +199,11 @@ function mapEbayOrder(o) {
   // ── Shipping charged to buyer ────────────────────────────────────────────────
   const shippingCharged = Math.round(parseFloat(price.deliveryCost?.value || 0) * 100) / 100;
 
-  // ── eBay marketplace fee — from Fulfillment API (reliable, no extra call) ────
-  // totalMarketplaceFee = final fee eBay charged for this order.
-  // Fall back to totalFeeBasisAmount only if not present (older orders).
+  // ── eBay marketplace fee — from Fulfillment API top-level field ────────────
+  // NOTE: totalMarketplaceFee is on the ORDER object (o), NOT inside pricingSummary.
+  // pricingSummary contains buyer-facing totals; fees are a separate top-level field.
   const transactionCost = Math.round(
-    parseFloat(price.totalMarketplaceFee?.value || price.fee?.value || 0) * 100
+    parseFloat(o.totalMarketplaceFee?.value || o.totalFeeBasisAmount?.value || 0) * 100
   ) / 100;
 
   // ── Net payout from eBay ─────────────────────────────────────────────────────
@@ -377,11 +377,56 @@ exports.handler = async (event) => {
     const summary = { created, updated, errors };
     if (forceResync) summary.diagnostics = diagnostics;
 
+    // Alert admin if any individual orders failed
+    if (errors.length > 0) {
+        try {
+            const nodemailer = require('nodemailer');
+            const t = nodemailer.createTransport({
+                host: process.env.BREVO_SMTP_HOST || 'smtp-relay.brevo.com',
+                port: parseInt(process.env.BREVO_SMTP_PORT || '587'),
+                secure: false,
+                auth: { user: process.env.BREVO_SMTP_USER, pass: process.env.BREVO_SMTP_PASSWORD },
+            });
+            await t.sendMail({
+                from:    '"AutoInx Alerts" <noreply@autoinx.com>',
+                to:      process.env.ADMIN_EMAIL || 'orders@autoinx.com',
+                subject: `⚠️ eBay Sync: ${errors.length} order(s) failed — AutoInx`,
+                html: '<div style="font-family:Arial,sans-serif">'
+                    + '<h2 style="color:#f59e0b;">⚠️ eBay Sync Completed With Errors</h2>'
+                    + '<p>' + created + ' new, ' + updated + ' updated, <strong style="color:#dc2626;">' + errors.length + ' failed</strong></p>'
+                    + '<ul>' + errors.map(e => '<li><strong>' + e.orderId + '</strong>: ' + e.error + '</li>').join('') + '</ul>'
+                    + '<p>Check Netlify function logs for details.</p></div>'
+            });
+        } catch { /* non-critical */ }
+    }
+
     console.log(`✅ Done — ${created} new, ${updated} updated, ${errors.length} errors`);
     return { statusCode: 200, body: JSON.stringify(summary) };
 
   } catch (err) {
     console.error('❌ Fatal:', err.message);
+
+    // Alert admin on fatal sync failure
+    try {
+        const nodemailer = require('nodemailer');
+        const t = nodemailer.createTransport({
+            host: process.env.BREVO_SMTP_HOST || 'smtp-relay.brevo.com',
+            port: parseInt(process.env.BREVO_SMTP_PORT || '587'),
+            secure: false,
+            auth: { user: process.env.BREVO_SMTP_USER, pass: process.env.BREVO_SMTP_PASSWORD },
+        });
+        await t.sendMail({
+            from:    '"AutoInx Alerts" <noreply@autoinx.com>',
+            to:      process.env.ADMIN_EMAIL || 'orders@autoinx.com',
+            subject: '🚨 eBay Sync Failed — AutoInx',
+            html: '<div style="font-family:Arial,sans-serif"><h2 style="color:#dc2626;">🚨 eBay Sync Failed</h2>'
+                + '<p><strong>Time:</strong> ' + new Date().toISOString() + '</p>'
+                + '<p><strong>Error:</strong> ' + err.message + '</p>'
+                + '<p>Check Netlify function logs for full stack trace.</p></div>'
+        });
+        console.log('📧 Failure alert sent');
+    } catch { /* non-critical */ }
+
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
