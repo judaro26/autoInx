@@ -14,13 +14,61 @@
     <link rel="canonical" href="https://autoinx.com/">
     <link rel="sitemap" type="application/xml" href="/sitemap.xml">
 
-    <!-- Google Analytics 4 — replace G-XXXXXXXXXX with your Measurement ID -->
+    <!-- ── SEO Meta Tags ─────────────────────────────────────────────────── -->
+    <meta name="description" content="AutoInx — Quality automotive parts and accessories. Shop oil filters, dashcams, and more. Fast shipping from Hayward, CA. Free shipping available.">
+    <meta name="keywords" content="auto parts, oil filter, dashcam, automotive accessories, 90915-YZZN1, 90915-YZZE1, car parts online">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://autoinx.com/">
+
+    <!-- Open Graph -->
+    <meta property="og:type"        content="website">
+    <meta property="og:url"         content="https://autoinx.com/">
+    <meta property="og:title"       content="AutoInx — Quality Auto Parts">
+    <meta property="og:description" content="Shop automotive parts and accessories with fast shipping. Family-owned business based in Hayward, CA.">
+    <meta property="og:image"       content="https://autoinx.com/images/AutoInx logo.png">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card"        content="summary">
+    <meta name="twitter:title"       content="AutoInx — Quality Auto Parts">
+    <meta name="twitter:description" content="Shop automotive parts and accessories with fast shipping from Hayward, CA.">
+
+    <!-- JSON-LD: Local Business structured data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "AutoPartsStore",
+        "name": "AutoInx",
+        "url": "https://autoinx.com",
+        "logo": "https://autoinx.com/images/AutoInx logo.png",
+        "description": "Quality automotive parts and accessories. Family-owned business serving the US and Colombia.",
+        "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "587 Paradise Blvd",
+            "addressLocality": "Hayward",
+            "addressRegion": "CA",
+            "postalCode": "94541",
+            "addressCountry": "US"
+        },
+        "telephone": "+1-937-701-6185",
+        "email": "support@autoinx.com",
+        "priceRange": "$$",
+        "currenciesAccepted": "USD",
+        "paymentAccepted": "Credit Card, Zelle, Cash",
+        "openingHours": "Mo-Fr 09:00-18:00",
+        "sameAs": ["https://www.ebay.com/str/autoinx"]
+    }
+    </script>
+
+    <!-- Google Analytics 4 ─ replace G-XXXXXXXXXX with your GA4 Measurement ID -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
     <script>
         window.dataLayer = window.dataLayer || [];
         function gtag(){ dataLayer.push(arguments); }
         gtag('js', new Date());
-        gtag('config', 'G-XXXXXXXXXX', { send_page_view: true });
+        gtag('config', 'G-XXXXXXXXXX', {
+            send_page_view: true,
+            cookie_flags: 'SameSite=None;Secure'
+        });
 
         // Helper — safe wrapper so events never throw if gtag hasn't loaded
         window._gtag = function() {
@@ -335,6 +383,7 @@
             seasonalBanner: null,
             reviewsBanner: [],
             itemRatings: {},
+            sortBy: 'default',
             // ── Local pickup & delivery estimate ──────────────
             customerZip:        '',
             isLocalEligible:    false,
@@ -791,6 +840,20 @@
             console.log("reCAPTCHA script injected.");
         }
         // function to display the product
+        function _fireViewItemList(items) {
+            if (!items || items.length === 0) return;
+            window._gtag('event', 'view_item_list', {
+                item_list_name: state.selectedCategoryId === 'all' ? 'All Products' : (state.catalogs.find(c=>c.id===state.selectedCategoryId)?.name || 'Category'),
+                items: items.slice(0, 20).map((item, i) => ({
+                    item_id:       item.sku || item.id,
+                    item_name:     item.name,
+                    item_category: state.catalogs.find(c=>c.id===item.catalogId)?.name || 'Uncategorized',
+                    price:         ((item.price || 0) / 100).toFixed(2),
+                    index:         i,
+                }))
+            });
+        }
+
         function renderProductCard(item) {
             const itemJson = JSON.stringify(item).replace(/'/g, "&apos;").replace(/"/g, '&quot;');
         
@@ -1441,20 +1504,35 @@
                                 </button>
                             </div>
 
-                            <!-- Contact strip -->
-                            <div class="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
-                                <span class="text-xs text-gray-400">Still need help? / ¿Más ayuda?</span>
-                                ${isWhatsAppHours() ? `
-                                <button onclick="if(window.Tawk_API){window.Tawk_API.showWidget();window.Tawk_API.maximize();}else{window.open('mailto:support@autoinx.com');}"
-                                        class="flex items-center gap-1 text-xs text-indigo-600 font-semibold hover:text-indigo-700 transition">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-                                    Live chat / Chat en vivo
-                                </button>` : `
-                                <a href="mailto:support@autoinx.com"
-                                   class="flex items-center gap-1 text-xs text-indigo-500 font-semibold hover:text-indigo-700 transition">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                                    Email us / Escríbenos
-                                </a>`}
+                            <!-- Escalation strip -->
+                            <div class="mt-2 pt-2 border-t border-gray-100">
+                                <div id="chatEscalationStrip" class="flex items-center justify-between">
+                                    <span class="text-xs text-gray-400">${currentLang === 'es' ? '¿Necesitas más ayuda?' : 'Need more help?'}</span>
+                                    <button onclick="window.module.showChatEscalation()"
+                                            class="flex items-center gap-1 text-xs text-indigo-600 font-semibold hover:text-indigo-700 transition">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                        ${currentLang === 'es' ? 'Contactar soporte' : 'Contact support'}
+                                    </button>
+                                </div>
+                                <div id="chatEscalationForm" class="hidden mt-2 space-y-1.5">
+                                    <input type="email" id="chatEscEmail"
+                                           placeholder="${currentLang === 'es' ? 'Tu correo electrónico' : 'Your email address'}"
+                                           class="w-full text-xs p-2 border border-gray-200 rounded-lg focus:ring-1 focus:ring-indigo-400 focus:outline-none">
+                                    <textarea id="chatEscMsg" rows="2"
+                                              placeholder="${currentLang === 'es' ? 'Describe tu consulta...' : 'Describe your question...'}"
+                                              class="w-full text-xs p-2 border border-gray-200 rounded-lg focus:ring-1 focus:ring-indigo-400 focus:outline-none resize-none"></textarea>
+                                    <div class="flex gap-2">
+                                        <button onclick="window.module.submitChatEscalation()"
+                                                class="flex-1 text-xs py-1.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition">
+                                            ${currentLang === 'es' ? 'Enviar mensaje' : 'Send message'}
+                                        </button>
+                                        <button onclick="window.module.hideChatEscalation()"
+                                                class="text-xs py-1.5 px-3 bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 transition">
+                                            ${currentLang === 'es' ? 'Cancelar' : 'Cancel'}
+                                        </button>
+                                    </div>
+                                    <p id="chatEscResult" class="hidden text-xs text-center font-semibold mt-1"></p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1483,6 +1561,102 @@
 
         // ── AI Chat logic ──────────────────────────────────────────────────────────
         const _aiChatHistory = [];  // { role: 'user'|'assistant', content: string }
+
+        async function submitEmailSignup() {
+            const input  = document.getElementById('footerEmailInput');
+            const result = document.getElementById('footerEmailResult');
+            const isSp   = currentLang === 'es';
+            const email  = (input?.value || '').trim();
+
+            if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                if (result) { result.textContent = isSp ? 'Por favor ingresa un correo válido.' : 'Please enter a valid email.'; result.style.color='#dc2626'; result.classList.remove('hidden'); }
+                return;
+            }
+
+            const btn = document.querySelector('#footerEmailSignupWrap button');
+            if (btn) btn.disabled = true;
+
+            try {
+                // Save to Firestore email_subscribers collection
+                const { collection: col, addDoc: aDoc, serverTimestamp: sTs, query: q, where: w, getDocs: gDocs } =
+                    await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+
+                // Check if already subscribed
+                const existing = await gDocs(q(col(db, 'email_subscribers'), w('email', '==', email)));
+                if (!existing.empty) {
+                    if (result) { result.textContent = isSp ? '✅ Ya estás suscrito.' : '✅ You are already subscribed!'; result.style.color='#16a34a'; result.classList.remove('hidden'); }
+                    if (input) input.value = '';
+                    return;
+                }
+
+                await aDoc(col(db, 'email_subscribers'), {
+                    email,
+                    source:       'footer_signup',
+                    lang:         currentLang,
+                    subscribedAt: sTs(),
+                    active:       true,
+                });
+
+                window._gtag('event', 'sign_up', { method: 'email_newsletter' });
+
+                if (result) { result.textContent = isSp ? '✅ ¡Suscrito! Te avisaremos cuando lleguen piezas nuevas.' : '✅ Subscribed! We will notify you when new parts arrive.'; result.style.color='#16a34a'; result.classList.remove('hidden'); }
+                if (input) input.value = '';
+            } catch (err) {
+                console.error('Email signup error:', err);
+                if (result) { result.textContent = isSp ? 'Error. Intenta de nuevo.' : 'Error. Please try again.'; result.style.color='#dc2626'; result.classList.remove('hidden'); }
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function showChatEscalation() {
+            document.getElementById('chatEscalationStrip')?.classList.add('hidden');
+            document.getElementById('chatEscalationForm')?.classList.remove('hidden');
+            document.getElementById('chatEscEmail')?.focus();
+        }
+
+        function hideChatEscalation() {
+            document.getElementById('chatEscalationForm')?.classList.add('hidden');
+            document.getElementById('chatEscalationStrip')?.classList.remove('hidden');
+            const r = document.getElementById('chatEscResult');
+            if (r) r.classList.add('hidden');
+        }
+
+        async function submitChatEscalation() {
+            const email  = (document.getElementById('chatEscEmail')?.value || '').trim();
+            const msg    = (document.getElementById('chatEscMsg')?.value   || '').trim();
+            const result = document.getElementById('chatEscResult');
+            const isSp   = currentLang === 'es';
+
+            if (!email || !msg) {
+                if (result) { result.textContent = isSp ? 'Por favor completa todos los campos.' : 'Please fill in all fields.'; result.style.color='#dc2626'; result.classList.remove('hidden'); }
+                return;
+            }
+
+            const history = _aiChatHistory.map(m => (m.role==='user'?'Customer: ':'Bot: ') + m.content).join('\n');
+            const btn = document.querySelector('#chatEscalationForm button');
+            if (btn) btn.disabled = true;
+
+            try {
+                await fetch('/.netlify/functions/sendSupportEmail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        from:        email,
+                        subject:     isSp ? 'Consulta de soporte - AutoInx' : 'Support inquiry - AutoInx',
+                        message:     msg,
+                        chatHistory: history || '—',
+                    })
+                });
+                if (result) { result.textContent = isSp ? '✅ ¡Mensaje enviado! Te respondemos pronto.' : '✅ Message sent! We will get back to you soon.'; result.style.color='#16a34a'; result.classList.remove('hidden'); }
+                if (document.getElementById('chatEscEmail')) document.getElementById('chatEscEmail').value = '';
+                if (document.getElementById('chatEscMsg'))   document.getElementById('chatEscMsg').value   = '';
+            } catch {
+                if (result) { result.textContent = isSp ? 'Error al enviar. Escríbenos a support@autoinx.com' : 'Send failed. Email us at support@autoinx.com'; result.style.color='#dc2626'; result.classList.remove('hidden'); }
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
 
         function toggleAiChat() {
             const panel  = document.getElementById('aiChatPanel');
@@ -1744,6 +1918,22 @@
                             </div>
                         </div>
 
+                        <!-- Email signup -->
+                        <div class="border border-gray-700 rounded-2xl p-6 mb-6 max-w-md mx-auto">
+                            <h4 class="text-white font-bold text-base mb-1">${currentLang === 'es' ? '🔔 Nuevas piezas y ofertas' : '🔔 New parts & exclusive deals'}</h4>
+                            <p class="text-gray-400 text-xs mb-3">${currentLang === 'es' ? 'Sé el primero en saber cuando llegan nuevas piezas.' : 'Be the first to know when new parts arrive.'}</p>
+                            <div class="flex gap-2" id="footerEmailSignupWrap">
+                                <input type="email" id="footerEmailInput"
+                                       placeholder="${currentLang === 'es' ? 'Tu correo electrónico' : 'Your email address'}"
+                                       class="flex-1 text-sm px-3 py-2 rounded-xl bg-gray-800 border border-gray-600 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <button onclick="window.module.submitEmailSignup()"
+                                        class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition flex-shrink-0">
+                                    ${currentLang === 'es' ? 'Suscribirse' : 'Subscribe'}
+                                </button>
+                            </div>
+                            <p id="footerEmailResult" class="hidden text-xs mt-2 font-semibold"></p>
+                        </div>
+
                         <div class="text-center text-sm">
                             <div class="flex flex-wrap justify-center gap-x-4 gap-y-1 mb-2 text-xs">
                                 <a href="/terms.html" class="text-gray-500 hover:text-indigo-400 transition">${currentLang === 'es' ? 'Términos y Condiciones' : 'Terms & Conditions'}</a>
@@ -1904,16 +2094,26 @@
         
                     <div class="md:col-span-8 space-y-6">
                         <div class="sticky top-[135px] md:top-24 bg-indigo-50/80 backdrop-blur-md z-10 py-2 -mx-2 px-2 rounded-xl">
-                            <input type="text"
-                                   id="product-search-input"
-                                   oninput="window.module.handleProductSearchInput(event)"
-                                   value="${state.productSearchTerm}"
-                                   placeholder="${t('searchPlaceholder')}"
-                                   class="w-full p-2 text-sm border border-indigo-300 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 bg-white">
+                            <div class="flex gap-2">
+                                <input type="text"
+                                       id="product-search-input"
+                                       oninput="window.module.handleProductSearchInput(event)"
+                                       value="${state.productSearchTerm}"
+                                       placeholder="${t('searchPlaceholder')}"
+                                       class="flex-1 p-2 text-sm border border-indigo-300 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 bg-white">
+                                <select onchange="window.module.handleSortChange(event)"
+                                        class="text-sm border border-indigo-300 rounded-xl px-2 py-2 bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 text-gray-700 font-medium cursor-pointer flex-shrink-0">
+                                    <option value="default"  ${state.sortBy === 'default'  ? 'selected' : ''}>${currentLang === 'es' ? 'Orden' : 'Sort'}</option>
+                                    <option value="price_asc" ${state.sortBy === 'price_asc' ? 'selected' : ''}>${currentLang === 'es' ? 'Precio ↑' : 'Price ↑'}</option>
+                                    <option value="price_desc"${state.sortBy === 'price_desc'? 'selected' : ''}>${currentLang === 'es' ? 'Precio ↓' : 'Price ↓'}</option>
+                                    <option value="name_asc" ${state.sortBy === 'name_asc'  ? 'selected' : ''}>${currentLang === 'es' ? 'Nombre A-Z' : 'Name A-Z'}</option>
+                                    <option value="rating"   ${state.sortBy === 'rating'    ? 'selected' : ''}>${currentLang === 'es' ? 'Mejor valorados' : 'Top Rated'}</option>
+                                </select>
+                            </div>
                         </div>
                         ${renderReviewsBanner()}
                         <div id="product-grid-container">
-                            ${renderProductGrid()}
+                            ${(() => { const _grid = renderProductGrid(); setTimeout(() => _fireViewItemList(getFilteredAndCategorizedItems()), 100); return _grid; })()}
                         </div>
                     </div>
         
@@ -1947,20 +2147,37 @@
             if (state.selectedCategoryId && state.selectedCategoryId !== 'all') {
                 filtered = filtered.filter(item => item.catalogId === state.selectedCategoryId);
             }
+            // Apply sort
+            const sort = state.sortBy || 'default';
+            if (sort === 'price_asc')  filtered = [...filtered].sort((a,b) => (a.price||0) - (b.price||0));
+            if (sort === 'price_desc') filtered = [...filtered].sort((a,b) => (b.price||0) - (a.price||0));
+            if (sort === 'name_asc')   filtered = [...filtered].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+            if (sort === 'rating')     filtered = [...filtered].sort((a,b) => {
+                const ra = state.itemRatings?.[a.id]; const rb = state.itemRatings?.[b.id];
+                const avgA = ra ? ra.total/ra.count : 0; const avgB = rb ? rb.total/rb.count : 0;
+                return avgB - avgA;
+            });
             return filtered;
         }
 
-        function handleProductSearchInput(e) {
-            // 1. Save the current cursor position and the ID of the input
-            const inputId = e.target.id || 'product-search-input'; // Ensure your HTML has this ID
-            const selectionStart = e.target.selectionStart;
-            const selectionEnd = e.target.selectionEnd;
-        
-            // 2. Update the state
-            state.productSearchTerm = e.target.value;
-        
-            // 3. Trigger the full render
+        function handleSortChange(e) {
+            state.sortBy = e.target.value;
             render();
+        }
+
+        function handleProductSearchInput(e) {
+            const inputId        = e.target.id || 'product-search-input';
+            const selectionStart = e.target.selectionStart;
+            const selectionEnd   = e.target.selectionEnd;
+            state.productSearchTerm = e.target.value;
+            render();
+            // Fire search event after debounce
+            clearTimeout(window._searchGaTimer);
+            if (state.productSearchTerm.length >= 2) {
+                window._searchGaTimer = setTimeout(() => {
+                    window._gtag('event', 'search', { search_term: state.productSearchTerm });
+                }, 800);
+            }
         
             // 4. Find the "new" input in the DOM and restore focus/cursor
             const newInput = document.getElementById(inputId);
@@ -4138,6 +4355,11 @@
             handleProductSearchInput,
             selectCategory,
             clearAllFilters,
+            handleSortChange,
+            submitEmailSignup,
+            showChatEscalation,
+            hideChatEscalation,
+            submitChatEscalation,
             requestPasswordReset,
             registerUser,
             showLoginModal,
