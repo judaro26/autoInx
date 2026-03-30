@@ -1317,15 +1317,28 @@
             try {
                 let screenshotUrl = null;
 
-                // Upload screenshot to Firebase Storage if provided
+                // Upload screenshot via Netlify function (server-side Firebase Storage)
+                // Avoids needing storageBucket in the client Firebase config
                 if (file) {
-                    const { getStorage, ref: sRef, uploadBytes, getDownloadURL } =
-                        await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js');
-                    const storage  = getStorage();
-                    const filePath = `payment_confirmations/${user.uid}/${orderId}_${Date.now()}_${file.name}`;
-                    const fileRef  = sRef(storage, filePath);
-                    await uploadBytes(fileRef, file);
-                    screenshotUrl  = await getDownloadURL(fileRef);
+                    const idToken  = await user.getIdToken();
+                    const formData = new FormData();
+                    formData.append('file',    file);
+                    formData.append('orderId', orderId);
+                    formData.append('userId',  user.uid);
+
+                    const uploadRes = await fetch('/.netlify/functions/uploadPaymentProof', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${idToken}` },
+                        body:    formData,
+                    });
+
+                    if (!uploadRes.ok) {
+                        const errData = await uploadRes.json().catch(() => ({}));
+                        throw new Error(errData.error || `Upload failed (${uploadRes.status})`);
+                    }
+
+                    const uploadData = await uploadRes.json();
+                    screenshotUrl    = uploadData.url || uploadData.downloadUrl || null;
                 }
 
                 // Save confirmation to Firestore
