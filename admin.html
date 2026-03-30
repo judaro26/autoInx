@@ -629,6 +629,7 @@
             orderPaymentFilter: 'All',
             expandedOrders: new Set(),
             selectedOrders: new Set(),
+            emailSubscribers: [],
             ordersFullscreen: false,
             orderPage: 'list',
             editingOrderId: null,  // ✅ NEW: Track which order is being edited
@@ -878,6 +879,11 @@
                                     class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition"
                                     title="Full screen">
                                 ⛶ Full Screen
+                            </button>
+                            <button onclick="window.module.exportOrdersCSV()"
+                                    class="px-3 py-2 text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition"
+                                    title="Export filtered orders to CSV">
+                                ⬇️ Export CSV
                             </button>
                             <button onclick="window.module.switchOrderPage('create')" 
                                     class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 shadow-md transition">
@@ -1649,6 +1655,8 @@
                 return `<section id="emailNotifPage"></section>`;
             } else if (state.activeTab === 'abandonedCarts') {
                 return `<section id="abandonedCartsPage"><div class="text-center py-12 text-gray-400">Loading abandoned carts…</div></section>`;
+            } else if (state.activeTab === 'emailSubscribers') {
+                return `<section id="emailSubscribersPage"><div class="text-center py-12 text-gray-400">Loading subscribers…</div></section>`;
             } else if (state.activeTab === 'marketing') {
                 return renderMarketingTab();
             } else if (state.activeTab === 'shippingLabels') {
@@ -6050,6 +6058,8 @@ ${printScript}
                 setTimeout(() => window.module.loadEbaySyncStatus(), 300);
             } else if (tab === 'abandonedCarts') {
                 setTimeout(() => window.module.renderAbandonedCartsSection(), 100);
+            } else if (tab === 'emailSubscribers') {
+                setTimeout(() => window.module.renderEmailSubscribersSection(), 100);
             } else if (tab === 'returns') {
                 setTimeout(() => window.module.renderReturnsSection(), 100);
             } else if (tab === 'reviews') {
@@ -8941,6 +8951,89 @@ ${printScript}
             }
         }
 
+        function exportOrdersCSV() {
+            // Export the currently filtered orders (same filter as the table)
+            const STATUS_MAP   = { 'Pending':'Pending','Processing':'Processing','Shipped':'Shipped','Delivered':'Delivered','Cancelled':'Cancelled' };
+            const filtered = state.orders.filter(order => {
+                const matchesStatus   = state.orderStatusFilter   === 'All' || order.status === state.orderStatusFilter;
+                const matchesDelivery = state.deliveryStatusFilter === 'All' ||
+                    (state.deliveryStatusFilter === 'Delivered' && order.status === 'Delivered') ||
+                    (state.deliveryStatusFilter === 'Pending'   && order.status !== 'Delivered' && order.status !== 'Cancelled');
+                const isPaid      = order.paymentStatus === 'Paid' || order.isPaid;
+                const isRefunded  = order.paymentStatus === 'Refunded' || order.paymentStatus === 'Partially Refunded';
+                const matchesPay  = state.orderPaymentFilter === 'All' ||
+                    (state.orderPaymentFilter === 'Paid'     &&  isPaid && !isRefunded) ||
+                    (state.orderPaymentFilter === 'Unpaid'   && !isPaid && !isRefunded) ||
+                    (state.orderPaymentFilter === 'Refunded' && isRefunded);
+                const term = (state.orderListSearchTerm || '').toLowerCase();
+                const matchesSearch = !term ||
+                    (order.orderNumber || '').toLowerCase().includes(term) ||
+                    order.id.toLowerCase().includes(term) ||
+                    (order.buyerName  || '').toLowerCase().includes(term) ||
+                    (order.buyerEmail || '').toLowerCase().includes(term);
+                return matchesStatus && matchesDelivery && matchesPay && matchesSearch;
+            });
+
+            if (filtered.length === 0) {
+                showMessage('error', 'No orders match current filters.', 3000, 'orders');
+                return;
+            }
+
+            const esc = v => {
+                const s = String(v === null || v === undefined ? '' : v);
+                return s.includes(',') || s.includes('"') || s.includes('\n')
+                    ? '"' + s.replace(/"/g, '""') + '"'
+                    : s;
+            };
+            const fmt = cents => cents ? '$' + (cents / 100).toFixed(2) : '$0.00';
+
+            const headers = ['Order #','Date','Customer','Email','Status','Payment Method','Payment Status','Items','Subtotal','Shipping','Tax','Discount','Total','Refunded','Address','Notes'];
+
+            const rows = filtered.map(o => {
+                const items    = (o.items || []).map(i => { const d = getSafeItemData(i); return d.quantity + 'x ' + d.name; }).join(' | ');
+                const date     = o.createdAt ? new Date(o.createdAt?.seconds ? o.createdAt.seconds * 1000 : o.createdAt).toLocaleDateString('en-US') : '';
+                const sub      = o.subtotalCents || 0;
+                const ship     = o.shippingCents || o.shippingCostCents || 0;
+                const tax      = o.taxCents || 0;
+                const disc     = o.discountCents || 0;
+                const total    = o.totalCents || (sub + ship + tax - disc);
+                const refunded = o.totalRefundedCents || 0;
+
+                return [
+                    esc(o.orderNumber || o.id.slice(0,8).toUpperCase()),
+                    esc(date),
+                    esc(o.buyerName || ''),
+                    esc(o.buyerEmail || ''),
+                    esc(o.status || ''),
+                    esc(o.paymentMethod || ''),
+                    esc(o.paymentStatus || ''),
+                    esc(items),
+                    esc(fmt(sub)),
+                    esc(fmt(ship)),
+                    esc(fmt(tax)),
+                    esc(fmt(disc)),
+                    esc(fmt(total)),
+                    esc(refunded > 0 ? fmt(refunded) : ''),
+                    esc(o.deliveryAddress || ''),
+                    esc(o.notes || ''),
+                ].join(',');
+            });
+
+            const csv      = [headers.join(','), ...rows].join('\n');
+            const blob     = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url      = URL.createObjectURL(blob);
+            const link     = document.createElement('a');
+            const filename = 'AutoInx_Orders_' + new Date().toISOString().slice(0,10) + '.csv';
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            showMessage('success', 'Exported ' + filtered.length + ' orders to ' + filename, 4000, 'orders');
+            logAdminAction('EXPORT_ORDERS_CSV', { count: filtered.length, filters: { status: state.orderStatusFilter, payment: state.orderPaymentFilter } });
+        }
+
         function collapseAllOrders() {
             state.expandedOrders = new Set();
             renderOrdersList();
@@ -10328,6 +10421,7 @@ ${printScript}
                         ${tabBtn('shippingLabels',     '🏷️', 'Shipping Labels')}
                         ${tabBtn('emailNotifications', '📬', 'Email Log')}
                         ${tabBtn('abandonedCarts',     '🛒', 'Abandoned Carts')}
+                        ${tabBtn('emailSubscribers',   '📧', 'Email Subscribers')}
                     </div>` : ''}
 
                     ${divider()}
@@ -15319,6 +15413,107 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
         // ─── ABANDONED CARTS ──────────────────────────────────────────────────────────
 
+        async function renderEmailSubscribersSection() {
+            const el = document.getElementById('emailSubscribersPage');
+            if (!el) return;
+            el.innerHTML = '<div class="text-center py-12 text-gray-400">Loading…</div>';
+
+            try {
+                const snap = await getDocs(
+                    query(collection(db, 'email_subscribers'), orderBy('subscribedAt', 'desc'))
+                );
+                const subs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+                const total    = subs.length;
+                const active   = subs.filter(s => s.active !== false).length;
+                const enSubs   = subs.filter(s => s.lang === 'en').length;
+                const esSubs   = subs.filter(s => s.lang === 'es').length;
+
+                const statCard = (icon, label, value, color) => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <div class="text-2xl mb-1">${icon}</div>
+                        <div class="text-2xl font-black text-${color}-600">${value}</div>
+                        <div class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-0.5">${label}</div>
+                    </div>`;
+
+                const rows = subs.length === 0
+                    ? `<tr><td colspan="5" class="px-6 py-12 text-center text-gray-400">No subscribers yet. The signup form is in the storefront footer.</td></tr>`
+                    : subs.map(s => {
+                        const date = s.subscribedAt?.toDate?.()
+                            ? s.subscribedAt.toDate().toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' })
+                            : '—';
+                        const statusBadge = s.active === false
+                            ? '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">Unsubscribed</span>'
+                            : '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">Active</span>';
+                        const sourceBadge = s.source === 'footer_signup'
+                            ? '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700">Footer</span>'
+                            : '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-600">' + escapeHtml(s.source || 'unknown') + '</span>';
+                        return `
+                        <tr class="hover:bg-gray-50 transition border-b border-gray-100">
+                            <td class="px-4 py-3 text-sm font-medium text-gray-800">${escapeHtml(s.email || '—')}</td>
+                            <td class="px-4 py-3">${statusBadge}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500">${s.lang?.toUpperCase() || '—'}</td>
+                            <td class="px-4 py-3">${sourceBadge}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">${date}</td>
+                        </tr>`;
+                    }).join('');
+
+                // Build CSV export
+                const csvRows = subs.map(s => {
+                    const date = s.subscribedAt?.toDate?.() ? s.subscribedAt.toDate().toISOString().slice(0,10) : '';
+                    return [s.email, s.active === false ? 'unsubscribed' : 'active', s.lang || '', s.source || '', date].join(',');
+                });
+                const csvBlob = new Blob(['\uFEFF' + 'email,status,lang,source,subscribed_at\n' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+                window._subscribersCsvUrl = URL.createObjectURL(csvBlob);
+
+                el.innerHTML = `
+                <div class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-indigo-700">📧 Email Subscribers</h2>
+                            <p class="text-sm text-gray-500 mt-0.5">Customers who opted in for new parts & deal notifications</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="window.module.renderEmailSubscribersSection()"
+                                    class="px-3 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">
+                                ↺ Refresh
+                            </button>
+                            <a href="${window._subscribersCsvUrl}" download="AutoInx_Subscribers_${new Date().toISOString().slice(0,10)}.csv"
+                               class="px-3 py-2 text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition">
+                                ⬇️ Export CSV
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        ${statCard('📧', 'Total Subscribers', total,  'indigo')}
+                        ${statCard('✅', 'Active',            active, 'green')}
+                        ${statCard('🇺🇸', 'English',          enSubs, 'blue')}
+                        ${statCard('🇪🇸', 'Spanish',          esSubs, 'orange')}
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-100">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Email</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Lang</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Source</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Subscribed</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
+            } catch (err) {
+                el.innerHTML = `<div class="text-center py-12 text-red-500">Error loading subscribers: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
         async function renderAbandonedCartsSection() {
             const el = document.getElementById('abandonedCartsPage');
             if (!el) return;
@@ -15336,7 +15531,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 const totalCarts     = carts.length;
                 const totalValue     = carts.reduce((s, c) => s + (c.totalCents || 0), 0);
                 const remindersSent  = carts.filter(c => c.reminderSent).length;
+                const recovered      = carts.filter(c => c.recovered).length;
+                const recoveredValue = carts.filter(c => c.recovered).reduce((s, c) => s + (c.totalCents || 0), 0);
                 const avgValue       = totalCarts > 0 ? totalValue / totalCarts : 0;
+                const recoveryRate   = remindersSent > 0 ? Math.round((recovered / remindersSent) * 100) : 0;
 
                 const statCard = (icon, label, value, color) => `
                     <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
@@ -15365,6 +15563,13 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                             <td class="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate" title="${escapeHtml(items.map(i=>i.name).join(', '))}">${escapeHtml(preview)}</td>
                             <td class="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">${ageLabel}</td>
                             <td class="px-4 py-3">${statusBadge}</td>
+                            <td class="px-4 py-3">
+                                ${cart.recovered
+                                    ? '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">✅ Recovered</span>'
+                                    : cart.reminderSent
+                                        ? '<span class="px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">⏳ Waiting</span>'
+                                        : '<span class="text-gray-300 text-xs">—</span>'}
+                            </td>
                             <td class="px-4 py-3">
                                 <div class="flex gap-2">
                                     <button onclick="window.module.viewAbandonedCart('${cart.id}')"
@@ -15401,11 +15606,18 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
                     <!-- Stats -->
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        ${statCard('🛒', 'Total Carts',     totalCarts,                    'indigo')}
-                        ${statCard('💰', 'Total Value',     formatPriceDisplay(totalValue), 'green')}
-                        ${statCard('📊', 'Avg Cart Value',  formatPriceDisplay(avgValue),   'blue')}
-                        ${statCard('✉',  'Reminders Sent',  remindersSent,                 'orange')}
+                        ${statCard('🛒', 'Total Carts',     totalCarts,                      'indigo')}
+                        ${statCard('💰', 'Total Value',     formatPriceDisplay(totalValue),  'green')}
+                        ${statCard('✉',  'Reminders Sent',  remindersSent,                   'orange')}
+                        ${statCard('🎯', 'Recovered',       recovered + ' (' + recoveryRate + '%)', 'purple')}
                     </div>
+                    ${recovered > 0 ? `<div class="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+                        <span class="text-2xl">🎉</span>
+                        <div>
+                            <p class="font-bold text-green-800">Cart Recovery: ${recovered} order${recovered !== 1 ? 's' : ''} recovered</p>
+                            <p class="text-sm text-green-600">${formatPriceDisplay(recoveredValue)} revenue recovered from abandoned carts · ${recoveryRate}% recovery rate</p>
+                        </div>
+                    </div>` : ''}
 
                     <!-- Table -->
                     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -15419,6 +15631,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                                         <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Products</th>
                                         <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Abandoned</th>
                                         <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Recovery</th>
                                         <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Actions</th>
                                     </tr>
                                 </thead>
@@ -21077,6 +21290,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             handlePaymentFilterChange,
             toggleOrderRow,
             toggleOrdersFullscreen,
+            exportOrdersCSV,
+            renderEmailSubscribersSection,
             collapseAllOrders,
             toggleOrderSelection,
             toggleAllOrders,
