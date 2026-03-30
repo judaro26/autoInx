@@ -1652,6 +1652,17 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                 });
             }
 
+            // Mark abandoned cart as recovered (fire-and-forget)
+            if (userId) {
+                try {
+                    updateDoc(doc(db, 'abandoned_carts', userId), {
+                        recovered: true,
+                        recoveredAt: serverTimestamp(),
+                        recoveredOrderId: orderId,
+                    }).catch(() => {});
+                } catch {}
+            }
+
             // Deduct inventory server-side (fire-and-forget)
             _signOrderId(orderId).then(sig => {
                 fetch('/.netlify/functions/deductInventory', {
