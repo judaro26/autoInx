@@ -124,8 +124,8 @@ exports.handler = async (event) => {
         body: JSON.stringify({
           maintenanceMode:   false,
           chatWidgetEnabled: false,
-          ipWhitelist:       [],
-          staticIpWhitelist: STATIC_IP_WHITELIST,
+          searchDemoBanner:  false,
+          // ipWhitelist / staticIpWhitelist intentionally omitted
           chatSchedule:      DEFAULT_CHAT_SCHEDULE,
           branding:          DEFAULT_BRANDING,
           seasonalBanner:    DEFAULT_SEASONAL_BANNER,
@@ -145,8 +145,8 @@ exports.handler = async (event) => {
     const response = {
       maintenanceMode:   configData.maintenanceMode   || false,
       chatWidgetEnabled: configData.chatWidgetEnabled || false,
-      ipWhitelist:       dynamicWhitelist,
-      staticIpWhitelist: configData.staticIpWhitelist || STATIC_IP_WHITELIST,
+      searchDemoBanner:  configData.searchDemoBanner  || false,
+      // ipWhitelist and staticIpWhitelist intentionally omitted — never expose to public
       chatSchedule:      configData.chatSchedule      || DEFAULT_CHAT_SCHEDULE,
       branding:          configData.branding          || DEFAULT_BRANDING,
       seasonalBanner:    configData.seasonalBanner    || DEFAULT_SEASONAL_BANNER,
