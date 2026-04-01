@@ -3731,11 +3731,18 @@
                     }
                     
                     isAuthReady = true;
-                    await fetchAndApplyGlobalConfig();
-        
+
+                    // Apply already-cached config (setupFirebase fetched it before Firebase init).
+                    // Only make a new network call if the cache is somehow empty.
+                    if (_globalConfigCache) {
+                        _applyGlobalConfig(_globalConfigCache);
+                    } else {
+                        await fetchAndApplyGlobalConfig();
+                    }
+
                     // Chat widget visibility — state already set by _applyGlobalConfig
                     state.chatWidgetEnabled = state.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
-                    
+
                     // Start live data sync and render
                     setupRealtimeListeners();
                     render();
@@ -3743,28 +3750,41 @@
                     // Load reviews for the rotating banner (non-blocking)
                     setTimeout(() => loadReviewsBanner(), 500);
 
-                    // Poll config every 60s to pick up maintenance mode and banner changes
-                    setInterval(async () => {
-                        try {
-                            const res = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
-                            if (!res.ok) return;
-                            const cfg = await res.json();
+                    // Poll config every 60s — registered only once via guard flag
+                    if (!window._configPollStarted) {
+                        window._configPollStarted = true;
+                        setInterval(async () => {
+                            try {
+                                const res = await fetch(GET_PUBLIC_CONFIG_FUNCTION);
+                                if (!res.ok) return;
+                                const cfg = await res.json();
 
-                            const prevMaintenance = state.isMaintenanceMode;
-                            const prevBanner      = JSON.stringify(state.seasonalBanner);
+                                // Snapshot state before applying
+                                const snap = JSON.stringify({
+                                    m: state.isMaintenanceMode,
+                                    b: state.seasonalBanner,
+                                    d: state.searchDemoBanner,
+                                    c: state.chatWidgetEnabled,
+                                });
 
-                            state.isMaintenanceMode = cfg.maintenanceMode === true;
-                            state.isAdminIP         = cfg.isRequesterAdmin === true;
-                            state.seasonalBanner    = cfg.seasonalBanner || null;
-                            if (cfg.branding) applyBranding(cfg.branding);
+                                // Update cache so future hits are fresh
+                                _globalConfigCache = cfg;
 
-                            // Re-render only if something changed
-                            if (state.isMaintenanceMode !== prevMaintenance ||
-                                JSON.stringify(state.seasonalBanner) !== prevBanner) {
-                                render();
-                            }
-                        } catch (e) { /* silent — don't disrupt the user */ }
-                    }, 60000);
+                                // Apply ALL fields through the shared function
+                                _applyGlobalConfig(cfg);
+                                state.chatWidgetEnabled = state.chatWidgetEnabled && (!state.isMaintenanceMode || state.isAdminIP);
+
+                                // Re-render only if something visible changed
+                                const snapAfter = JSON.stringify({
+                                    m: state.isMaintenanceMode,
+                                    b: state.seasonalBanner,
+                                    d: state.searchDemoBanner,
+                                    c: state.chatWidgetEnabled,
+                                });
+                                if (snap !== snapAfter) render();
+                            } catch (e) { /* silent */ }
+                        }, 60000);
+                    }
                     
                     // 🔥 HANDLE ADMIN REDIRECT AFTER RENDER
                     if (isAdminRedirect) {
