@@ -33,6 +33,7 @@ const HEADERS = {
 const ALLOWED_KEYS = [
     'maintenanceMode',
     'chatWidgetEnabled',
+    'searchDemoBanner',
     'ipWhitelist',
     'chatSchedule',
     'branding',
