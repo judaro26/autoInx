@@ -9,13 +9,11 @@ if (!admin.apps.length) {
   });
 }
 const db = admin.firestore();
-
 const DEFAULT_SEASONAL_BANNER = {
   enabled: false,
   theme: 'stpatricks',
   message: ''
 };
-
 const DEFAULT_BRANDING = {
   logoUrl: '/images/AutoInx logo.png',
   headerText: { en: 'Catalog', es: 'Catálogo' },
@@ -26,13 +24,11 @@ const DEFAULT_BRANDING = {
     checkout: '#ec4899'
   }
 };
-
 const DEFAULT_CHAT_SCHEDULE = {
   enableTime: '08:00',
   disableTime: '20:00',
   activeDays: [1, 2, 3, 4, 5]
 };
-
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return {
@@ -45,69 +41,53 @@ exports.handler = async (event) => {
       body: ''
     };
   }
-
   try {
     console.log('📥 Fetching admin config from Firestore...');
-
     const configDoc = await db.collection('admin').doc('config').get();
-
     if (!configDoc.exists) {
       console.warn('⚠️ Config document does not exist, returning defaults');
       return {
         statusCode: 200,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          maintenanceMode: false,
+          maintenanceMode:   false,
           chatWidgetEnabled: false,
-          ipWhitelist: [],
+          searchDemoBanner:  false,
+          ipWhitelist:       [],
           staticIpWhitelist: [],
-          chatSchedule: DEFAULT_CHAT_SCHEDULE,
-          branding: DEFAULT_BRANDING,
-          seasonalBanner: DEFAULT_SEASONAL_BANNER
+          chatSchedule:      DEFAULT_CHAT_SCHEDULE,
+          branding:          DEFAULT_BRANDING,
+          seasonalBanner:    DEFAULT_SEASONAL_BANNER
         })
       };
     }
-
     const configData = configDoc.data();
     console.log('✅ Config data retrieved:', JSON.stringify(configData, null, 2));
-
     const response = {
       maintenanceMode:   configData.maintenanceMode   || false,
       chatWidgetEnabled: configData.chatWidgetEnabled || false,
+      searchDemoBanner:  configData.searchDemoBanner  || false,
       ipWhitelist:       configData.ipWhitelist       || [],
       staticIpWhitelist: configData.staticIpWhitelist || [],
       chatSchedule:      configData.chatSchedule      || DEFAULT_CHAT_SCHEDULE,
       branding:          configData.branding          || DEFAULT_BRANDING,
       seasonalBanner:    configData.seasonalBanner    || DEFAULT_SEASONAL_BANNER,
+      footer:            configData.footer            || null,
+      payment:           configData.payment           || null,
       lastUpdated:       configData.lastUpdated       || null
     };
-
     console.log('📤 Returning response with seasonalBanner:', JSON.stringify(response.seasonalBanner));
-
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
       body: JSON.stringify(response)
     };
-
   } catch (error) {
     console.error('❌ Error fetching config:', error);
     return {
       statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        error: 'Failed to fetch configuration',
-        details: error.message
-      })
+      headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Failed to fetch configuration', details: error.message })
     };
   }
 };
