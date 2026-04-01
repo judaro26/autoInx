@@ -179,6 +179,7 @@
             isTosModalOpen: false,
             productSearchTerm: '',
             selectedCategoryId: 'all',
+            aiSearch: { loading: false, results: [], message: '', term: '' },
             selectedItem: null,
             captchaToken: null,
             branding: null,
@@ -314,6 +315,8 @@
 
             // Restore AI chat panel if it was open before this render
             _restoreAiChatIfOpen();
+            // Repopulate AI search panel (live div, not re-rendered)
+            setTimeout(() => _updateAiSearchPanel(), 0);
         }
 
         // --- NEW UTILITY FUNCTIONS ---
@@ -1898,12 +1901,19 @@
                     <div class="md:col-span-8 space-y-6">
                         <div class="sticky top-[135px] md:top-24 bg-indigo-50/80 backdrop-blur-md z-10 py-2 -mx-2 px-2 rounded-xl">
                             <div class="flex gap-2">
-                                <input type="text"
-                                       id="product-search-input"
-                                       oninput="window.module.handleProductSearchInput(event)"
-                                       value="${state.productSearchTerm}"
-                                       placeholder="${t('searchPlaceholder')}"
-                                       class="flex-1 p-2 text-sm border border-indigo-300 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 bg-white">
+                                <div class="relative flex-1">
+                                    <input type="text"
+                                           id="product-search-input"
+                                           oninput="window.module.handleProductSearchInput(event)"
+                                           onkeydown="if(event.key==='Escape')window.module.clearAiSearch()"
+                                           value="${state.productSearchTerm}"
+                                           placeholder="${currentLang === 'es' ? '🔍 Busca por pieza, modelo, año de vehículo...' : '🔍 Search by part, model, vehicle year...'}"
+                                           autocomplete="off"
+                                           class="w-full p-2 pr-8 text-sm border border-indigo-300 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 bg-white">
+                                    ${state.productSearchTerm ? `
+                                    <button onclick="window.module.clearAiSearch()"
+                                            class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>` : ''}
+                                </div>
                                 <select onchange="window.module.handleSortChange(event)"
                                         class="text-sm border border-indigo-300 rounded-xl px-2 py-2 bg-white shadow-sm focus:ring-2 focus:ring-indigo-500 text-gray-700 font-medium cursor-pointer flex-shrink-0">
                                     <option value="default"  ${state.sortBy === 'default'  ? 'selected' : ''}>${currentLang === 'es' ? 'Orden' : 'Sort'}</option>
@@ -1913,6 +1923,8 @@
                                     <option value="rating"   ${state.sortBy === 'rating'    ? 'selected' : ''}>${currentLang === 'es' ? 'Mejor valorados' : 'Top Rated'}</option>
                                 </select>
                             </div>
+
+                            <div id="ai-search-panel-wrapper"></div>
                         </div>
                         ${renderReviewsBanner()}
                         <div id="product-grid-container">
@@ -1973,20 +1985,178 @@
             const selectionStart = e.target.selectionStart;
             const selectionEnd   = e.target.selectionEnd;
             state.productSearchTerm = e.target.value;
+
+            // Clear AI results immediately when term changes
+            if (state.productSearchTerm !== state.aiSearch.term) {
+                state.aiSearch = { loading: false, results: [], message: '', term: '' };
+            }
+
             render();
-            // Fire search event after debounce
+
+            // GA4 search event
             clearTimeout(window._searchGaTimer);
             if (state.productSearchTerm.length >= 2) {
                 window._searchGaTimer = setTimeout(() => {
                     window._gtag('event', 'search', { search_term: state.productSearchTerm });
                 }, 800);
             }
-        
-            // 4. Find the "new" input in the DOM and restore focus/cursor
+
+            // AI suggestions — debounce 700ms, min 3 chars
+            clearTimeout(window._aiSearchTimer);
+            if (state.productSearchTerm.trim().length >= 3) {
+                state.aiSearch.loading = true;
+                _updateAiSearchPanel();
+                window._aiSearchTimer = setTimeout(() => {
+                    triggerAiSearch(state.productSearchTerm.trim());
+                }, 700);
+            } else {
+                clearTimeout(window._aiSearchTimer);
+                state.aiSearch = { loading: false, results: [], message: '', term: '' };
+            }
+
+            // Restore focus/cursor after render
             const newInput = document.getElementById(inputId);
             if (newInput) {
                 newInput.focus();
                 newInput.setSelectionRange(selectionStart, selectionEnd);
+            }
+        }
+
+        // Update only the AI panel without full re-render (avoids cursor loss)
+        function _updateAiSearchPanel() {
+            const wrapper = document.getElementById('ai-search-panel-wrapper');
+            if (wrapper) {
+                const ai = state.aiSearch;
+                const term = state.productSearchTerm;
+                if (!term || term.length < 3) { wrapper.innerHTML = ''; return; }
+
+                if (ai.loading) {
+                    const isSp = currentLang === 'es';
+                    wrapper.innerHTML = '<div class="mt-2 px-3 py-2.5 bg-white border border-indigo-100 rounded-xl shadow-sm flex items-center gap-2 text-sm text-indigo-500">'
+                        + '<span class="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin flex-shrink-0"></span>'
+                        + '<span>' + (isSp ? 'Buscando con IA…' : 'AI is searching your catalog…') + '</span></div>';
+                    return;
+                }
+
+                if (!ai.results.length && !ai.message) { wrapper.innerHTML = ''; return; }
+
+                const isSp = currentLang === 'es';
+                const fmt = cents => '$' + (cents / 100).toFixed(2);
+
+                const cards = ai.results.map(item => {
+                    const img    = item.imageUrls?.[0] || item.imageUrl || '';
+                    const inCart = state.cart[item.id];
+                    return '<div class="flex items-center gap-3 p-2 hover:bg-indigo-50 rounded-xl transition group">'
+                        + (img ? '<img src="' + img + '" class="w-12 h-12 object-contain rounded-lg flex-shrink-0 bg-gray-50 border border-gray-100" onerror="this.style.display=\'none\'">'
+                               : '<div class="w-12 h-12 bg-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center text-xl">📦</div>')
+                        + '<div class="flex-1 min-w-0 cursor-pointer" onclick="window.module.openItemDetailModal_byId('' + item.id + '')">'
+                        +   '<p class="text-sm font-semibold text-gray-800 truncate group-hover:text-indigo-700">' + item.name + '</p>'
+                        +   '<p class="text-xs font-bold text-indigo-600 mt-0.5">' + fmt(item.price)
+                        +   (item.stock > 0 ? ' <span class="text-green-600 font-normal">· In stock</span>' : ' <span class="text-red-500 font-normal">· Out of stock</span>') + '</p>'
+                        + '</div>'
+                        + '<button onclick="window.module.addToCartById('' + item.id + '')" '
+                        +   'class="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg font-bold transition whitespace-nowrap '
+                        +   (inCart ? 'bg-green-100 text-green-700 hover:bg-green-200' : item.stock > 0 ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed') + '" '
+                        +   (item.stock <= 0 ? 'disabled' : '') + '>'
+                        +   (inCart ? '✓ ' + (isSp ? 'En carrito' : 'In cart') : isSp ? '+ Agregar' : '+ Add')
+                        + '</button>'
+                        + '</div>';
+                }).join('');
+
+                wrapper.innerHTML = '<div class="mt-2 bg-white border border-indigo-100 rounded-xl shadow-lg overflow-hidden">'
+                    + '<div class="px-3 py-2 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-100 flex items-center justify-between">'
+                    +   '<div class="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">'
+                    +     '<span>🤖</span>'
+                    +     '<span>' + (isSp ? 'Sugerencias IA para' : 'AI results for') + ' "<em>' + ai.term + '</em>"</span>'
+                    +   '</div>'
+                    +   '<button onclick="window.module.clearAiSearch()" class="text-xs text-gray-400 hover:text-gray-600 transition leading-none px-1">✕</button>'
+                    + '</div>'
+                    + (ai.message ? '<p class="px-3 py-2 text-xs text-gray-600 italic border-b border-gray-50">' + ai.message + '</p>' : '')
+                    + (cards ? '<div class="divide-y divide-gray-50 px-1 py-1 max-h-80 overflow-y-auto">' + cards + '</div>' : '')
+                    + '</div>';
+            }
+        }
+
+        async function triggerAiSearch(term) {
+            if (!term || term.length < 3) return;
+            // Don't re-run the same query
+            if (state.aiSearch.term === term && state.aiSearch.results.length > 0) return;
+
+            const products = state.items
+                .filter(i => !i.temporarilyUnavailable)
+                .map(i => ({
+                    id:          i.id,
+                    name:        i.name,
+                    sku:         i.sku || i.id,
+                    price:       ((i.price || 0) / 100).toFixed(2),
+                    stock:       i.stock || 0,
+                    description: (i.description || '').replace(/<[^>]*>/g, '').slice(0, 200),
+                }));
+
+            try {
+                const res = await fetch('/.netlify/functions/catalogChat', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [{ role: 'user', content: term }],
+                        products,
+                        storeName: 'AutoInx',
+                        isSearchBar: true,   // hint to catalogChat to be concise
+                        isBusinessHours: true,
+                    }),
+                });
+
+                if (!res.ok) throw new Error('Search failed');
+                const data = await res.json();
+
+                const matchedItems = (Array.isArray(data.recommendations) ? data.recommendations : [])
+                    .map(sku => state.items.find(i => (i.sku || i.id) === sku))
+                    .filter(Boolean)
+                    .slice(0, 5);
+
+                state.aiSearch = {
+                    loading:  false,
+                    term,
+                    results:  matchedItems,
+                    message:  matchedItems.length === 0
+                        ? (data.reply || (currentLang === 'es'
+                            ? 'No encontramos productos que coincidan. Intenta con otro término.'
+                            : 'No matching products found. Try a different search term.'))
+                        : (data.reply || ''),
+                };
+            } catch {
+                state.aiSearch = {
+                    loading: false, term,
+                    results: [],
+                    message: currentLang === 'es'
+                        ? 'No se pudo conectar con el asistente IA.'
+                        : 'Could not connect to AI assistant.',
+                };
+            }
+            _updateAiSearchPanel();
+        }
+
+        function clearAiSearch() {
+            clearTimeout(window._aiSearchTimer);
+            state.aiSearch    = { loading: false, results: [], message: '', term: '' };
+            state.productSearchTerm = '';
+            const inp = document.getElementById('product-search-input');
+            if (inp) { inp.value = ''; inp.focus(); }
+            _updateAiSearchPanel();
+            render();
+        }
+
+        function openItemDetailModal_byId(itemId) {
+            const item = state.items.find(i => i.id === itemId);
+            if (item) openItemDetailModal(item);
+        }
+
+        function addToCartById(itemId) {
+            const item = state.items.find(i => i.id === itemId);
+            if (item) {
+                addToCart(item);
+                // Refresh cart buttons in AI panel without full re-render
+                _updateAiSearchPanel();
             }
         }
         
@@ -4156,6 +4326,10 @@
             sendAiChatMessage,
             addToCartFromChat,
             handleProductSearchInput,
+            triggerAiSearch,
+            clearAiSearch,
+            openItemDetailModal_byId,
+            addToCartById,
             selectCategory,
             clearAllFilters,
             handleSortChange,
