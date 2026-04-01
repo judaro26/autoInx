@@ -1562,6 +1562,12 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                             </div>
                             <svg class="w-5 h-5 text-gray-400 group-hover:text-green-600 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                         </button>
+
+                        <!-- Cancel / back -->
+                        <button id="pmCancel"
+                                class="w-full text-center text-sm text-gray-400 hover:text-gray-600 py-2 transition">
+                            ${isSp ? '← Volver al formulario' : '← Back to checkout form'}
+                        </button>
                     </div>
                 </div>
             </div>`;
@@ -1609,8 +1615,39 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             modal.querySelector('#pmCard').onclick  = lockAndRun(() => continueWithCard(orderId, order));
             modal.querySelector('#pmZelle').onclick = lockAndRun(() => continueWithAlternativePayment(orderId, order, 'zelle'));
             modal.querySelector('#pmCash').onclick  = lockAndRun(() => continueWithAlternativePayment(orderId, order, 'cash'));
+
+            // Cancel — close modal without selecting, re-enable form
+            modal.querySelector('#pmCancel').onclick = () => {
+                modal.remove();
+                orderCompleted = false;
+                const btn = document.getElementById('btnSubmit');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = currentLang === 'es' ? 'Realizar Pedido' : 'Place Order';
+                }
+                resolve();
+            };
         });
     }
+
+    // Exposed for the Zelle/Cash confirmation page to re-open the modal after body replacement
+    window._reopenPaymentModal = async function() {
+        const orderId = window._pendingOrderId;
+        const order   = window._pendingOrder;
+        if (!orderId || !order) return;
+
+        // Mark as a method-change so confirm emails are not re-sent
+        window._isPaymentMethodChange = true;
+
+        // Rebuild the modal over the current page content
+        const isSp = currentLang === 'es';
+        const fmt  = c => '$' + ((c||0)/100).toFixed(2);
+        const existing = document.getElementById('paymentMethodModal');
+        if (existing) existing.remove();
+
+        // Re-show the payment modal (reuses showPaymentMethodModal)
+        await showPaymentMethodModal(orderId, order);
+    };
 
     // ── Card path — resumes existing Stripe flow ──────────────────────────────
     async function continueWithCard(orderId, order) {
@@ -1715,15 +1752,22 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             });
         } catch {}
 
-        // Deduct inventory server-side (fire-and-forget)
-        _signOrderId(orderId).then(sig => {
-            fetch('/.netlify/functions/deductInventory', {
-                method: 'POST', keepalive: true,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orderId, items: order.items, _sig: sig })
-            }).catch(() => {});
-        });
+        const isMethodChange = window._isPaymentMethodChange === true;
+        window._isPaymentMethodChange = false; // reset
 
+        // Deduct inventory server-side — only on first selection, not on method change
+        if (!isMethodChange) {
+            _signOrderId(orderId).then(sig => {
+                fetch('/.netlify/functions/deductInventory', {
+                    method: 'POST', keepalive: true,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, items: order.items, _sig: sig })
+                }).catch(() => {});
+            });
+        }
+
+        // Send confirmation email — skip if user is just changing their method
+        if (!isMethodChange)
         _signOrderId(orderId).then(sig => {
             fetch('/.netlify/functions/sendOrderConfirmation', {
                 method: 'POST',
@@ -1747,6 +1791,11 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
             await deleteDoc(doc(db, 'abandoned_carts', userId)).catch(() => {});
         }
 
+        // Store on window so the 'Change payment method' button can reopen the modal
+        // even after document.body.innerHTML is fully replaced below
+        window._pendingOrderId = orderId;
+        window._pendingOrder   = order;
+
         // Show instructions + registration prompt
         document.body.innerHTML = `
         <div class="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -1757,6 +1806,15 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                     <div class="text-5xl mb-3">${isZelle ? '🏦' : '💵'}</div>
                     <h1 class="text-2xl font-black text-gray-800 mb-1">${isSp ? '¡Pedido Recibido!' : 'Order Received!'}</h1>
                     <p class="text-gray-500 text-sm">${isSp ? 'Pedido' : 'Order'} <span class="font-mono font-bold text-indigo-600">#${orderId.slice(0,8).toUpperCase()}</span></p>
+                </div>
+
+                <!-- Change payment method -->
+                <div class="text-center">
+                    <button onclick="window._reopenPaymentModal()"
+                            class="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-indigo-600 transition font-medium">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                        ${isSp ? 'Cambiar método de pago' : 'Change payment method'}
+                    </button>
                 </div>
 
                 <!-- Payment instructions -->
