@@ -321,7 +321,15 @@ exports.handler = async function (event) {
                 ? `Confirmación de Reembolso - Pedido #${orderId.substring(0, 8)}`
                 : `Refund Confirmation - Order #${orderId.substring(0, 8)}`;
 
-            await transporter.sendMail({ from: '"autoInx Support" <noreply@autoinx.com>', to: buyerEmail, subject, html: template });
+            // Inject unsubscribe link into buyer email
+            const unsubToken = makeUnsubToken(buyerEmail);
+            const unsubUrl   = `https://autoinx.com/.netlify/functions/unsubscribe?email=${encodeURIComponent(buyerEmail)}&token=${unsubToken}`;
+            const unsubFooter = `<div style="text-align:center;padding:16px;font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;margin-top:24px;">
+                You received this email because you made a purchase at AutoInx.<br>
+                <a href="${unsubUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>
+            </div>`;
+            const templateWithUnsub = template.replace('</body>', unsubFooter + '</body>');
+            await transporter.sendMail({ from: '"autoInx Support" <noreply@autoinx.com>', to: buyerEmail, subject, html: templateWithUnsub });
             await transporter.sendMail({ from: '"autoInx Support" <noreply@autoinx.com>', to: "orders@autoinx.com",
                 subject: `[REFUND] #${orderId.substring(0, 8)} — ${formatPrice(refundData.amountCents)} (${refundType})`, html: template });
 
