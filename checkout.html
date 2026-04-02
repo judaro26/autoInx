@@ -21,7 +21,15 @@
     <meta property="og:url"         content="https://autoinx.com/checkout.html">
     <meta property="og:image"       content="https://autoinx.com/images/AutoInx logo.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/images/AutoInx logo.png">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/css/tailwind.min.css">
+    <!-- Google Ads conversion tracking -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18055277652"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'AW-18055277652');
+    </script>
     <script>
         tailwind.config = {
             theme: {
@@ -2274,6 +2282,18 @@ async function recordCheckoutDiscountUsage(discount, orderId, orderData) {
                     price: (i.price || 0) / 100, quantity: i.quantity
                 }))
             });
+
+            // Fire Google Ads purchase conversion
+            try {
+                if (typeof gtag === 'function') {
+                    gtag('event', 'conversion', {
+                        send_to:        'AW-18055277652',
+                        value:          order.totalCents / 100,
+                        currency:       'USD',
+                        transaction_id: docRef.id,
+                    });
+                }
+            } catch(e) {}
 
             // 1c. Lock the form — order is already in Firestore.
             //     Setting orderCompleted=true prevents any re-submission if the
