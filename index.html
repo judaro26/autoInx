@@ -9,6 +9,16 @@
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://autoinx.com/">
     <link rel="sitemap" type="application/xml" href="/sitemap.xml">
+
+    <!-- PWA ──────────────────────────────────────────────────────────────── -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="AutoInx">
+    <link rel="apple-touch-icon" href="/images/AutoInx logo.png">
+    <link rel="apple-touch-startup-image" href="/images/AutoInx logo.png">
     <meta property="og:type"        content="website">
     <meta property="og:url"         content="https://autoinx.com/">
     <meta property="og:title"       content="AutoInx — Quality Auto Parts &amp; Accessories">
@@ -22,17 +32,55 @@
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"AutoPartsStore","name":"AutoInx","url":"https://autoinx.com","logo":"https://autoinx.com/images/AutoInx logo.png","description":"Quality automotive parts and accessories — oil filters, dashcams, wiper blades and more. Fast US shipping from Hayward, CA.","address":{"@type":"PostalAddress","streetAddress":"587 Paradise Blvd","addressLocality":"Hayward","addressRegion":"CA","postalCode":"94541","addressCountry":"US"},"geo":{"@type":"GeoCoordinates","latitude":37.6688,"longitude":-122.0808},"telephone":"+1-937-701-6185","email":"support@autoinx.com","openingHoursSpecification":[{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday"],"opens":"09:00","closes":"18:00"}],"priceRange":"$$","paymentAccepted":"Credit Card, Zelle, Cash","sameAs":["https://www.ebay.com/str/autoinx"]}</script>
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does AutoInx ship across the United States?","acceptedAnswer":{"@type":"Answer","text":"Yes. AutoInx ships to all 50 US states via USPS, UPS, and FedEx."}},{"@type":"Question","name":"What is the return policy?","acceptedAnswer":{"@type":"Answer","text":"AutoInx offers a 30-day return window from delivery. Items must be uninstalled and in original packaging."}},{"@type":"Question","name":"Is local pickup available?","acceptedAnswer":{"@type":"Answer","text":"Yes — customers within 50 miles of Hayward, CA can select free local pickup at checkout."}},{"@type":"Question","name":"What payment methods are accepted?","acceptedAnswer":{"@type":"Answer","text":"Credit/debit cards via Stripe, Zelle, and cash for local pickup."}}]}</script>
 
-    <!-- Google Analytics 4 — replace G-XXXXXXXXXX with your real Measurement ID -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <!-- Analytics — loaded only after cookie consent ────────────────────── -->
     <script>
+        // Safe gtag wrapper — works before consent and after
         window.dataLayer = window.dataLayer || [];
         function gtag(){ dataLayer.push(arguments); }
-        gtag('js', new Date());
-        gtag('config', 'G-XXXXXXXXXX', { send_page_view: true, cookie_flags: 'SameSite=None;Secure' });
-        // Safe wrapper — never throws even if GA hasn't loaded yet
         window._gtag = function() { try { gtag.apply(null, arguments); } catch(e) {} };
+
+        // Check existing consent from previous visit
+        (function() {
+            const consent = localStorage.getItem('autoinx_cookie_consent');
+            if (consent === 'accepted') {
+                window._loadAnalytics();
+            }
+        })();
+
+        function _loadAnalytics() {
+            if (window._analyticsLoaded) return;
+            window._analyticsLoaded = true;
+
+            // GA4 — replace G-XXXXXXXXXX with your real Measurement ID
+            const ga4 = document.createElement('script');
+            ga4.async = true;
+            ga4.src = 'https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX';
+            document.head.appendChild(ga4);
+            gtag('js', new Date());
+            gtag('config', 'G-XXXXXXXXXX', { send_page_view: true, cookie_flags: 'SameSite=None;Secure' });
+
+            // Google Ads conversion tracking
+            const gads = document.createElement('script');
+            gads.async = true;
+            gads.src = 'https://www.googletagmanager.com/gtag/js?id=AW-18055277652';
+            document.head.appendChild(gads);
+            gtag('config', 'AW-18055277652');
+        }
+        window._loadAnalytics = _loadAnalytics;
+
+        // Fire purchase conversion for Google Ads
+        window._fireAdsPurchase = function(orderTotal, orderId) {
+            try {
+                gtag('event', 'conversion', {
+                    'send_to':        'AW-18055277652',
+                    'value':          orderTotal,
+                    'currency':       'USD',
+                    'transaction_id': orderId,
+                });
+            } catch(e) {}
+        };
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/css/tailwind.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -313,6 +361,7 @@
                     ${renderTosModal()}
                     ${renderItemDetailModal()}
                     ${renderChatWidget()}
+                    ${renderCookieConsent()}
                 </div>
             `;
         
@@ -3687,18 +3736,21 @@
                 const storage = getStorage(app);
                 window._storage = storage;
         
-                // 7. Initialize App Check
-                /* TEMPORARILY DISABLED DUE TO 403 ERROR
+                // 7. Initialize App Check (graceful — never blocks the app if it fails)
+                // IMPORTANT: In Firebase Console → App Check → Register your app
+                // and add autoinx.com to the allowed domains for reCAPTCHA Enterprise.
                 try {
                     initializeAppCheck(app, {
                         provider: new ReCaptchaEnterpriseProvider('6LeUvWYsAAAAACWjFxTy9B4jTER2iiKzyJEuckgd'),
-                        isTokenAutoRefreshEnabled: true 
+                        isTokenAutoRefreshEnabled: true
                     });
-                    console.log("App Check initialized with reCAPTCHA Enterprise.");
+                    console.log('✅ App Check initialized.');
                 } catch (appCheckErr) {
-                    console.error("App Check failed to initialize:", appCheckErr);
+                    // App Check failure is non-fatal — the site still works.
+                    // Fix: Firebase Console → App Check → Apps → Register app as Web
+                    // then add autoinx.com to the reCAPTCHA Enterprise allowed domains.
+                    console.warn('⚠️ App Check unavailable (site still works):', appCheckErr.message);
                 }
-                */
                 applyBranding({
                     colors: {
                         backgroundStart: '#dbeafe',
@@ -4531,6 +4583,56 @@
             }, 55);   // typing speed: ~55ms per character
         }
 
+
+        // ── Cookie Consent ──────────────────────────────────────────────────────
+        function renderCookieConsent() {
+            const existing = localStorage.getItem('autoinx_cookie_consent');
+            if (existing) return ''; // Already decided
+            const isSp = currentLang === 'es';
+            return \`
+            <div id="cookie-banner" class="fixed bottom-0 left-0 right-0 z-[70] bg-gray-900 text-white px-4 py-4 shadow-2xl border-t-2 border-indigo-500"
+                 style="animation:slideUp .3s ease-out;">
+                <style>@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}</style>
+                <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold text-white mb-0.5">
+                            🍪 \${isSp ? 'Usamos cookies' : 'We use cookies'}
+                        </p>
+                        <p class="text-xs text-gray-400 leading-relaxed">
+                            \${isSp
+                                ? 'Usamos cookies esenciales para el funcionamiento del sitio, y cookies analíticas (Google Analytics, Google Ads) para mejorar tu experiencia. Puedes elegir solo las esenciales.'
+                                : 'We use essential cookies to run the site, and analytics cookies (Google Analytics, Google Ads) to improve your experience. You can choose essential only.'}
+                            <a href="/privacy.html" class="text-indigo-400 hover:text-indigo-300 underline ml-1">
+                                \${isSp ? 'Política de privacidad' : 'Privacy policy'}
+                            </a>
+                        </p>
+                    </div>
+                    <div class="flex gap-2 flex-shrink-0">
+                        <button onclick="window.module.declineCookies()"
+                                class="px-4 py-2 text-xs font-semibold text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-lg transition">
+                            \${isSp ? 'Solo esenciales' : 'Essential only'}
+                        </button>
+                        <button onclick="window.module.acceptCookies()"
+                                class="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-md">
+                            \${isSp ? 'Aceptar todo ✓' : 'Accept all ✓'}
+                        </button>
+                    </div>
+                </div>
+            </div>\`;
+        }
+
+        function acceptCookies() {
+            localStorage.setItem('autoinx_cookie_consent', 'accepted');
+            document.getElementById('cookie-banner')?.remove();
+            window._loadAnalytics?.();
+        }
+
+        function declineCookies() {
+            localStorage.setItem('autoinx_cookie_consent', 'declined');
+            document.getElementById('cookie-banner')?.remove();
+            // reCAPTCHA still loads on-demand for registration — essential only
+        }
+
         window.module = {
             setupFirebase,
             render,
@@ -4589,10 +4691,19 @@
             guestReturnLookup,
             setGuestReturnField,
             switchReturnToManual,
+            acceptCookies,
+            declineCookies,
         };
         document.addEventListener('DOMContentLoaded', () => {
             setupFirebase();
             loadRecaptchaScript();
+
+            // ── Register PWA Service Worker ────────────────────────────────
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('✅ Service Worker registered:', reg.scope))
+                    .catch(err => console.warn('SW registration failed:', err));
+            }
         });
     </script>
 </head>
