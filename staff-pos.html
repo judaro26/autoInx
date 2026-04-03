@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AutoInx POS">
+<meta name="theme-color" content="#4f46e5">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/images/AutoInx logo.png">
+<title>AutoInx Staff POS</title>
+<link rel="stylesheet" href="/css/tailwind.min.css">
+<style>
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; background: #f0f4ff; overscroll-behavior: none; }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 16px); }
+  .safe-top    { padding-top:    env(safe-area-inset-top,    16px); }
+
+  /* Bottom nav */
+  #bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e5e7eb; display: flex; z-index: 40; padding-bottom: env(safe-area-inset-bottom, 0); box-shadow: 0 -4px 12px rgba(0,0,0,.08); }
+  #bottom-nav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; font-size: 10px; font-weight: 600; color: #9ca3af; border: none; background: none; cursor: pointer; transition: color .15s; }
+  #bottom-nav button.active { color: #4f46e5; }
+  #bottom-nav button svg  { width: 22px; height: 22px; }
+
+  /* View container */
+  .view { display: none; flex-direction: column; min-height: 100dvh; padding-bottom: 80px; }
+  .view.active { display: flex; }
+
+  /* Cards */
+  .card { background: #fff; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.07); padding: 16px; }
+
+  /* Product cards */
+  .product-card { background: #fff; border-radius: 12px; border: 2px solid transparent; box-shadow: 0 2px 8px rgba(0,0,0,.06); transition: border-color .15s, box-shadow .15s; overflow: hidden; cursor: pointer; }
+  .product-card:active { transform: scale(.97); }
+  .product-card.in-cart { border-color: #4f46e5; }
+
+  /* Qty stepper */
+  .qty-btn { width: 32px; height: 32px; border-radius: 8px; border: none; font-size: 18px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+  /* Payment buttons */
+  .pay-btn { border-radius: 16px; padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 8px; border: 2px solid transparent; cursor: pointer; transition: all .15s; }
+  .pay-btn:active { transform: scale(.96); }
+  .pay-btn.selected { border-color: #4f46e5; background: #eef2ff; }
+
+  /* AI suggestion pill */
+  .ai-pill { background: linear-gradient(135deg,#4f46e5,#7c3aed); color: #fff; border-radius: 12px; padding: 4px 10px; font-size: 11px; font-weight: 700; }
+
+  /* Spinner */
+  .spinner { width: 20px; height: 20px; border: 3px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Slide up animation for sheets */
+  @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .slide-up { animation: slideUp .25s ease-out; }
+
+  /* Receipt preview */
+  .receipt-line { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
+
+  /* Pin display */
+  .pin-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #4f46e5; transition: background .1s; }
+  .pin-dot.filled { background: #4f46e5; }
+
+  /* NFC pulse */
+  @keyframes nfcPulse { 0%,100%{transform:scale(1);opacity:.8} 50%{transform:scale(1.15);opacity:1} }
+  .nfc-icon { animation: nfcPulse 1.5s ease-in-out infinite; }
+
+  input[type=file] { display: none; }
+  textarea { resize: none; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  PIN LOCK SCREEN                                              -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="pin-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700 safe-top">
+  <img src="/images/AutoInx logo.png" alt="AutoInx" class="h-14 w-auto mb-2 rounded-xl" onerror="this.style.display='none'">
+  <p class="text-white font-black text-2xl mb-1">AutoInx POS</p>
+  <p class="text-indigo-200 text-sm mb-8">Staff Point of Sale</p>
+
+  <div class="bg-white/15 rounded-2xl px-8 py-6 w-full max-w-xs">
+    <p class="text-white text-center text-sm font-semibold mb-4">Enter Staff PIN</p>
+    <div class="flex justify-center gap-3 mb-6" id="pin-dots">
+      <div class="pin-dot" id="d0"></div>
+      <div class="pin-dot" id="d1"></div>
+      <div class="pin-dot" id="d2"></div>
+      <div class="pin-dot" id="d3"></div>
+    </div>
+    <p id="pin-error" class="text-red-300 text-center text-xs mb-3 hidden">Incorrect PIN. Try again.</p>
+
+    <!-- Numpad -->
+    <div class="grid grid-cols-3 gap-3">
+      <button onclick="pinKey('1')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">1</button>
+      <button onclick="pinKey('2')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">2</button>
+      <button onclick="pinKey('3')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">3</button>
+      <button onclick="pinKey('4')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">4</button>
+      <button onclick="pinKey('5')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">5</button>
+      <button onclick="pinKey('6')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">6</button>
+      <button onclick="pinKey('7')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">7</button>
+      <button onclick="pinKey('8')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">8</button>
+      <button onclick="pinKey('9')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">9</button>
+      <div></div>
+      <button onclick="pinKey('0')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">0</button>
+      <button onclick="pinKey('⌫')" class="h-14 rounded-xl font-bold text-xl text-white bg-white/20 active:bg-white/40">⌫</button>
+    </div>
+  </div>
+  <p class="text-indigo-300 text-xs mt-4">Default PIN: 1234</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  MAIN APP                                                     -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="main-app" class="hidden">
+
+  <!-- ── VIEW: CATALOG ───────────────────────────────────────── -->
+  <div id="view-catalog" class="view active">
+    <!-- Header -->
+    <div class="bg-white border-b border-gray-100 px-4 py-3 sticky top-0 z-30 shadow-sm safe-top">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <img src="/images/AutoInx logo.png" class="h-7 w-auto rounded" onerror="this.style.display='none'">
+          <span class="font-black text-indigo-700 text-lg">POS</span>
+        </div>
+        <button onclick="switchView('cart')" class="relative p-2">
+          <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          <span id="cart-badge" class="hidden absolute -top-1 -right-1 bg-indigo-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">0</span>
+        </button>
+      </div>
+      <!-- Search bar -->
+      <div class="relative">
+        <input id="search-input" type="search" placeholder="Search parts, OEM#, vehicle..." autocomplete="off"
+               class="w-full pl-9 pr-10 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+               oninput="handleSearch(this.value)">
+        <svg class="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <button id="search-clear" onclick="clearSearch()" class="hidden absolute right-2.5 top-2.5 text-gray-400 text-lg leading-none">✕</button>
+      </div>
+      <!-- Category pills -->
+      <div id="cat-pills" class="flex gap-2 overflow-x-auto mt-2 pb-1 scrollbar-none" style="scrollbar-width:none;-webkit-overflow-scrolling:touch;"></div>
+    </div>
+
+    <!-- AI results panel -->
+    <div id="ai-panel" class="hidden mx-3 mt-3 rounded-2xl overflow-hidden border border-indigo-100 shadow-md">
+      <div class="bg-gradient-to-r from-indigo-50 to-purple-50 px-3 py-2 flex items-center justify-between border-b border-indigo-100">
+        <div class="flex items-center gap-1.5">
+          <span class="text-sm">🤖</span>
+          <span class="text-xs font-bold text-indigo-700">AI Results</span>
+          <span id="ai-term" class="text-xs text-indigo-500 italic"></span>
+        </div>
+        <button onclick="closeAiPanel()" class="text-gray-400 text-sm px-1">✕</button>
+      </div>
+      <div id="ai-message" class="hidden text-xs text-gray-500 italic px-3 py-2 border-b border-gray-50"></div>
+      <div id="ai-results" class="bg-white divide-y divide-gray-50"></div>
+    </div>
+
+    <!-- Product grid -->
+    <div id="product-grid" class="p-3 grid grid-cols-2 gap-3"></div>
+    <div id="grid-empty" class="hidden flex-col items-center justify-center py-16 text-center px-6">
+      <div class="text-4xl mb-3">🔍</div>
+      <p class="font-bold text-gray-600">No products found</p>
+      <p class="text-sm text-gray-400 mt-1">Try a different search or category</p>
+    </div>
+    <div id="grid-loading" class="flex-col items-center justify-center py-16 flex">
+      <div class="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
+      <p class="text-sm text-gray-400">Loading catalog...</p>
+    </div>
+  </div>
+
+  <!-- ── VIEW: CART ───────────────────────────────────────────── -->
+  <div id="view-cart" class="view">
+    <div class="bg-white border-b border-gray-100 px-4 py-4 safe-top">
+      <div class="flex items-center gap-3">
+        <button onclick="switchView('catalog')" class="p-2 -ml-2">
+          <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <h1 class="font-bold text-lg text-gray-900">Cart</h1>
+      </div>
+    </div>
+    <div id="cart-list" class="flex-1 px-3 py-3 space-y-2 overflow-y-auto"></div>
+    <div id="cart-empty" class="hidden flex-1 flex-col items-center justify-center py-16 text-center">
+      <div class="text-5xl mb-3">🛒</div>
+      <p class="font-bold text-gray-500">Cart is empty</p>
+      <button onclick="switchView('catalog')" class="mt-4 px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm">Browse Catalog</button>
+    </div>
+    <!-- Cart footer -->
+    <div id="cart-footer" class="hidden bg-white border-t border-gray-100 px-4 py-4 safe-bottom">
+      <div class="flex justify-between items-center mb-3">
+        <span class="font-semibold text-gray-600">Subtotal</span>
+        <span id="cart-total" class="font-black text-xl text-indigo-700">$0.00</span>
+      </div>
+      <button onclick="switchView('customer')" class="w-full py-4 bg-indigo-600 text-white font-bold text-base rounded-xl shadow-md active:bg-indigo-700">
+        Continue → Customer Info
+      </button>
+    </div>
+  </div>
+
+  <!-- ── VIEW: CUSTOMER ──────────────────────────────────────── -->
+  <div id="view-customer" class="view">
+    <div class="bg-white border-b border-gray-100 px-4 py-4 safe-top">
+      <div class="flex items-center gap-3">
+        <button onclick="switchView('cart')" class="p-2 -ml-2">
+          <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <h1 class="font-bold text-lg text-gray-900">Customer Info</h1>
+      </div>
+    </div>
+    <div class="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
+      <div class="card border border-yellow-100 bg-yellow-50">
+        <p class="text-xs font-semibold text-yellow-700">💡 Optional — customer can skip</p>
+        <p class="text-xs text-yellow-600 mt-1">Providing an email allows us to send a digital receipt.</p>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Full Name</label>
+          <input id="cust-name" type="text" placeholder="e.g. John Smith" autocomplete="name"
+                 class="w-full p-3.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Email Address</label>
+          <input id="cust-email" type="email" placeholder="e.g. john@email.com" autocomplete="email" inputmode="email"
+                 class="w-full p-3.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Phone Number</label>
+          <input id="cust-phone" type="tel" placeholder="e.g. (555) 123-4567" autocomplete="tel" inputmode="tel"
+                 class="w-full p-3.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        </div>
+      </div>
+    </div>
+    <div class="bg-white border-t border-gray-100 px-4 py-4 safe-bottom">
+      <button onclick="switchView('payment')" class="w-full py-4 bg-indigo-600 text-white font-bold text-base rounded-xl shadow-md active:bg-indigo-700">
+        Continue → Payment
+      </button>
+      <button onclick="switchView('payment')" class="w-full py-3 text-sm text-gray-400 font-medium mt-2">
+        Skip — no customer info
+      </button>
+    </div>
+  </div>
+
+  <!-- ── VIEW: PAYMENT ───────────────────────────────────────── -->
+  <div id="view-payment" class="view">
+    <div class="bg-white border-b border-gray-100 px-4 py-4 safe-top">
+      <div class="flex items-center gap-3">
+        <button onclick="switchView('customer')" class="p-2 -ml-2">
+          <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <h1 class="font-bold text-lg text-gray-900">Select Payment</h1>
+      </div>
+    </div>
+    <div class="flex-1 px-4 py-4 overflow-y-auto">
+      <!-- Order summary -->
+      <div class="card mb-4">
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-gray-500">Order Total</span>
+          <span id="pay-total" class="font-black text-2xl text-indigo-700">$0.00</span>
+        </div>
+        <div id="pay-items-summary" class="mt-2 text-xs text-gray-400"></div>
+      </div>
+      <!-- Payment methods -->
+      <div class="grid grid-cols-3 gap-3 mb-4">
+        <button class="pay-btn bg-green-50 border-green-200" onclick="selectPayMethod('cash')">
+          <span class="text-3xl">💵</span>
+          <span class="text-sm font-bold text-green-700">Cash</span>
+        </button>
+        <button class="pay-btn bg-blue-50 border-blue-200" onclick="selectPayMethod('zelle')">
+          <span class="text-3xl">📲</span>
+          <span class="text-sm font-bold text-blue-700">Zelle</span>
+        </button>
+        <button class="pay-btn bg-purple-50 border-purple-200" onclick="selectPayMethod('card')">
+          <span class="text-3xl">💳</span>
+          <span class="text-sm font-bold text-purple-700">Card</span>
+        </button>
+      </div>
+
+      <!-- Cash panel -->
+      <div id="panel-cash" class="hidden card space-y-4 border border-green-200">
+        <p class="font-bold text-green-700 text-base">💵 Cash Payment</p>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Amount Tendered</label>
+          <div class="relative">
+            <span class="absolute left-3.5 top-3.5 text-gray-500 font-bold">$</span>
+            <input id="cash-tendered" type="number" step="0.01" placeholder="0.00" inputmode="decimal"
+                   oninput="calcChange()"
+                   class="w-full pl-8 pr-4 py-3.5 border border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-green-400">
+          </div>
+        </div>
+        <div id="change-display" class="hidden bg-green-50 rounded-xl p-4 flex justify-between items-center">
+          <span class="font-semibold text-green-700">Change Due</span>
+          <span id="change-amount" class="font-black text-2xl text-green-700">$0.00</span>
+        </div>
+        <!-- Quick cash buttons -->
+        <div id="quick-cash" class="grid grid-cols-4 gap-2"></div>
+        <button onclick="confirmCash()" id="btn-confirm-cash"
+                class="w-full py-4 bg-green-600 text-white font-bold rounded-xl text-base active:bg-green-700">
+          ✅ Confirm Cash Received
+        </button>
+      </div>
+
+      <!-- Zelle panel -->
+      <div id="panel-zelle" class="hidden card space-y-4 border border-blue-200">
+        <p class="font-bold text-blue-700 text-base">📲 Zelle Payment</p>
+        <div class="bg-blue-50 rounded-xl p-4 text-center">
+          <p class="text-xs text-blue-500 font-semibold mb-1">Send payment to</p>
+          <p id="zelle-email-display" class="text-base font-bold text-blue-800">payments@autoinx.com</p>
+          <p id="zelle-name-display" class="text-sm text-blue-600">AutoInx</p>
+          <p id="zelle-amount-display" class="text-2xl font-black text-blue-700 mt-2">$0.00</p>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Confirmation Number (optional)</label>
+          <input id="zelle-confirm-num" type="text" placeholder="Enter Zelle confirmation #"
+                 class="w-full p-3.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-400">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1.5">Upload Screenshot / PDF (optional)</label>
+          <div onclick="document.getElementById('zelle-file-input').click()"
+               class="border-2 border-dashed border-blue-200 rounded-xl p-4 text-center cursor-pointer active:bg-blue-50">
+            <div id="zelle-upload-preview" class="hidden mb-2"></div>
+            <p id="zelle-upload-hint" class="text-sm text-blue-500 font-medium">📎 Tap to upload image or PDF</p>
+          </div>
+          <input id="zelle-file-input" type="file" accept="image/*,application/pdf" onchange="handleZelleUpload(event)">
+        </div>
+        <button onclick="confirmZelle()" id="btn-confirm-zelle"
+                class="w-full py-4 bg-blue-600 text-white font-bold rounded-xl text-base active:bg-blue-700">
+          ✅ Confirm Zelle Received
+        </button>
+      </div>
+
+      <!-- Card panel -->
+      <div id="panel-card" class="hidden card space-y-4 border border-purple-200">
+        <p class="font-bold text-purple-700 text-base">💳 Card Payment</p>
+        <div class="bg-purple-50 rounded-xl p-5 text-center">
+          <div class="nfc-icon text-5xl mb-3">📡</div>
+          <p class="font-bold text-purple-800 text-base">Tap to Pay</p>
+          <p class="text-xs text-purple-500 mt-1">Have customer tap their card or phone</p>
+        </div>
+        <div class="bg-gray-50 rounded-xl p-4 text-center">
+          <p class="text-sm text-gray-500 font-semibold mb-2">Or send payment link</p>
+          <p class="text-xs text-gray-400 mb-3">Customer pays on their own device</p>
+          <button onclick="generatePaymentLink()" id="btn-gen-link"
+                  class="w-full py-3 bg-purple-600 text-white font-bold rounded-xl text-sm active:bg-purple-700">
+            🔗 Generate Payment Link
+          </button>
+        </div>
+        <div id="payment-link-result" class="hidden bg-white border border-purple-100 rounded-xl p-4 space-y-3">
+          <p class="text-xs font-bold text-gray-600 text-center">Share with customer:</p>
+          <div id="qr-code-container" class="flex justify-center"></div>
+          <input id="payment-link-url" type="text" readonly onclick="this.select()"
+                 class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-gray-600 text-center">
+          <button onclick="copyPaymentLink()" class="w-full py-2.5 bg-gray-100 text-gray-700 font-bold rounded-lg text-sm">
+            📋 Copy Link
+          </button>
+        </div>
+        <div id="card-waiting" class="hidden text-center py-4">
+          <div class="w-8 h-8 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-3"></div>
+          <p class="text-sm text-purple-600 font-semibold">Waiting for payment...</p>
+          <button onclick="confirmCardManual()" class="mt-3 text-xs text-gray-400 underline">Mark as paid manually</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── VIEW: COMPLETE ──────────────────────────────────────── -->
+  <div id="view-complete" class="view">
+    <div class="flex-1 flex flex-col items-center justify-center px-6 py-8 safe-top">
+      <div class="text-6xl mb-4" id="complete-icon">✅</div>
+      <h1 class="font-black text-2xl text-gray-900 text-center mb-2" id="complete-title">Payment Received!</h1>
+      <p class="text-gray-500 text-center text-sm mb-1" id="complete-subtitle"></p>
+      <p id="complete-order-id" class="text-xs text-indigo-500 font-mono mb-6"></p>
+
+      <!-- Receipt preview -->
+      <div class="w-full max-w-sm card mb-4">
+        <p class="font-bold text-gray-700 mb-3 text-sm">📋 Order Summary</p>
+        <div id="receipt-lines"></div>
+        <div class="receipt-line font-bold text-base border-t-2 border-gray-200 mt-2 pt-2">
+          <span>Total</span>
+          <span id="receipt-total" class="text-indigo-700"></span>
+        </div>
+        <div id="receipt-payment-method" class="mt-2 text-xs text-gray-400 text-center"></div>
+      </div>
+
+      <!-- Email receipt -->
+      <div id="email-receipt-section" class="w-full max-w-sm">
+        <div id="receipt-email-form" class="card border border-indigo-100 space-y-3">
+          <p class="text-sm font-bold text-gray-700">📧 Email Receipt to Customer</p>
+          <input id="receipt-email-input" type="email" placeholder="customer@email.com" inputmode="email"
+                 class="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          <button onclick="sendReceipt()" id="btn-send-receipt"
+                  class="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl text-sm active:bg-indigo-700">
+            Send Receipt
+          </button>
+          <p id="receipt-sent-msg" class="hidden text-xs text-green-600 text-center font-semibold">✅ Receipt sent!</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-white border-t border-gray-100 px-4 py-4 safe-bottom">
+      <button onclick="newSale()" class="w-full py-4 bg-indigo-600 text-white font-bold text-base rounded-xl shadow-md active:bg-indigo-700">
+        ＋ New Sale
+      </button>
+    </div>
+  </div>
+
+  <!-- ── VIEW: AI ASSISTANT ──────────────────────────────────── -->
+  <div id="view-ai" class="view">
+    <div class="bg-white border-b border-gray-100 px-4 py-4 safe-top">
+      <h1 class="font-bold text-lg text-gray-900">🤖 Parts Advisor</h1>
+      <p class="text-xs text-gray-400">Ask about parts, compatibility, pricing</p>
+    </div>
+    <div id="ai-chat-messages" class="flex-1 overflow-y-auto px-3 py-3 space-y-3"></div>
+    <div class="bg-white border-t border-gray-100 px-3 py-3 safe-bottom">
+      <div class="flex gap-2 items-center">
+        <input id="ai-chat-input" type="text" placeholder="e.g. oil filter 2018 Toyota Corolla"
+               maxlength="300"
+               onkeydown="if(event.key==='Enter')sendAiMessage()"
+               class="flex-1 p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-gray-50">
+        <button onclick="sendAiMessage()" id="ai-send-btn"
+                style="background:linear-gradient(135deg,#4f46e5,#7c3aed)"
+                class="w-11 h-11 text-white rounded-xl flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── BOTTOM NAV ───────────────────────────────────────────── -->
+  <nav id="bottom-nav">
+    <button onclick="switchView('catalog')" id="nav-catalog" class="active">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+      Catalog
+    </button>
+    <button onclick="switchView('cart')" id="nav-cart">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+      Cart
+    </button>
+    <button onclick="switchView('ai')" id="nav-ai">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+      Advisor
+    </button>
+    <button onclick="showSettings()" id="nav-settings">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+      Settings
+    </button>
+  </nav>
+
+</div> <!-- /main-app -->
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  SETTINGS SHEET                                               -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="settings-sheet" class="hidden fixed inset-0 z-50 flex flex-col justify-end" onclick="if(event.target===this)hideSettings()">
+  <div class="bg-black/40 absolute inset-0"></div>
+  <div class="relative bg-white rounded-t-3xl p-6 space-y-4 slide-up safe-bottom" style="max-height:80vh;overflow-y:auto;">
+    <div class="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-2"></div>
+    <h2 class="font-black text-lg text-gray-900">⚙️ POS Settings</h2>
+    <div class="space-y-3">
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Staff PIN</label>
+        <input id="settings-pin" type="number" maxlength="4" placeholder="4-digit PIN"
+               class="w-full p-3 border border-gray-200 rounded-xl text-base">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Zelle Email</label>
+        <input id="settings-zelle-email" type="email" placeholder="payments@autoinx.com"
+               class="w-full p-3 border border-gray-200 rounded-xl text-base">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Zelle Account Name</label>
+        <input id="settings-zelle-name" type="text" placeholder="AutoInx"
+               class="w-full p-3 border border-gray-200 rounded-xl text-base">
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Tax Rate (%)</label>
+        <input id="settings-tax" type="number" step="0.01" placeholder="0.00"
+               class="w-full p-3 border border-gray-200 rounded-xl text-base">
+      </div>
+    </div>
+    <button onclick="saveSettings()" class="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-xl">Save Settings</button>
+    <button onclick="lockPOS()" class="w-full py-3.5 bg-red-50 text-red-600 font-bold rounded-xl border border-red-200">🔒 Lock POS</button>
+  </div>
+</div>
+
+<!-- Firebase + App scripts -->
+<script type="module">
+import { initializeApp }          from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+import { getFirestore, collection, getDocs, addDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+// ── State ────────────────────────────────────────────────────────
+const state = {
+    items:      [],
+    catalogs:   [],
+    cart:       {},          // { [itemId]: { item, qty } }
+    customer:   {},          // { name, email, phone }
+    payMethod:  null,        // 'cash' | 'zelle' | 'card'
+    zelleFile:  null,
+    orderId:    null,
+    paymentLink: null,
+    currentView: 'catalog',
+    aiHistory:  [],
+    settings: {
+        pin:        localStorage.getItem('pos_pin')         || '1234',
+        zelleEmail: localStorage.getItem('pos_zelle_email') || 'payments@autoinx.com',
+        zelleName:  localStorage.getItem('pos_zelle_name')  || 'AutoInx',
+        taxRate:    parseFloat(localStorage.getItem('pos_tax_rate') || '0'),
+    },
+    selectedCategory: 'all',
+    searchTerm: '',
+    aiSearchTerm: '',
+    aiResults: [],
+    aiLoading: false,
+    aiSearchTimer: null,
+};
+
+let db, auth;
+
+// ── Helpers ──────────────────────────────────────────────────────
+const fmt   = cents => '$' + ((cents || 0) / 100).toFixed(2);
+const esc   = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const $     = id => document.getElementById(id);
+
+function cartTotal() {
+    return Object.values(state.cart).reduce((s, e) => s + e.item.price * e.qty, 0);
+}
+function cartCount() {
+    return Object.values(state.cart).reduce((s, e) => s + e.qty, 0);
+}
+function cartItems() {
+    return Object.values(state.cart).map(e => ({ ...e.item, quantity: e.qty }));
+}
+function taxCents() {
+    return Math.round(cartTotal() * state.settings.taxRate / 100);
+}
+function grandTotal() {
+    return cartTotal() + taxCents();
+}
+
+// ── PIN screen ───────────────────────────────────────────────────
+let pinEntry = '';
+
+window.pinKey = function(k) {
+    if (k === '⌫') { pinEntry = pinEntry.slice(0, -1); }
+    else if (pinEntry.length < 4) { pinEntry += k; }
+    // Update dots
+    for (let i = 0; i < 4; i++) {
+        $('d' + i).classList.toggle('filled', i < pinEntry.length);
+    }
+    if (pinEntry.length === 4) {
+        if (pinEntry === state.settings.pin) {
+            $('pin-screen').classList.add('hidden');
+            $('main-app').classList.remove('hidden');
+            pinEntry = '';
+            loadCatalog();
+        } else {
+            $('pin-error').classList.remove('hidden');
+            setTimeout(() => {
+                pinEntry = '';
+                for (let i = 0; i < 4; i++) $('d' + i).classList.remove('filled');
+                $('pin-error').classList.add('hidden');
+            }, 1000);
+        }
+    }
+};
+
+window.lockPOS = function() {
+    hideSettings();
+    $('main-app').classList.add('hidden');
+    $('pin-screen').classList.remove('hidden');
+    pinEntry = '';
+    for (let i = 0; i < 4; i++) $('d' + i).classList.remove('filled');
+};
+
+// ── Firebase init ────────────────────────────────────────────────
+async function initFirebase() {
+    try {
+        const res = await fetch('/.netlify/functions/getClientFirebaseConfig');
+        if (!res.ok) throw new Error('Config fetch failed');
+        const cfg = await res.json();
+        const app = initializeApp(cfg);
+        auth = getAuth(app);
+        db   = getFirestore(app);
+        await signInAnonymously(auth);
+        console.log('✅ Firebase ready');
+    } catch (e) {
+        console.error('Firebase init failed:', e);
+    }
+}
+
+// ── Load catalog ─────────────────────────────────────────────────
+async function loadCatalog() {
+    await initFirebase();
+    try {
+        // Load public config for Zelle settings
+        const cfgRes = await fetch('/.netlify/functions/getPublicConfig');
+        if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            if (cfg.payment?.zelleEmail) state.settings.zelleEmail = cfg.payment.zelleEmail;
+            if (cfg.payment?.zelleName)  state.settings.zelleName  = cfg.payment.zelleName;
+        }
+
+        const [catSnap, itemSnap] = await Promise.all([
+            getDocs(collection(db, 'artifacts/default-app-id/public/data/catalogs')),
+            getDocs(collection(db, 'artifacts/default-app-id/public/data/items')),
+        ]);
+        state.catalogs = catSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        state.items    = itemSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(i => !i.temporarilyUnavailable && (i.stock || 0) > 0);
+
+        $('grid-loading').classList.add('hidden');
+        renderCategoryPills();
+        renderProductGrid();
+    } catch (e) {
+        console.error('Catalog load failed:', e);
+        $('grid-loading').innerHTML = '<p class="text-red-400 text-sm p-4 text-center">Failed to load catalog. Check connection.</p>';
+    }
+}
+
+// ── Category pills ───────────────────────────────────────────────
+function renderCategoryPills() {
+    const all = [{ id: 'all', name: 'All' }, ...state.catalogs];
+    $('cat-pills').innerHTML = all.map(c => `
+        <button onclick="selectCategory('${c.id}')"
+                class="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition whitespace-nowrap
+                       ${state.selectedCategory === c.id
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-white text-gray-600 border border-gray-200'}">
+            ${esc(c.name)}
+        </button>`).join('');
+}
+
+window.selectCategory = function(id) {
+    state.selectedCategory = id;
+    state.searchTerm = '';
+    $('search-input').value = '';
+    $('search-clear').classList.add('hidden');
+    closeAiPanel();
+    renderCategoryPills();
+    renderProductGrid();
+};
+
+// ── Product grid ─────────────────────────────────────────────────
+function renderProductGrid() {
+    let items = state.items;
+    if (state.selectedCategory !== 'all') {
+        items = items.filter(i => i.catalogId === state.selectedCategory);
+    }
+    if (state.searchTerm) {
+        const t = state.searchTerm.toLowerCase();
+        items = items.filter(i =>
+            (i.name||'').toLowerCase().includes(t) ||
+            (i.sku||'').toLowerCase().includes(t) ||
+            (i.description||'').toLowerCase().includes(t)
+        );
+    }
+
+    const grid = $('product-grid');
+    const empty = $('grid-empty');
+
+    if (items.length === 0) {
+        grid.innerHTML = '';
+        empty.classList.remove('hidden');
+        empty.classList.add('flex');
+        return;
+    }
+    empty.classList.add('hidden');
+    empty.classList.remove('flex');
+
+    grid.innerHTML = items.map(item => {
+        const inCart = state.cart[item.id];
+        const img    = item.imageUrls?.[0] || item.imageUrl || '';
+        const cat    = state.catalogs.find(c => c.id === item.catalogId)?.name || '';
+        return `
+        <div class="product-card ${inCart ? 'in-cart' : ''}" onclick="addToCart('${item.id}')">
+            <div class="relative bg-gray-50" style="aspect-ratio:1">
+                ${img ? `<img src="${esc(img)}" alt="${esc(item.name)}" class="w-full h-full object-contain p-2" loading="lazy" onerror="this.src='https://placehold.co/200x200/e5e7eb/9ca3af?text=No+Img'">` : '<div class="w-full h-full flex items-center justify-center text-3xl">📦</div>'}
+                ${inCart ? `<div class="absolute top-1.5 right-1.5 bg-indigo-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">${inCart.qty}</div>` : ''}
+                ${item.stock <= 5 ? `<div class="absolute top-1.5 left-1.5 bg-orange-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">Only ${item.stock}</div>` : ''}
+            </div>
+            <div class="p-2.5">
+                <p class="text-[10px] text-indigo-500 font-semibold uppercase tracking-wide truncate">${esc(cat)}</p>
+                <p class="text-xs font-bold text-gray-800 leading-tight mt-0.5 line-clamp-2">${esc(item.name)}</p>
+                ${item.sku ? `<p class="text-[9px] text-gray-400 mt-0.5">SKU: ${esc(item.sku)}</p>` : ''}
+                <p class="text-base font-black text-indigo-600 mt-1">${fmt(item.price)}</p>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ── Search ───────────────────────────────────────────────────────
+window.handleSearch = function(val) {
+    state.searchTerm = val;
+    $('search-clear').classList.toggle('hidden', !val);
+    renderProductGrid();
+
+    // AI search debounce
+    clearTimeout(state.aiSearchTimer);
+    if (val.trim().length >= 3) {
+        state.aiSearchTimer = setTimeout(() => triggerAiSearch(val.trim()), 700);
+    } else {
+        closeAiPanel();
+    }
+};
+
+window.clearSearch = function() {
+    state.searchTerm = '';
+    $('search-input').value = '';
+    $('search-clear').classList.add('hidden');
+    closeAiPanel();
+    renderProductGrid();
+};
+
+async function triggerAiSearch(term) {
+    const panel = $('ai-panel');
+    panel.classList.remove('hidden');
+    $('ai-term').textContent = `"${term}"`;
+    $('ai-results').innerHTML = '<div class="px-3 py-3 flex items-center gap-2 text-sm text-indigo-500"><div class="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>AI searching...</div>';
+    $('ai-message').classList.add('hidden');
+
+    const products = state.items.map(i => ({
+        id: i.id, name: i.name, sku: i.sku || i.id,
+        price: ((i.price||0)/100).toFixed(2), stock: i.stock || 0,
+        description: (i.description||'').replace(/<[^>]*>/g,'').slice(0,150),
+    }));
+
+    try {
+        const res  = await fetch('/.netlify/functions/catalogChat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: [{ role: 'user', content: term }], products, storeName: 'AutoInx', isSearchBar: true }),
+        });
+        const data = await res.json();
+        const recs = (data.recommendations || [])
+            .map(sku => state.items.find(i => (i.sku||i.id) === sku))
+            .filter(Boolean).slice(0,5);
+
+        if (data.reply) {
+            $('ai-message').textContent = data.reply;
+            $('ai-message').classList.remove('hidden');
+        } else {
+            $('ai-message').classList.add('hidden');
+        }
+
+        if (recs.length === 0) {
+            $('ai-results').innerHTML = '<p class="px-3 py-3 text-xs text-gray-400 italic">No matching products found in catalog.</p>';
+            return;
+        }
+
+        $('ai-results').innerHTML = recs.map(item => {
+            const img    = item.imageUrls?.[0] || item.imageUrl || '';
+            const inCart = state.cart[item.id];
+            return `
+            <div class="flex items-center gap-3 p-3 border-b border-gray-50 last:border-0">
+                ${img ? `<img src="${esc(img)}" class="w-11 h-11 object-contain rounded-lg bg-gray-50 border flex-shrink-0">` : '<div class="w-11 h-11 bg-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center">📦</div>'}
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-gray-800 truncate">${esc(item.name)}</p>
+                    <p class="text-xs font-bold text-indigo-600">${fmt(item.price)}</p>
+                </div>
+                <button onclick="addToCart('${item.id}');closeAiPanel()"
+                        class="flex-shrink-0 text-xs px-3 py-1.5 rounded-lg font-bold ${inCart ? 'bg-green-100 text-green-700' : 'bg-indigo-600 text-white'}">
+                    ${inCart ? `✓ ${inCart.qty}` : '+ Add'}
+                </button>
+            </div>`;
+        }).join('');
+    } catch {
+        $('ai-results').innerHTML = '<p class="px-3 py-3 text-xs text-red-400">AI search unavailable.</p>';
+    }
+}
+
+window.closeAiPanel = function() {
+    $('ai-panel').classList.add('hidden');
+};
+
+// ── Cart ─────────────────────────────────────────────────────────
+window.addToCart = function(itemId) {
+    const item = state.items.find(i => i.id === itemId);
+    if (!item) return;
+    const entry = state.cart[itemId];
+    const curQty = entry ? entry.qty : 0;
+    if (curQty >= (item.stock || 99)) return;
+    state.cart[itemId] = { item, qty: curQty + 1 };
+    updateCartBadge();
+    renderProductGrid();
+    // Haptic feedback
+    if (navigator.vibrate) navigator.vibrate(30);
+};
+
+window.updateQty = function(itemId, delta) {
+    const entry = state.cart[itemId];
+    if (!entry) return;
+    const newQty = entry.qty + delta;
+    if (newQty <= 0) delete state.cart[itemId];
+    else state.cart[itemId] = { ...entry, qty: newQty };
+    updateCartBadge();
+    renderCartView();
+};
+
+function updateCartBadge() {
+    const count = cartCount();
+    const badge = $('cart-badge');
+    badge.textContent = count;
+    badge.classList.toggle('hidden', count === 0);
+}
+
+function renderCartView() {
+    const list    = $('cart-list');
+    const empty   = $('cart-empty');
+    const footer  = $('cart-footer');
+    const entries = Object.values(state.cart);
+
+    if (entries.length === 0) {
+        list.innerHTML = '';
+        empty.classList.remove('hidden'); empty.classList.add('flex');
+        footer.classList.add('hidden');
+        return;
+    }
+    empty.classList.add('hidden'); empty.classList.remove('flex');
+    footer.classList.remove('hidden');
+
+    list.innerHTML = entries.map(({ item, qty }) => {
+        const img = item.imageUrls?.[0] || item.imageUrl || '';
+        return `
+        <div class="card flex items-center gap-3">
+            ${img ? `<img src="${esc(img)}" class="w-14 h-14 object-contain rounded-xl bg-gray-50 border flex-shrink-0">` : '<div class="w-14 h-14 bg-gray-100 rounded-xl flex-shrink-0 flex items-center justify-center text-2xl">📦</div>'}
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-bold text-gray-800 line-clamp-2 leading-tight">${esc(item.name)}</p>
+                <p class="text-base font-black text-indigo-600 mt-0.5">${fmt(item.price * qty)}</p>
+                <p class="text-xs text-gray-400">${fmt(item.price)} × ${qty}</p>
+            </div>
+            <div class="flex items-center gap-1 flex-shrink-0">
+                <button onclick="updateQty('${item.id}',-1)" class="qty-btn bg-red-50 text-red-600">−</button>
+                <span class="w-7 text-center font-bold text-sm">${qty}</span>
+                <button onclick="updateQty('${item.id}',1)" class="qty-btn bg-indigo-50 text-indigo-600">＋</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    const tax  = taxCents();
+    let   html = `<div class="receipt-line"><span class="text-gray-500">Subtotal</span><span>${fmt(cartTotal())}</span></div>`;
+    if (tax > 0) html += `<div class="receipt-line"><span class="text-gray-500">Tax (${state.settings.taxRate}%)</span><span>${fmt(tax)}</span></div>`;
+    $('cart-total').innerHTML = `<div class="space-y-1">${html}<div class="flex justify-between font-black text-lg text-indigo-700 pt-1"><span>Total</span><span>${fmt(grandTotal())}</span></div></div>`;
+}
+
+// ── Views ─────────────────────────────────────────────────────────
+window.switchView = function(view) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('#bottom-nav button').forEach(b => b.classList.remove('active'));
+    $('view-' + view)?.classList.add('active');
+    $('nav-' + view)?.classList.add('active');
+    state.currentView = view;
+
+    if (view === 'cart')    renderCartView();
+    if (view === 'payment') renderPaymentView();
+    if (view === 'ai')      initAiChat();
+};
+
+// ── Payment view ──────────────────────────────────────────────────
+function renderPaymentView() {
+    const total = grandTotal();
+    $('pay-total').textContent = fmt(total);
+    $('zelle-amount-display').textContent = fmt(total);
+    $('zelle-email-display').textContent  = state.settings.zelleEmail;
+    $('zelle-name-display').textContent   = state.settings.zelleName;
+    // Items summary
+    $('pay-items-summary').textContent = cartItems().map(i => `${i.quantity}× ${i.name}`).join(' · ');
+    // Quick cash buttons
+    const quick = [5,10,20,50,100].filter(b => b * 100 >= total);
+    $('quick-cash').innerHTML = quick.slice(0,4).map(b =>
+        `<button onclick="$('cash-tendered').value=${b};calcChange()" class="py-2 bg-green-50 text-green-700 font-bold text-sm rounded-xl border border-green-200">$${b}</button>`
+    ).join('');
+}
+
+window.selectPayMethod = function(method) {
+    state.payMethod = method;
+    document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('selected'));
+    document.querySelectorAll('[id^="panel-"]').forEach(p => p.classList.add('hidden'));
+    // Highlight selected button
+    const btns = { cash: 0, zelle: 1, card: 2 };
+    document.querySelectorAll('.pay-btn')[btns[method]]?.classList.add('selected');
+    $('panel-' + method)?.classList.remove('hidden');
+};
+
+// ── Cash ──────────────────────────────────────────────────────────
+window.calcChange = function() {
+    const tendered = parseFloat($('cash-tendered').value || 0) * 100;
+    const total    = grandTotal();
+    const change   = tendered - total;
+    if (tendered >= total) {
+        $('change-display').classList.remove('hidden');
+        $('change-amount').textContent = fmt(change);
+    } else {
+        $('change-display').classList.add('hidden');
+    }
+};
+
+window.confirmCash = async function() {
+    const tendered = parseFloat($('cash-tendered').value || 0) * 100;
+    if (tendered < grandTotal()) {
+        alert('Amount tendered is less than total.');
+        return;
+    }
+    const btn = $('btn-confirm-cash');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner mx-auto"></div>';
+    const orderId = await createOrder('cash', { amountTendered: tendered, change: tendered - grandTotal() });
+    showComplete(orderId, 'cash');
+};
+
+// ── Zelle ─────────────────────────────────────────────────────────
+window.handleZelleUpload = function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    state.zelleFile = file;
+    const preview = $('zelle-upload-preview');
+    const hint    = $('zelle-upload-hint');
+    preview.classList.remove('hidden');
+    if (file.type.startsWith('image/')) {
+        const url = URL.createObjectURL(file);
+        preview.innerHTML = `<img src="${url}" class="h-24 mx-auto rounded-lg object-contain">`;
+    } else {
+        preview.innerHTML = `<div class="flex items-center gap-2 text-blue-600 justify-center"><span class="text-2xl">📄</span><span class="text-sm font-semibold">${esc(file.name)}</span></div>`;
+    }
+    hint.textContent = 'Tap to change file';
+};
+
+window.confirmZelle = async function() {
+    const btn = $('btn-confirm-zelle');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner mx-auto"></div>';
+    const confirmNum  = $('zelle-confirm-num').value.trim();
+    let   proofUrl    = null;
+
+    if (state.zelleFile) {
+        try {
+            const form = new FormData();
+            form.append('file',    state.zelleFile);
+            form.append('orderId', 'pending');
+            const r = await fetch('/.netlify/functions/uploadPaymentProof', { method: 'POST', body: form });
+            if (r.ok) { const d = await r.json(); proofUrl = d.url || null; }
+        } catch (e) { console.warn('Upload failed:', e); }
+    }
+
+    const orderId = await createOrder('zelle', { zelleConfirmation: confirmNum, zelleProofUrl: proofUrl });
+    showComplete(orderId, 'zelle');
+};
+
+// ── Card / Stripe ─────────────────────────────────────────────────
+window.generatePaymentLink = async function() {
+    const btn = $('btn-gen-link');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner mx-auto"></div>';
+
+    try {
+        // First create the order in Firestore so we have an orderId
+        const orderId = await createOrder('card', { paymentStatus: 'Pending - Card' });
+        state.orderId = orderId;
+
+        const res = await fetch('/.netlify/functions/createStripePaymentLink', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                orderId,
+                buyerEmail:  state.customer.email || '',
+                totalCents:  grandTotal(),
+                items:       cartItems(),
+                taxCents:    taxCents(),
+                customerName: state.customer.name || 'Walk-in Customer',
+            }),
+        });
+        const data = await res.json();
+        const link = data.url || data.paymentLink;
+
+        if (link) {
+            state.paymentLink = link;
+            $('payment-link-url').value = link;
+            $('payment-link-result').classList.remove('hidden');
+            // Generate QR code using Google Charts API
+            const qrUrl = `https://chart.googleapis.com/chart?chs=180x180&cht=qr&chl=${encodeURIComponent(link)}&choe=UTF-8`;
+            $('qr-code-container').innerHTML = `<img src="${qrUrl}" class="rounded-xl border border-purple-100" width="180" height="180">`;
+            $('card-waiting').classList.remove('hidden');
+            pollForPayment(orderId);
+        } else {
+            throw new Error('No link returned');
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Could not generate payment link. Check connection.');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '🔗 Generate Payment Link';
+};
+
+window.copyPaymentLink = function() {
+    const link = $('payment-link-url').value;
+    if (navigator.share) {
+        navigator.share({ title: 'AutoInx Payment', url: link });
+    } else {
+        navigator.clipboard.writeText(link).then(() => alert('Link copied!'));
+    }
+};
+
+async function pollForPayment(orderId, attempts = 0) {
+    if (attempts > 30) return; // stop after ~5 min
+    try {
+        const res  = await fetch(`/.netlify/functions/getOrderStatus`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId, email: state.customer.email || 'staff@autoinx.com' }),
+        });
+        const data = await res.json();
+        if (data.order?.isPaid || data.order?.paymentStatus === 'Paid') {
+            showComplete(orderId, 'card');
+            return;
+        }
+    } catch {}
+    setTimeout(() => pollForPayment(orderId, attempts + 1), 10000);
+}
+
+window.confirmCardManual = async function() {
+    if (!confirm('Mark this order as paid manually?')) return;
+    const orderId = state.orderId || await createOrder('card', { paymentStatus: 'Paid' });
+    showComplete(orderId, 'card');
+};
+
+// ── Create order ──────────────────────────────────────────────────
+async function createOrder(method, extra = {}) {
+    const items  = cartItems();
+    const total  = grandTotal();
+    const sub    = cartTotal();
+    const tax    = taxCents();
+
+    const order = {
+        items,
+        totalCents:    total,
+        subtotalCents: sub,
+        taxCents:      tax,
+        buyerName:     state.customer.name  || 'Walk-in Customer',
+        buyerEmail:    state.customer.email || null,
+        buyerPhone:    state.customer.phone || null,
+        paymentMethod: method,
+        isPaid:        method !== 'card' || (extra.paymentStatus === 'Paid'),
+        paymentStatus: method !== 'card' ? 'Paid' : (extra.paymentStatus || 'Pending'),
+        status:        'Processing',
+        source:        'staff-pos',
+        createdAt:     serverTimestamp(),
+        ...extra,
+    };
+
+    try {
+        if (db) {
+            const ref = await addDoc(collection(db, 'artifacts/default-app-id/public/data/orders'), order);
+            return ref.id;
+        }
+    } catch (e) {
+        console.error('Order create failed:', e);
+    }
+    return 'POS-' + Date.now();
+}
+
+// ── Show complete ─────────────────────────────────────────────────
+function showComplete(orderId, method) {
+    state.orderId = orderId;
+
+    const icons = { cash: '💵', zelle: '📲', card: '💳' };
+    const labels = { cash: 'Cash payment confirmed', zelle: 'Zelle payment confirmed', card: 'Card payment confirmed' };
+
+    $('complete-icon').textContent    = icons[method] || '✅';
+    $('complete-title').textContent   = 'Payment Received!';
+    $('complete-subtitle').textContent = labels[method] || '';
+    $('complete-order-id').textContent = `Order #${orderId.slice(0,8)}`;
+
+    // Receipt lines
+    $('receipt-lines').innerHTML = cartItems().map(i =>
+        `<div class="receipt-line"><span class="text-gray-600">${esc(i.name)} ×${i.quantity}</span><span>${fmt(i.price * i.quantity)}</span></div>`
+    ).join('');
+    if (taxCents() > 0) {
+        $('receipt-lines').innerHTML += `<div class="receipt-line"><span class="text-gray-400">Tax</span><span>${fmt(taxCents())}</span></div>`;
+    }
+    $('receipt-total').textContent = fmt(grandTotal());
+    $('receipt-payment-method').textContent = `Paid via ${method.charAt(0).toUpperCase() + method.slice(1)}`;
+
+    // Pre-fill receipt email if we have customer email
+    if (state.customer.email) {
+        $('receipt-email-input').value = state.customer.email;
+    }
+
+    switchView('complete');
+}
+
+// ── Send receipt ──────────────────────────────────────────────────
+window.sendReceipt = async function() {
+    const email = $('receipt-email-input').value.trim();
+    if (!email) { alert('Please enter an email address.'); return; }
+    const btn = $('btn-send-receipt');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner mx-auto"></div>';
+
+    try {
+        const itemsText = cartItems().map(i => `${i.quantity}x ${i.name} — ${fmt(i.price * i.quantity)}`).join('\n');
+        await fetch('/.netlify/functions/sendSupportEmail', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                from:    email,
+                subject: `Your AutoInx Receipt — Order #${(state.orderId||'').slice(0,8)}`,
+                message: `Thank you for your purchase!\n\nOrder #${(state.orderId||'').slice(0,8)}\n\n${itemsText}\n\nTotal: ${fmt(grandTotal())}\n\nThank you for shopping at AutoInx — Hayward, CA.`,
+            }),
+        });
+        $('receipt-sent-msg').classList.remove('hidden');
+        btn.innerHTML = '✅ Sent!';
+    } catch {
+        btn.disabled  = false;
+        btn.innerHTML = 'Send Receipt';
+        alert('Failed to send receipt. Please try again.');
+    }
+};
+
+// ── New sale ──────────────────────────────────────────────────────
+window.newSale = function() {
+    state.cart      = {};
+    state.customer  = {};
+    state.payMethod = null;
+    state.zelleFile = null;
+    state.orderId   = null;
+    state.paymentLink = null;
+    // Reset payment panels
+    ['cash','zelle','card'].forEach(m => $('panel-' + m)?.classList.add('hidden'));
+    document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('selected'));
+    $('cash-tendered').value = '';
+    $('change-display').classList.add('hidden');
+    $('zelle-confirm-num').value = '';
+    $('zelle-upload-preview').classList.add('hidden');
+    $('zelle-upload-hint').textContent = '📎 Tap to upload image or PDF';
+    $('payment-link-result').classList.add('hidden');
+    $('card-waiting').classList.add('hidden');
+    $('btn-gen-link').disabled = false;
+    $('btn-gen-link').innerHTML = '🔗 Generate Payment Link';
+    $('cust-name').value  = '';
+    $('cust-email').value = '';
+    $('cust-phone').value = '';
+    $('receipt-sent-msg').classList.add('hidden');
+    $('btn-send-receipt').disabled = false;
+    $('btn-send-receipt').innerHTML = 'Send Receipt';
+    updateCartBadge();
+    switchView('catalog');
+};
+
+// ── AI chat ───────────────────────────────────────────────────────
+function initAiChat() {
+    if (state.aiHistory.length === 0) {
+        $('ai-chat-messages').innerHTML = `
+        <div class="flex gap-2 items-start">
+            <div class="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-sm flex-shrink-0">🔧</div>
+            <div class="bg-white rounded-2xl rounded-tl-none px-4 py-3 text-sm text-gray-700 shadow-sm" style="max-width:85%">
+                <p class="font-semibold text-indigo-700 mb-1">AutoInx Parts Advisor</p>
+                <p>Ask me about parts, compatibility, or to find something in the catalog. I can add items to your cart too!</p>
+            </div>
+        </div>`;
+    }
+}
+
+window.sendAiMessage = async function() {
+    const input = $('ai-chat-input');
+    const text  = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    $('ai-send-btn').disabled = true;
+
+    state.aiHistory.push({ role: 'user', content: text });
+    renderAiMessages();
+
+    const products = state.items.map(i => ({
+        id: i.id, name: i.name, sku: i.sku || i.id,
+        price: ((i.price||0)/100).toFixed(2), stock: i.stock || 0,
+        description: (i.description||'').replace(/<[^>]*>/g,'').slice(0,150),
+    }));
+
+    try {
+        const res  = await fetch('/.netlify/functions/catalogChat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: state.aiHistory, products, storeName: 'AutoInx' }),
+        });
+        const data = await res.json();
+        const recs = (data.recommendations || [])
+            .map(sku => state.items.find(i => (i.sku||i.id) === sku))
+            .filter(Boolean);
+        state.aiHistory.push({ role: 'assistant', content: data.reply || 'Sorry, no response.', _items: recs });
+    } catch {
+        state.aiHistory.push({ role: 'assistant', content: 'AI temporarily unavailable. Check connection.' });
+    }
+
+    renderAiMessages();
+    $('ai-send-btn').disabled = false;
+};
+
+function renderAiMessages() {
+    const msgs = state.aiHistory.map(m => {
+        if (m.role === 'user') return `
+            <div class="flex justify-end">
+                <div class="bg-indigo-600 rounded-xl rounded-tr-none px-3 py-2.5 text-sm text-white shadow-sm" style="max-width:80%">${esc(m.content)}</div>
+            </div>`;
+
+        const cards = (m._items||[]).length > 0 ? `
+            <div class="mt-2 space-y-2">
+                ${m._items.map(item => {
+                    const img     = item.imageUrls?.[0] || item.imageUrl || '';
+                    const inCart  = state.cart[item.id];
+                    return `
+                    <div class="bg-gray-50 rounded-xl border border-gray-100 overflow-hidden">
+                        <div class="flex items-center gap-2.5 p-2">
+                            ${img ? `<img src="${esc(img)}" class="w-10 h-10 object-contain rounded-lg bg-white border flex-shrink-0">` : '<div class="w-10 h-10 bg-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center">📦</div>'}
+                            <div class="flex-1 min-w-0">
+                                <p class="text-xs font-semibold text-gray-800 truncate">${esc(item.name)}</p>
+                                <p class="text-xs font-bold text-indigo-600">${fmt(item.price)}</p>
+                            </div>
+                            <button onclick="addToCart('${item.id}')"
+                                    class="text-xs px-2.5 py-1.5 rounded-lg font-bold flex-shrink-0 ${inCart ? 'bg-green-100 text-green-700' : 'bg-indigo-600 text-white'}">
+                                ${inCart ? `✓ ${inCart.qty}` : '+ Add'}
+                            </button>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>` : '';
+
+        return `
+            <div class="flex gap-2 items-start">
+                <div class="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-sm flex-shrink-0">🔧</div>
+                <div class="bg-white rounded-2xl rounded-tl-none px-3 py-2.5 text-sm text-gray-700 shadow-sm" style="max-width:85%;white-space:pre-wrap">
+                    ${esc(m.content)}${cards}
+                </div>
+            </div>`;
+    }).join('');
+
+    $('ai-chat-messages').innerHTML = msgs;
+    $('ai-chat-messages').scrollTop = $('ai-chat-messages').scrollHeight;
+}
+
+// ── Settings ──────────────────────────────────────────────────────
+window.showSettings = function() {
+    $('settings-pin').value        = state.settings.pin;
+    $('settings-zelle-email').value = state.settings.zelleEmail;
+    $('settings-zelle-name').value  = state.settings.zelleName;
+    $('settings-tax').value         = state.settings.taxRate;
+    $('settings-sheet').classList.remove('hidden');
+};
+
+window.hideSettings = function() {
+    $('settings-sheet').classList.add('hidden');
+};
+
+window.saveSettings = function() {
+    state.settings.pin        = $('settings-pin').value         || '1234';
+    state.settings.zelleEmail = $('settings-zelle-email').value || 'payments@autoinx.com';
+    state.settings.zelleName  = $('settings-zelle-name').value  || 'AutoInx';
+    state.settings.taxRate    = parseFloat($('settings-tax').value) || 0;
+    localStorage.setItem('pos_pin',         state.settings.pin);
+    localStorage.setItem('pos_zelle_email', state.settings.zelleEmail);
+    localStorage.setItem('pos_zelle_name',  state.settings.zelleName);
+    localStorage.setItem('pos_tax_rate',    state.settings.taxRate);
+    hideSettings();
+    // refresh payment view if open
+    if (state.currentView === 'payment') renderPaymentView();
+};
+
+// ── Expose window.$ ───────────────────────────────────────────────
+window.$ = $;
+</script>
+
+</body>
+</html>
