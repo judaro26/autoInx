@@ -885,6 +885,13 @@
             discounts: [],                      // All discount/coupon records from Firestore
             discountSearch: '',                 // Search filter text for discounts list
             discountStatusFilter: 'all',        // 'all' | 'active' | 'expired' | 'disabled' | 'maxed'
+
+            // ── External Orders persistent filter state ───────────────────
+            externalOrderFilters: {
+                platform: 'all',
+                status:   'all',
+                search:   '',
+            },
             editingDiscount: null,              // Discount object currently being edited (or null)
             isAdmin: false,                    // Set true once admin token claim is verified
             emailNotifications: [],            // Email notification log
@@ -2024,26 +2031,27 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <select id="platformFilter" onchange="window.module.filterExternalOrders()" 
                                     class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                                <option value="all">All Platforms</option>
-                                <option value="Amazon">Amazon</option>
-                                <option value="eBay">eBay</option>
-                                <option value="Mercado Libre">Mercado Libre</option>
-                                <option value="Other">Other</option>
+                                <option value="all" ${state.externalOrderFilters.platform === 'all' ? 'selected' : ''}>All Platforms</option>
+                                <option value="Amazon" ${state.externalOrderFilters.platform === 'Amazon' ? 'selected' : ''}>Amazon</option>
+                                <option value="eBay" ${state.externalOrderFilters.platform === 'eBay' ? 'selected' : ''}>eBay</option>
+                                <option value="Mercado Libre" ${state.externalOrderFilters.platform === 'Mercado Libre' ? 'selected' : ''}>Mercado Libre</option>
+                                <option value="Other" ${state.externalOrderFilters.platform === 'Other' ? 'selected' : ''}>Other</option>
                             </select>
             
                             <select id="statusFilter" onchange="window.module.filterExternalOrders()" 
                                     class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                                <option value="all">All Statuses</option>
-                                <option value="Pending">Pending</option>
-                                <option value="Processing">Processing</option>
-                                <option value="Shipped">Shipped</option>
-                                <option value="Delivered">Delivered</option>
-                                <option value="Cancelled">Cancelled</option>
+                                <option value="all" ${state.externalOrderFilters.status === 'all' ? 'selected' : ''}>All Statuses</option>
+                                <option value="Pending" ${state.externalOrderFilters.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                                <option value="Processing" ${state.externalOrderFilters.status === 'Processing' ? 'selected' : ''}>Processing</option>
+                                <option value="Shipped" ${state.externalOrderFilters.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+                                <option value="Delivered" ${state.externalOrderFilters.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                                <option value="Cancelled" ${state.externalOrderFilters.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
                             </select>
             
                             <input type="text" id="searchExternalOrders" 
                                    placeholder="Search by order ID or customer..." 
                                    oninput="window.module.filterExternalOrders()"
+                                   value="${state.externalOrderFilters.search}"
                                    class="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
                         </div>
             
@@ -2098,6 +2106,7 @@
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Platform</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Order ID</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Customer</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Image</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
@@ -22542,7 +22551,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
 
                 if (filteredOrders.length === 0) {
                     tbody.innerHTML = `
-                        <tr><td colspan="12" class="px-4 py-8 text-center text-gray-500">
+                        <tr><td colspan="15" class="px-4 py-8 text-center text-gray-500">
                             No orders match your filters.
                         </td></tr>
                     `;
@@ -22605,6 +22614,29 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                             ? '<span class="text-gray-400 text-xs">pending sync</span>'
                             : '—';
 
+                    // ── Image lookup: try productId first, then fuzzy-match by name/SKU ──
+                    let itemImg = '';
+                    if (order.productId) {
+                        const linked = state.items.find(i => i.id === order.productId);
+                        itemImg = linked?.imageUrls?.[0] || linked?.imageUrl || '';
+                    }
+                    if (!itemImg && order.product) {
+                        const needle = (order.product || '').toLowerCase();
+                        const fuzzy  = state.items.find(i =>
+                            (i.name || '').toLowerCase().includes(needle) ||
+                            needle.includes((i.name || '').toLowerCase().slice(0, 8)) ||
+                            (i.sku  || '').toLowerCase() === needle
+                        );
+                        itemImg = fuzzy?.imageUrls?.[0] || fuzzy?.imageUrl || '';
+                    }
+
+                    const imgCellHtml = itemImg
+                        ? '<img src="' + itemImg + '" alt="" loading="lazy"'
+                            + ' class="w-12 h-12 object-contain rounded-lg border border-gray-100 bg-gray-50"'
+                            + ' onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'">'
+                            + '<div class="w-12 h-12 rounded-lg bg-gray-100 items-center justify-center text-gray-300 text-lg hidden">📦</div>'
+                        : '<div class="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center text-gray-300 text-lg">📦</div>';
+
                     return `
             <tr class="border-t hover:bg-gray-50">
                 <td class="px-4 py-3">
@@ -22614,6 +22646,7 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                 </td>
                 <td class="px-4 py-3 font-mono text-sm">${order.externalOrderId}</td>
                 <td class="px-4 py-3 text-sm">${order.customerName}</td>
+                <td class="px-4 py-3">${imgCellHtml}</td>
                 <td class="px-4 py-3 text-sm max-w-[160px] truncate" title="${escapeHtml(order.product)}">${order.product}</td>
                 <td class="px-4 py-3 text-sm whitespace-nowrap">${window.module.formatDate(order.orderDate)}</td>
                 <td class="px-4 py-3">
@@ -22664,25 +22697,30 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             },
 
             getFilteredExternalOrders: function () {
-                const platform = document.getElementById('platformFilter')?.value || 'all';
-                const status = document.getElementById('statusFilter')?.value || 'all';
-                const search = document.getElementById('searchExternalOrders')?.value.toLowerCase() || '';
+                // Read from DOM if available, else fall back to persisted state
+                const platform = document.getElementById('platformFilter')?.value || state.externalOrderFilters.platform || 'all';
+                const status   = document.getElementById('statusFilter')?.value   || state.externalOrderFilters.status   || 'all';
+                const search   = (document.getElementById('searchExternalOrders')?.value ?? state.externalOrderFilters.search ?? '').toLowerCase();
 
                 return allExternalOrders.filter(order => {
                     const matchesPlatform = platform === 'all' || order.platform === platform;
-                    const matchesStatus = status === 'all' || order.status === status;
-                    const matchesSearch = search === '' ||
-                        order.externalOrderId.toLowerCase().includes(search) ||
-                        order.customerName.toLowerCase().includes(search) ||
-                        order.product.toLowerCase().includes(search);
+                    const matchesStatus   = status   === 'all' || order.status   === status;
+                    const matchesSearch   = search   === '' ||
+                        (order.externalOrderId || '').toLowerCase().includes(search) ||
+                        (order.customerName    || '').toLowerCase().includes(search) ||
+                        (order.product         || '').toLowerCase().includes(search);
 
                     return matchesPlatform && matchesStatus && matchesSearch;
                 });
             },
 
             filterExternalOrders: function () {
-                window.module.renderExternalOrders();  // ✅ Add window.module.
-                window.module.updateExternalOrderStats();  // ✅ Add window.module.
+                // Persist current filter values to state before re-rendering
+                state.externalOrderFilters.platform = document.getElementById('platformFilter')?.value              || 'all';
+                state.externalOrderFilters.status   = document.getElementById('statusFilter')?.value                || 'all';
+                state.externalOrderFilters.search   = document.getElementById('searchExternalOrders')?.value || '';
+                window.module.renderExternalOrders();
+                window.module.updateExternalOrderStats();
             },
 
             updateExternalOrderStats: function () {
