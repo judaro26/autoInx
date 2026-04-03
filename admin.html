@@ -21,7 +21,8 @@
         /* CRITICAL FIX 1: Removed .admin-grid rule to prevent overriding specific inline grid-template-columns */
         .tab-button { transition: background-color 0.15s, color 0.15s; }
         .preview-iframe-container {
-            height: 80vh;
+            height: calc(100vh - 160px);
+            min-height: 700px;
         }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #6366f1; border-radius: 3px; }
@@ -1304,12 +1305,43 @@
 
         function renderPreviewSite() {
             return `
-                <section class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-green-500">
-                    <h2 class="text-2xl font-bold mb-4 text-green-700">Live Site Preview</h2>
-                    <div class="preview-iframe-container border border-gray-300 rounded-lg overflow-hidden">
-                        <iframe src="/" class="w-full h-full" frameborder="0" sandbox="allow-forms allow-popups allow-scripts allow-same-origin"></iframe>
+                <section class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-200" style="margin:-0.5rem;">
+                    <!-- Preview header bar -->
+                    <div class="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-green-600 to-emerald-500 border-b border-green-400">
+                        <div class="flex items-center gap-3">
+                            <span class="text-white font-bold text-base">🌐 ${currentLang === 'es' ? 'Vista Previa del Sitio' : 'Live Site Preview'}</span>
+                            <span class="text-green-200 text-xs bg-green-700/40 px-2 py-0.5 rounded-full">autoinx.com</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <a href="/" target="_blank" rel="noopener"
+                               class="flex items-center gap-1 px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white text-xs font-semibold rounded-lg transition">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                                </svg>
+                                ${currentLang === 'es' ? 'Abrir en pestaña' : 'Open in tab'}
+                            </a>
+                            <button onclick="window.module.togglePreviewMode(false)"
+                                    class="flex items-center gap-1 px-3 py-1.5 bg-red-500/80 hover:bg-red-500 text-white text-xs font-semibold rounded-lg transition">
+                                ✕ ${currentLang === 'es' ? 'Salir' : 'Exit'}
+                            </button>
+                        </div>
                     </div>
-                    <p class="text-sm text-gray-500 mt-4">Embedded view of your live site. Functionality may be limited as scripts are blocked to prevent interference with the Admin session.</p>
+
+                    <!-- Iframe fills remaining viewport height -->
+                    <div class="preview-iframe-container w-full bg-gray-50">
+                        <iframe src="/"
+                                class="w-full h-full"
+                                frameborder="0"
+                                sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
+                                style="display:block;">
+                        </iframe>
+                    </div>
+
+                    <p class="text-xs text-gray-400 px-4 py-2 text-center border-t border-gray-100">
+                        ${currentLang === 'es'
+                            ? '⚠️ Vista embebida — algunos scripts están bloqueados para proteger la sesión de admin.'
+                            : '⚠️ Embedded view — some scripts are blocked to protect the admin session.'}
+                    </p>
                 </section>`;
         }
 
@@ -1699,7 +1731,7 @@
                         <div class="flex items-center justify-between">
                             <label for="chatWidgetToggle" class="text-lg font-medium text-gray-700">Enable Site Chat Widget (Manual Override)</label>
                             <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                <input type="checkbox" name="chatWidgetToggle" id="chatWidgetToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                <input type="checkbox" name="chatWidgetToggle" id="chatWidgetToggle" onchange="window.module.chatToggleHandler(event)" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
                                 <label for="chatWidgetToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
                             </div>
                         </div>
@@ -1711,7 +1743,7 @@
                         <div class="flex items-center justify-between">
                             <label for="searchDemoBannerToggle" class="text-lg font-medium text-gray-700">AI Search Demo Banner</label>
                             <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                <input type="checkbox" name="searchDemoBannerToggle" id="searchDemoBannerToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                <input type="checkbox" name="searchDemoBannerToggle" id="searchDemoBannerToggle" onchange="window.module.searchDemoBannerToggleHandler(event)" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
                                 <label for="searchDemoBannerToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
                             </div>
                         </div>
@@ -1733,7 +1765,7 @@
                         <div class="flex items-center justify-between p-4 border rounded-lg bg-red-50 border-red-200">
                             <label for="maintenanceToggle" class="text-lg font-medium text-gray-700">Maintenance Mode</label>
                             <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                                <input type="checkbox" name="maintenanceToggle" id="maintenanceToggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                                <input type="checkbox" name="maintenanceToggle" id="maintenanceToggle" onchange="window.module.maintenanceToggleHandler(event)" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
                                 <label for="maintenanceToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-red-300 cursor-pointer"></label>
                             </div>
                             <p class="text-sm text-red-600">Disables store functionality for public users.</p>
@@ -8787,6 +8819,11 @@ ${printScript}
             resetTimer();
         }
 
+        function searchDemoBannerToggleHandler(e) {
+            globalConfig.searchDemoBanner = e.target.checked;
+            resetTimer();
+        }
+
         function togglePreviewMode(enable) {
             state.previewMode = enable;
             renderAdminPage(auth.currentUser?.email || 'Admin');
@@ -10620,7 +10657,7 @@ ${printScript}
         </header>
 
         <div class="md:flex md:space-x-8">
-            <nav class="w-full md:w-1/4 mb-6 md:mb-0">
+            <nav class="w-full md:w-1/4 mb-6 md:mb-0${state.previewMode ? ' hidden' : ''}">
                 <div class="bg-white rounded-xl shadow-lg sticky top-4 overflow-hidden ${state.previewMode ? 'opacity-50 pointer-events-none' : ''}">
                 ${(() => {
                     // Auto-open the group containing the active tab
@@ -10746,7 +10783,7 @@ ${printScript}
                 </div>
             </nav>
 
-            <main class="w-full md:w-3/4 pb-20">
+            <main class="${state.previewMode ? 'w-full' : 'w-full md:w-3/4'} pb-20">
                 ${state.previewMode ? renderPreviewSite() : renderAdminTabs()}
             </main>
         </div>
