@@ -11366,41 +11366,43 @@ ${printScript}
                         </div>
                     </div>
                     
-                    <!-- Filters -->
+                    <!-- Filters — values restored from state.vendorOrderFilters on re-render -->
                     <div class="bg-white p-4 rounded-xl shadow-lg">
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <input type="text" 
-                                   oninput="window.module.handleVendorOrderSearch(event)" 
-                                   placeholder="Search by order ID, supplier, or product..." 
+                            <input type="text"
+                                   id="vendorMainSearch"
+                                   oninput="window.module.handleVendorOrderSearch(event)"
+                                   value="${escapeHtml(state.vendorOrderFilters?.searchTerm || '')}"
+                                   placeholder="Search by order ID, supplier, or product..."
                                    class="p-2 border rounded-lg">
-                            
-                            <select onchange="window.module.handleVendorOrderSupplierFilter(event)" 
+
+                            <select onchange="window.module.handleVendorOrderSupplierFilter(event)"
                                     class="p-2 border rounded-lg">
-                                <option value="all">All Suppliers</option>
-                                <option value="Alibaba">Alibaba</option>
-                                <option value="AliExpress">AliExpress</option>
-                                <option value="DHgate">DHgate</option>
-                                <option value="Other">Other</option>
+                                <option value="all" ${!state.vendorOrderFilters?.supplier || state.vendorOrderFilters.supplier === 'all' ? 'selected' : ''}>All Suppliers</option>
+                                <option value="Alibaba"   ${state.vendorOrderFilters?.supplier === 'Alibaba'   ? 'selected' : ''}>Alibaba</option>
+                                <option value="AliExpress" ${state.vendorOrderFilters?.supplier === 'AliExpress' ? 'selected' : ''}>AliExpress</option>
+                                <option value="DHgate"    ${state.vendorOrderFilters?.supplier === 'DHgate'    ? 'selected' : ''}>DHgate</option>
+                                <option value="Other"     ${state.vendorOrderFilters?.supplier === 'Other'     ? 'selected' : ''}>Other</option>
                             </select>
-                            
-                            <select onchange="window.module.handleVendorOrderStatusFilter(event)" 
+
+                            <select onchange="window.module.handleVendorOrderStatusFilter(event)"
                                     class="p-2 border rounded-lg">
-                                <option value="all">All Statuses</option>
-                                <option value="Ordered">Ordered</option>
-                                <option value="Paid">Paid</option>
-                                <option value="Shipped">Shipped</option>
-                                <option value="In Transit">In Transit</option>
-                                <option value="Delivered">Delivered</option>
-                                <option value="Cancelled">Cancelled</option>
-                                <option value="Cancelled - Refunded">Cancelled - Refunded</option>
+                                <option value="all" ${!state.vendorOrderFilters?.status || state.vendorOrderFilters.status === 'all' ? 'selected' : ''}>All Statuses</option>
+                                <option value="Ordered"             ${state.vendorOrderFilters?.status === 'Ordered'             ? 'selected' : ''}>Ordered</option>
+                                <option value="Paid"                ${state.vendorOrderFilters?.status === 'Paid'                ? 'selected' : ''}>Paid</option>
+                                <option value="Shipped"             ${state.vendorOrderFilters?.status === 'Shipped'             ? 'selected' : ''}>Shipped</option>
+                                <option value="In Transit"          ${state.vendorOrderFilters?.status === 'In Transit'          ? 'selected' : ''}>In Transit</option>
+                                <option value="Delivered"           ${state.vendorOrderFilters?.status === 'Delivered'           ? 'selected' : ''}>Delivered</option>
+                                <option value="Cancelled"           ${state.vendorOrderFilters?.status === 'Cancelled'           ? 'selected' : ''}>Cancelled</option>
+                                <option value="Cancelled - Refunded" ${state.vendorOrderFilters?.status === 'Cancelled - Refunded' ? 'selected' : ''}>Cancelled - Refunded</option>
                             </select>
-                            
-                            <select onchange="window.module.handleVendorOrderSort(event)" 
+
+                            <select onchange="window.module.handleVendorOrderSort(event)"
                                     class="p-2 border rounded-lg">
-                                <option value="date-desc">Newest First</option>
-                                <option value="date-asc">Oldest First</option>
-                                <option value="cost-desc">Highest Cost</option>
-                                <option value="cost-asc">Lowest Cost</option>
+                                <option value="date-desc" ${(!state.vendorOrderFilters?.sortBy || state.vendorOrderFilters.sortBy === 'date-desc') ? 'selected' : ''}>Newest First</option>
+                                <option value="date-asc"  ${state.vendorOrderFilters?.sortBy === 'date-asc'  ? 'selected' : ''}>Oldest First</option>
+                                <option value="cost-desc" ${state.vendorOrderFilters?.sortBy === 'cost-desc' ? 'selected' : ''}>Highest Cost</option>
+                                <option value="cost-asc"  ${state.vendorOrderFilters?.sortBy === 'cost-asc'  ? 'selected' : ''}>Lowest Cost</option>
                             </select>
                         </div>
                     </div>
@@ -11486,6 +11488,32 @@ ${printScript}
                         ${isVendorOrderOverdue(order) ? '<span class="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-bold">OVERDUE</span>' : ''}
                     ` : '<span class="text-gray-400">—</span>'}
                     ${order.trackingNumber ? `<div class="text-xs text-blue-600 font-mono mt-1 truncate max-w-[120px]">${escapeHtml(order.trackingNumber)}</div>` : ''}
+                </td>
+                <td class="p-3">
+                    ${(() => {
+                        // Show first matched catalog image for this order's items
+                        let img = '';
+                        const items = order.items || [];
+                        for (const oi of items) {
+                            const linked = state.items.find(i =>
+                                i.id === (oi.productId || oi.id) ||
+                                (oi.sku && i.sku === oi.sku)
+                            );
+                            img = linked?.imageUrls?.[0] || linked?.imageUrl || '';
+                            if (img) break;
+                        }
+                        const extra = items.length > 1 ? items.length - 1 : 0;
+                        if (img) {
+                            return '<div class="relative inline-block">'
+                                + '<img src="' + img + '" alt="" loading="lazy"'
+                                + ' class="w-12 h-12 object-contain rounded-lg border border-gray-100 bg-gray-50"'
+                                + ' onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'">'
+                                + '<div class="w-12 h-12 rounded-lg bg-gray-100 items-center justify-center text-gray-300 text-lg" style="display:none">📦</div>'
+                                + (extra > 0 ? '<span class="absolute -bottom-1 -right-1 bg-indigo-600 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">+' + extra + '</span>' : '')
+                                + '</div>';
+                        }
+                        return '<div class="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center text-gray-300 text-lg">📦</div>';
+                    })()}
                 </td>
                 <td class="p-3 min-w-[90px] text-sm">
                     <div>${itemCount} product${itemCount !== 1 ? 's' : ''}</div>
@@ -11596,13 +11624,14 @@ ${printScript}
             </div>
         </div>
         <div class="overflow-x-auto w-full vendor-table-scroll-area">
-            <table class="w-full min-w-[1300px] border-collapse">
+            <table class="w-full min-w-[1400px] border-collapse">
                 <thead class="bg-gradient-to-r from-indigo-100 to-purple-100 border-b-2 border-indigo-300 sticky top-0 z-10">
                     <tr>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Order ID & Date</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Supplier</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Status</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Delivery & Tracking</th>
+                        <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Image</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Items</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Subtotal</th>
                         <th class="p-3 text-left text-xs font-bold text-gray-700 whitespace-nowrap">Tariffs</th>
