@@ -1,13 +1,10 @@
-const Telnyx = require('telnyx');
+const axios = require('axios');
 
-const API_KEY = process.env.TELNYX_API_KEY;
-const SENDER_NUMBER = process.env.TELNYX_PHONE_NUMBER;
-
-// Initialize Telnyx
-const telnyx = Telnyx(API_KEY);
+const ACCOUNT_SID   = process.env.TEXTGRID_ACCOUNT_SID;
+const AUTH_TOKEN    = process.env.TEXTGRID_AUTH_TOKEN;
+const SENDER_NUMBER = process.env.TEXTGRID_PHONE_NUMBER;
 
 function buildMessage(order, lang) {
-    // ... (Keep your existing buildMessage function) ...
     const name     = order.buyerName?.split(' ')[0] || 'Cliente';
     const orderId  = order.id?.slice(-6).toUpperCase() || '------';
     const status   = order.status || 'Processing';
@@ -34,7 +31,6 @@ function buildMessage(order, lang) {
 
     const lang_templates = templates[lang] || templates['es'];
     const statusKey = status.toLowerCase();
-    // Default to 'confirmed' if status not found
     return lang_templates[statusKey] || lang_templates['confirmed'];
 }
 
@@ -49,31 +45,43 @@ exports.handler = async (event) => {
             return { statusCode: 200, body: JSON.stringify({ skipped: true }) };
         }
 
-        // 1. Build Message
-        // SMS doesn't support bolding (*), so we strip it out
+        // Build message (strip asterisks — SMS doesn't support bold)
         const rawMessage = buildMessage(order, order.language || 'es');
-        const smsMessage = rawMessage.replace(/\*/g, ''); 
+        const smsMessage = rawMessage.replace(/\*/g, '');
 
-        // 2. Send SMS (The part we know works!)
+        // Send via TextGrid (Twilio-compatible REST API)
         try {
             const normalized = order.buyerPhone.replace(/\D/g, '');
-            const msg = await telnyx.messages.create({
-                from: SENDER_NUMBER,
-                to: `+${normalized}`,
-                text: smsMessage,
-                type: 'sms'
-            });
 
-            console.log(`✅ SMS sent to ${order.buyerPhone} | ID: ${msg.data.id}`);
-            
+            const params = new URLSearchParams();
+            params.append('From', SENDER_NUMBER);
+            params.append('To', `+${normalized}`);
+            params.append('Body', smsMessage);
+
+            const response = await axios.post(
+                `https://api.textgrid.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`,
+                params,
+                {
+                    auth: {
+                        username: ACCOUNT_SID,
+                        password: AUTH_TOKEN
+                    },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                }
+            );
+
+            const sid = response.data?.sid;
+            console.log(`✅ SMS sent to ${order.buyerPhone} | SID: ${sid}`);
+
             return {
                 statusCode: 200,
-                body: JSON.stringify({ success: true, sid: msg.data.id })
+                body: JSON.stringify({ success: true, sid })
             };
 
         } catch (err) {
-            console.error('❌ SMS Failed:', JSON.stringify(err, null, 2));
-            return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+            const detail = err.response?.data || err.message;
+            console.error('❌ SMS Failed:', JSON.stringify(detail, null, 2));
+            return { statusCode: 500, body: JSON.stringify({ error: detail }) };
         }
 
     } catch (error) {
