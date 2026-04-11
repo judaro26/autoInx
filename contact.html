@@ -227,26 +227,26 @@
                             <!-- US Phone -->
                             <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6 hover:bg-white/30 transition">
                                 <p id="label-phone-us" class="text-base sm:text-lg opacity-90 mb-2">Teléfono EE.UU.</p>
-                                <a href="tel:+19377016185" class="text-xl sm:text-2xl font-black flex items-center hover:scale-105 transition">
+                                <a id="sidebar-phone-us" href="tel:+19377016185" class="text-xl sm:text-2xl font-black flex items-center hover:scale-105 transition">
                                     <i class="fas fa-phone mr-3 text-2xl sm:text-3xl"></i> (937) 701-6185
                                 </a>
                             </div>
                             <!-- Colombia Phone -->
                             <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6 hover:bg-white/30 transition">
                                 <p id="label-phone-co" class="text-base sm:text-lg opacity-90 mb-2">Teléfono Colombia</p>
-                                <a href="tel:+573217040789" class="text-xl sm:text-2xl font-black flex items-center hover:scale-105 transition">
+                                <a id="sidebar-phone-co" href="tel:+573217040789" class="text-xl sm:text-2xl font-black flex items-center hover:scale-105 transition">
                                     <i class="fas fa-phone mr-3 text-2xl sm:text-3xl"></i> +57 321 704 0789
                                 </a>
                             </div>
                             <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6">
                                 <p class="text-base sm:text-lg opacity-90 mb-2">Soporte General</p>
-                                <a href="mailto:support@autoinx.com" class="text-lg sm:text-xl font-bold flex items-center">
+                                <a id="sidebar-support-email" href="mailto:support@autoinx.com" class="text-lg sm:text-xl font-bold flex items-center">
                                     <i class="fas fa-envelope mr-3 text-2xl"></i> support@autoinx.com
                                 </a>
                             </div>
                             <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6">
                                 <p class="text-base sm:text-lg opacity-90 mb-2">Pedidos</p>
-                                <a href="mailto:finance@autoinx.com" class="text-lg sm:text-xl font-bold flex items-center">
+                                <a id="sidebar-orders-email" href="mailto:finance@autoinx.com" class="text-lg sm:text-xl font-bold flex items-center">
                                     <i class="fas fa-shopping-bag mr-3 text-2xl"></i> finance@autoinx.com
                                 </a>
                             </div>
@@ -273,17 +273,17 @@
                     <div>
                         <h4 id="footer-support-title" class="text-xl font-bold mb-4">Soporte General</h4>
                         <p id="footer-support-label" class="text-gray-400 mb-2">Consultas no relacionadas con pedidos:</p>
-                        <a href="mailto:support@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">support@autoinx.com</a>
+                        <a id="footer-support-email" href="mailto:support@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">support@autoinx.com</a>
                         <h4 id="footer-orders-title" class="text-xl font-bold mt-6 mb-4">Pedidos</h4>
                         <p id="footer-orders-label" class="text-gray-400 mb-2">Preguntas sobre pedidos:</p>
-                        <a href="mailto:finance@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">finance@autoinx.com</a>
+                        <a id="footer-orders-email" href="mailto:finance@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium">finance@autoinx.com</a>
                     </div>
                     <div>
                         <h4 id="footer-phone-title" class="text-xl font-bold mb-4">Teléfono</h4>
                         <p id="footer-phone-us-label" class="text-gray-400 mb-2">EE.UU.:</p>
-                        <a href="tel:+19377016185" class="text-lg font-extrabold text-white block hover:text-indigo-400">(937) 701-6185</a>
+                        <a id="footer-phone-us" href="tel:+19377016185" class="text-lg font-extrabold text-white block hover:text-indigo-400">(937) 701-6185</a>
                         <p id="footer-phone-co-label" class="text-gray-400 mt-4 mb-2">Colombia:</p>
-                        <a href="tel:+573217040789" class="text-lg font-extrabold text-white block hover:text-indigo-400">+57 321 704 0789</a>
+                        <a id="footer-phone-co" href="tel:+573217040789" class="text-lg font-extrabold text-white block hover:text-indigo-400">+57 321 704 0789</a>
                     </div>
                     <div>
                         <h4 id="footer-locations-title" class="text-xl font-bold mb-4">Ubicaciones</h4>
@@ -497,10 +497,40 @@
                 if (!res.ok) throw new Error("Config fetch failed");
                 const config = await res.json();
                 chatWidgetEnabled = !!config.chatWidgetEnabled && !config.maintenanceMode;
-                
-                // ✅ NEW: Store schedule from config
+
                 if (config.chatSchedule) {
                     window.businessSchedule = config.chatSchedule;
+                }
+
+                // Update contact info from centralized footer config
+                const c = config.footer?.contacts;
+                if (c) {
+                    function setPhone(id, phone) {
+                        const el = document.getElementById(id);
+                        if (!el || !phone) return;
+                        el.href = `tel:+${phone.replace(/[^\d]/g, '')}`;
+                        // Preserve the icon child element; update only the text node
+                        const textNode = Array.from(el.childNodes).find(n => n.nodeType === 3);
+                        if (textNode) textNode.textContent = ` ${phone}`;
+                        else el.appendChild(document.createTextNode(` ${phone}`));
+                    }
+                    function setEmail(id, email) {
+                        const el = document.getElementById(id);
+                        if (!el || !email) return;
+                        el.href = `mailto:${email}`;
+                        // Preserve icon if present; update text node otherwise set textContent
+                        const textNode = Array.from(el.childNodes).find(n => n.nodeType === 3);
+                        if (textNode) textNode.textContent = ` ${email}`;
+                        else el.textContent = email;
+                    }
+                    setPhone('sidebar-phone-us', c.phoneUS);
+                    setPhone('sidebar-phone-co', c.phoneCO);
+                    setPhone('footer-phone-us',  c.phoneUS);
+                    setPhone('footer-phone-co',  c.phoneCO);
+                    setEmail('sidebar-support-email', c.supportEmail);
+                    setEmail('sidebar-orders-email',  c.ordersEmail);
+                    setEmail('footer-support-email',  c.supportEmail);
+                    setEmail('footer-orders-email',   c.ordersEmail);
                 }
             } catch (err) {
                 console.warn("Config error:", err);

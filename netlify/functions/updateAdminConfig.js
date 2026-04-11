@@ -60,6 +60,32 @@ function sanitizeSmsWrite(sms) {
     };
 }
 
+// Within 'footer', only allow known contact/location sub-keys
+function sanitizeFooterWrite(footer) {
+    if (!footer || typeof footer !== 'object') return {};
+    const contacts  = footer.contacts  && typeof footer.contacts  === 'object' ? {
+        phoneUS:      typeof footer.contacts.phoneUS      === 'string' ? footer.contacts.phoneUS.trim()      : null,
+        phoneCO:      typeof footer.contacts.phoneCO      === 'string' ? footer.contacts.phoneCO.trim()      : null,
+        supportEmail: typeof footer.contacts.supportEmail === 'string' ? footer.contacts.supportEmail.trim() : null,
+        ordersEmail:  typeof footer.contacts.ordersEmail  === 'string' ? footer.contacts.ordersEmail.trim()  : null,
+    } : {};
+    const locations = footer.locations && typeof footer.locations === 'object' ? {
+        usa:      typeof footer.locations.usa      === 'string' ? footer.locations.usa.trim() : null,
+        colombia: Array.isArray(footer.locations.colombia)
+            ? footer.locations.colombia.filter(a => typeof a === 'string').map(a => a.trim())
+            : [],
+    } : {};
+    return {
+        companyName: typeof footer.companyName === 'string' ? footer.companyName.trim() : null,
+        tagline: footer.tagline && typeof footer.tagline === 'object' ? {
+            en: typeof footer.tagline.en === 'string' ? footer.tagline.en.trim() : null,
+            es: typeof footer.tagline.es === 'string' ? footer.tagline.es.trim() : null,
+        } : null,
+        contacts,
+        locations,
+    };
+}
+
 exports.handler = async function (event) {
     if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: HEADERS, body: '' };
     if (event.httpMethod !== 'POST')    return { statusCode: 405, headers: HEADERS, body: JSON.stringify({ error: 'Method not allowed' }) };
@@ -101,6 +127,8 @@ exports.handler = async function (event) {
                 ? sanitizePaymentWrite(updates[key])
                 : key === 'sms'
                 ? sanitizeSmsWrite(updates[key])
+                : key === 'footer'
+                ? sanitizeFooterWrite(updates[key])
                 : updates[key];
         }
     }

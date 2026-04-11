@@ -44,17 +44,17 @@
                     <div>
                         <h4 class="text-xl font-bold mb-4">General Support</h4>
                         <p class="text-gray-400 mb-2 text-sm">Non-Order Questions:</p>
-                        <a href="mailto:support@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium text-sm">support@autoinx.com</a>
+                        <a id="footer-support-email" href="mailto:support@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium text-sm">support@autoinx.com</a>
                         <h4 class="text-xl font-bold mt-6 mb-4">Order Inquiries</h4>
                         <p class="text-gray-400 mb-2 text-sm">Order-Related Questions:</p>
-                        <a href="mailto:finance@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium text-sm">finance@autoinx.com</a>
+                        <a id="footer-orders-email" href="mailto:finance@autoinx.com" class="text-indigo-400 hover:text-indigo-300 font-medium text-sm">finance@autoinx.com</a>
                     </div>
                     <div>
                         <h4 class="text-xl font-bold mb-4">Phone Contact</h4>
                         <p class="text-gray-400 mb-2 text-sm">US Number:</p>
-                        <a href="tel:+19377016185" class="text-lg font-extrabold text-white block hover:text-indigo-400">(937) 701-6185</a>
+                        <a id="footer-phone-us" href="tel:+19377016185" class="text-lg font-extrabold text-white block hover:text-indigo-400">(937) 701-6185</a>
                         <p class="text-gray-400 mt-4 mb-2 text-sm">Colombia:</p>
-                        <a href="tel:+573217040789" class="text-lg font-extrabold text-white block hover:text-indigo-400">+57 321 704 0789</a>
+                        <a id="footer-phone-co" href="tel:+573217040789" class="text-lg font-extrabold text-white block hover:text-indigo-400">+57 321 704 0789</a>
                     </div>
                     <div>
                         <h4 class="text-xl font-bold mb-4">Locations</h4>
@@ -289,13 +289,42 @@
         }
     }
 
+    async function loadFooterContact() {
+        try {
+            const res = await fetch('/.netlify/functions/getPublicConfig');
+            if (!res.ok) return;
+            const config = await res.json();
+            const c = config.footer?.contacts;
+            if (!c) return;
+
+            function setPhone(id, phone) {
+                const el = document.getElementById(id);
+                if (!el || !phone) return;
+                el.href = `tel:+${phone.replace(/[^\d]/g, '')}`;
+                el.textContent = phone;
+            }
+            function setEmail(id, email) {
+                const el = document.getElementById(id);
+                if (!el || !email) return;
+                el.href = `mailto:${email}`;
+                el.textContent = email;
+            }
+            setPhone('footer-phone-us', c.phoneUS);
+            setPhone('footer-phone-co', c.phoneCO);
+            setEmail('footer-support-email', c.supportEmail);
+            setEmail('footer-orders-email',  c.ordersEmail);
+        } catch (e) {
+            console.warn('Could not load footer contact config:', e.message);
+        }
+    }
+
     async function initApp() {
         const stored = localStorage.getItem('aboutLang');
         currentLang = stored && ['en','es'].includes(stored) ? stored
             : (navigator.language || '').startsWith('en') ? 'en' : 'es';
 
         render(); // render with defaults immediately (no flash)
-        await loadAboutConfig();
+        await Promise.all([loadAboutConfig(), loadFooterContact()]);
         render(); // re-render with live config
     }
 
