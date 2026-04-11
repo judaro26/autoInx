@@ -39,6 +39,7 @@ const ALLOWED_KEYS = [
     'branding',
     'seasonalBanner',
     'payment',
+    'sms',
     'footer',
 ];
 
@@ -48,6 +49,14 @@ function sanitizePaymentWrite(payment) {
     return {
         zelleEmail: typeof payment.zelleEmail === 'string' ? payment.zelleEmail.trim() : null,
         zelleName:  typeof payment.zelleName  === 'string' ? payment.zelleName.trim()  : null,
+    };
+}
+
+// Within 'sms', only allow the sender phone number
+function sanitizeSmsWrite(sms) {
+    if (!sms || typeof sms !== 'object') return {};
+    return {
+        senderPhone: typeof sms.senderPhone === 'string' ? sms.senderPhone.trim() : null,
     };
 }
 
@@ -90,6 +99,8 @@ exports.handler = async function (event) {
         if (updates[key] !== undefined) {
             sanitized[key] = key === 'payment'
                 ? sanitizePaymentWrite(updates[key])
+                : key === 'sms'
+                ? sanitizeSmsWrite(updates[key])
                 : updates[key];
         }
     }

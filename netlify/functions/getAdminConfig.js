@@ -74,6 +74,7 @@ exports.handler = async (event) => {
       seasonalBanner:    configData.seasonalBanner    || DEFAULT_SEASONAL_BANNER,
       footer:            configData.footer            || null,
       payment:           configData.payment           || null,
+      sms:               configData.sms               || null,
       lastUpdated:       configData.lastUpdated       || null
     };
     console.log('📤 Returning response with seasonalBanner:', JSON.stringify(response.seasonalBanner));
