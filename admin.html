@@ -11098,7 +11098,7 @@ ${printScript}
                 // Financials uses the already-synced state.orders
             }
             if (state.activeTab === 'mercury' && !state.previewMode) setTimeout(() => window.module.renderMercuryTab(), 100);
-            if (state.activeTab === 'contactSubmissions' && !state.previewMode) setTimeout(() => window.module.renderContactSubmissionsTab(), 100);
+            if (state.activeTab === 'contactSubmissions' && !state.previewMode) setTimeout(() => renderContactSubmissionsTab(), 100);
 
             // Apply translations after every render
             translatePage();
@@ -11341,6 +11341,166 @@ ${printScript}
             } catch (err) {
                 if (matchBtn) { matchBtn.disabled = false; matchBtn.textContent = 'Match ✓'; }
                 if (msgDiv) msgDiv.innerHTML = `<div class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">❌ Failed: ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        // ─── CONTACT FORM SUBMISSIONS ─────────────────────────────────────────────
+
+        async function renderContactSubmissionsTab() {
+            const page = document.getElementById('contactSubmissionsPage');
+            if (!page) return;
+
+            const es = currentLang === 'es';
+            const title    = es ? 'Formularios de Contacto' : 'Contact Form Submissions';
+            const subtitle = es ? 'Mensajes recibidos a través del formulario de contacto' : 'Messages received through the contact form';
+            const refresh  = es ? 'Actualizar' : 'Refresh';
+
+            page.innerHTML = '<div class="space-y-6">'
+                + '<div class="flex items-center justify-between flex-wrap gap-3">'
+                + '<div>'
+                + '<h2 class="text-2xl font-bold text-indigo-700">\uD83D\uDCE9 ' + title + '</h2>'
+                + '<p class="text-sm text-gray-500 mt-0.5">' + subtitle + '</p>'
+                + '</div>'
+                + '<button onclick="window.module.renderContactSubmissionsTab()" class="px-4 py-2 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition text-sm">'
+                + '\u21BA ' + refresh
+                + '</button></div>'
+                + '<div id="contactSubmissionsContent"><div class="text-center py-12 text-gray-400">Loading\u2026</div></div>'
+                + '</div>';
+
+            const container = document.getElementById('contactSubmissionsContent');
+            try {
+                const q = query(
+                    collection(db, 'contact_submissions'),
+                    orderBy('submittedAt', 'desc'),
+                    limit(50)
+                );
+                const snap = await getDocs(q);
+                const submissions = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
+
+                if (submissions.length === 0) {
+                    container.innerHTML = '<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">'
+                        + '<p class="text-4xl mb-3">\uD83D\uDCED</p>'
+                        + '<p class="text-gray-500 font-medium">' + (es ? 'A\xFAn no hay env\xEDos de formularios.' : 'No form submissions yet.') + '</p>'
+                        + '</div>';
+                    return;
+                }
+
+                function fmtTs(ts) {
+                    if (!ts) return '\u2014';
+                    var d = ts.toDate ? ts.toDate() : new Date(ts);
+                    return d.toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'medium', timeStyle: 'short' });
+                }
+
+                function emailBadge(sent, err) {
+                    if (sent) return '<span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">\u2713 Sent</span>';
+                    if (err)  return '<span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">\u26A0 Failed</span>';
+                    return '<span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-700">Pending</span>';
+                }
+
+                function readBadge(r) {
+                    if (r) return '<span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500">Read</span>';
+                    return '<span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-700">New</span>';
+                }
+
+                var cards = submissions.map(function(sub) {
+                    var borderCls = sub.read ? 'border-gray-100' : 'border-indigo-200';
+                    var orderRow  = sub.orderNumber
+                        ? '<div><span class="text-gray-500 font-medium">' + (es ? 'Pedido:' : 'Order #:') + '</span> <span class="text-gray-800">' + escapeHtml(sub.orderNumber) + '</span></div>'
+                        : '';
+                    var markReadBtn = sub.read ? '' :
+                        '<button onclick="window.module.markContactRead(\'' + sub.id + '\')" class="px-3 py-1.5 rounded-lg bg-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-300 transition">'
+                        + '\u2713 ' + (es ? 'Marcar como le\xEDdo' : 'Mark as Read') + '</button>';
+                    var replySubj  = encodeURIComponent('Re: ' + (sub.subjectType || 'Your inquiry'));
+                    var replyHref  = 'mailto:' + escapeHtml(sub.email || '') + '?subject=' + replySubj;
+
+                    return '<div id="cs-card-' + sub.id + '" class="bg-white rounded-xl shadow-sm border ' + borderCls + ' overflow-hidden">'
+
+                        // ── Header row (clickable) ──────────────────────────────────────────
+                        + '<div class="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-gray-50 cursor-pointer hover:bg-gray-50 transition" onclick="window.module.toggleContactCard(\'' + sub.id + '\')">'
+                        +   '<div class="flex items-center gap-3 min-w-0">'
+                        +     readBadge(sub.read)
+                        +     '<span class="font-semibold text-gray-800 text-sm truncate">' + escapeHtml(sub.name || '\u2014') + '</span>'
+                        +     '<span class="text-gray-400 text-xs hidden sm:inline">' + escapeHtml(sub.email || '\u2014') + '</span>'
+                        +     '<span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-50 text-blue-600">' + escapeHtml(sub.subjectType || '\u2014') + '</span>'
+                        +   '</div>'
+                        +   '<div class="flex items-center gap-2 flex-shrink-0">'
+                        +     emailBadge(sub.emailSent, sub.emailError)
+                        +     '<span class="text-xs text-gray-400">' + fmtTs(sub.submittedAt) + '</span>'
+                        +     '<svg class="w-4 h-4 text-gray-400" id="cs-chevron-' + sub.id + '" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>'
+                        +   '</div>'
+                        + '</div>'
+
+                        // ── Expanded body ──────────────────────────────────────────────────
+                        + '<div id="cs-body-' + sub.id + '" class="hidden px-5 py-4 bg-gray-50/50">'
+                        +   '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mb-4">'
+                        +     '<div><span class="text-gray-500 font-medium">' + (es ? 'Nombre:' : 'Name:') + '</span> <span class="text-gray-800">' + escapeHtml(sub.name || '\u2014') + '</span></div>'
+                        +     '<div><span class="text-gray-500 font-medium">Email:</span> <a href="mailto:' + escapeHtml(sub.email || '') + '" class="text-indigo-600 hover:underline">' + escapeHtml(sub.email || '\u2014') + '</a></div>'
+                        +     orderRow
+                        +     '<div><span class="text-gray-500 font-medium">IP:</span> <span class="text-gray-500 font-mono text-xs">' + escapeHtml(sub.ip || '\u2014') + '</span></div>'
+                        +     '<div><span class="text-gray-500 font-medium">' + (es ? 'Asignado a:' : 'Routed to:') + '</span> <span class="text-gray-800">' + escapeHtml(sub.adminRecipient || '\u2014') + '</span></div>'
+                        +     '<div><span class="text-gray-500 font-medium">' + (es ? 'Idioma:' : 'Language:') + '</span> <span class="text-gray-800">' + escapeHtml(sub.preferredLang || '\u2014') + '</span></div>'
+                        +   '</div>'
+                        +   '<div class="bg-white rounded-lg border border-gray-200 p-3 mb-4">'
+                        +     '<p class="text-xs font-semibold text-gray-500 mb-1.5">' + (es ? 'Mensaje:' : 'Message:') + '</p>'
+                        +     '<p class="text-sm text-gray-800 whitespace-pre-wrap">' + escapeHtml(sub.message || '\u2014') + '</p>'
+                        +   '</div>'
+                        +   '<div class="flex items-center gap-3">'
+                        +     '<a href="' + replyHref + '" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition">'
+                        +       '\u2709 ' + (es ? 'Responder por Email' : 'Reply by Email')
+                        +     '</a>'
+                        +     markReadBtn
+                        +   '</div>'
+                        + '</div>'
+                        + '</div>';
+                });
+
+                var countMsg = es
+                    ? 'Mostrando los \xFAltimos ' + submissions.length + ' env\xEDos'
+                    : 'Showing last ' + submissions.length + ' submissions';
+
+                container.innerHTML = '<div class="space-y-3">' + cards.join('') + '</div>'
+                    + '<p class="text-xs text-gray-400 text-center pt-2">' + countMsg + '</p>';
+
+            } catch (err) {
+                console.error('Contact submissions error:', err);
+                container.innerHTML = '<div class="bg-red-50 border border-red-200 rounded-xl p-6 text-center">'
+                    + '<p class="text-red-600 font-semibold">\u274C ' + (es ? 'Error al cargar los env\xEDos' : 'Failed to load submissions') + '</p>'
+                    + '<p class="text-red-500 text-sm mt-1">' + escapeHtml(err.message) + '</p>'
+                    + '</div>';
+            }
+        }
+
+        function toggleContactCard(id) {
+            const body    = document.getElementById(`cs-body-${id}`);
+            const chevron = document.getElementById(`cs-chevron-${id}`);
+            if (!body) return;
+            const isOpen = !body.classList.contains('hidden');
+            body.classList.toggle('hidden', isOpen);
+            if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+        }
+
+        async function markContactRead(id) {
+            try {
+                await updateDoc(doc(db, 'contact_submissions', id), { read: true });
+
+                // Update card visually without full re-render
+                const card = document.getElementById(`cs-card-${id}`);
+                if (card) {
+                    card.classList.remove('border-indigo-200');
+                    card.classList.add('border-gray-100');
+                    // Swap the "New" badge to "Read"
+                    const badgeEl = card.querySelector('.bg-indigo-100.text-indigo-700');
+                    if (badgeEl) {
+                        badgeEl.className = 'inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500';
+                        badgeEl.textContent = 'Read';
+                    }
+                    // Hide the "Mark as Read" button
+                    const btn = card.querySelector(`button[onclick*="markContactRead"]`);
+                    if (btn) btn.remove();
+                }
+                logAdminAction('CONTACT_SUBMISSION_READ', { id });
+            } catch (err) {
+                alert('Could not mark as read: ' + err.message);
             }
         }
 
@@ -22124,6 +22284,9 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             renderOverview,
             renderMercuryTab,
             reconcileOrder,
+            renderContactSubmissionsTab,
+            toggleContactCard,
+            markContactRead,
             renderAuditLog,
             handleAuditSearch,
             renderInventorySection,
