@@ -65,8 +65,8 @@ async function getContactTemplate(data, runtimeData, isSpanish) {
 
     const orderSection = data.orderNumber
         ? (isSpanish
-            ? `<p><strong>Número de Pedido:</strong> ${data.orderNumber}</p>`
-            : `<p><strong>Order Number:</strong> ${data.orderNumber}</p>`)
+            ? `<div class="info-card"><div class="label">Número de Pedido</div><div class="value"><strong>#${data.orderNumber}</strong></div></div>`
+            : `<div class="info-card"><div class="label">Order Number</div><div class="value"><strong>#${data.orderNumber}</strong></div></div>`)
         : '';
     template = template.replace(/{{orderNumber}}/g, orderSection);
     template = template.replace(/{{recipientEmail}}/g, runtimeData.recipientEmail);
