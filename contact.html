@@ -505,32 +505,34 @@
                 // Update contact info from centralized footer config
                 const c = config.footer?.contacts;
                 if (c) {
-                    function setPhone(id, phone) {
+                    // Remove all text nodes from an element, then append fresh text after any icon
+                    function setLinkText(id, href, text) {
                         const el = document.getElementById(id);
-                        if (!el || !phone) return;
-                        el.href = `tel:+${phone.replace(/[^\d]/g, '')}`;
-                        // Preserve the icon child element; update only the text node
-                        const textNode = Array.from(el.childNodes).find(n => n.nodeType === 3);
-                        if (textNode) textNode.textContent = ` ${phone}`;
-                        else el.appendChild(document.createTextNode(` ${phone}`));
+                        if (!el || !text) return;
+                        el.href = href;
+                        Array.from(el.childNodes)
+                            .filter(n => n.nodeType === 3)
+                            .forEach(n => n.remove());
+                        el.appendChild(document.createTextNode(` ${text}`));
                     }
-                    function setEmail(id, email) {
-                        const el = document.getElementById(id);
-                        if (!el || !email) return;
-                        el.href = `mailto:${email}`;
-                        // Preserve icon if present; update text node otherwise set textContent
-                        const textNode = Array.from(el.childNodes).find(n => n.nodeType === 3);
-                        if (textNode) textNode.textContent = ` ${email}`;
-                        else el.textContent = email;
+                    if (c.phoneUS) {
+                        const href = `tel:+${c.phoneUS.replace(/[^\d]/g, '')}`;
+                        setLinkText('sidebar-phone-us', href, c.phoneUS);
+                        setLinkText('footer-phone-us',  href, c.phoneUS);
                     }
-                    setPhone('sidebar-phone-us', c.phoneUS);
-                    setPhone('sidebar-phone-co', c.phoneCO);
-                    setPhone('footer-phone-us',  c.phoneUS);
-                    setPhone('footer-phone-co',  c.phoneCO);
-                    setEmail('sidebar-support-email', c.supportEmail);
-                    setEmail('sidebar-orders-email',  c.ordersEmail);
-                    setEmail('footer-support-email',  c.supportEmail);
-                    setEmail('footer-orders-email',   c.ordersEmail);
+                    if (c.phoneCO) {
+                        const href = `tel:+${c.phoneCO.replace(/[^\d]/g, '')}`;
+                        setLinkText('sidebar-phone-co', href, c.phoneCO);
+                        setLinkText('footer-phone-co',  href, c.phoneCO);
+                    }
+                    if (c.supportEmail) {
+                        setLinkText('sidebar-support-email', `mailto:${c.supportEmail}`, c.supportEmail);
+                        setLinkText('footer-support-email',  `mailto:${c.supportEmail}`, c.supportEmail);
+                    }
+                    if (c.ordersEmail) {
+                        setLinkText('sidebar-orders-email', `mailto:${c.ordersEmail}`, c.ordersEmail);
+                        setLinkText('footer-orders-email',  `mailto:${c.ordersEmail}`, c.ordersEmail);
+                    }
                 }
             } catch (err) {
                 console.warn("Config error:", err);
@@ -552,7 +554,7 @@
                     <div class="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
                         <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
                             <div class="flex items-center space-x-4">
-                                <img src="/images/AutoInx logo.png" alt="AutoInx" class="h-12 sm:h-14 rounded-2xl shadow-xl">
+                                <a href="/"><img src="/images/AutoInx logo.png" alt="AutoInx" class="h-12 sm:h-14 rounded-2xl shadow-xl"></a>
                                 <h1 class="text-3xl sm:text-5xl lg:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600">
                                     ${t('title')}
                                 </h1>
