@@ -34,11 +34,18 @@ function sanitizeString(str) {
     return String(str).replace(/</g, "&lt;").replace(/>/g, "&gt;").trim();
 }
 
-async function getEmailHtml(lang = 'es') {
+async function getEmailHtml(lang = 'es', type = 'admin') {
     try {
-        const filename = lang === 'es'
-            ? "contactSubmissionTemplateSpanish.html"
-            : "contactSubmissionTemplate.html";
+        let filename;
+        if (type === 'customer') {
+            filename = lang === 'es'
+                ? "customerConfirmationTemplateSpanish.html"
+                : "customerConfirmationTemplate.html";
+        } else {
+            filename = lang === 'es'
+                ? "contactSubmissionTemplateSpanish.html"
+                : "contactSubmissionTemplate.html";
+        }
         const templatePath = path.resolve(__dirname, "emailTemplates", filename);
         return await fs.readFile(templatePath, "utf8");
     } catch (error) {
@@ -97,6 +104,40 @@ async function getContactTemplate(data, runtimeData, isSpanish) {
         .replace(/{{params\.orderDate}}/g, "")
         .replace(/{{params\.orderTableRows}}/g, "")
         .replace(/{{params\.totalPrice}}/g, "");
+
+    return template;
+}
+
+async function getCustomerConfirmationTemplate(data, runtimeData, isSpanish) {
+    const lang = isSpanish ? 'es' : 'en';
+    let template = await getEmailHtml(lang, 'customer');
+
+    template = template.replace(/{{name}}/g, data.name || '');
+    template = template.replace(/{{email}}/g, data.email || '');
+    template = template.replace(/{{subjectType}}/g, (data.subjectType || '').toUpperCase());
+    template = template.replace(/{{replyToEmail}}/g, runtimeData.recipientEmail);
+    template = template.replace(/{{referenceId}}/g, runtimeData.referenceId);
+    template = template.replace(/{{timestamp}}/g, runtimeData.timestamp);
+
+    const formattedMessage = (data.message || '').replace(/\n/g, "<br>");
+    template = template.replace(/{{message}}/g, formattedMessage);
+
+    const orderRow = data.orderNumber
+        ? (isSpanish
+            ? `<tr><td class="key">N&#250;m. de Pedido</td><td class="val"><strong>#${data.orderNumber}</strong></td></tr>`
+            : `<tr><td class="key">Order Number</td><td class="val"><strong>#${data.orderNumber}</strong></td></tr>`)
+        : '';
+    template = template.replace(/{{orderNumber}}/g, orderRow);
+
+    const dayOfWeek = new Date().getDay();
+    const responseTimeMessage = (dayOfWeek === 0 || dayOfWeek === 6)
+        ? (isSpanish
+            ? "Reconocemos tu consulta. Un agente se pondr\u00e1 en contacto el pr\u00f3ximo d\u00eda h\u00e1bil."
+            : "We've received your inquiry. An agent will contact you on the next business day.")
+        : (isSpanish
+            ? "Reconocemos tu consulta. Un agente se pondr\u00e1 en contacto en las pr\u00f3ximas 24 horas h\u00e1biles."
+            : "We've received your inquiry. An agent will contact you within 24 business hours.");
+    template = template.replace(/{{responseTimeMessage}}/g, responseTimeMessage);
 
     return template;
 }
@@ -211,27 +252,37 @@ exports.handler = async function (event) {
             ip:             clientIp,
         };
 
-        const htmlBody = await getContactTemplate(sanitizedData, runtimeData, isSpanish);
+        const runtimeDataWithRef = {
+            ...runtimeData,
+            referenceId: submissionRef.id,
+        };
+
+        const adminHtml    = await getContactTemplate(sanitizedData, runtimeData, isSpanish);
+        const customerHtml = await getCustomerConfirmationTemplate(sanitizedData, runtimeDataWithRef, isSpanish);
 
         const adminSubject = isOrderRelated
             ? `[Order Inquiry] New Question from ${sanitizedData.name}${sanitizedData.orderNumber ? ` (#${sanitizedData.orderNumber})` : ''}`
             : `[General Support] New Message from ${sanitizedData.name}`;
+
+        const customerSubject = isSpanish
+            ? `Recibimos tu mensaje - AutoInx`
+            : `We received your message - AutoInx`;
 
         // Send to admin
         await transporter.sendMail({
             from:    "noreply@autoinx.com",
             to:      adminRecipient,
             subject: adminSubject,
-            html:    htmlBody,
+            html:    adminHtml,
             replyTo: sanitizedData.email,
         });
 
-        // Send confirmation copy to customer
+        // Send customer-facing confirmation
         await transporter.sendMail({
             from:    "noreply@autoinx.com",
             to:      sanitizedData.email,
-            subject: isSpanish ? "Copia de tu Consulta - AutoInx" : "Copy of Your Inquiry - AutoInx",
-            html:    htmlBody,
+            subject: customerSubject,
+            html:    customerHtml,
             replyTo: adminRecipient,
         });
 
