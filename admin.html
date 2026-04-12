@@ -7579,6 +7579,21 @@ ${printScript}
                 // Get new status
                 const newStatus = document.getElementById('editOrderStatus')?.value || order.status;
 
+                // Read customer info fields from the edit form
+                const newBuyerName  = document.getElementById('editBuyerName')?.value?.trim()  || order.buyerName;
+                const newBuyerEmail = document.getElementById('editBuyerEmail')?.value?.trim() || order.buyerEmail;
+                const newBuyerPhone = document.getElementById('editBuyerPhone')?.value?.trim() || order.buyerPhone;
+                const newLanguage   = document.getElementById('editLanguage')?.value           || order.language;
+                const newWhatsapp   = document.getElementById('editWhatsappConsent')?.checked  ?? order.whatsappConsent;
+                const newSms        = document.getElementById('editSmsConsent')?.checked       ?? order.smsConsent;
+
+                const newDeliveryAddress = {
+                    ...(order.deliveryAddress || {}),
+                    street:   document.getElementById('editStreet')?.value?.trim()   || order.deliveryAddress?.street   || '',
+                    city:     document.getElementById('editCity')?.value?.trim()     || order.deliveryAddress?.city     || '',
+                    stateZip: document.getElementById('editStateZip')?.value?.trim() || order.deliveryAddress?.stateZip || '',
+                };
+
                 // Build Firestore update
                 const targetId = order.uid || order.userId || order.createdByAdmin || 'guest';
                 const path = getOrdersCollectionPath(targetId);
@@ -7591,7 +7606,18 @@ ${printScript}
                     taxCents: taxCents,
                     totalCents: newTotal,
                     status: newStatus,
-                    // ✅ DISCOUNT: Include discount fields
+                    buyerName: newBuyerName,
+                    buyerEmail: newBuyerEmail,
+                    buyerPhone: newBuyerPhone,
+                    language: newLanguage,
+                    whatsappConsent: newWhatsapp,
+                    smsConsent: newSms,
+                    notificationPreferences: {
+                        ...(order.notificationPreferences || {}),
+                        whatsapp: newWhatsapp,
+                        sms: newSms,
+                    },
+                    deliveryAddress: newDeliveryAddress,
                     discount: discountData,
                     discountCents: discountCents,
                     updatedAt: serverTimestamp()
@@ -7609,7 +7635,26 @@ ${printScript}
                     );
                 }
 
-                // Send status update email if status changed
+                // Update local state immediately so the UI reflects changes without a reload
+                Object.assign(order, {
+                    items: newItems,
+                    subtotalCents: newSubtotal,
+                    shippingCents,
+                    taxCents,
+                    totalCents: newTotal,
+                    status: newStatus,
+                    buyerName: newBuyerName,
+                    buyerEmail: newBuyerEmail,
+                    buyerPhone: newBuyerPhone,
+                    language: newLanguage,
+                    whatsappConsent: newWhatsapp,
+                    smsConsent: newSms,
+                    deliveryAddress: newDeliveryAddress,
+                    discount: discountData,
+                    discountCents,
+                });
+
+                // Send status update email using updated buyer info
                 if (newStatus !== order.status) {
                     try {
                         await fetch('/.netlify/functions/sendStatusUpdate', {
@@ -7618,10 +7663,10 @@ ${printScript}
                             body: JSON.stringify({
                                 orderId: orderId,
                                 orderNumber: order.orderNumber || orderId.substring(0, 8),
-                                buyerEmail: order.buyerEmail,
-                                buyerName: order.buyerName,
+                                buyerEmail: newBuyerEmail,
+                                buyerName: newBuyerName,
                                 newStatus: newStatus,
-                                language: order.language || 'en'
+                                language: newLanguage || 'en'
                             })
                         });
                     } catch (emailError) {
@@ -7633,6 +7678,10 @@ ${printScript}
                     orderId,
                     newItems,
                     newStatus,
+                    buyerName: newBuyerName,
+                    buyerEmail: newBuyerEmail,
+                    buyerPhone: newBuyerPhone,
+                    deliveryAddress: newDeliveryAddress,
                     discount: discountData,
                     discountCents,
                     newTotal
