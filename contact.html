@@ -145,6 +145,35 @@
         </div>
 
         <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+
+            <!-- ── Support Hours Banner ───────────────────────────────────────── -->
+            <div id="support-hours-banner" class="mb-8 rounded-2xl border overflow-hidden shadow-sm">
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4">
+
+                    <!-- Status pill -->
+                    <div class="flex items-center gap-3 flex-shrink-0">
+                        <span id="banner-status-dot" class="w-3 h-3 rounded-full inline-block"></span>
+                        <span id="banner-status-text" class="font-bold text-base"></span>
+                    </div>
+
+                    <!-- Hours -->
+                    <div class="flex items-center gap-2 text-sm font-medium">
+                        <i class="fas fa-clock opacity-70"></i>
+                        <span id="banner-hours-label" class="opacity-70"></span>
+                        <span id="banner-hours-value" class="font-bold"></span>
+                        <span id="banner-hours-tz" class="opacity-60 text-xs"></span>
+                    </div>
+
+                    <!-- Response promise -->
+                    <div class="flex items-center gap-2 text-sm">
+                        <i class="fas fa-bolt opacity-70"></i>
+                        <span id="banner-response-time" class="font-semibold"></span>
+                    </div>
+
+                </div>
+            </div>
+            <!-- ──────────────────────────────────────────────────────────────── -->
+
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12 items-start">
                 <!-- Contact Form -->
                 <div class="lg:col-span-2 order-2 lg:order-1">
@@ -351,6 +380,10 @@
                 footerColombia: 'Colombia',
                 footerUSA: 'Estados Unidos',
                 footerCopy: '© 2026 AutoInx. Todos los derechos reservados. | Operación Familiar',
+                bannerOpen:         'Atención al Cliente Abierta',
+                bannerClosed:       'Fuera de Horario',
+                bannerHoursLabel:   'Horario:',
+                bannerResponseTime: 'Respuesta garantizada en menos de 24 horas hábiles',
                 langButton: 'English'
             },
             en: {
@@ -393,6 +426,10 @@
                 footerColombia: 'Colombia',
                 footerUSA: 'United States',
                 footerCopy: '© 2026 AutoInx. All rights reserved. | Family-Owned Operation',
+                bannerOpen:         'Customer Support Open',
+                bannerClosed:       'Currently Closed',
+                bannerHoursLabel:   'Hours:',
+                bannerResponseTime: 'Guaranteed response within 24 business hours',
                 langButton: 'Español'
             }
         };
@@ -574,6 +611,27 @@
             $('header-container').innerHTML = headerHtml;
         }
 
+        function isCurrentlyOpen() {
+            const schedule = window.businessSchedule;
+            if (!schedule) return null; // unknown until config loads
+
+            const now      = new Date();
+            const dayOfWeek = now.getDay(); // 0=Sun … 6=Sat
+            const activeDays = schedule.activeDays || [1, 2, 3, 4, 5];
+            if (!activeDays.includes(dayOfWeek)) return false;
+
+            // Parse open/close times (stored as "HH:MM")
+            function toMinutes(str) {
+                if (!str) return null;
+                const [h, m] = str.split(':').map(Number);
+                return h * 60 + m;
+            }
+            const openMin  = toMinutes(schedule.enableTime  || '08:00');
+            const closeMin = toMinutes(schedule.disableTime || '20:00');
+            const nowMin   = now.getHours() * 60 + now.getMinutes();
+            return nowMin >= openMin && nowMin < closeMin;
+        }
+
         function getBusinessHoursDisplay() {
             const schedule = window.businessSchedule;
             if (!schedule) return null;
@@ -664,6 +722,32 @@
             $('hours-days').textContent = liveHours ? liveHours.days  : t('hoursDays');
             $('hours-time').textContent = liveHours ? liveHours.hours : t('hoursTime');
             $('hours-zone').textContent = liveHours ? liveHours.tz    : t('hoursZone');
+
+            // ── Support hours banner ──────────────────────────────────────────
+            const openNow   = isCurrentlyOpen();
+            const banner    = $('support-hours-banner');
+            const dotEl     = $('banner-status-dot');
+            const statusEl  = $('banner-status-text');
+            if (banner && dotEl && statusEl) {
+                if (openNow === null) {
+                    // Config not loaded yet — neutral style
+                    banner.className = 'mb-8 rounded-2xl border overflow-hidden shadow-sm bg-gray-50 border-gray-200 text-gray-600';
+                    dotEl.className  = 'w-3 h-3 rounded-full inline-block bg-gray-400';
+                    statusEl.textContent = t('bannerHoursLabel');
+                } else if (openNow) {
+                    banner.className = 'mb-8 rounded-2xl border overflow-hidden shadow-sm bg-green-50 border-green-200 text-green-800';
+                    dotEl.className  = 'w-3 h-3 rounded-full inline-block bg-green-500 animate-pulse';
+                    statusEl.textContent = t('bannerOpen');
+                } else {
+                    banner.className = 'mb-8 rounded-2xl border overflow-hidden shadow-sm bg-gray-50 border-gray-300 text-gray-600';
+                    dotEl.className  = 'w-3 h-3 rounded-full inline-block bg-gray-400';
+                    statusEl.textContent = t('bannerClosed');
+                }
+            }
+            if ($('banner-hours-label'))    $('banner-hours-label').textContent    = t('bannerHoursLabel');
+            if ($('banner-hours-value'))    $('banner-hours-value').textContent    = liveHours ? liveHours.days + '  ' + liveHours.hours : (t('hoursDays') + '  ' + t('hoursTime'));
+            if ($('banner-hours-tz'))       $('banner-hours-tz').textContent       = liveHours ? liveHours.tzShort : '';
+            if ($('banner-response-time'))  $('banner-response-time').textContent  = t('bannerResponseTime');
             $('footer-tagline').textContent        = t('footerTagline');
             $('footer-support-title').textContent  = t('footerSupportTitle');
             $('footer-support-label').textContent  = t('footerSupportLabel');
