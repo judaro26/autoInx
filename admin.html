@@ -1387,6 +1387,9 @@
             if (state.activeTab === 'auditLog') {
                 return `<section id="auditLogPage"><div class="text-center py-12 text-gray-400">Loading audit log…</div></section>`;
             }
+            if (state.activeTab === 'mercury') {
+                return `<section id="mercuryPage"><div class="text-center py-12 text-gray-400">Loading Mercury data…</div></section>`;
+            }
             if (state.activeTab === 'aboutPage') {
                 return renderAboutPageEditor();
             }
@@ -4730,9 +4733,20 @@
                     </div>
                 </div>
 
+            </div>
+
+            <!-- Mercury Banking overview widget -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-4">
+                <div class="flex items-center justify-between px-5 py-3 border-b border-gray-50">
+                    <h3 class="text-sm font-bold text-gray-700">🏦 Mercury Banking</h3>
+                    <button onclick="window.module.switchAdminTab('mercury')"
+                            class="text-xs text-indigo-600 font-semibold hover:underline">View & Reconcile →</button>
+                </div>
+                <div id="mercuryOverviewWidget" class="p-5 text-xs text-gray-400 text-center">Loading…</div>
             </div>`;
 
             translatePage();
+            loadMercuryOverviewWidget();
         }
 
         function toggleCatalogFullscreen() {
@@ -10867,6 +10881,7 @@ ${printScript}
                         profitAnalysis:     'finance',
                         returns:            'finance',
                         expenses:           'finance',
+                        mercury:            'finance',
                         marketing:          'marketing',
                         contacts:           'marketing',
                         aboutPage:          'users',
@@ -10938,7 +10953,7 @@ ${printScript}
 
                     ${divider()}
 
-                    ${groupHeader('finance', '💰', currentLang === 'es' ? 'Finanzas y Proveedores' : 'Finance & Suppliers', 4)}
+                    ${groupHeader('finance', '💰', currentLang === 'es' ? 'Finanzas y Proveedores' : 'Finance & Suppliers', 5)}
                     ${isOpen('finance') ? `
                     <div class="bg-gray-50/60 pb-1">
                         ${tabBtn('financials',    '💳', t('tabFinancials'))}
@@ -10947,6 +10962,7 @@ ${printScript}
                         ${tabBtn('profitAnalysis','📊', currentLang === 'es' ? 'Análisis de Rentabilidad' : 'Profit Analysis')}
                         ${tabBtn('expenses',      '🧾', currentLang === 'es' ? 'Gastos del Negocio' : 'Business Expenses')}
                         ${tabBtn('returns',       '↩️', currentLang === 'es' ? 'Devoluciones' : 'Returns & Refunds')}
+                        ${tabBtn('mercury',       '🏦', currentLang === 'es' ? 'Mercury Banking' : 'Mercury Banking')}
                     </div>` : ''}
 
                     ${divider()}
@@ -11027,9 +11043,250 @@ ${printScript}
             if (state.activeTab === 'financials' && !state.previewMode) {
                 // Financials uses the already-synced state.orders
             }
+            if (state.activeTab === 'mercury' && !state.previewMode) setTimeout(() => window.module.renderMercuryTab(), 100);
 
             // Apply translations after every render
             translatePage();
+        }
+
+        // ─── MERCURY BANKING ──────────────────────────────────────────────────────
+
+        const MERCURY_DATA_FUNCTION        = '/.netlify/functions/getMercuryData';
+        const MERCURY_RECONCILE_FUNCTION   = '/.netlify/functions/reconcileMercuryPayment';
+
+        async function fetchMercuryData() {
+            const idToken = await auth.currentUser.getIdToken();
+            const res = await fetch(MERCURY_DATA_FUNCTION, {
+                headers: { 'Authorization': `Bearer ${idToken}` },
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `HTTP ${res.status}`);
+            }
+            return res.json();
+        }
+
+        // Lightweight widget shown on the overview tab
+        async function loadMercuryOverviewWidget() {
+            const widget = document.getElementById('mercuryOverviewWidget');
+            if (!widget) return;
+            try {
+                const data    = await fetchMercuryData();
+                const bal     = data.account?.currentBalance ?? '—';
+                const avail   = data.account?.availableBalance ?? '—';
+                const credits = (data.transactions || [])
+                    .filter(tx => tx.amount > 0 && tx.status !== 'failed' && tx.status !== 'cancelled')
+                    .slice(0, 5);
+
+                widget.innerHTML = `
+                    <div class="flex gap-6 mb-4 justify-center flex-wrap">
+                        <div class="text-center">
+                            <p class="text-xs text-gray-400 mb-0.5">Current Balance</p>
+                            <p class="text-2xl font-black text-green-600">$${Number(bal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-xs text-gray-400 mb-0.5">Available</p>
+                            <p class="text-2xl font-black text-indigo-600">$${Number(avail).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        </div>
+                    </div>
+                    ${credits.length === 0 ? '<p class="text-xs text-gray-400">No recent deposits.</p>' : `
+                    <p class="text-xs font-semibold text-gray-500 mb-2 text-left">Recent deposits</p>
+                    <div class="divide-y divide-gray-50 text-left">
+                        ${credits.map(tx => `
+                        <div class="flex justify-between items-center py-1.5">
+                            <span class="text-xs text-gray-700 truncate max-w-[60%]">${escapeHtml(tx.counterpartyName)}</span>
+                            <span class="text-xs font-bold text-green-600 flex-shrink-0 ml-2">+$${Number(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                        </div>`).join('')}
+                    </div>`}`;
+            } catch (err) {
+                widget.innerHTML = `<p class="text-xs text-red-400">${err.message === 'Mercury API key not configured. Add MERCURY_API_KEY to your Netlify environment variables.'
+                    ? '⚠️ Mercury API key not configured yet.'
+                    : `⚠️ Could not load Mercury data: ${escapeHtml(err.message)}`}</p>`;
+            }
+        }
+
+        // Full Mercury tab with reconciliation UI
+        async function renderMercuryTab() {
+            const page = document.getElementById('mercuryPage');
+            if (!page) return;
+            page.innerHTML = `<div class="text-center py-12 text-gray-400">Loading Mercury data…</div>`;
+
+            let mercuryData;
+            try {
+                mercuryData = await fetchMercuryData();
+            } catch (err) {
+                page.innerHTML = `
+                <section class="space-y-6">
+                    <h2 class="text-2xl font-bold text-indigo-700">🏦 Mercury Banking</h2>
+                    <div class="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700">
+                        <p class="font-semibold mb-1">Could not connect to Mercury</p>
+                        <p class="text-sm">${escapeHtml(err.message)}</p>
+                        ${err.message.includes('API key') ? `
+                        <p class="text-sm mt-3">Add <code class="bg-red-100 px-1 rounded">MERCURY_API_KEY</code> (and optionally <code class="bg-red-100 px-1 rounded">MERCURY_ACCOUNT_ID</code>) to your Netlify environment variables.</p>` : ''}
+                    </div>
+                </section>`;
+                return;
+            }
+
+            const { account, transactions, allAccounts } = mercuryData;
+            const credits  = (transactions || []).filter(tx => tx.amount > 0 && tx.status !== 'failed' && tx.status !== 'cancelled');
+            const unpaidOrders = (state.orders || []).filter(o => !o.isPaid && o.paymentStatus !== 'Paid' && o.status !== 'Cancelled');
+
+            const fmt = n => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+
+            page.innerHTML = `
+            <section class="space-y-6">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-2xl font-bold text-indigo-700">🏦 Mercury Banking</h2>
+                    <button onclick="window.module.renderMercuryTab()"
+                            class="px-3 py-1.5 text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition">
+                        🔄 Refresh
+                    </button>
+                </div>
+
+                <!-- Balance cards -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                        <p class="text-xs text-gray-400 mb-1">Account</p>
+                        <p class="text-base font-bold text-gray-800 truncate">${escapeHtml(account?.name || '—')}</p>
+                        <p class="text-xs text-gray-400 mt-0.5 capitalize">${escapeHtml(account?.kind || '')}</p>
+                    </div>
+                    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                        <p class="text-xs text-gray-400 mb-1">Current Balance</p>
+                        <p class="text-3xl font-black text-green-600">${fmt(account?.currentBalance ?? 0)}</p>
+                    </div>
+                    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                        <p class="text-xs text-gray-400 mb-1">Available Balance</p>
+                        <p class="text-3xl font-black text-indigo-600">${fmt(account?.availableBalance ?? 0)}</p>
+                    </div>
+                </div>
+
+                <!-- Reconciliation panel -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                    <!-- Left: Mercury credits -->
+                    <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                        <div class="px-5 py-3 border-b border-gray-50 bg-green-50">
+                            <h3 class="text-sm font-bold text-green-800">💚 Incoming Deposits (${credits.length})</h3>
+                            <p class="text-xs text-gray-500 mt-0.5">Click "Match" to link a deposit to an unpaid order.</p>
+                        </div>
+                        <div class="divide-y divide-gray-50 max-h-[480px] overflow-y-auto">
+                            ${credits.length === 0
+                                ? `<p class="text-xs text-gray-400 p-5">No recent incoming deposits.</p>`
+                                : credits.map(tx => `
+                                <div class="px-5 py-3 hover:bg-gray-50 transition" id="tx-row-${tx.id}">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-semibold text-gray-800 truncate">${escapeHtml(tx.counterpartyName)}</p>
+                                            <p class="text-xs text-gray-400">${fmtDate(tx.createdAt)}${tx.note ? ` · ${escapeHtml(tx.note).slice(0, 40)}` : ''}</p>
+                                        </div>
+                                        <span class="text-sm font-black text-green-600 flex-shrink-0">+${fmt(tx.amount)}</span>
+                                    </div>
+                                    <div class="mt-2 flex items-center gap-2" id="tx-match-${tx.id}">
+                                        <select id="tx-order-select-${tx.id}"
+                                                class="flex-1 text-xs border rounded-lg px-2 py-1.5 text-gray-700 focus:ring-2 focus:ring-indigo-400">
+                                            <option value="">— Select unpaid order —</option>
+                                            ${unpaidOrders.map(o => `
+                                            <option value="${o.id}">${escapeHtml(o.buyerName || 'Guest')} · ${formatPriceDisplay(o.totalCents)} · #${o.orderNumber || o.id?.slice(0,8)}</option>`).join('')}
+                                        </select>
+                                        <button onclick="window.module.reconcileOrder('${tx.id}', ${tx.amount}, '${escapeHtml(tx.counterpartyName)}')"
+                                                class="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex-shrink-0">
+                                            Match ✓
+                                        </button>
+                                    </div>
+                                </div>`).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Right: Unpaid orders -->
+                    <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                        <div class="px-5 py-3 border-b border-gray-50 bg-yellow-50">
+                            <h3 class="text-sm font-bold text-yellow-800">⏳ Unpaid Orders (${unpaidOrders.length})</h3>
+                            <p class="text-xs text-gray-500 mt-0.5">Orders awaiting payment reconciliation.</p>
+                        </div>
+                        <div class="divide-y divide-gray-50 max-h-[480px] overflow-y-auto">
+                            ${unpaidOrders.length === 0
+                                ? `<p class="text-xs text-gray-400 p-5">No unpaid orders — all caught up! 🎉</p>`
+                                : unpaidOrders.map(o => `
+                                <div class="px-5 py-3 hover:bg-gray-50 transition" id="order-row-${o.id}">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-semibold text-gray-800 truncate">${escapeHtml(o.buyerName || 'Guest')}</p>
+                                            <p class="text-xs text-gray-400">#${o.orderNumber || o.id?.slice(0,8)} · ${escapeHtml(o.paymentMethod || 'N/A')}</p>
+                                        </div>
+                                        <div class="text-right flex-shrink-0">
+                                            <p class="text-sm font-black text-gray-700">${formatPriceDisplay(o.totalCents)}</p>
+                                            ${statusBadge(o.status)}
+                                        </div>
+                                    </div>
+                                </div>`).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                ${allAccounts.length > 1 ? `
+                <div class="bg-gray-50 rounded-xl border border-gray-100 p-4">
+                    <p class="text-xs font-semibold text-gray-500 mb-2">All Mercury Accounts</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        ${allAccounts.map(a => `
+                        <div class="bg-white rounded-lg border border-gray-100 px-4 py-3 flex justify-between items-center">
+                            <span class="text-sm font-semibold text-gray-700">${escapeHtml(a.name)}</span>
+                            <span class="text-sm font-black text-green-600">${fmt(a.currentBalance)}</span>
+                        </div>`).join('')}
+                    </div>
+                </div>` : ''}
+
+                <div id="mercuryReconcileMsg"></div>
+            </section>`;
+        }
+
+        async function reconcileOrder(txId, txAmount, counterpartyName) {
+            const selectEl = document.getElementById(`tx-order-select-${txId}`);
+            const orderId  = selectEl?.value;
+            if (!orderId) {
+                alert('Please select an order to match this deposit to.');
+                return;
+            }
+
+            const matchBtn  = document.querySelector(`#tx-match-${txId} button`);
+            const msgDiv    = document.getElementById('mercuryReconcileMsg');
+            if (matchBtn) { matchBtn.disabled = true; matchBtn.textContent = 'Saving…'; }
+
+            try {
+                const idToken = await auth.currentUser.getIdToken();
+                const res = await fetch(MERCURY_RECONCILE_FUNCTION, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, mercuryTransactionId: txId, counterpartyName, amount: txAmount }),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.error || `HTTP ${res.status}`);
+                }
+
+                // Update local state so the order disappears from the unpaid list
+                const order = state.orders?.find(o => o.id === orderId);
+                if (order) { order.isPaid = true; order.paymentStatus = 'Paid'; order.mercuryTransactionId = txId; }
+
+                // Visually mark the transaction row as done
+                const txRow = document.getElementById(`tx-row-${txId}`);
+                if (txRow) txRow.innerHTML = `<div class="flex items-center justify-between px-0 py-1"><span class="text-sm text-gray-600">${escapeHtml(counterpartyName)}</span><span class="text-xs font-semibold text-green-600">✓ Matched</span></div>`;
+
+                // Remove matched order from right panel
+                const orderRow = document.getElementById(`order-row-${orderId}`);
+                if (orderRow) orderRow.remove();
+
+                if (msgDiv) msgDiv.innerHTML = `<div class="p-4 bg-green-50 border border-green-200 text-green-700 rounded-xl text-sm font-semibold">✅ Order marked as paid and linked to Mercury transaction.</div>`;
+                setTimeout(() => { if (msgDiv) msgDiv.innerHTML = ''; }, 5000);
+
+                logAdminAction('MERCURY_PAYMENT_RECONCILED', { orderId, mercuryTransactionId: txId, counterpartyName, amount: txAmount });
+
+            } catch (err) {
+                if (matchBtn) { matchBtn.disabled = false; matchBtn.textContent = 'Match ✓'; }
+                if (msgDiv) msgDiv.innerHTML = `<div class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">❌ Failed: ${escapeHtml(err.message)}</div>`;
+            }
         }
 
         // --- PAYMENT MANAGEMENT FUNCTIONS ---
@@ -21810,6 +22067,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             bulkApproveProduct,
             renderReviewsTab,
             renderOverview,
+            renderMercuryTab,
+            reconcileOrder,
             renderAuditLog,
             handleAuditSearch,
             renderInventorySection,
