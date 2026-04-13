@@ -1,6 +1,4 @@
 // netlify/functions/vapiCatalogSearch.js
-// Wraps getChatbotProducts-style search in Vapi "tool-calls" response format.
-
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
@@ -16,37 +14,61 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const APP_ID = process.env.APP_ID || 'default-app-id';
 
+const safeJsonParse = (s) => {
+  try { return { ok: true, value: JSON.parse(s) }; }
+  catch (e) { return { ok: false, error: e?.message || String(e) }; }
+};
+
+const respondTool = (headers, toolCallId, resultObj) => ({
+  statusCode: 200,
+  headers: { ...headers, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    results: [{ toolCallId: toolCallId || null, result: resultObj }],
+  }),
+});
+
 exports.handler = async (event) => {
+  const requestId =
+    event.headers?.['x-nf-request-id'] ||
+    event.headers?.['x-request-id'] ||
+    `local-${Date.now()}`;
+
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Content-Type': 'application/json',
   };
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
-  }
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
+
+  // Log raw request (truncate to avoid huge logs)
+  const rawBody = event.body || '';
+  console.log('[vapiCatalogSearch] requestId=', requestId);
+  console.log('[vapiCatalogSearch] method=', event.httpMethod);
+  console.log('[vapiCatalogSearch] content-type=', event.headers?.['content-type']);
+  console.log('[vapiCatalogSearch] rawBody(trunc)=', rawBody.slice(0, 2000));
 
   if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method Not Allowed' }),
-    };
+    return respondTool(headers, null, {
+      success: false,
+      error: 'Method Not Allowed',
+      debug: { requestId },
+    });
   }
 
-  let body;
-  try {
-    body = JSON.parse(event.body || '{}');
-  } catch {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON' }) };
+  const parsedBody = safeJsonParse(rawBody || '{}');
+  if (!parsedBody.ok) {
+    console.log('[vapiCatalogSearch] body JSON parse failed:', parsedBody.error);
+    return respondTool(headers, null, {
+      success: false,
+      error: 'Invalid JSON body',
+      debug: { requestId, parseError: parsedBody.error },
+    });
   }
 
-  // Vapi tool-calls payload includes toolCallId and tool call args.
-  // We support both shapes:
-  // - { toolCallId, action, make, model, year, query }
-  // - { message: { toolCallList: [{ id, function: { arguments } }] } } (defensive)
+  const body = parsedBody.value;
+
+  // Extract toolCallId + args in multiple possible shapes
   const toolCallId =
     body.toolCallId ||
     body.toolCallID ||
@@ -54,120 +76,101 @@ exports.handler = async (event) => {
     body?.message?.toolCallList?.[0]?.id ||
     null;
 
-  const args =
-    body?.message?.toolCallList?.[0]?.function?.arguments
-      ? (() => {
-          try { return JSON.parse(body.message.toolCallList[0].function.arguments); }
-          catch { return {}; }
-        })()
-      : body;
+  let args = body;
+  const argString = body?.message?.toolCallList?.[0]?.function?.arguments;
+  if (typeof argString === 'string') {
+    const parsedArgs = safeJsonParse(argString);
+    if (parsedArgs.ok) args = parsedArgs.value;
+    else {
+      console.log('[vapiCatalogSearch] tool arguments JSON parse failed:', parsedArgs.error);
+      return respondTool(headers, toolCallId, {
+        success: false,
+        error: 'Invalid tool arguments JSON',
+        debug: { requestId, toolCallId, parseError: parsedArgs.error, argString: argString.slice(0, 500) },
+      });
+    }
+  }
 
-  const { action, make, model, year, query } = args || {};
+  const action = args?.action;
+  const make = args?.make;
+  const model = args?.model;
+  const year = args?.year;
+  const query = args?.query;
+
+  console.log('[vapiCatalogSearch] toolCallId=', toolCallId);
+  console.log('[vapiCatalogSearch] args=', JSON.stringify({ action, make, model, year, query }));
 
   try {
     if (action !== 'search' && action !== 'searchByVehicle') {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          results: [
-            {
-              toolCallId,
-              result: { success: false, error: 'Invalid action', received: action },
-            },
-          ],
-        }),
-      };
+      return respondTool(headers, toolCallId, {
+        success: false,
+        error: 'Invalid action',
+        received: action,
+        debug: { requestId, toolCallId },
+      });
     }
 
-    const itemsSnapshot = await db
-      .collection(`artifacts/${APP_ID}/public/data/items`)
-      .get();
-
-    const catalogsSnapshot = await db
-      .collection(`artifacts/${APP_ID}/public/data/catalogs`)
-      .get();
+    const [itemsSnapshot, catalogsSnapshot] = await Promise.all([
+      db.collection(`artifacts/${APP_ID}/public/data/items`).get(),
+      db.collection(`artifacts/${APP_ID}/public/data/catalogs`).get(),
+    ]);
 
     const catalogs = {};
-    catalogsSnapshot.forEach((doc) => {
-      catalogs[doc.id] = doc.data().name;
-    });
+    catalogsSnapshot.forEach((doc) => (catalogs[doc.id] = doc.data().name));
+
+    const term = String(query || '').toLowerCase();
+    const makeLc = make ? String(make).toLowerCase() : null;
+    const modelLc = model ? String(model).toLowerCase() : null;
+    const yearStr = year ? String(year) : null;
 
     let products = [];
 
     itemsSnapshot.forEach((doc) => {
       const data = doc.data();
-      const desc = (data.description || '').toLowerCase();
-      const name = (data.name || '').toLowerCase();
+      const desc = String(data.description || '').toLowerCase();
+      const name = String(data.name || '').toLowerCase();
+
+      const baseProduct = {
+        id: doc.id,
+        name: data.name,
+        description: data.description, // consider truncating later for tokens
+        price: `$${(data.price / 100).toFixed(2)}`,
+        category: catalogs[data.catalogId] || 'Uncategorized',
+        stock: data.stock || 0,
+        sku: data.sku,
+        imageUrl: data.imageUrl,
+      };
 
       if (action === 'searchByVehicle') {
-        const makeMatch = !make || desc.includes(String(make).toLowerCase());
-        const modelMatch = !model || desc.includes(String(model).toLowerCase());
-        const yearMatch = !year || desc.includes(String(year));
-        const queryMatch = !query || name.includes(String(query).toLowerCase()) || desc.includes(String(query).toLowerCase());
+        const makeMatch = !makeLc || desc.includes(makeLc);
+        const modelMatch = !modelLc || desc.includes(modelLc);
+        const yearMatch = !yearStr || desc.includes(yearStr);
+        const queryMatch = !term || name.includes(term) || desc.includes(term);
 
-        if (makeMatch && modelMatch && yearMatch && queryMatch) {
-          products.push({
-            id: doc.id,
-            name: data.name,
-            description: data.description,
-            price: `$${(data.price / 100).toFixed(2)}`,
-            category: catalogs[data.catalogId] || 'Uncategorized',
-            stock: data.stock || 0,
-            sku: data.sku,
-            imageUrl: data.imageUrl,
-          });
-        }
+        if (makeMatch && modelMatch && yearMatch && queryMatch) products.push(baseProduct);
       } else {
-        // action === 'search'
-        const term = String(query || '').toLowerCase();
         if (!term) return;
-        if (name.includes(term) || desc.includes(term)) {
-          products.push({
-            id: doc.id,
-            name: data.name,
-            description: data.description,
-            price: `$${(data.price / 100).toFixed(2)}`,
-            category: catalogs[data.catalogId] || 'Uncategorized',
-            stock: data.stock || 0,
-            sku: data.sku,
-            imageUrl: data.imageUrl,
-          });
-        }
+        if (name.includes(term) || desc.includes(term)) products.push(baseProduct);
       }
     });
 
     products = products.slice(0, 5);
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        results: [
-          {
-            toolCallId,
-            result: {
-              success: true,
-              count: products.length,
-              products,
-            },
-          },
-        ],
-      }),
-    };
+    console.log('[vapiCatalogSearch] matched=', products.length);
+
+    return respondTool(headers, toolCallId, {
+      success: true,
+      count: products.length,
+      products,
+      debug: { requestId, toolCallId },
+    });
   } catch (err) {
-    console.error('vapiCatalogSearch error:', err);
-    return {
-      statusCode: 200, // return 200 so Vapi still gets a tool result envelope
-      headers,
-      body: JSON.stringify({
-        results: [
-          {
-            toolCallId,
-            result: { success: false, error: 'Catalog service error', details: err.message },
-          },
-        ],
-      }),
-    };
+    console.log('[vapiCatalogSearch] ERROR:', err);
+    return respondTool(headers, toolCallId, {
+      success: false,
+      error: 'Catalog service error',
+      details: err?.message || String(err),
+      debug: { requestId, toolCallId },
+    });
   }
 };
