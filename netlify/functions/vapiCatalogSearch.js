@@ -1,4 +1,8 @@
 // netlify/functions/vapiCatalogSearch.js
+// Vapi tool-call wrapper for AutoInx catalog search (Firestore).
+// Handles Vapi payload shapes where function.arguments is an OBJECT (not a JSON string)
+// and always returns the Vapi tool result envelope: { results: [{ toolCallId, result }] }.
+
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
@@ -15,17 +19,22 @@ const db = admin.firestore();
 const APP_ID = process.env.APP_ID || 'default-app-id';
 
 const safeJsonParse = (s) => {
-  try { return { ok: true, value: JSON.parse(s) }; }
-  catch (e) { return { ok: false, error: e?.message || String(e) }; }
+  try {
+    return { ok: true, value: JSON.parse(s) };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
 };
 
-const respondTool = (headers, toolCallId, resultObj) => ({
-  statusCode: 200,
-  headers: { ...headers, 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    results: [{ toolCallId: toolCallId || null, result: resultObj }],
-  }),
-});
+const respondTool = (headers, toolCallId, resultObj) => {
+  return {
+    statusCode: 200, // keep 200 so Vapi receives a tool result (even on internal errors)
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      results: [{ toolCallId: toolCallId || null, result: resultObj }],
+    }),
+  };
+};
 
 exports.handler = async (event) => {
   const requestId =
@@ -41,7 +50,6 @@ exports.handler = async (event) => {
 
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
 
-  // Log raw request (truncate to avoid huge logs)
   const rawBody = event.body || '';
   console.log('[vapiCatalogSearch] requestId=', requestId);
   console.log('[vapiCatalogSearch] method=', event.httpMethod);
@@ -68,45 +76,67 @@ exports.handler = async (event) => {
 
   const body = parsedBody.value;
 
-  // Extract toolCallId + args in multiple possible shapes
+  // Vapi commonly sends: body.message.toolCallList[0].id and ...function.arguments (OBJECT)
   const toolCallId =
+    body?.message?.toolCallList?.[0]?.id ||
+    body?.message?.toolCalls?.[0]?.id ||
     body.toolCallId ||
     body.toolCallID ||
     body.tool_call_id ||
-    body?.message?.toolCallList?.[0]?.id ||
     null;
 
-  let args = body;
-  const argString = body?.message?.toolCallList?.[0]?.function?.arguments;
-  if (typeof argString === 'string') {
-    const parsedArgs = safeJsonParse(argString);
+  // Extract arguments; support OBJECT or JSON string.
+  const argCandidate =
+    body?.message?.toolCallList?.[0]?.function?.arguments ??
+    body?.message?.toolCalls?.[0]?.function?.arguments ??
+    body?.message?.toolCallList?.[0]?.function?.args ??
+    body?.message?.toolCalls?.[0]?.function?.args ??
+    null;
+
+  let args = {};
+  if (argCandidate && typeof argCandidate === 'object') {
+    args = argCandidate;
+  } else if (typeof argCandidate === 'string') {
+    const parsedArgs = safeJsonParse(argCandidate);
     if (parsedArgs.ok) args = parsedArgs.value;
     else {
       console.log('[vapiCatalogSearch] tool arguments JSON parse failed:', parsedArgs.error);
       return respondTool(headers, toolCallId, {
         success: false,
         error: 'Invalid tool arguments JSON',
-        debug: { requestId, toolCallId, parseError: parsedArgs.error, argString: argString.slice(0, 500) },
+        debug: {
+          requestId,
+          toolCallId,
+          parseError: parsedArgs.error,
+          argString: argCandidate.slice(0, 500),
+        },
       });
     }
+  } else {
+    // Fallback: some callers may send args at top-level
+    args = body || {};
   }
 
-  const action = args?.action;
-  const make = args?.make;
-  const model = args?.model;
-  const year = args?.year;
-  const query = args?.query;
+  const { action, make, model, year, query } = args || {};
 
   console.log('[vapiCatalogSearch] toolCallId=', toolCallId);
-  console.log('[vapiCatalogSearch] args=', JSON.stringify({ action, make, model, year, query }));
+  console.log(
+    '[vapiCatalogSearch] args=',
+    JSON.stringify({ action, make, model, year, query })
+  );
 
   try {
     if (action !== 'search' && action !== 'searchByVehicle') {
       return respondTool(headers, toolCallId, {
         success: false,
-        error: 'Invalid action',
+        error: 'Invalid or missing action',
         received: action,
-        debug: { requestId, toolCallId },
+        debug: {
+          requestId,
+          toolCallId,
+          receivedArgsType: typeof argCandidate,
+          receivedArgs: argCandidate,
+        },
       });
     }
 
@@ -116,7 +146,9 @@ exports.handler = async (event) => {
     ]);
 
     const catalogs = {};
-    catalogsSnapshot.forEach((doc) => (catalogs[doc.id] = doc.data().name));
+    catalogsSnapshot.forEach((doc) => {
+      catalogs[doc.id] = doc.data().name;
+    });
 
     const term = String(query || '').toLowerCase();
     const makeLc = make ? String(make).toLowerCase() : null;
@@ -133,7 +165,7 @@ exports.handler = async (event) => {
       const baseProduct = {
         id: doc.id,
         name: data.name,
-        description: data.description, // consider truncating later for tokens
+        description: data.description,
         price: `$${(data.price / 100).toFixed(2)}`,
         category: catalogs[data.catalogId] || 'Uncategorized',
         stock: data.stock || 0,
@@ -147,10 +179,15 @@ exports.handler = async (event) => {
         const yearMatch = !yearStr || desc.includes(yearStr);
         const queryMatch = !term || name.includes(term) || desc.includes(term);
 
-        if (makeMatch && modelMatch && yearMatch && queryMatch) products.push(baseProduct);
+        if (makeMatch && modelMatch && yearMatch && queryMatch) {
+          products.push(baseProduct);
+        }
       } else {
+        // action === 'search'
         if (!term) return;
-        if (name.includes(term) || desc.includes(term)) products.push(baseProduct);
+        if (name.includes(term) || desc.includes(term)) {
+          products.push(baseProduct);
+        }
       }
     });
 
