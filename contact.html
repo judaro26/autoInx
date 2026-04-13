@@ -241,16 +241,24 @@
                             Respuesta Prioritaria
                         </h3>
                         <div class="space-y-5">
-                            <!-- Live Chat (tawk.to) -->
-                            <div class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6 hover:bg-white/30 transition">
+                            <!-- Live Chat (tawk.to) — visible only during business hours -->
+                            <div id="live-chat-block" class="bg-white/20 backdrop-blur-lg rounded-2xl p-5 sm:p-6 hover:bg-white/30 transition">
                                 <p id="label-live-chat" class="text-base sm:text-lg opacity-90 mb-3">Chat en Vivo</p>
-                                <button onclick="window.openLiveChat()"
-                                        class="w-full bg-white/25 hover:bg-white/40 transition text-white font-black text-lg sm:text-xl py-3 px-5 rounded-xl flex items-center justify-center gap-3 border-2 border-white/40 hover:border-white/70">
+                                <!-- Open: clickable -->
+                                <button id="live-chat-open-btn" onclick="window.openLiveChat()"
+                                        class="w-full bg-white/25 hover:bg-white/40 transition text-white font-black text-lg sm:text-xl py-3 px-5 rounded-xl flex items-center justify-center gap-3 border-2 border-white/40 hover:border-white/70 hidden">
                                     <svg class="w-7 h-7 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
                                     </svg>
                                     <span id="live-chat-btn-text">Chatear con un Agente</span>
                                 </button>
+                                <!-- Closed: informational pill -->
+                                <div id="live-chat-closed-msg" class="w-full bg-white/10 text-white/70 font-semibold text-base py-3 px-5 rounded-xl flex items-center justify-center gap-3 border-2 border-white/20 hidden">
+                                    <svg class="w-6 h-6 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    <span id="live-chat-closed-text">Fuera de horario</span>
+                                </div>
                                 <p id="live-chat-hours-note" class="text-xs opacity-70 mt-2 text-center">Disponible en horario de atención</p>
                             </div>
                             <!-- US Phone -->
@@ -380,6 +388,7 @@
                 footerColombia: 'Colombia',
                 footerUSA: 'Estados Unidos',
                 footerCopy: '© 2026 AutoInx. Todos los derechos reservados. | Operación Familiar',
+                liveChatClosed:     'Fuera de horario de atención',
                 bannerOpen:         'Atención al Cliente Abierta',
                 bannerClosed:       'Fuera de Horario',
                 bannerHoursLabel:   'Horario:',
@@ -408,6 +417,7 @@
                 liveChatLabel: 'Live Chat',
                 liveChatBtn: 'Chat with an Agent',
                 liveChatHours: 'Available during business hours',
+                liveChatClosed: 'Outside business hours',
                 phoneUS: 'US Phone',
                 phoneCO: 'Colombia Phone',
                 hoursTitle: 'Business Hours',
@@ -713,6 +723,16 @@
             if ($('label-live-chat'))      $('label-live-chat').textContent      = t('liveChatLabel');
             if ($('live-chat-btn-text'))   $('live-chat-btn-text').textContent   = t('liveChatBtn');
             if ($('live-chat-hours-note')) $('live-chat-hours-note').textContent = t('liveChatHours');
+            if ($('live-chat-closed-text')) $('live-chat-closed-text').textContent = t('liveChatClosed');
+            // Show live chat button only during business hours; show closed pill otherwise
+            const chatOpen = isCurrentlyOpen();
+            const openBtn  = $('live-chat-open-btn');
+            const closedMsg = $('live-chat-closed-msg');
+            if (openBtn && closedMsg) {
+                const showOpen = chatOpen === true; // false or null → show closed
+                openBtn.classList.toggle('hidden', !showOpen);
+                closedMsg.classList.toggle('hidden', showOpen);
+            }
             if ($('label-phone-us'))         $('label-phone-us').textContent         = t('phoneUS');
             if ($('label-phone-co'))         $('label-phone-co').textContent         = t('phoneCO');
             if ($('sidebar-support-label')) $('sidebar-support-label').textContent  = t('footerSupportTitle');

@@ -2,6 +2,15 @@
 // Vapi tool-call wrapper for AutoInx catalog search (Firestore).
 // Handles Vapi payload shapes where function.arguments is an OBJECT (not a JSON string)
 // and always returns the Vapi tool result envelope: { results: [{ toolCallId, result }] }.
+//
+// Includes:
+// - Detailed request logging (truncated)
+// - Robust toolCallId / arguments extraction for Vapi "tool-calls" payloads
+// - Safe JSON parsing
+// - Returns HTTP 200 for all responses so Vapi always receives a tool result
+// - Optional fitmentDisclaimer when vehicle search yields zero matches (prevents hallucinated fitment specs)
+// - Truncates long descriptions to reduce LLM token load
+// - Adds stockStatus for easier consumption
 
 const admin = require('firebase-admin');
 
@@ -36,6 +45,11 @@ const respondTool = (headers, toolCallId, resultObj) => {
   };
 };
 
+const truncate = (s, n) => {
+  const str = String(s || '');
+  return str.length > n ? str.slice(0, n) + '…' : str;
+};
+
 exports.handler = async (event) => {
   const requestId =
     event.headers?.['x-nf-request-id'] ||
@@ -48,7 +62,9 @@ exports.handler = async (event) => {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   };
 
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers, body: '' };
+  }
 
   const rawBody = event.body || '';
   console.log('[vapiCatalogSearch] requestId=', requestId);
@@ -76,21 +92,25 @@ exports.handler = async (event) => {
 
   const body = parsedBody.value;
 
-  // Vapi commonly sends: body.message.toolCallList[0].id and ...function.arguments (OBJECT)
+  // Extract toolCallId from common Vapi "tool-calls" payload shapes
   const toolCallId =
     body?.message?.toolCallList?.[0]?.id ||
     body?.message?.toolCalls?.[0]?.id ||
+    body?.message?.toolCall?.id ||
     body.toolCallId ||
     body.toolCallID ||
     body.tool_call_id ||
     null;
 
   // Extract arguments; support OBJECT or JSON string.
+  // In Vapi payloads, function.arguments is often already an object.
   const argCandidate =
     body?.message?.toolCallList?.[0]?.function?.arguments ??
     body?.message?.toolCalls?.[0]?.function?.arguments ??
+    body?.message?.toolCall?.function?.arguments ??
     body?.message?.toolCallList?.[0]?.function?.args ??
     body?.message?.toolCalls?.[0]?.function?.args ??
+    body?.message?.toolCall?.function?.args ??
     null;
 
   let args = {};
@@ -113,17 +133,14 @@ exports.handler = async (event) => {
       });
     }
   } else {
-    // Fallback: some callers may send args at top-level
+    // Fallback: accept args at top-level
     args = body || {};
   }
 
   const { action, make, model, year, query } = args || {};
 
   console.log('[vapiCatalogSearch] toolCallId=', toolCallId);
-  console.log(
-    '[vapiCatalogSearch] args=',
-    JSON.stringify({ action, make, model, year, query })
-  );
+  console.log('[vapiCatalogSearch] args=', JSON.stringify({ action, make, model, year, query }));
 
   try {
     if (action !== 'search' && action !== 'searchByVehicle') {
@@ -162,13 +179,16 @@ exports.handler = async (event) => {
       const desc = String(data.description || '').toLowerCase();
       const name = String(data.name || '').toLowerCase();
 
+      const stockNum = Number(data.stock || 0);
+
       const baseProduct = {
         id: doc.id,
         name: data.name,
-        description: data.description,
+        description: truncate(data.description || '', 400),
         price: `$${(data.price / 100).toFixed(2)}`,
         category: catalogs[data.catalogId] || 'Uncategorized',
-        stock: data.stock || 0,
+        stock: stockNum,
+        stockStatus: stockNum > 0 ? 'in_stock' : 'out_of_stock',
         sku: data.sku,
         imageUrl: data.imageUrl,
       };
@@ -195,10 +215,20 @@ exports.handler = async (event) => {
 
     console.log('[vapiCatalogSearch] matched=', products.length);
 
+    const fitmentDisclaimer =
+      action === 'searchByVehicle' && products.length === 0
+        ? 'No matching products were found in the AutoInx catalog for this vehicle and part combination. ' +
+          'Do NOT guess or invent part specifications such as wiper blade sizes, filter dimensions, ' +
+          'belt lengths, or any other fitment data. Instead, tell the customer we may be able to ' +
+          'special-order the part and ask them to contact support@autoinx.com or call us directly ' +
+          'with their VIN for an accurate fitment lookup.'
+        : null;
+
     return respondTool(headers, toolCallId, {
       success: true,
       count: products.length,
       products,
+      ...(fitmentDisclaimer ? { fitmentDisclaimer } : {}),
       debug: { requestId, toolCallId },
     });
   } catch (err) {
