@@ -122,8 +122,8 @@
         .profit-negative { color: #dc2626; font-weight: bold; }
         .profit-warning { color: #d97706; font-weight: bold; }
         .margin-excellent { background-color: #d1fae5; border-left: 4px solid #059669; }
-        .margin-good { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
-        .margin-poor { background-color: #fee2e2; border-left: 4px solid #dc2626; }
+        .margin-good { background-color: #dbeafe; border-left: 4px solid #3b82f6; }
+        .margin-poor { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
         .margin-negative { background-color: #fecaca; border-left: 4px solid #dc2626; }
         .competitor-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
         .ebay-badge { background-color: #fef3c7; color: #92400e; }
@@ -2439,10 +2439,22 @@
                 `;
             } else if (state.activeTab === 'inventory') {
                 return `
-                    <section class="space-y-8">
-                        <h2 class="text-2xl font-bold text-indigo-700">Inventory Management & Stock Control</h2>
+                    <section class="space-y-8" id="inventoryFullscreenWrapper">
+                        <div class="flex items-center justify-between flex-wrap gap-3">
+                            <h2 class="text-2xl font-bold text-indigo-700">Inventory Management & Stock Control</h2>
+                            <div class="flex items-center gap-2">
+                                <input type="text" id="inventorySearchInput"
+                                       oninput="window.module.handleInventorySearchInput(event)"
+                                       placeholder="Search by name, SKU or category…"
+                                       class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 w-56">
+                                <button id="inventoryFullscreenBtn" onclick="window.module.toggleInventoryFullscreen()"
+                                        class="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm font-semibold rounded-lg hover:bg-gray-200 transition whitespace-nowrap">
+                                    &#x26F6; Full Screen
+                                </button>
+                            </div>
+                        </div>
                         <div id="inventoryMessage"></div>
-                        
+
                         <div class="bg-white p-6 rounded-xl shadow-lg border-t-4 border-orange-500">
                             <div id="inventoryContent">
                             </div>
@@ -5505,11 +5517,44 @@ ${printScript}
         }
 
 
+        function handleInventorySearchInput(e) {
+            state._inventorySearch = e.target.value;
+            renderInventorySection();
+        }
+
+        function toggleInventoryFullscreen() {
+            const wrapper = document.getElementById('inventoryFullscreenWrapper');
+            const btn     = document.getElementById('inventoryFullscreenBtn');
+            if (!wrapper) return;
+            const isFs = wrapper.dataset.fullscreen === 'true';
+            if (isFs) {
+                wrapper.dataset.fullscreen = 'false';
+                wrapper.style.cssText = '';
+                document.body.style.overflow = '';
+                if (btn) btn.textContent = '\u26F6 Full Screen';
+            } else {
+                wrapper.dataset.fullscreen = 'true';
+                wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f1f5f9;overflow-y:auto;padding:24px;';
+                document.body.style.overflow = 'hidden';
+                if (btn) btn.textContent = '\u2715 Exit Full Screen';
+            }
+        }
+
         function renderInventorySection() {
             const el = document.getElementById('inventoryContent');
             if (!el) return '';
 
-            const items = state.items;
+            const searchTerm = ((document.getElementById('inventorySearchInput')?.value) || state._inventorySearch || '').toLowerCase().trim();
+
+            let items = state.items;
+            if (searchTerm) {
+                items = items.filter(function(item) {
+                    const name = (item.name || '').toLowerCase();
+                    const sku  = (item.sku  || '').toLowerCase();
+                    const cat  = (state.catalogs.find(function(c){ return c.id === item.catalogId; })?.name || '').toLowerCase();
+                    return name.includes(searchTerm) || sku.includes(searchTerm) || cat.includes(searchTerm);
+                });
+            }
 
             const inventoryListHtml = items.map(item => {
                 const currentStock = item.stock || 0;
@@ -10551,6 +10596,24 @@ ${printScript}
         // FINANCIALS FUNCTIONS
         // ============================================================================
 
+        function toggleFinancialsFullscreen() {
+            const wrapper = document.getElementById('financialsFullscreenWrapper');
+            const btn     = document.getElementById('financialsFullscreenBtn');
+            if (!wrapper) return;
+            const isFs = wrapper.dataset.fullscreen === 'true';
+            if (isFs) {
+                wrapper.dataset.fullscreen = 'false';
+                wrapper.style.cssText = '';
+                document.body.style.overflow = '';
+                if (btn) btn.textContent = '\u26F6 Full Screen';
+            } else {
+                wrapper.dataset.fullscreen = 'true';
+                wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f1f5f9;overflow-y:auto;padding:24px;';
+                document.body.style.overflow = 'hidden';
+                if (btn) btn.textContent = '\u2715 Exit Full Screen';
+            }
+        }
+
         function renderFinancialsSection() {
             const totalRevenue = state.orders.reduce((sum, o) => sum + (o.status !== 'Cancelled' ? o.totalCents : 0), 0);
             const paidOrders = state.orders.filter(o => o.isPaid && o.status !== 'Cancelled');
@@ -10560,8 +10623,14 @@ ${printScript}
             const totalUnpaid = unpaidOrders.reduce((sum, o) => sum + o.totalCents, 0);
 
             return `
-                <section class="space-y-8">
-                    <h2 class="text-2xl font-bold text-indigo-700">${t('tabFinancials')}</h2>
+                <section class="space-y-8" id="financialsFullscreenWrapper">
+                    <div class="flex items-center justify-between flex-wrap gap-3">
+                        <h2 class="text-2xl font-bold text-indigo-700">${t('tabFinancials')}</h2>
+                        <button id="financialsFullscreenBtn" onclick="window.module.toggleFinancialsFullscreen()"
+                                class="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm font-semibold rounded-lg hover:bg-gray-200 transition whitespace-nowrap">
+                            &#x26F6; Full Screen
+                        </button>
+                    </div>
                     <div id="financialsMessage"></div>
                     
                     <!-- Summary Cards -->
@@ -11594,6 +11663,24 @@ ${printScript}
         //  INVESTORS SECTION
         // ═══════════════════════════════════════════════════════════════════
 
+        function toggleInvestorsFullscreen() {
+            const wrapper = document.getElementById('investorsFullscreenWrapper');
+            const btn     = document.getElementById('investorsFullscreenBtn');
+            if (!wrapper) return;
+            const isFs = wrapper.dataset.fullscreen === 'true';
+            if (isFs) {
+                wrapper.dataset.fullscreen = 'false';
+                wrapper.style.cssText = '';
+                document.body.style.overflow = '';
+                if (btn) btn.textContent = '\u26F6 Full Screen';
+            } else {
+                wrapper.dataset.fullscreen = 'true';
+                wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f1f5f9;overflow-y:auto;padding:24px;';
+                document.body.style.overflow = 'hidden';
+                if (btn) btn.textContent = '\u2715 Exit Full Screen';
+            }
+        }
+
         function renderInvestorsSection() {
             const investors = state.investors || [];
             const vendorOrders = state.vendorOrders || [];
@@ -11615,18 +11702,24 @@ ${printScript}
             const totalOrders = vendorOrders.filter(o => o.investorId).length;
 
             return `
-            <div class="space-y-6 p-4">
+            <div class="space-y-6 p-4" id="investorsFullscreenWrapper">
 
                 <!-- Header bar -->
                 <div class="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                        <h2 class="text-2xl font-black text-gray-800">💼 Investors</h2>
+                        <h2 class="text-2xl font-black text-gray-800">&#x1F4BC; Investors</h2>
                         <p class="text-sm text-gray-500 mt-0.5">Track investor allocations across vendor orders</p>
                     </div>
-                    <button onclick="window.module.showAddInvestorModal()"
-                            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow transition">
-                        + Add Investor
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button onclick="window.module.showAddInvestorModal()"
+                                class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl shadow transition">
+                            + Add Investor
+                        </button>
+                        <button id="investorsFullscreenBtn" onclick="window.module.toggleInvestorsFullscreen()"
+                                class="px-3 py-2 bg-gray-100 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-200 transition whitespace-nowrap">
+                            &#x26F6; Full Screen
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Summary cards -->
@@ -13492,20 +13585,60 @@ ${printScript}
             });
         }
 
+        function toggleProfitFullscreen() {
+            const wrapper = document.getElementById('profitFullscreenWrapper');
+            const btn     = document.getElementById('profitFullscreenBtn');
+            if (!wrapper) return;
+            const isFs = wrapper.dataset.fullscreen === 'true';
+            if (isFs) {
+                wrapper.dataset.fullscreen = 'false';
+                wrapper.style.cssText = '';
+                document.body.style.overflow = '';
+                if (btn) btn.textContent = '\u26F6 Full Screen';
+            } else {
+                wrapper.dataset.fullscreen = 'true';
+                wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f1f5f9;overflow-y:auto;padding:24px;';
+                document.body.style.overflow = 'hidden';
+                if (btn) btn.textContent = '\u2715 Exit Full Screen';
+            }
+        }
+
         function renderProfitAnalysisSection() {
             const items = state.items || [];
 
             return `
-                <section class="space-y-8">
-                    <div class="flex justify-between items-center">
+                <section class="space-y-8" id="profitFullscreenWrapper">
+                    <div class="flex justify-between items-center flex-wrap gap-3">
                         <div>
-                            <h2 class="text-3xl font-bold text-indigo-700">📊 Product Profitability Analysis</h2>
+                            <h2 class="text-3xl font-bold text-indigo-700">&#x1F4CA; Product Profitability Analysis</h2>
                             <p class="text-sm text-gray-600 mt-1">Track vendor costs, shipping, competitor prices, and profit margins</p>
                         </div>
-                        <button onclick="window.module.exportProfitAnalysis()" 
-                                class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 shadow-md">
-                            ⬇️ Export CSV
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <button onclick="window.module.exportProfitAnalysis()"
+                                    class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 shadow-md">
+                                &#x2B07;&#xFE0F; Export CSV
+                            </button>
+                            <button id="profitFullscreenBtn" onclick="window.module.toggleProfitFullscreen()"
+                                    class="px-3 py-2 bg-gray-100 text-gray-600 text-sm font-semibold rounded-lg hover:bg-gray-200 transition whitespace-nowrap">
+                                &#x26F6; Full Screen
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Margin legend -->
+                    <div class="flex flex-wrap gap-3 text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <span class="w-3 h-3 rounded-sm bg-emerald-400 inline-block"></span> Excellent &gt;40%
+                        </span>
+                        <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-100 text-blue-800 border border-blue-200">
+                            <span class="w-3 h-3 rounded-sm bg-blue-400 inline-block"></span> Good 20–40%
+                        </span>
+                        <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-200">
+                            <span class="w-3 h-3 rounded-sm bg-yellow-400 inline-block"></span> Low 0–20%
+                        </span>
+                        <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-100 text-red-800 border border-red-200">
+                            <span class="w-3 h-3 rounded-sm bg-red-400 inline-block"></span> Negative &lt;0%
+                        </span>
                     </div>
                     
                     <div id="profitMessage"></div>
@@ -17313,7 +17446,11 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                                     ${!isDeclined && c.email ? `
                                     <button onclick="window.module.sendCatalogToContact('${c.id}')"
                                             class="px-2 py-1 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded transition" title="Send catalog">
-                                        ✉ Catalog
+                                        \u2709 Catalog
+                                    </button>
+                                    <button onclick="window.module.openCustomContactEmailModal('${c.id}')"
+                                            class="px-2 py-1 text-xs font-bold text-teal-600 hover:bg-teal-50 rounded transition" title="Send custom email">
+                                        \u2709\uFE0F Email
                                     </button>` : ''}
                                     <button onclick="window.module.toggleContactDeclined('${c.id}', ${isDeclined})"
                                             class="px-2 py-1 text-xs font-bold ${isDeclined ? 'text-green-600 hover:bg-green-50' : 'text-red-500 hover:bg-red-50'} rounded transition"
@@ -17573,6 +17710,132 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             } catch { return '<p class="text-xs text-red-400">Error loading history.</p>'; }
         }
 
+
+        // ══════════════════════════════════════════════════════════════════════
+        //  CUSTOM CONTACT EMAIL COMPOSER
+        // ══════════════════════════════════════════════════════════════════════
+
+        async function openCustomContactEmailModal(contactId) {
+            const snap = await getDoc(doc(db, CONTACTS_COLLECTION, contactId));
+            if (!snap.exists()) { alert('Contact not found.'); return; }
+            const c = snap.data();
+            if (!c.email) { alert('This contact has no email address.'); return; }
+
+            const existing = document.getElementById('customContactEmailModal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.id = 'customContactEmailModal';
+
+            var html = '';
+            html += '<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"';
+            html += ' onclick="if(event.target===this)document.getElementById(\'customContactEmailModal\').remove()">';
+            html += '<div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg">';
+
+            html += '<div class="flex items-center justify-between px-6 py-4 border-b">';
+            html += '<h3 class="text-lg font-bold text-gray-800">\u2709\uFE0F Custom Email to ' + escapeHtml(c.name || c.email) + '</h3>';
+            html += '<button onclick="document.getElementById(\'customContactEmailModal\').remove()" class="text-gray-400 hover:text-gray-600 text-xl">\u2715</button>';
+            html += '</div>';
+
+            html += '<div class="p-6 space-y-4">';
+            html += '<div id="ccEmail_status"></div>';
+
+            html += '<div>';
+            html += '<label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">To</label>';
+            html += '<input type="text" value="' + escapeHtml(c.email) + '" readonly';
+            html += ' class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500 cursor-not-allowed">';
+            html += '</div>';
+
+            html += '<div>';
+            html += '<label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Subject</label>';
+            html += '<input type="text" id="ccEmail_subject" placeholder="Subject\u2026"';
+            html += ' class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-400">';
+            html += '</div>';
+
+            html += '<div>';
+            html += '<label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Message</label>';
+            html += '<textarea id="ccEmail_body" rows="7" placeholder="Type your message here\u2026"';
+            html += ' class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-400 resize-y"></textarea>';
+            html += '</div>';
+
+            html += '<div class="flex justify-end gap-3 pt-2">';
+            html += '<button onclick="document.getElementById(\'customContactEmailModal\').remove()"';
+            html += ' class="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>';
+            html += '<button id="ccEmail_send_btn" onclick="window.module.sendCustomContactEmail(\'' + contactId + '\', \'' + escapeHtml(c.email) + '\', \'' + escapeHtml(c.name || '') + '\')"';
+            html += ' class="px-5 py-2 bg-teal-600 text-white text-sm font-bold rounded-lg hover:bg-teal-700 transition shadow-sm">';
+            html += '\u2709\uFE0F Send Email</button>';
+            html += '</div>';
+
+            html += '</div>';
+            html += '</div>';
+            html += '</div>';
+
+            modal.innerHTML = html;
+            document.body.appendChild(modal);
+            setTimeout(function(){ document.getElementById('ccEmail_subject')?.focus(); }, 100);
+        }
+
+        async function sendCustomContactEmail(contactId, toEmail, toName) {
+            const subject = (document.getElementById('ccEmail_subject')?.value || '').trim();
+            const bodyText = (document.getElementById('ccEmail_body')?.value || '').trim();
+            const btn    = document.getElementById('ccEmail_send_btn');
+            const msgEl  = document.getElementById('ccEmail_status');
+
+            if (!subject) { if (msgEl) msgEl.innerHTML = '<p class="text-red-500 text-sm">Please enter a subject.</p>'; return; }
+            if (!bodyText) { if (msgEl) msgEl.innerHTML = '<p class="text-red-500 text-sm">Please enter a message body.</p>'; return; }
+
+            if (btn)   { btn.disabled = true; btn.textContent = '\u23F3 Sending\u2026'; }
+            if (msgEl) msgEl.innerHTML = '<p class="text-blue-600 text-sm">Sending\u2026</p>';
+
+            try {
+                const brand     = globalConfig?.branding || {};
+                const storeName = brand.headerText?.en || brand.headerText || 'AutoInx';
+
+                var htmlBody = '';
+                htmlBody += '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body';
+                htmlBody += ' style="font-family:Arial,sans-serif;background:#f8fafc;margin:0;padding:0;">';
+                htmlBody += '<div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 12px rgba(0,0,0,0.08);">';
+                htmlBody += '<p style="font-size:15px;color:#1e293b;line-height:1.7;white-space:pre-wrap;">' + bodyText.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</p>';
+                htmlBody += '<hr style="margin:28px 0;border:none;border-top:1px solid #e2e8f0;">';
+                htmlBody += '<p style="font-size:12px;color:#94a3b8;">' + escapeHtml(storeName) + ' &bull; autoinx.com</p>';
+                htmlBody += '</div></body></html>';
+
+                const idToken = await auth.currentUser.getIdToken();
+                const res = await fetch('/.netlify/functions/sendCustomOrderEmail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+                    body: JSON.stringify({
+                        toEmail:   toEmail,
+                        toName:    toName || '',
+                        subject:   subject,
+                        htmlBody:  htmlBody,
+                        orderId:   null,
+                        orderNum:  null,
+                        emailType: 'custom_contact',
+                        adminEmail: auth.currentUser?.email || 'admin',
+                        storeName:  storeName,
+                        logoUrl:    '',
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Send failed');
+
+                // Update lastContactedAt
+                await updateDoc(doc(db, CONTACTS_COLLECTION, contactId), { lastContactedAt: serverTimestamp() }).catch(function(){});
+
+                if (msgEl) msgEl.innerHTML = '<p class="text-green-600 font-semibold text-sm">\u2705 Email sent to ' + escapeHtml(toEmail) + '</p>';
+                if (btn)   { btn.disabled = true; btn.textContent = '\u2713 Sent'; }
+
+                logAdminAction('CUSTOM_CONTACT_EMAIL_SENT', { contactId, toEmail, subject });
+
+                setTimeout(function(){ document.getElementById('customContactEmailModal')?.remove(); }, 2000);
+
+            } catch (err) {
+                if (msgEl) msgEl.innerHTML = '<p class="text-red-500 text-sm">\u274C Failed: ' + escapeHtml(err.message) + '</p>';
+                if (btn)   { btn.disabled = false; btn.textContent = '\u2709\uFE0F Send Email'; }
+            }
+        }
 
         // ══════════════════════════════════════════════════════════════════════
         //  CUSTOM ORDER EMAIL COMPOSER
@@ -18168,6 +18431,34 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             return EXPENSE_CATEGORIES.find(c => c.id === id) || { label: id, color: 'gray' };
         }
 
+        function toggleExpensesFullscreen() {
+            const wrapper = document.getElementById('expensesFullscreenWrapper');
+            const btn     = document.getElementById('expensesFullscreenBtn');
+            if (!wrapper) return;
+            const isFs = wrapper.dataset.fullscreen === 'true';
+            if (isFs) {
+                wrapper.dataset.fullscreen = 'false';
+                wrapper.style.cssText = '';
+                document.body.style.overflow = '';
+                if (btn) btn.textContent = '\u26F6 Full Screen';
+            } else {
+                wrapper.dataset.fullscreen = 'true';
+                wrapper.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#f1f5f9;overflow-y:auto;padding:24px;';
+                document.body.style.overflow = 'hidden';
+                if (btn) btn.textContent = '\u2715 Exit Full Screen';
+            }
+        }
+
+        function handleExpenseSearchInput(e) {
+            state._expenseSearch = e.target.value;
+            renderExpensesTable_refresh();
+        }
+
+        function renderExpensesTable_refresh() {
+            const container = document.getElementById('expensesTableContainer');
+            if (container) container.innerHTML = renderExpensesTable();
+        }
+
         function renderExpensesSection() {
             const el = document.getElementById('expensesPage');
             if (!el) return;
@@ -18214,18 +18505,24 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             ).join('');
 
             el.innerHTML = `
-            <div class="space-y-6">
+            <div class="space-y-6" id="expensesFullscreenWrapper">
 
                 <!-- Header -->
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between flex-wrap gap-3">
                     <div>
-                        <h2 class="text-3xl font-bold text-indigo-700">🧾 Business Expenses</h2>
-                        <p class="text-sm text-gray-500 mt-1">Track operating costs and see your true profit & loss</p>
+                        <h2 class="text-3xl font-bold text-indigo-700">&#x1F9FE; Business Expenses</h2>
+                        <p class="text-sm text-gray-500 mt-1">Track operating costs and see your true profit &amp; loss</p>
                     </div>
-                    <button onclick="window.module.openExpenseModal()"
-                            class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 shadow-md transition">
-                        + Add Expense
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button onclick="window.module.openExpenseModal()"
+                                class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 shadow-md transition">
+                            + Add Expense
+                        </button>
+                        <button id="expensesFullscreenBtn" onclick="window.module.toggleExpensesFullscreen()"
+                                class="px-3 py-2 bg-gray-100 text-gray-600 text-sm font-semibold rounded-lg hover:bg-gray-200 transition whitespace-nowrap">
+                            &#x26F6; Full Screen
+                        </button>
+                    </div>
                 </div>
 
                 <div id="expensesMessage"></div>
@@ -18287,9 +18584,13 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     </div>
                 </div>
 
-                <!-- Filters + Add form -->
+                <!-- Filters + Search -->
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
                     <div class="flex flex-wrap gap-3 items-center">
+                        <input type="text" id="expenseSearchInput"
+                               oninput="window.module.handleExpenseSearchInput(event)"
+                               placeholder="Search expenses…"
+                               class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 w-44">
                         <select id="expenseCatFilter" onchange="window.module.renderExpensesSection()"
                                 class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
                             <option value="all">All Categories</option>
@@ -18298,16 +18599,16 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                         <select id="expenseMonthFilter" onchange="window.module.renderExpensesSection()"
                                 class="p-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-400">
                             <option value="all">All Time</option>
-                            <option value="this_month" selected>This Month</option>
+                            <option value="this_month">This Month</option>
                             <option value="last_month">Last Month</option>
-                            <option value="this_year">This Year</option>
+                            <option value="this_year" selected>This Year (YTD)</option>
                         </select>
                         <span class="text-sm text-gray-400 ml-auto">${expenses.length} expense${expenses.length !== 1 ? 's' : ''} · ${formatPriceDisplay(totalAllTime)} total</span>
                     </div>
                 </div>
 
                 <!-- Expenses Table -->
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div id="expensesTableContainer" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                     ${renderExpensesTable()}
                 </div>
 
@@ -18342,9 +18643,10 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
         }
 
         function renderExpensesTable() {
-            const catFilter   = document.getElementById('expenseCatFilter')?.value   || 'all';
-            const monthFilter = document.getElementById('expenseMonthFilter')?.value || 'this_month';
-            const now         = new Date();
+            const catFilter    = document.getElementById('expenseCatFilter')?.value   || 'all';
+            const monthFilter  = document.getElementById('expenseMonthFilter')?.value || 'this_year';
+            const searchTerm   = ((document.getElementById('expenseSearchInput')?.value) || state._expenseSearch || '').toLowerCase().trim();
+            const now          = new Date();
 
             let expenses = [...(state.expenses || [])];
 
@@ -18362,6 +18664,16 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
                     }
                     if (monthFilter === 'this_year') return d.getFullYear() === now.getFullYear();
                     return true;
+                });
+            }
+
+            if (searchTerm) {
+                expenses = expenses.filter(e => {
+                    const name  = (e.name     || '').toLowerCase();
+                    const notes = (e.notes    || '').toLowerCase();
+                    const cat   = getCategoryConfig(e.category || 'other').label.toLowerCase();
+                    const amt   = formatPriceDisplay(e.amountCents || 0).toLowerCase();
+                    return name.includes(searchTerm) || notes.includes(searchTerm) || cat.includes(searchTerm) || amt.includes(searchTerm);
                 });
             }
 
@@ -22293,6 +22605,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             renderAuditLog,
             handleAuditSearch,
             renderInventorySection,
+            handleInventorySearchInput,
+            toggleInventoryFullscreen,
             handleUpdateStock,
             showPurchaseOrderForm,
 
@@ -22345,6 +22659,12 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             removeAdminCartItem,
             updateAdminCartDisplay,
             updateItemSelector,
+            toggleFinancialsFullscreen,
+            toggleInvestorsFullscreen,
+            toggleProfitFullscreen,
+            toggleExpensesFullscreen,
+            handleExpenseSearchInput,
+
             // Profit Analysis Functions
             renderProfitAnalysisSection,
             handleProfitSearchInput,
@@ -22430,6 +22750,8 @@ ${order.notes ? `<h2>Notes</h2><div style="background:#f9fafb;border:1px solid #
             saveContact,
             deleteContact,
             sendCatalogToContact,
+            openCustomContactEmailModal,
+            sendCustomContactEmail,
             toggleContactDeclined,
             handleDeleteDiscount,
             toggleDiscountEnabled,
