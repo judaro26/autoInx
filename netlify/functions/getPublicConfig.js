@@ -88,15 +88,17 @@ exports.handler = async (event) => {
         event.headers['x-forwarded-for']?.split(',')[0].trim() ||
         event.headers['client-ip'] ||
         event.requestContext?.identity?.sourceIp || null;
+    // Pull the cached dynamic whitelist out, but never include it in the body.
+    const { ipWhitelist: cachedWhitelist = [], ...publicConfig } = _cachedConfig;
     const isRequesterAdmin =
         STATIC_IP_WHITELIST.includes(clientIp) ||
         event.headers['x-admin-override'] === 'true' ||
-        (_cachedConfig.ipWhitelist || []).includes(clientIp);
+        cachedWhitelist.includes(clientIp);
     return {
       statusCode: 200,
       headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json',
-                 'Cache-Control': 'public, max-age=60, s-maxage=60', 'X-Cache': 'HIT' },
-      body: JSON.stringify({ ..._cachedConfig, isRequesterAdmin, clientIp }),
+                 'Cache-Control': 'private, no-store', 'X-Cache': 'HIT' },
+      body: JSON.stringify({ ...publicConfig, isRequesterAdmin, clientIp }),
     };
   }
 
@@ -160,8 +162,10 @@ exports.handler = async (event) => {
 
     console.log('📤 Returning config with seasonalBanner:', JSON.stringify(response.seasonalBanner));
 
-    // Cache for next warm invocation
-    _cachedConfig   = { ...response };
+    // Cache for next warm invocation. Keep the dynamic whitelist on the cached
+    // object (server-side only) so the warm-cache path can still match admin IPs;
+    // it is stripped from the public response body before being returned.
+    _cachedConfig   = { ...response, ipWhitelist: dynamicWhitelist };
     _cacheExpiresAt = Date.now() + CACHE_TTL_MS;
 
     return {
@@ -169,9 +173,10 @@ exports.handler = async (event) => {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json',
-        'Cache-Control': nocache
-            ? 'no-store, no-cache, must-revalidate'
-            : 'public, max-age=60, s-maxage=60',
+        // Body contains per-user fields (isRequesterAdmin, clientIp) — must never
+        // be shared via a CDN/shared cache. Freshness is handled by the in-process
+        // module cache (_cachedConfig), so the public response stays per-request.
+        'Cache-Control': 'private, no-store',
         'X-Cache': 'MISS',
       },
       body: JSON.stringify(response)
